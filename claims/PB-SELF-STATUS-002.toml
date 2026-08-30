@@ -1,0 +1,12 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-STATUS-002"
+title = "Claim status cannot be manually upgraded"
+statement = "The assurance compiler derives facets from validated evidence and never accepts a manifest-supplied status."
+subject = "rust:proofbound_core::derive_claim_status"
+profile = "ledger"
+tier = 0
+evidence = ["test:core-workspace"]
+assumptions = []
+open_obligations = ["The Rust derivation implementation is cross-checked, not formally verified."]
+out_of_scope = ["Malicious replacement of the installed Proofbound binary."]
+source_roots = ["crates/proofbound-core/src/status.rs", "proofbound/conformance/v1/**"]

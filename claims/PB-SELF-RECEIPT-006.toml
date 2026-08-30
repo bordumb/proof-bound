@@ -1,0 +1,12 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-RECEIPT-006"
+title = "Semantic closure changes alter receipt identity"
+statement = "When a content-addressed evidence receipt records a semantic closure identity, changing a byte in a registered closure member changes both the closure identity and the receipt identity."
+subject = "rust:proofbound-evidence"
+profile = "ledger"
+tier = 0
+evidence = ["test:semantic-receipt-identity"]
+assumptions = []
+open_obligations = ["Collision resistance of SHA-256 is an external cryptographic premise, not a theorem in this repository."]
+out_of_scope = ["Host storage durability after a successful synchronized write."]
+source_roots = ["crates/proofbound-evidence/**"]

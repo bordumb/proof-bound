@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/claim.schema.json",
+  "title": "Proofbound claim manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "title", "statement", "subject", "profile", "evidence", "assumptions", "open_obligations", "out_of_scope"],
+  "properties": {
+    "schema": { "const": "proofbound-claim/1" },
+    "id": { "$ref": "#/$defs/claimId" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "statement": { "type": "string", "minLength": 1, "maxLength": 16384 },
+    "public_language": { "type": "string", "minLength": 1, "maxLength": 16384 },
+    "formal_declaration": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_'.]*(?:\\.[A-Za-z_][A-Za-z0-9_']*)+$", "maxLength": 1024 },
+    "statement_encoding": { "const": "lean-expr-cbor/1" },
+    "statement_sha256": { "$ref": "#/$defs/digest" },
+    "foundational_axioms": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "maxItems": 4096 },
+    "subject": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "subject_closure": { "$ref": "#/$defs/digest" },
+    "profile": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "primary_linkage": { "enum": ["refined", "artifact-bound", "transcribed", "model-only"] },
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidenceRef" }, "uniqueItems": true, "maxItems": 4096 },
+    "assumptions": { "type": "array", "items": { "$ref": "#/$defs/claimId" }, "uniqueItems": true, "maxItems": 4096 },
+    "premises": { "type": "array", "items": { "$ref": "#/$defs/claimId" }, "uniqueItems": true, "maxItems": 4096 },
+    "open_obligations": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 4096 },
+    "out_of_scope": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 4096 },
+    "bounded_domain": { "$ref": "#/$defs/boundedDomain" },
+    "source_roots": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 1024 }
+  },
+  "dependentRequired": {
+    "formal_declaration": ["statement_encoding", "statement_sha256"],
+    "statement_encoding": ["formal_declaration", "statement_sha256"],
+    "statement_sha256": ["formal_declaration", "statement_encoding"]
+  },
+  "$defs": {
+    "claimId": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$", "maxLength": 160 },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "evidenceRef": { "type": "string", "pattern": "^[a-z][a-z0-9-]*:[A-Za-z0-9_.:-]+$", "maxLength": 512 },
+    "boundedDomain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "cardinality", "ordering_key"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "maxLength": 128 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "cardinality": { "type": "integer", "minimum": 1 },
+        "ordering_key": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 1, "maxItems": 64 }
+      }
+    }
+  }
+}

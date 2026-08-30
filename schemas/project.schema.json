@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/project.schema.json",
+  "title": "Proofbound project manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "project", "tier", "source", "claim_manifests"],
+  "properties": {
+    "schema": { "const": "proofbound-project/1" },
+    "project": { "$ref": "#/$defs/name" },
+    "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic", "runner", "presentation"],
+      "properties": {
+        "semantic": { "$ref": "#/$defs/paths" },
+        "runner": { "$ref": "#/$defs/paths" },
+        "presentation": { "$ref": "#/$defs/paths" },
+        "external_evidence": { "$ref": "#/$defs/paths" }
+      }
+    },
+    "toolchains": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rust": { "$ref": "#/$defs/path" },
+        "lean": { "$ref": "#/$defs/path" },
+        "python": { "$ref": "#/$defs/path" },
+        "translation": { "$ref": "#/$defs/path" }
+      }
+    },
+    "claim_manifests": { "$ref": "#/$defs/paths" },
+    "assumption_manifests": { "$ref": "#/$defs/paths" },
+    "evidence_units": { "$ref": "#/$defs/paths" },
+    "translation_units": { "$ref": "#/$defs/paths" },
+    "model_check_units": { "$ref": "#/$defs/paths" },
+    "policy_manifests": { "$ref": "#/$defs/paths" },
+    "review_manifests": { "$ref": "#/$defs/paths" },
+    "demo_registry": { "$ref": "#/$defs/path" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_manifest_bytes": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+        "max_files": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "max_total_bytes": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+    "path": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
+    "paths": { "type": "array", "items": { "$ref": "#/$defs/path" }, "uniqueItems": true, "maxItems": 10000 }
+  }
+}
+

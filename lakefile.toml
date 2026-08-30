@@ -1,0 +1,20 @@
+name = "proofbound"
+version = "0.5.0"
+defaultTargets = ["Proofbound", "ProofboundDemo", "ProofboundArtifactDemo"]
+
+[[lean_lib]]
+name = "Proofbound"
+srcDir = "lean"
+
+[[lean_lib]]
+name = "ProofboundDemo"
+srcDir = "demo/allowance/lean"
+
+[[lean_lib]]
+name = "ProofboundArtifactDemo"
+srcDir = "demo/artifact-certificate/lean"
+
+[[lean_exe]]
+name = "proofbound_lean_audit"
+root = "Proofbound.Audit"
+srcDir = "lean"

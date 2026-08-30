@@ -1,0 +1,12 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-KANI-004"
+title = "Ungated model-check harnesses invalidate coverage"
+statement = "The Kani adapter rejects a discovered proof harness that is absent from its registered per-harness inventory."
+subject = "rust:proofbound-adapter-kani"
+profile = "ledger"
+tier = 0
+evidence = ["test:kani-inventory"]
+assumptions = []
+open_obligations = ["Kani metadata fidelity is trusted and separately identified in receipts."]
+out_of_scope = ["Solver soundness and completeness."]
+source_roots = ["crates/proofbound-adapter-kani/**"]

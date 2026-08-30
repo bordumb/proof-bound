@@ -1,0 +1,12 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-TRANSLATION-005"
+title = "Stale generated translation invalidates refinement"
+statement = "Source-refinement evidence is not admitted when deterministic regeneration differs from reviewed generated output."
+subject = "rust:proofbound-adapter-aeneas"
+profile = "ledger"
+tier = 0
+evidence = ["test:translation-drift"]
+assumptions = []
+open_obligations = ["The translator toolchain is not itself proved semantics-preserving."]
+out_of_scope = ["Application-domain correctness of handwritten refinement theorems."]
+source_roots = ["crates/proofbound-adapter-aeneas/**", "schemas/translation-unit.schema.json"]

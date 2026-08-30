@@ -1,0 +1,12 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-PARITY-008"
+title = "Orchestrator and independent verifier agree"
+statement = "The assurance compiler and proofbound-verify derive identical facets for every registered synthetic graph case."
+subject = "corpus:conformance/status-graphs"
+profile = "ledger"
+tier = 0
+evidence = ["test:core-workspace", "test:verifier-conformance"]
+assumptions = []
+open_obligations = ["The finite conformance corpus cannot establish equivalence for unrepresented inputs."]
+out_of_scope = ["Honesty of external proof and model-checking tools recorded by receipts."]
+source_roots = ["crates/proofbound-core/src/status.rs", "crates/proofbound-verify/**", "proofbound/conformance/v1/**"]

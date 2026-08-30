@@ -1,0 +1,130 @@
+{
+  "schema": "proofbound-allowance-fixtures/1",
+  "encoding": {
+    "schema": "proofbound-allowance-request/1",
+    "length": 38,
+    "magic_hex": "5042414c",
+    "version": 1,
+    "authorization": "one canonical byte: 00=false or 01=true",
+    "integers": "four unsigned 64-bit big-endian values in from,to,amount,cap order",
+    "trailing_bytes": "rejected"
+  },
+  "decision_codes": {
+    "accepted": 0,
+    "denied-unauthorized": 1,
+    "denied-zero-amount": 2,
+    "denied-cap-exceeded": 3,
+    "denied-insufficient-funds": 4,
+    "denied-destination-overflow": 5
+  },
+  "fixtures": [
+    {
+      "id": "accepted",
+      "path": "accepted.bin",
+      "sha256": "75e52899209a8995303241c53b801553f6bd53be6da51320eb7f3409682930f1",
+      "request": {
+        "from_balance": "100",
+        "to_balance": "25",
+        "amount": "30",
+        "cap": "40",
+        "authorized": true
+      },
+      "decision": {
+        "code": "accepted",
+        "code_u8": 0,
+        "from_balance": "70",
+        "to_balance": "55"
+      }
+    },
+    {
+      "id": "unauthorized",
+      "path": "unauthorized.bin",
+      "sha256": "322ab2e1a2955ef6abaaedf138353609fc2ac8e2b0ea03600c304efc56defa2f",
+      "request": {
+        "from_balance": "100",
+        "to_balance": "25",
+        "amount": "30",
+        "cap": "40",
+        "authorized": false
+      },
+      "decision": {
+        "code": "denied-unauthorized",
+        "code_u8": 1,
+        "from_balance": "100",
+        "to_balance": "25"
+      }
+    },
+    {
+      "id": "zero-amount",
+      "path": "zero-amount.bin",
+      "sha256": "d740de80a6ae5ccf59ae113da001b66806f0dec4a6fd92396feb2873249bed04",
+      "request": {
+        "from_balance": "100",
+        "to_balance": "25",
+        "amount": "0",
+        "cap": "40",
+        "authorized": true
+      },
+      "decision": {
+        "code": "denied-zero-amount",
+        "code_u8": 2,
+        "from_balance": "100",
+        "to_balance": "25"
+      }
+    },
+    {
+      "id": "cap-exceeded",
+      "path": "cap-exceeded.bin",
+      "sha256": "024ec817ca78b2377a4d3f1bbf90586a86fc33dd932cba9530371dad40b8fa1e",
+      "request": {
+        "from_balance": "100",
+        "to_balance": "25",
+        "amount": "41",
+        "cap": "40",
+        "authorized": true
+      },
+      "decision": {
+        "code": "denied-cap-exceeded",
+        "code_u8": 3,
+        "from_balance": "100",
+        "to_balance": "25"
+      }
+    },
+    {
+      "id": "insufficient-funds",
+      "path": "insufficient-funds.bin",
+      "sha256": "508a6aa761c43467c49f79519b9665fb1b605dca159c3d7a3ca461dd9d0926bd",
+      "request": {
+        "from_balance": "20",
+        "to_balance": "25",
+        "amount": "30",
+        "cap": "40",
+        "authorized": true
+      },
+      "decision": {
+        "code": "denied-insufficient-funds",
+        "code_u8": 4,
+        "from_balance": "20",
+        "to_balance": "25"
+      }
+    },
+    {
+      "id": "destination-overflow",
+      "path": "destination-overflow.bin",
+      "sha256": "5e30540b3a56d756c289d089261fcb45e672f885097741c9931221260d334c17",
+      "request": {
+        "from_balance": "100",
+        "to_balance": "18446744073709551605",
+        "amount": "20",
+        "cap": "40",
+        "authorized": true
+      },
+      "decision": {
+        "code": "denied-destination-overflow",
+        "code_u8": 5,
+        "from_balance": "100",
+        "to_balance": "18446744073709551605"
+      }
+    }
+  ]
+}

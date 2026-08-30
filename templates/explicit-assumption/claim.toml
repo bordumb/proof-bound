@@ -1,0 +1,18 @@
+schema = "proofbound-claim/1"
+id = "EXAMPLE-AUTHORIZED-ACTION-001"
+title = "An accepted action was authorized by the source-account holder"
+statement = "When the application accepts an action after receiving authorized=true, the source-account holder authorized that action."
+public_language = "Subject to EXAMPLE-IDENTITY-AX-001, passing tests show that the application preserves the provider's authorization decision at the registered boundary."
+subject = "runtime:path/to/authorization_boundary"
+profile = "ledger"
+tier = 0
+primary_linkage = "model-only"
+evidence = ["example-test:example-authorized-action-test"]
+assumptions = ["EXAMPLE-IDENTITY-AX-001"]
+premises = []
+open_obligations = ["Replace the template test path and expected inventory with the project's real boundary test."]
+out_of_scope = [
+  "Whether the external provider is honest or correctly identifies the human.",
+  "Whether a downstream provider executes the requested action.",
+]
+source_roots = ["path/to/authorization_boundary.py", "path/to/test_authorization_boundary.py"]

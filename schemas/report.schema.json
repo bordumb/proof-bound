@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/report.schema.json",
+  "title": "Proofbound status report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "project", "project_revision", "claims", "publication_blocked", "not_proved_out_of_scope"],
+  "properties": {
+    "schema": { "const": "proofbound-report/1" },
+    "project": { "type": "string", "minLength": 1 },
+    "project_revision": { "type": "string", "minLength": 1 },
+    "claims": { "type": "array", "items": { "$ref": "graph.schema.json#/$defs/claimStatus" }, "maxItems": 100000 },
+    "publication_blocked": { "type": "boolean" },
+    "not_proved_out_of_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["open_obligations", "undischarged_premises", "assumptions", "exclusions"],
+      "properties": {
+        "open_obligations": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "undischarged_premises": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "assumptions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "exclusions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    }
+  }
+}

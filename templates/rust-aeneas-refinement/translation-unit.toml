@@ -1,0 +1,24 @@
+schema = "proofbound-translation-unit/1"
+id = "example-kernel-translation"
+adapter = "charon-aeneas"
+packages = ["proofbound-refinement-template"]
+start_from = ["proofbound_refinement_template::withdraw"]
+opaque = []
+include = []
+generated_dir = "templates/rust-aeneas-refinement/lean/Generated"
+handwritten_refinement = "templates/rust-aeneas-refinement/lean/KernelRefinement.lean"
+determinism_runs = 2
+determinism_normalization = "pretty-printed-llbc/1"
+forbid_generated_axioms = true
+claims = ["EXAMPLE-KERNEL-001"]
+template_axioms = []
+warning_inventory = []
+
+[import_mapping]
+mode = "external-source-root"
+source_roots = ["templates/rust-aeneas-refinement/lean"]
+
+[resource_budget]
+time_seconds = 1800
+disk_bytes = 26843545600
+memory_bytes = 8589934592

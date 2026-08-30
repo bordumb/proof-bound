@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/adapter-protocol.schema.json",
+  "title": "Proofbound adapter subprocess protocol",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "type", "request_id", "adapter", "operation", "project_root", "unit"],
+      "properties": {
+        "schema": { "const": "proofbound-adapter-protocol/1" },
+        "type": { "const": "request" },
+        "request_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "adapter": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+        "operation": { "enum": ["doctor", "inventory", "check", "reproduce", "update"] },
+        "project_root": { "const": "." },
+        "unit": { "type": "object" }
+      }
+    },
+    "response": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "type", "request_id", "adapter", "success", "evidence", "inventory", "diagnostics"],
+      "properties": {
+        "schema": { "const": "proofbound-adapter-protocol/1" },
+        "type": { "const": "response" },
+        "request_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "adapter": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+        "success": { "type": "boolean" },
+        "evidence": {
+          "anyOf": [
+            { "$ref": "evidence.schema.json" },
+            { "$ref": "adapter-observation.schema.json" },
+            { "type": "null" }
+          ]
+        },
+        "inventory": { "type": "array", "items": { "type": "string" }, "uniqueItems": true, "maxItems": 100000 },
+        "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" }, "maxItems": 4096 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "success": { "const": false } }, "required": ["success"] },
+          "then": { "properties": { "evidence": { "type": "null" } } }
+        }
+      ]
+    },
+    "diagnostic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^PB-[A-Z]+-[0-9]{4}$" },
+        "message": { "type": "string", "maxLength": 8192 },
+        "path": { "type": "string", "maxLength": 4096 },
+        "remediation": { "type": "string", "maxLength": 8192 }
+      }
+    }
+  }
+}

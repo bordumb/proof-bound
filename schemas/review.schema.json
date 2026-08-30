@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/review.schema.json",
+  "title": "Proofbound review or assurance-regression approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "reviewer", "statement", "scope", "reviewed_at", "base_revision", "head_revision", "regressions"],
+  "properties": {
+    "schema": { "const": "proofbound-review/1" },
+    "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$", "maxLength": 160 },
+    "reviewer": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "statement": { "type": "string", "minLength": 1, "maxLength": 16384 },
+    "scope": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "reviewed_at": { "type": "string", "format": "date-time" },
+    "base_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "head_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "regressions": { "type": "array", "items": { "$ref": "#/$defs/regression" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
+    "signature": { "type": "string", "minLength": 1, "maxLength": 16384 }
+  },
+  "$defs": {
+    "regression": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "claim_id", "kind", "detail"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "claim_id": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" },
+        "kind": { "enum": ["new-assumption", "undischarged-premise", "enlarged-tcb", "linkage-downgrade", "evaluation-downgrade", "formal-downgrade", "bounded-domain-narrowed", "bounded-domain-incomparable", "mutation-coverage-removed", "source-closure-weakened"] },
+        "detail": { "type": "string", "minLength": 1, "maxLength": 8192 }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,37 @@
+schema = "proofbound-claim/1"
+id = "DEMO-TRANSFER-001"
+title = "Accepted transfers conserve total value"
+statement = "For every request accepted by the registered transfer decision relation, the sum of the returned source and destination balances equals the sum of the input balances."
+public_language = "Given the explicit identity-provider assumption, every accepted transfer conserves total account value."
+subject = "rust:allowance-kernel::decide_transfer"
+formal_declaration = "ProofboundDemo.Claims.Transfer.accept_conserves"
+statement_encoding = "lean-expr-cbor/1"
+statement_sha256 = "sha256:4614959eb78a2786fb073a6bd48c923e02f60dcc888b6f69fd5e232f516688ae"
+foundational_axioms = ["Quot.sound", "propext"]
+profile = "kernel-with-assumptions"
+tier = 2
+primary_linkage = "model-only"
+evidence = [
+  "theorem:accept-conserves",
+  "bounded-check:transfer-bounds",
+  "property-test:rust-kernel-tests",
+  "mutation-witness:guard-mutations",
+]
+assumptions = ["DEMO-IDENTITY-AX-001"]
+premises = ["DEMO-U64-REP-001"]
+open_obligations = [
+  "Produce a deterministic Charon/Aeneas receipt for the registered shipping symbol.",
+]
+out_of_scope = ["Execution or settlement by any external transfer provider."]
+source_roots = [
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/lean/ProofboundDemo/Claims/Transfer.lean",
+  "demo/allowance/lean/ProofboundDemo/Transfer.lean",
+  "demo/allowance/lean/ProofboundDemo/TransferRefinement.lean",
+]
+
+[bounded_domain]
+id = "allowance-u8-seeds-with-overflow-lane"
+description = "All four u8 numeric seeds, both authorization values, and both low/high destination lanes; 2^34 finite requests, including destination-overflow cases."
+cardinality = 17179869184
+ordering_key = [0, 1, 2, 3, 4, 5]

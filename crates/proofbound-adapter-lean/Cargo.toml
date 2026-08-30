@@ -1,0 +1,25 @@
+[package]
+name = "proofbound-adapter-lean"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hex.workspace = true
+proofbound-core = { path = "../proofbound-core" }
+proofbound-evidence = { path = "../proofbound-evidence" }
+proofbound-manifest = { path = "../proofbound-manifest" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

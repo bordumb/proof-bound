@@ -1,0 +1,343 @@
+{
+  "schema": "proofbound-status-conformance/1",
+  "cases": [
+    {
+      "id": "open-empty",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "OPEN", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "tested-example",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "example", "kind": "example-test"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "ledger-caps-formal-and-linkage-evidence",
+      "tier": 3,
+      "policy": {"components": ["ledger"]},
+      "evidence": [
+        {"id": "example", "kind": "example-test"},
+        {"id": "bounded", "kind": "bounded-check"},
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"},
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "kernel", "theorem_ref": "proof"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": true,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "ledger-stronger-evidence-alone-remains-open",
+      "tier": 3,
+      "policy": {"components": ["ledger"]},
+      "evidence": [
+        {"id": "bounded", "kind": "bounded-check"},
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"},
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "native", "theorem_ref": "proof"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": true,
+      "expected": {"formal": "OPEN", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "ledger-primary-linkage-upgrade-fails-closed",
+      "tier": 3,
+      "policy": {"components": ["ledger"]},
+      "evidence": [
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"},
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "native", "theorem_ref": "proof"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "primary_linkage": "ARTIFACT_BOUND",
+      "registered_domain": false,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "ledger-uncited-artifact-theorem-fails-closed",
+      "tier": 3,
+      "policy": {"components": ["ledger"]},
+      "evidence": [
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "native", "theorem_ref": "absent-proof"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "ledger-independent-check-at-tier-one",
+      "tier": 1,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "independent", "kind": "independent-check"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "claim-tier-ceiling-blocks-project-tier-evidence",
+      "tier": 3,
+      "claim_tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "bounded", "kind": "bounded-check"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": true,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "bounded-check",
+      "tier": 1,
+      "policy": {"components": ["bounded"]},
+      "evidence": [{"id": "bounded", "kind": "bounded-check"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": true,
+      "expected": {"formal": "BOUNDED_CHECKED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "theorem-wins-over-bounded-and-tested",
+      "tier": 2,
+      "policy": {"components": ["kernel"]},
+      "evidence": [
+        {"id": "example", "kind": "example-test"},
+        {"id": "bounded", "kind": "bounded-check"},
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": true,
+      "expected": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "exhaustive-defaults-to-tested",
+      "tier": 1,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "exhaustive", "kind": "exhaustive-check"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": true,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "exhaustive-policy-admits-proof",
+      "tier": 1,
+      "policy": {"components": [], "admit_exhaustive_as_proved": true},
+      "evidence": [{"id": "exhaustive", "kind": "exhaustive-check"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": true,
+      "expected": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "artifact-bound",
+      "tier": 3,
+      "policy": {"components": ["artifact-bound"]},
+      "evidence": [
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"},
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "kernel", "theorem_ref": "proof"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "PROVED", "linkage": "ARTIFACT_BOUND", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "artifact-bound-native-digest-binding",
+      "tier": 3,
+      "policy": {"components": ["artifact-bound"]},
+      "evidence": [
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"},
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "native", "theorem_ref": "proof"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "PROVED", "linkage": "ARTIFACT_BOUND", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "transcription-cannot-satisfy-artifact-policy",
+      "tier": 3,
+      "policy": {"components": ["artifact-bound"]},
+      "evidence": [
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"},
+        {"id": "transcription", "kind": "trusted-transcription"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "PROVED", "linkage": "TRANSCRIBED", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "source-refined-with-visible-premise",
+      "tier": 3,
+      "policy": {"components": ["source-refined"]},
+      "evidence": [
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel", "premises": ["PREMISE-1"]},
+        {"id": "source", "kind": "source-refinement", "theorem_ref": "proof", "premises": ["PREMISE-1"]}
+      ],
+      "assumptions": [],
+      "premises": [{"id": "PREMISE-1", "theorem": "proof"}],
+      "registered_domain": false,
+      "expected": {"formal": "PROVED", "linkage": "REFINED", "assumption": "ASSUMED", "assumptions": [], "undischarged_premises": ["PREMISE-1"], "policy_admitted": true}
+    },
+    {
+      "id": "primary-artifact-resolves-two-linkages",
+      "tier": 3,
+      "policy": {"components": ["artifact-bound"]},
+      "evidence": [
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"},
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "kernel", "theorem_ref": "proof"},
+        {"id": "transcription", "kind": "trusted-transcription"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "primary_linkage": "ARTIFACT_BOUND",
+      "registered_domain": false,
+      "expected": {"formal": "PROVED", "linkage": "ARTIFACT_BOUND", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "ambiguous-linkage-fails-closed",
+      "tier": 3,
+      "policy": {"components": ["artifact-bound"]},
+      "evidence": [
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"},
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "kernel", "theorem_ref": "proof"},
+        {"id": "transcription", "kind": "trusted-transcription"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "assumption-omission-attack",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "example", "kind": "example-test"}],
+      "assumptions": [{"id": "ASSUMPTION-1"}],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "assumptions": ["ASSUMPTION-1"], "undischarged_premises": [], "policy_admitted": true},
+      "asserted": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "premise-omission-attack",
+      "tier": 2,
+      "policy": {"components": ["kernel"]},
+      "evidence": [{"id": "proof", "kind": "theorem", "evaluation": "kernel", "premises": ["PREMISE-1"]}],
+      "assumptions": [],
+      "premises": [{"id": "PREMISE-1", "theorem": "proof"}],
+      "registered_domain": false,
+      "expected": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "assumptions": [], "undischarged_premises": ["PREMISE-1"], "policy_admitted": true},
+      "asserted": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "empirical-status-upgrade-attack",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "example", "kind": "example-test"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true},
+      "asserted": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "artifact-linkage-omission-attack",
+      "tier": 3,
+      "policy": {"components": ["artifact-bound"]},
+      "evidence": [
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel"},
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "kernel", "theorem_ref": "proof"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "PROVED", "linkage": "ARTIFACT_BOUND", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true},
+      "asserted": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "tier-ceiling-block",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "bounded", "kind": "bounded-check"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": true,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "theorem-policy-block",
+      "tier": 2,
+      "policy": {"components": ["kernel"]},
+      "evidence": [{"id": "example", "kind": "example-test"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "assumption-policy-block",
+      "tier": 0,
+      "policy": {"components": ["ledger"], "require_no_assumptions": true},
+      "evidence": [{"id": "example", "kind": "example-test"}],
+      "assumptions": [{"id": "ASSUMPTION-1"}],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "assumptions": ["ASSUMPTION-1"], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "failed-evidence",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "example", "kind": "example-test", "outcome": "failed"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "drifted-evidence",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "example", "kind": "example-test", "outcome": "drifted"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "missing-cited-evidence",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "missing", "kind": "example-test", "present": false}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "unregistered-discovery",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "discovered", "kind": "example-test", "cited": false}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    }
+  ]
+}

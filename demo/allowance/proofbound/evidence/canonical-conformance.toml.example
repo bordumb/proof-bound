@@ -1,0 +1,32 @@
+schema = "proofbound-evidence-unit/1"
+id = "canonical-conformance"
+adapter = "independent-check"
+kind = "independent-check"
+claims = ["DEMO-TRANSFER-006"]
+tier = 0
+expected_inventory = [
+  "accepted",
+  "unauthorized",
+  "zero-amount",
+  "cap-exceeded",
+  "insufficient-funds",
+  "destination-overflow",
+]
+inputs = [
+  "demo/allowance/fixtures/v1/manifest.json",
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/lean/ProofboundDemo/Canonical.lean",
+  "demo/allowance/python/proofbound_demo/allowance.py",
+]
+environment_allowlist = ["PATH", "LEAN_PATH", "PYTHONPATH"]
+
+[operation]
+type = "independent-check"
+checker = "proofbound allowance fixture-conformance"
+paths = ["demo/allowance/fixtures/v1"]
+targets = ["rust", "lean", "python"]
+
+[resource_budget]
+time_seconds = 120
+disk_bytes = 536870912
+memory_bytes = 2147483648

@@ -1,0 +1,12 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-CLOSURE-007"
+title = "Presentation-only changes do not alter semantic closure"
+statement = "Files registered only in a presentation closure do not contribute to a semantic closure identity."
+subject = "rust:proofbound_evidence::build_closure"
+profile = "ledger"
+tier = 0
+evidence = ["test:closure-presentation-identity"]
+assumptions = []
+open_obligations = ["A project owner remains responsible for classifying semantically relevant files correctly."]
+out_of_scope = ["Semantic review of a project's source-root selection."]
+source_roots = ["crates/proofbound-evidence/src/closure.rs"]

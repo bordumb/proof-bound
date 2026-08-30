@@ -1,0 +1,32 @@
+schema = "proofbound-project/1"
+project = "allowance-demo"
+tier = 3
+claim_manifests = ["demo/allowance/claims/*.toml"]
+assumption_manifests = ["demo/allowance/proofbound/assumptions/*.toml"]
+evidence_units = ["demo/allowance/proofbound/evidence/*.toml"]
+translation_units = ["demo/allowance/proofbound/translations/*.toml"]
+model_check_units = ["demo/allowance/proofbound/model-checks/*.toml"]
+
+[source]
+semantic = [
+  "demo/allowance/rust/kernel/**",
+  "demo/allowance/lean/**",
+  "demo/allowance/claims/**",
+  "demo/allowance/fixtures/**",
+  "demo/allowance/proofbound/**",
+]
+runner = [
+  "demo/allowance/python/**",
+  "Cargo.lock",
+  "lake-manifest.json",
+]
+presentation = ["demo/allowance/README.md"]
+
+[toolchains]
+rust = "rust-toolchain.toml"
+lean = "lean-toolchain"
+
+[limits]
+max_manifest_bytes = 1048576
+max_files = 2048
+max_total_bytes = 16777216

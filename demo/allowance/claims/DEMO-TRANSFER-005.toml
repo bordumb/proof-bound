@@ -1,0 +1,30 @@
+schema = "proofbound-claim/1"
+id = "DEMO-TRANSFER-005"
+title = "Shipping transfer kernel refines the Lean decision relation"
+statement = "The registered translated Rust decision function returns the same decision code and balances as the handwritten Lean decision relation for every representable request."
+public_language = "The source-refinement claim remains open until deterministic Charon/Aeneas output replaces the transparent teaching bridge and the compiled theorem identity is sealed."
+subject = "rust:allowance-kernel::decide_transfer"
+formal_declaration = "ProofboundDemo.Claims.Refinement.decideTransfer_refines"
+statement_encoding = "lean-expr-cbor/1"
+statement_sha256 = "sha256:8c5b3d68336696e7cc8e69e02b98aaf667d2f010e70f8e34667b893500269dfa"
+foundational_axioms = []
+profile = "ledger"
+tier = 0
+primary_linkage = "model-only"
+evidence = [
+  "property-test:rust-kernel-tests",
+  "mutation-witness:guard-mutations",
+]
+assumptions = []
+premises = ["DEMO-U64-REP-001"]
+open_obligations = [
+  "Produce a deterministic Charon/Aeneas receipt that binds the shipping symbol to the compiled refinement declaration.",
+  "Replace the transparent handwritten KernelBridge decision body with imports from deterministic Aeneas-generated output.",
+]
+out_of_scope = ["Correctness of the Charon, Aeneas, Rust, and Lean toolchains beyond their recorded TCB identities."]
+source_roots = [
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/lean/ProofboundDemo/Claims/Refinement.lean",
+  "demo/allowance/lean/ProofboundDemo/Bridges/Kernel.lean",
+  "demo/allowance/lean/ProofboundDemo/TransferRefinement.lean",
+]

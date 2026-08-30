@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/model-check-unit.schema.json",
+  "title": "Proofbound model-check unit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "adapter", "package", "harnesses", "claims", "domain", "solver", "unwind", "resource_budget"],
+  "properties": {
+    "schema": { "const": "proofbound-model-check-unit/1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+    "adapter": { "const": "kani" },
+    "package": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "harnesses": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
+    "claims": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
+    "domain": { "$ref": "claim.schema.json#/$defs/boundedDomain" },
+    "solver": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "unwind": { "type": "integer", "minimum": 1 },
+    "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 4096 },
+    "resource_budget": { "type": "object", "additionalProperties": false, "required": ["time_seconds", "disk_bytes", "memory_bytes"], "properties": { "time_seconds": { "type": "integer", "minimum": 1 }, "disk_bytes": { "type": "integer", "minimum": 1 }, "memory_bytes": { "type": "integer", "minimum": 1 } } }
+  }
+}
+

@@ -1,0 +1,40 @@
+schema = "proofbound-project/1"
+project = "proofbound"
+tier = 3
+claim_manifests = ["claims/*.toml", "demo/allowance/claims/*.toml", "demo/artifact-certificate/claims/*.toml"]
+assumption_manifests = ["demo/allowance/proofbound/assumptions/*.toml", "demo/artifact-certificate/assumptions/*.toml"]
+evidence_units = ["proofbound/evidence/*.toml", "demo/allowance/proofbound/evidence/*.toml", "demo/artifact-certificate/evidence/*.toml"]
+translation_units = ["demo/allowance/proofbound/translations/*.toml"]
+model_check_units = ["demo/allowance/proofbound/model-checks/*.toml"]
+policy_manifests = []
+review_manifests = []
+demo_registry = "proofbound/demos.toml"
+
+[source]
+semantic = [
+  "crates/**",
+  "lean/**",
+  "schemas/**",
+  "claims/**",
+  "assumptions/**",
+  "proofbound/**",
+  "demo/*/rust/**",
+  "demo/*/lean/**",
+  "demo/*/claims/**",
+  "demo/*/assumptions/**",
+  "demo/*/evidence/**",
+]
+runner = [".cargo/**", ".github/workflows/**", "Cargo.lock", "justfile", "rust-toolchain.toml", "lean-toolchain", "lakefile.toml", "pyproject.toml", "uv.lock", "python/**", "demo/*/python/**"]
+presentation = ["README.md", "docs/**", "demo/*/README.md", "demo/*/FORMAT.md"]
+external_evidence = ["docs/assurance/reference-audits/**"]
+
+[toolchains]
+rust = "rust-toolchain.toml"
+lean = "lean-toolchain"
+python = ".python-version"
+translation = "proofbound/toolchains/translation.lock"
+
+[limits]
+max_manifest_bytes = 2097152
+max_files = 100000
+max_total_bytes = 4294967296

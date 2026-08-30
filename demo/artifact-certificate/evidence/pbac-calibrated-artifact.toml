@@ -1,0 +1,37 @@
+schema = "proofbound-evidence-unit/1"
+id = "pbac-calibrated-artifact"
+adapter = "canonical-artifact"
+kind = "artifact-soundness"
+claims = ["PBAC-CALIBRATED-001"]
+tier = 3
+evaluation_mode = "native"
+binding_mode = "digest-theorem"
+theorem = "ProofboundArtifactDemo.Claims.publishedCalibratedTotal"
+assumptions = ["PBAC-CALIBRATION-AX-001"]
+expected_inventory = ["valid-basic.pbac"]
+inputs = [
+  "demo/artifact-certificate/FORMAT.md",
+  "demo/artifact-certificate/fixtures/valid-basic.pbac",
+  "demo/artifact-certificate/fixtures/pbac-calibrated.binding.json",
+  "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean",
+  "demo/artifact-certificate/python/artifact_certificate/checker.py",
+]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "artifact-check"
+checker = "demo/artifact-certificate/python/artifact_certificate/checker.py"
+arguments = [
+  "demo/artifact-certificate/fixtures/valid-basic.pbac",
+  "demo/artifact-certificate/fixtures/pbac-calibrated.binding.json",
+]
+paths = [
+  "demo/artifact-certificate/fixtures/valid-basic.pbac",
+  "demo/artifact-certificate/fixtures/pbac-calibrated.binding.json",
+]
+
+[resource_budget]
+time_seconds = 30
+disk_bytes = 268435456
+memory_bytes = 1073741824

@@ -1,0 +1,27 @@
+schema = "proofbound-evidence-unit/1"
+id = "semantic-receipt-identity"
+adapter = "rust-test"
+kind = "example-test"
+claims = ["PB-SELF-RECEIPT-006"]
+tier = 0
+inputs = [
+  "crates/proofbound-evidence/src/canonical.rs",
+  "crates/proofbound-evidence/src/cas.rs",
+  "crates/proofbound-evidence/src/closure.rs",
+]
+outputs = []
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+expected_inventory = ["proofbound_evidence::cas::tests::semantic_byte_change_changes_content_addressed_receipt_identity"]
+
+[operation]
+type = "cargo-test"
+package = "proofbound-evidence"
+manifest = "Cargo.toml"
+targets = ["--lib"]
+paths = []
+arguments = []
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 1073741824
+memory_bytes = 1073741824

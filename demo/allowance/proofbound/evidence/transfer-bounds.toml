@@ -1,0 +1,44 @@
+schema = "proofbound-evidence-unit/1"
+id = "transfer-bounds"
+adapter = "kani"
+kind = "bounded-check"
+claims = [
+  "DEMO-TRANSFER-001",
+  "DEMO-TRANSFER-002",
+  "DEMO-TRANSFER-003",
+  "DEMO-TRANSFER-004",
+]
+tier = 1
+expected_inventory = [
+  "kani_harnesses::accepted_conserves_value",
+  "kani_harnesses::accepted_never_overdraws",
+  "kani_harnesses::accepted_respects_cap",
+  "kani_harnesses::denial_returns_unchanged_state",
+]
+inputs = [
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/proofbound/model-checks/transfer-bounds.toml",
+]
+environment_allowlist = ["CARGO_HOME", "RUSTUP_HOME", "PATH"]
+
+[operation]
+type = "kani"
+package = "allowance-kernel"
+manifest = "demo/allowance/proofbound/model-checks/transfer-bounds.toml"
+targets = [
+  "kani_harnesses::accepted_conserves_value",
+  "kani_harnesses::accepted_never_overdraws",
+  "kani_harnesses::accepted_respects_cap",
+  "kani_harnesses::denial_returns_unchanged_state",
+]
+
+[bounded_domain]
+id = "allowance-u8-seeds-with-overflow-lane"
+description = "All four u8 numeric seeds, both authorization values, and both low/high destination lanes; 2^34 finite requests, including destination-overflow cases."
+cardinality = 17179869184
+ordering_key = [0, 1, 2, 3, 4, 5]
+
+[resource_budget]
+time_seconds = 600
+disk_bytes = 2147483648
+memory_bytes = 4294967296

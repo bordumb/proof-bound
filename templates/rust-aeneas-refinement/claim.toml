@@ -1,0 +1,22 @@
+schema = "proofbound-claim/1"
+id = "EXAMPLE-KERNEL-001"
+title = "The shipping Rust kernel refines the Lean relation"
+statement = "For every request inside the registered representation boundary, the deterministically translated Rust function returns the same decision as the handwritten Lean relation."
+public_language = "This source-refinement claim remains open until pinned Charon/Aeneas output and the compiled refinement theorem are reproduced from the manifest."
+subject = "rust:proofbound_refinement_template::withdraw"
+profile = "source-refined"
+tier = 3
+primary_linkage = "refined"
+evidence = ["source-refinement:example-kernel-refinement"]
+assumptions = []
+premises = ["EXAMPLE-U64-REP-001"]
+open_obligations = [
+  "Replace template identities and implement the handwritten theorem against generated declarations.",
+  "Seal the compiled lean-expr-cbor/1 statement digest; this template contains no placeholder digest.",
+]
+out_of_scope = ["Correctness of Charon, Aeneas, Rust, Lean, and their recorded toolchain TCB beyond the registered closures."]
+source_roots = [
+  "templates/rust-aeneas-refinement/rust/src/lib.rs",
+  "templates/rust-aeneas-refinement/lean/KernelRefinement.lean",
+  "templates/rust-aeneas-refinement/translation-unit.toml",
+]

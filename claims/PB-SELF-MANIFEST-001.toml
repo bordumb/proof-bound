@@ -1,0 +1,12 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-MANIFEST-001"
+title = "Manifests reject unknown fields"
+statement = "Every supported Proofbound manifest parser rejects fields outside its versioned schema."
+subject = "rust:proofbound-manifest"
+profile = "ledger"
+tier = 0
+evidence = ["test:manifest-workspace"]
+assumptions = []
+open_obligations = ["The parser is tested adversarially but is not formally proved complete for every input byte sequence."]
+out_of_scope = ["Correctness of serde, toml, and the host filesystem implementation."]
+source_roots = ["crates/proofbound-manifest/**", "schemas/**"]

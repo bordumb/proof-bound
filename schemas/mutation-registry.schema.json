@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/mutation-registry.schema.json",
+  "title": "Proofbound mutation registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "subject", "mutations"],
+  "properties": {
+    "schema": { "const": "proofbound-mutation-registry/1" },
+    "subject": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "mutations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mutation" },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 4096
+    }
+  },
+  "$defs": {
+    "mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "guard", "mutant", "witness", "affected_claims"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9._-]{0,255}$" },
+        "guard": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "mutant": { "$ref": "#/$defs/symbol" },
+        "witness": { "$ref": "#/$defs/symbol" },
+        "affected_claims": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$", "maxLength": 160 },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 4096
+        }
+      }
+    },
+    "symbol": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+(?:::[A-Za-z0-9._-]+)*$",
+      "maxLength": 1024
+    }
+  }
+}

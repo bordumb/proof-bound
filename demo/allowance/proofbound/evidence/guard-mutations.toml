@@ -1,0 +1,40 @@
+schema = "proofbound-evidence-unit/1"
+id = "guard-mutations"
+adapter = "rust-test"
+kind = "mutation-witness"
+claims = [
+  "DEMO-TRANSFER-001",
+  "DEMO-TRANSFER-002",
+  "DEMO-TRANSFER-003",
+  "DEMO-TRANSFER-005",
+]
+tier = 0
+expected_inventory = [
+  "remove-authorization-guard",
+  "remove-positive-amount-guard",
+  "remove-cap-guard",
+  "remove-source-balance-guard",
+  "remove-destination-overflow-guard",
+]
+inputs = [
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/proofbound/mutations/transfer-guards.toml",
+]
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+
+[operation]
+type = "cargo-test"
+package = "allowance-kernel"
+manifest = "Cargo.toml"
+targets = [
+  "authorization_mutation_is_detected",
+  "positive_amount_mutation_is_detected",
+  "cap_mutation_is_detected",
+  "source_balance_mutation_is_detected",
+  "destination_overflow_mutation_is_detected",
+]
+
+[resource_budget]
+time_seconds = 120
+disk_bytes = 1073741824
+memory_bytes = 2147483648

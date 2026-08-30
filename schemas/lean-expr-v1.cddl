@@ -1,0 +1,41 @@
+; Proofbound canonical Lean expression identity, lean-expr-cbor/1.
+; The encoded hash input is the UTF-8 domain separator
+; "proofbound:lean-expr-cbor/1\0" followed by the canonical CBOR item below.
+; Maps use RFC 8949 deterministic ordering and shortest integer forms.
+
+lean-statement = ["lean-expr-cbor/1", expr]
+
+expr = bvar / sort / const / app / lam / forall-e / let-e / lit / mdata / proj
+
+; Bound variables use de Bruijn indices. Binder names never appear.
+bvar     = [0, uint]
+sort     = [1, level]
+const    = [2, fq-name, [* level]]
+app      = [3, expr, expr]
+lam      = [4, binder-info, expr, expr]
+forall-e = [5, binder-info, expr, expr]
+let-e    = [6, expr, expr, expr]
+lit      = [7, literal]
+; Presentation metadata is discarded: mdata encodes only its body.
+mdata    = [8, expr]
+proj     = [9, fq-name, uint, expr]
+
+level = lzero / lsucc / lmax / limax / lparam / lmvar
+lzero  = [0]
+lsucc  = [1, level]
+lmax   = [2, level, level]
+limax  = [3, level, level]
+lparam = [4, fq-name]
+; Universe metavariables are rejected before encoding; this arm is reserved
+; to make rejection explicit and MUST NOT occur in a valid statement.
+lmvar  = [5, null]
+
+binder-info = 0 / 1 / 2 / 3
+; 0 default, 1 implicit, 2 strict-implicit, 3 instance-implicit.
+
+literal = nat-lit / str-lit
+nat-lit = [0, uint]
+str-lit = [1, text]
+
+fq-name = text
+

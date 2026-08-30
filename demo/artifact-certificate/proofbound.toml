@@ -1,0 +1,35 @@
+schema = "proofbound-project/1"
+project = "artifact-certificate-demo"
+tier = 3
+claim_manifests = ["demo/artifact-certificate/claims/*.toml"]
+assumption_manifests = ["demo/artifact-certificate/assumptions/*.toml"]
+evidence_units = ["demo/artifact-certificate/evidence/*.toml"]
+translation_units = []
+model_check_units = []
+
+[source]
+semantic = [
+  "demo/artifact-certificate/FORMAT.md",
+  "demo/artifact-certificate/fixtures/**",
+  "demo/artifact-certificate/lean/**",
+  "demo/artifact-certificate/claims/**",
+  "demo/artifact-certificate/assumptions/**",
+  "demo/artifact-certificate/evidence/**",
+  "demo/artifact-certificate/rust/checker/**",
+]
+runner = [
+  "demo/artifact-certificate/python/**",
+  "demo/artifact-certificate/scripts/**",
+  "Cargo.lock",
+  "lake-manifest.json",
+]
+presentation = ["demo/artifact-certificate/README.md"]
+
+[toolchains]
+rust = "rust-toolchain.toml"
+lean = "lean-toolchain"
+
+[limits]
+max_manifest_bytes = 1048576
+max_files = 2048
+max_total_bytes = 16777216

@@ -1,0 +1,24 @@
+schema = "proofbound-evidence-unit/1"
+id = "canonical-decode"
+adapter = "lean"
+kind = "theorem"
+claims = ["DEMO-TRANSFER-006"]
+tier = 2
+evaluation_mode = "kernel"
+theorem = "ProofboundDemo.Claims.Canonical.acceptedFixture_decodes"
+inputs = [
+  "demo/allowance/fixtures/v1/accepted.bin",
+  "demo/allowance/lean/ProofboundDemo/Canonical.lean",
+  "demo/allowance/lean/ProofboundDemo/Claims/Canonical.lean",
+]
+environment_allowlist = ["LEAN_PATH", "PATH"]
+
+[operation]
+type = "lean-audit"
+targets = ["ProofboundDemo.Claims.Canonical.acceptedFixture_decodes"]
+paths = ["demo/allowance/lean/ProofboundDemo/Claims/Canonical.lean"]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 1073741824

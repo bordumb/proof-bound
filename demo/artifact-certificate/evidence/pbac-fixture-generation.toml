@@ -1,0 +1,60 @@
+schema = "proofbound-evidence-unit/1"
+id = "pbac-fixture-generation"
+adapter = "python-test"
+kind = "example-test"
+claims = ["PBAC-CALIBRATED-001", "PBAC-SUM-001"]
+tier = 3
+inputs = [
+  "demo/artifact-certificate/fixtures/invalid-bad-version.pbac",
+  "demo/artifact-certificate/fixtures/invalid-count-zero.pbac",
+  "demo/artifact-certificate/fixtures/invalid-duplicate-id.pbac",
+  "demo/artifact-certificate/fixtures/invalid-noncanonical-target.pbac",
+  "demo/artifact-certificate/fixtures/invalid-overflow-target.pbac",
+  "demo/artifact-certificate/fixtures/invalid-oversized.pbac",
+  "demo/artifact-certificate/fixtures/invalid-sum.pbac",
+  "demo/artifact-certificate/fixtures/invalid-trailing.pbac",
+  "demo/artifact-certificate/fixtures/invalid-truncated.pbac",
+  "demo/artifact-certificate/fixtures/manifest.json",
+  "demo/artifact-certificate/fixtures/valid-basic.pbac",
+  "demo/artifact-certificate/fixtures/valid-boundary.pbac",
+  "demo/artifact-certificate/scripts/update_fixtures.py",
+]
+outputs = [
+  "demo/artifact-certificate/fixtures/invalid-bad-version.pbac",
+  "demo/artifact-certificate/fixtures/invalid-count-zero.pbac",
+  "demo/artifact-certificate/fixtures/invalid-duplicate-id.pbac",
+  "demo/artifact-certificate/fixtures/invalid-noncanonical-target.pbac",
+  "demo/artifact-certificate/fixtures/invalid-overflow-target.pbac",
+  "demo/artifact-certificate/fixtures/invalid-oversized.pbac",
+  "demo/artifact-certificate/fixtures/invalid-sum.pbac",
+  "demo/artifact-certificate/fixtures/invalid-trailing.pbac",
+  "demo/artifact-certificate/fixtures/invalid-truncated.pbac",
+  "demo/artifact-certificate/fixtures/manifest.json",
+  "demo/artifact-certificate/fixtures/valid-basic.pbac",
+  "demo/artifact-certificate/fixtures/valid-boundary.pbac",
+]
+environment_allowlist = ["PATH"]
+expected_inventory = [
+  "demo/artifact-certificate/fixtures/invalid-bad-version.pbac",
+  "demo/artifact-certificate/fixtures/invalid-count-zero.pbac",
+  "demo/artifact-certificate/fixtures/invalid-duplicate-id.pbac",
+  "demo/artifact-certificate/fixtures/invalid-noncanonical-target.pbac",
+  "demo/artifact-certificate/fixtures/invalid-overflow-target.pbac",
+  "demo/artifact-certificate/fixtures/invalid-oversized.pbac",
+  "demo/artifact-certificate/fixtures/invalid-sum.pbac",
+  "demo/artifact-certificate/fixtures/invalid-trailing.pbac",
+  "demo/artifact-certificate/fixtures/invalid-truncated.pbac",
+  "demo/artifact-certificate/fixtures/manifest.json",
+  "demo/artifact-certificate/fixtures/valid-basic.pbac",
+  "demo/artifact-certificate/fixtures/valid-boundary.pbac",
+]
+
+[operation]
+type = "generator"
+checker = "demo/artifact-certificate/scripts/update_fixtures.py"
+arguments = []
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 1073741824
+memory_bytes = 268435456

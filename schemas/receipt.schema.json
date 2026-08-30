@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/receipt.schema.json",
+  "title": "Proofbound release envelope or compiled release receipt",
+  "oneOf": [
+    { "$ref": "#/$defs/releaseEnvelope" },
+    { "$ref": "#/$defs/compiledRelease" }
+  ],
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "ids": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true, "maxItems": 100000 },
+    "releaseEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "payload", "payload_sha256"],
+      "properties": {
+        "schema": { "const": "proofbound-release-envelope/1" },
+        "payload": { "const": "compiled-receipt.json" },
+        "payload_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "compiledRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "project", "project_revision", "project_tier", "tree_state", "graph", "graph_sha256", "claims", "evidence", "assumptions", "premises", "policies", "closures", "sealed_files", "reported_statuses"],
+      "properties": {
+        "schema": { "const": "proofbound-compiled-release/1" },
+        "project": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "project_tier": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "tree_state": { "enum": ["clean", "dirty"] },
+        "graph": { "$ref": "graph.schema.json#/$defs/assuranceGraph" },
+        "graph_sha256": { "$ref": "#/$defs/digest" },
+        "claims": { "type": "array", "items": { "$ref": "#/$defs/claimReceipt" }, "maxItems": 100000 },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/hashedEvidence" }, "maxItems": 100000 },
+        "assumptions": { "type": "array", "items": { "$ref": "#/$defs/assumptionReceipt" }, "maxItems": 100000 },
+        "premises": { "type": "array", "items": { "$ref": "#/$defs/premiseReceipt" }, "maxItems": 100000 },
+        "policies": { "type": "array", "items": { "$ref": "#/$defs/policyReceipt" }, "maxItems": 100000 },
+        "closures": { "type": "array", "items": { "$ref": "#/$defs/hashedClosure" }, "maxItems": 100000 },
+        "sealed_files": { "type": "array", "items": { "$ref": "#/$defs/sealedFile" }, "maxItems": 100000 },
+        "reported_statuses": { "type": "array", "items": { "$ref": "#/$defs/reportedStatus" }, "maxItems": 100000 }
+      }
+    },
+    "claimReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "id", "node_id", "title", "statement", "subject", "policy", "cited_evidence", "assumptions", "open_obligations", "out_of_scope", "registered_inputs"],
+      "properties": {
+        "schema": { "const": "proofbound-claim/1" },
+        "id": { "$ref": "#/$defs/id" },
+        "node_id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string" },
+        "statement": { "type": "string" },
+        "subject": { "$ref": "#/$defs/id" },
+        "policy": { "$ref": "#/$defs/id" },
+        "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "cited_evidence": { "$ref": "#/$defs/digests" },
+        "assumptions": { "$ref": "#/$defs/ids" },
+        "open_obligations": { "type": "array", "items": { "$ref": "#/$defs/openObligation" } },
+        "out_of_scope": { "type": "array", "items": { "$ref": "#/$defs/exclusion" } },
+        "primary_linkage": { "$ref": "#/$defs/linkage" },
+        "registered_inputs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "registered_domain_language": { "type": "string" }
+      }
+    },
+    "hashedEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "record"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/digest" },
+        "record": { "$ref": "#/$defs/evidenceReceipt" }
+      }
+    },
+    "evidenceReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "unit_id", "node_id", "kind", "claim_ids", "outcome", "inventoried_targets", "assumptions", "premises", "provenance"],
+      "properties": {
+        "schema": { "const": "proofbound-evidence/1" },
+        "unit_id": { "$ref": "#/$defs/id" },
+        "node_id": { "$ref": "#/$defs/id" },
+        "kind": { "$ref": "#/$defs/evidenceKind" },
+        "claim_ids": { "$ref": "#/$defs/ids" },
+        "outcome": { "enum": ["passed", "failed", "missing", "drifted", "unregistered", "ambiguous", "corrupt", "skipped", "unavailable"] },
+        "evaluation_mode": { "enum": ["kernel", "native"] },
+        "binding_mode": { "enum": ["bytes-in-theorem", "digest-theorem", "external-round-trip"] },
+        "theorem": { "$ref": "#/$defs/theoremReceipt" },
+        "artifact_binding": { "$ref": "#/$defs/artifactBindingReceipt" },
+        "trusted_transcription": { "$ref": "#/$defs/trustedTranscriptionReceipt" },
+        "source_refinement": { "$ref": "#/$defs/sourceRefinementReceipt" },
+        "bounded_check": { "$ref": "#/$defs/boundedCheckReceipt" },
+        "exhaustive_check": { "$ref": "#/$defs/exhaustiveCheckReceipt" },
+        "mutation_witness": { "$ref": "#/$defs/mutationWitnessReceipt" },
+        "independence": { "enum": ["independent", "common-origin"] },
+        "inventoried_targets": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "assumptions": { "$ref": "#/$defs/ids" },
+        "premises": { "$ref": "#/$defs/ids" },
+        "open_obligation": { "$ref": "#/$defs/openObligation" },
+        "provenance": { "$ref": "#/$defs/evidenceProvenance" }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "theorem" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "theorem"] } },
+        { "if": { "properties": { "kind": { "const": "artifact-soundness" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "binding_mode", "artifact_binding"] } },
+        { "if": { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] }, "then": { "required": ["binding_mode", "trusted_transcription"] } },
+        { "if": { "properties": { "kind": { "const": "source-refinement" } }, "required": ["kind"] }, "then": { "required": ["source_refinement"] } },
+        { "if": { "properties": { "kind": { "const": "bounded-check" } }, "required": ["kind"] }, "then": { "required": ["bounded_check"] } },
+        { "if": { "properties": { "kind": { "const": "exhaustive-check" } }, "required": ["kind"] }, "then": { "required": ["exhaustive_check"] } },
+        { "if": { "properties": { "kind": { "const": "mutation-witness" } }, "required": ["kind"] }, "then": { "required": ["mutation_witness"] } },
+        { "if": { "properties": { "kind": { "const": "open" } }, "required": ["kind"] }, "then": { "required": ["open_obligation"] } }
+      ]
+    },
+    "theoremReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["declaration", "statement_encoding", "statement_sha256", "attributed_claim", "proof_environment", "axiom_audit_passed", "contains_sorry_ax", "foundational_axioms", "project_axioms"],
+      "properties": {
+        "declaration": { "type": "string" }, "statement_encoding": { "const": "lean-expr-cbor/1" }, "statement_sha256": { "$ref": "#/$defs/digest" }, "attributed_claim": { "$ref": "#/$defs/id" }, "proof_environment": { "$ref": "#/$defs/id" }, "axiom_audit_passed": { "type": "boolean" }, "contains_sorry_ax": { "type": "boolean" }, "foundational_axioms": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "project_axioms": { "$ref": "#/$defs/ids" }
+      }
+    },
+    "artifactBindingReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["theorem_evidence", "canonical_payload", "schema_bound", "literal_claim_bound", "digest_bound", "reencoding_passed", "trailing_bytes_rejected"],
+      "properties": {
+        "theorem_evidence": { "$ref": "#/$defs/digest" }, "canonical_payload": { "type": "boolean" }, "schema_bound": { "type": "boolean" }, "literal_claim_bound": { "type": "boolean" }, "digest_bound": { "type": "boolean" }, "reencoding_passed": { "type": "boolean" }, "trailing_bytes_rejected": { "type": "boolean" }
+      }
+    },
+    "trustedTranscriptionReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["transcriber_tcb_node", "reencoder_tcb_node", "round_trip_passed"],
+      "properties": { "transcriber_tcb_node": { "$ref": "#/$defs/id" }, "reencoder_tcb_node": { "$ref": "#/$defs/id" }, "round_trip_passed": { "type": "boolean" } }
+    },
+    "sourceRefinementReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["refinement_theorem_evidence", "representation_premises", "deterministic_translation", "pinned_toolchain", "generated_axioms_clean", "strength"],
+      "properties": { "refinement_theorem_evidence": { "$ref": "#/$defs/digest" }, "representation_premises": { "$ref": "#/$defs/ids" }, "deterministic_translation": { "type": "boolean" }, "pinned_toolchain": { "type": "boolean" }, "generated_axioms_clean": { "type": "boolean" }, "strength": { "enum": ["field-for-field", "decision-adequate"] } }
+    },
+    "boundedDomain": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "description", "registration_sha256"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "description": { "type": "string" }, "registration_sha256": { "$ref": "#/$defs/digest" }, "cardinality": { "type": "integer", "minimum": 0 } }
+    },
+    "boundedCheckReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["domain", "solver", "harnesses", "unwind_bounds"],
+      "properties": { "domain": { "$ref": "#/$defs/boundedDomain" }, "solver": { "type": "string" }, "harnesses": { "$ref": "#/$defs/ids" }, "unwind_bounds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } } }
+    },
+    "exhaustiveCheckReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["domain", "evaluated_members"],
+      "properties": { "domain": { "$ref": "#/$defs/boundedDomain" }, "evaluated_members": { "type": "integer", "minimum": 0 } }
+    },
+    "mutationWitnessReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mutation_sha256", "check_id", "proof_term_witness"],
+      "properties": { "mutation_sha256": { "$ref": "#/$defs/digest" }, "check_id": { "type": "string" }, "proof_term_witness": { "type": "boolean" } }
+    },
+    "evidenceProvenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["project_revision", "tree_state", "semantic_closure", "input_artifacts", "generated_artifacts", "tool", "adapter", "command", "reproduction_command", "environment_allowlist", "started_unix_ms", "completed_unix_ms", "deterministic_result_sha256", "unit_configuration_sha256", "cache_key", "resource_budget", "actual_cost"],
+      "properties": {
+        "project_revision": { "type": "string", "minLength": 1 }, "tree_state": { "enum": ["clean", "dirty"] }, "semantic_closure": { "$ref": "#/$defs/digest" }, "additional_closures": { "type": "array", "items": { "$ref": "#/$defs/closureReference" }, "uniqueItems": true, "maxItems": 4096 }, "input_artifacts": { "$ref": "#/$defs/artifactMap" }, "generated_artifacts": { "$ref": "#/$defs/artifactMap" }, "tool": { "$ref": "#/$defs/tool" }, "adapter": { "$ref": "#/$defs/tool" }, "command": { "$ref": "#/$defs/command" }, "reproduction_command": { "$ref": "#/$defs/command" }, "environment_allowlist": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "started_unix_ms": { "type": "integer", "minimum": 0 }, "completed_unix_ms": { "type": "integer", "minimum": 0 }, "deterministic_result_sha256": { "$ref": "#/$defs/digest" }, "unit_configuration_sha256": { "$ref": "#/$defs/digest" }, "cache_key": { "$ref": "#/$defs/digest" }, "reused_from": { "$ref": "#/$defs/digest" }, "resource_budget": { "$ref": "#/$defs/resource" }, "actual_cost": { "$ref": "#/$defs/resource" }
+      }
+    },
+    "closureReference": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "sha256"],
+      "properties": { "kind": { "enum": ["semantic", "runner", "presentation", "external-evidence", "toolchain"] }, "sha256": { "$ref": "#/$defs/digest" } }
+    },
+    "artifactMap": { "type": "object", "additionalProperties": { "$ref": "#/$defs/digest" }, "maxProperties": 100000 },
+    "tool": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "version", "identity_sha256"],
+      "properties": { "name": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 }, "identity_sha256": { "$ref": "#/$defs/digest" } }
+    },
+    "command": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 4096 },
+    "resource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["time_ms", "disk_bytes", "memory_bytes"],
+      "properties": { "time_ms": { "type": "integer", "minimum": 0 }, "disk_bytes": { "type": "integer", "minimum": 0 }, "memory_bytes": { "type": "integer", "minimum": 0 } }
+    },
+    "openObligation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "statement", "remediation"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "statement": { "type": "string" }, "remediation": { "type": "string" } }
+    },
+    "exclusion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "statement", "rationale"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "statement": { "type": "string" }, "rationale": { "type": "string" } }
+    },
+    "assumptionReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "id", "node_id", "statement", "category", "owner", "rationale", "scope", "affected_claims", "review_evidence", "falsification_or_discharge_plan", "state", "depends_on"],
+      "properties": { "schema": { "const": "proofbound-assumption/1" }, "id": { "$ref": "#/$defs/id" }, "node_id": { "$ref": "#/$defs/id" }, "statement": { "type": "string" }, "category": { "$ref": "#/$defs/assumptionCategory" }, "owner": { "type": "string" }, "rationale": { "type": "string" }, "scope": { "type": "string" }, "affected_claims": { "$ref": "#/$defs/ids" }, "review_evidence": { "$ref": "#/$defs/digests" }, "falsification_or_discharge_plan": { "type": "string" }, "source_citation": { "type": "string" }, "state": { "enum": ["active", "discharged", "retired"] }, "depends_on": { "$ref": "#/$defs/ids" } }
+    },
+    "premiseReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "node_id", "statement", "category", "scope"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "node_id": { "$ref": "#/$defs/id" }, "statement": { "type": "string" }, "category": { "$ref": "#/$defs/assumptionCategory" }, "theorem_evidence": { "$ref": "#/$defs/digest" }, "scope": { "$ref": "#/$defs/flowScope" }, "discharge": { "$ref": "#/$defs/premiseDischarge" } },
+      "allOf": [
+        { "if": { "not": { "required": ["theorem_evidence"] } }, "then": { "not": { "required": ["discharge"] } } }
+      ]
+    },
+    "premiseDischarge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["theorem_evidence", "scope"],
+      "properties": { "theorem_evidence": { "$ref": "#/$defs/digest" }, "scope": { "$ref": "#/$defs/flowScope" } }
+    },
+    "flowScope": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "all-registered-inputs" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "flows"], "properties": { "kind": { "const": "flows" }, "flows": { "type": "array", "items": { "type": "string" }, "uniqueItems": true } } }
+      ]
+    },
+    "policyReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "id", "node_id", "components", "allowed_foundational_axioms", "allowed_project_axioms", "admit_exhaustive_as_proved", "require_no_assumptions", "additional_required_evidence"],
+      "properties": { "schema": { "const": "proofbound-policy/1" }, "id": { "$ref": "#/$defs/id" }, "node_id": { "$ref": "#/$defs/id" }, "components": { "type": "array", "items": { "$ref": "#/$defs/profile" }, "uniqueItems": true }, "allowed_foundational_axioms": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "allowed_project_axioms": { "$ref": "#/$defs/ids" }, "admit_exhaustive_as_proved": { "type": "boolean" }, "require_no_assumptions": { "type": "boolean" }, "native_premise_rule": { "$ref": "#/$defs/nativePremiseRule" }, "additional_required_evidence": { "type": "array", "items": { "$ref": "#/$defs/evidenceKind" }, "uniqueItems": true } }
+    },
+    "nativePremiseRule": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "at-least-one" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "count"], "properties": { "kind": { "const": "exactly" }, "count": { "type": "integer", "minimum": 0 } } }
+      ]
+    },
+    "hashedClosure": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sha256", "record"],
+      "properties": { "sha256": { "$ref": "#/$defs/digest" }, "record": { "$ref": "#/$defs/sourceClosure" } }
+    },
+    "sourceClosure": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "kind", "members"],
+      "properties": { "schema": { "const": "proofbound-source-closure/1" }, "kind": { "enum": ["semantic", "runner", "presentation", "external-evidence", "toolchain"] }, "members": { "type": "array", "items": { "$ref": "#/$defs/closureMember" }, "maxItems": 1000000 } }
+    },
+    "closureMember": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/digest" }, "size_bytes": { "type": "integer", "minimum": 0 } }
+    },
+    "sealedFile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/digest" }, "size_bytes": { "type": "integer", "minimum": 0 } }
+    },
+    "reportedStatus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["claim_id", "formal", "assumption", "assumptions", "undischarged_premises", "policy_admitted"],
+      "properties": { "claim_id": { "$ref": "#/$defs/id" }, "formal": { "enum": ["PROVED", "BOUNDED_CHECKED", "TESTED", "OPEN", "INVALID"] }, "linkage": { "$ref": "#/$defs/linkage" }, "assumption": { "enum": ["NONE", "ASSUMED"] }, "assumptions": { "$ref": "#/$defs/ids" }, "undischarged_premises": { "$ref": "#/$defs/ids" }, "policy_admitted": { "type": "boolean" } }
+    },
+    "digests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "uniqueItems": true, "maxItems": 100000 },
+    "assumptionCategory": { "enum": ["mathematical-hypothesis", "representation-premise", "translator-tcb", "compiler-tcb", "runtime-environment", "external-provider", "cryptographic-library", "human-attestation", "native-evaluation"] },
+    "evidenceKind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "review", "assumption", "open"] },
+    "profile": { "enum": ["ledger", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] },
+    "linkage": { "enum": ["REFINED", "ARTIFACT_BOUND", "TRANSCRIBED", "MODEL_ONLY"] }
+  }
+}

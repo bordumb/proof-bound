@@ -1,0 +1,13 @@
+[package]
+name = "proofbound-artifact-checker-template"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Keep a copied template independent from any containing Cargo workspace until
+# the consumer deliberately registers it.
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"

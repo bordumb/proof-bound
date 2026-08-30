@@ -1,0 +1,1 @@
+{"components":[{"identity_sha256":"sha256:ae1eae1d76e5b7c865c4122ce366a08025842566d2d96c75cc13e6353a73db0d","name":"synthetic-adapter","version":"1.0.0"},{"identity_sha256":"sha256:527aa9f431539da8e151d5434d1d5e611d973f601d8e970790882624554146b0","name":"synthetic-runner","version":"1.0.0"}],"schema":"proofbound-tcb-ledger/1"}

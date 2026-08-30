@@ -1,0 +1,22 @@
+schema = "proofbound-evidence-unit/1"
+id = "example-authorized-action-test"
+adapter = "python-test"
+kind = "example-test"
+claims = ["EXAMPLE-AUTHORIZED-ACTION-001"]
+tier = 0
+expected_inventory = ["test_authorized_response_is_forwarded_exactly"]
+assumptions = ["EXAMPLE-IDENTITY-AX-001"]
+inputs = ["path/to/authorization_boundary.py", "path/to/test_authorization_boundary.py"]
+outputs = []
+environment_allowlist = ["PYTHONPATH"]
+
+[operation]
+type = "pytest"
+manifest = "pyproject.toml"
+paths = ["path/to/test_authorization_boundary.py"]
+targets = ["test_authorized_response_is_forwarded_exactly"]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 1073741824

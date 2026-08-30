@@ -1,0 +1,35 @@
+schema = "proofbound-evidence-unit/1"
+id = "core-workspace"
+adapter = "rust-test"
+kind = "example-test"
+claims = [
+  "PB-SELF-STATUS-002",
+  "PB-SELF-AXIOM-003",
+  "PB-SELF-PARITY-008",
+]
+tier = 0
+inputs = [
+  "crates/proofbound-core/src/status.rs",
+  "crates/proofbound-core/src/status/tests.rs",
+  "proofbound/conformance/v1/status-graphs.json",
+]
+outputs = []
+environment_allowlist = ["PATH", "CARGO_HOME", "RUSTUP_HOME"]
+expected_inventory = [
+  "proofbound_core::status::tests::project_axiom_without_active_registered_assumption_is_invalid",
+  "proofbound_core::status::tests::registered_language_neutral_status_corpus_matches_core_derivation",
+  "proofbound_core::status::tests::status_output_itself_is_strict_and_cannot_accept_manual_fields",
+]
+
+[operation]
+type = "cargo-test"
+package = "proofbound-core"
+manifest = "Cargo.toml"
+targets = ["--lib"]
+paths = []
+arguments = []
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 1073741824
+memory_bytes = 1073741824

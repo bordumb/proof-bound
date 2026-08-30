@@ -1,0 +1,33 @@
+schema = "proofbound-evidence-unit/1"
+id = "python-exact-bytes"
+adapter = "python-test"
+kind = "example-test"
+claims = ["DEMO-TRANSFER-007"]
+tier = 0
+expected_inventory = [
+  "test_allowance::test_orchestrator_submits_the_exact_registered_bytes",
+  "test_allowance::test_receiver_digest_mismatch_fails_closed",
+  "test_allowance::test_cli_emits_an_explicitly_empirical_receipt",
+]
+inputs = [
+  "demo/allowance/python/proofbound_demo/allowance.py",
+  "demo/allowance/python/tests/test_allowance.py",
+  "demo/allowance/fixtures/v1/accepted.bin",
+  "demo/allowance/fixtures/v1/manifest.json",
+]
+environment_allowlist = ["PATH", "PYTHONPATH"]
+
+[operation]
+type = "pytest"
+manifest = "pyproject.toml"
+paths = ["demo/allowance/python/tests"]
+targets = [
+  "test_orchestrator_submits_the_exact_registered_bytes",
+  "test_receiver_digest_mismatch_fails_closed",
+  "test_cli_emits_an_explicitly_empirical_receipt",
+]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 1073741824

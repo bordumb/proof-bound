@@ -1,0 +1,14 @@
+schema = "proofbound-demo-registry/1"
+
+[[demos]]
+name = "allowance"
+description = "Allowance transfer with an explicit identity-provider assumption."
+runner = "allowance-python"
+claims = ["DEMO-TRANSFER-001"]
+
+[[demos]]
+name = "artifact-certificate"
+description = "Canonical byte certificate with an independent checker and Lean soundness theorem."
+runner = "artifact-rust"
+claims = ["PBAC-SUM-001"]
+

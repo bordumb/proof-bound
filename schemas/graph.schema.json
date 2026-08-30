@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/graph.schema.json",
+  "title": "Proofbound assurance graph and graph export",
+  "oneOf": [
+    { "$ref": "#/$defs/assuranceGraph" },
+    { "$ref": "#/$defs/graphExport" }
+  ],
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["claim", "theorem", "subject", "artifact", "source-closure", "translation-unit", "model-check-unit", "test-suite", "assumption", "premise", "toolchain", "tcb-component", "review", "policy"] },
+        "proof_environment": { "$ref": "#/$defs/id" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "kind"],
+      "properties": {
+        "from": { "$ref": "#/$defs/id" },
+        "to": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["proves", "refines", "decodes", "checks", "generated-from", "depends-on", "assumes", "discharged-by", "cross-checks", "covers-bounded-domain", "binds-digest", "reviewed-by", "admitted-by-policy"] }
+      }
+    },
+    "mutualTheoremGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "proof_environment", "members"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "proof_environment": { "$ref": "#/$defs/id" },
+        "members": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true, "minItems": 2, "maxItems": 100000 }
+      }
+    },
+    "assuranceGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "nodes", "edges", "mutual_theorem_groups"],
+      "properties": {
+        "schema": { "const": "proofbound-graph/1" },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" }, "maxItems": 1000000 },
+        "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" }, "maxItems": 4000000 },
+        "mutual_theorem_groups": { "type": "array", "items": { "$ref": "#/$defs/mutualTheoremGroup" }, "maxItems": 100000 }
+      }
+    },
+    "flowScope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "all-registered-inputs" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "flows"],
+          "properties": {
+            "kind": { "const": "flows" },
+            "flows": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+          }
+        }
+      ]
+    },
+    "boundedDomain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "registration_sha256", "constraints"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "description": { "type": "string" },
+        "registration_sha256": { "$ref": "#/$defs/digest" },
+        "cardinality": { "type": "integer", "minimum": 0 },
+        "constraints": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "openObligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "remediation"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "type": "string" },
+        "remediation": { "type": "string" }
+      }
+    },
+    "exclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "rationale"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "type": "string" },
+        "rationale": { "type": "string" }
+      }
+    },
+    "assumptionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "category", "owner", "status"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "type": "string" },
+        "category": { "$ref": "#/$defs/assumptionCategory" },
+        "owner": { "type": "string" },
+        "status": { "enum": ["active", "discharged", "retired"] }
+      }
+    },
+    "premiseSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "category", "scope", "discharge_rejection_reasons"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "type": "string" },
+        "category": { "$ref": "#/$defs/assumptionCategory" },
+        "scope": { "$ref": "#/$defs/flowScope" },
+        "discharged_by": { "$ref": "#/$defs/id" },
+        "discharge_rejection_reasons": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "evidenceAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "status", "policy_admitted", "roles", "reasons", "budget_exceeded"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "$ref": "#/$defs/evidenceKind" },
+        "status": { "enum": ["passed", "failed", "missing", "drifted", "unregistered", "ambiguous", "corrupt", "skipped", "unavailable"] },
+        "policy_admitted": { "type": "boolean" },
+        "roles": { "type": "array", "items": { "enum": ["formal", "linkage", "assumption-review", "premise-discharge", "open-obligation", "supporting"] }, "uniqueItems": true },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "budget_exceeded": { "type": "boolean" }
+      }
+    },
+    "assumptionFacet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["standing", "assumptions", "undischarged_premises"],
+      "properties": {
+        "standing": { "enum": ["NONE", "ASSUMED"] },
+        "assumptions": { "type": "array", "items": { "$ref": "#/$defs/assumptionSummary" } },
+        "undischarged_premises": { "type": "array", "items": { "$ref": "#/$defs/premiseSummary" } }
+      }
+    },
+    "policyBlocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "remediation"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "remediation": { "type": "string" }
+      }
+    },
+    "policyVerdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["admitted", "blockers"],
+      "properties": {
+        "admitted": { "type": "boolean" },
+        "blockers": { "type": "array", "items": { "$ref": "#/$defs/policyBlocker" } }
+      }
+    },
+    "notProvedOutOfScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["open_obligations", "undischarged_premises", "explicit_assumptions", "exclusions"],
+      "properties": {
+        "open_obligations": { "type": "array", "items": { "$ref": "#/$defs/openObligation" } },
+        "undischarged_premises": { "type": "array", "items": { "$ref": "#/$defs/premiseSummary" } },
+        "explicit_assumptions": { "type": "array", "items": { "$ref": "#/$defs/assumptionSummary" } },
+        "exclusions": { "type": "array", "items": { "$ref": "#/$defs/exclusion" } }
+      }
+    },
+    "structuredError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "remediation"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^PB_CORE_[A-Z_]+$" },
+        "message": { "type": "string" },
+        "claim_id": { "$ref": "#/$defs/id" },
+        "unit_id": { "$ref": "#/$defs/id" },
+        "file": { "type": "string" },
+        "logical_path": { "type": "string" },
+        "byte_offset": { "type": "integer", "minimum": 0 },
+        "expected": { "type": "string" },
+        "actual": { "type": "string" },
+        "affected_claims": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "remediation": { "type": "string" }
+      }
+    },
+    "claimStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "claim_id", "public_statement", "formal", "assumption", "policy", "evidence", "bounded_domains", "premises", "not_proved_out_of_scope", "errors"],
+      "properties": {
+        "schema": { "const": "proofbound-claim-status/1" },
+        "claim_id": { "$ref": "#/$defs/id" },
+        "public_statement": { "type": "string" },
+        "formal": { "enum": ["PROVED", "BOUNDED_CHECKED", "TESTED", "OPEN", "INVALID"] },
+        "linkage": { "enum": ["REFINED", "ARTIFACT_BOUND", "TRANSCRIBED", "MODEL_ONLY"] },
+        "assumption": { "$ref": "#/$defs/assumptionFacet" },
+        "policy": { "$ref": "#/$defs/policyVerdict" },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidenceAssessment" } },
+        "bounded_domains": { "type": "array", "items": { "$ref": "#/$defs/boundedDomain" } },
+        "premises": { "type": "array", "items": { "$ref": "#/$defs/premiseSummary" } },
+        "not_proved_out_of_scope": { "$ref": "#/$defs/notProvedOutOfScope" },
+        "errors": { "type": "array", "items": { "$ref": "#/$defs/structuredError" } }
+      }
+    },
+    "graphExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "project", "revision", "nodes", "edges", "claims"],
+      "properties": {
+        "schema": { "const": "proofbound-graph-export/1" },
+        "project": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" }, "maxItems": 1000000 },
+        "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" }, "maxItems": 4000000 },
+        "claims": { "type": "array", "items": { "$ref": "#/$defs/claimStatus" }, "maxItems": 100000 }
+      }
+    },
+    "assumptionCategory": { "enum": ["mathematical-hypothesis", "representation-premise", "translator-tcb", "compiler-tcb", "runtime-environment", "external-provider", "cryptographic-library", "human-attestation", "native-evaluation"] },
+    "evidenceKind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "review", "assumption", "open"] }
+  }
+}

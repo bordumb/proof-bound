@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/demo-registry.schema.json",
+  "title": "Proofbound demonstration registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "demos"],
+  "properties": {
+    "schema": { "const": "proofbound-demo-registry/1" },
+    "demos": {
+      "type": "array", "uniqueItems": true, "maxItems": 256,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "description", "runner", "claims"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+          "description": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "runner": { "enum": ["allowance-python", "artifact-rust"] },
+          "claims": { "type": "array", "items": { "type": "string" }, "uniqueItems": true, "minItems": 1 }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,28 @@
+schema = "proofbound-evidence-unit/1"
+id = "verifier-conformance"
+adapter = "rust-test"
+kind = "example-test"
+claims = ["PB-SELF-PARITY-008"]
+tier = 0
+inputs = [
+  "crates/proofbound-verify/src/format.rs",
+  "crates/proofbound-verify/src/verifier.rs",
+  "crates/proofbound-verify/tests/conformance.rs",
+  "proofbound/conformance/v1/status-graphs.json",
+]
+outputs = []
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+expected_inventory = ["conformance::registered_language_neutral_status_corpus_matches_independent_verifier"]
+
+[operation]
+type = "cargo-test"
+package = "proofbound-verify"
+manifest = "Cargo.toml"
+targets = ["--test=conformance"]
+paths = []
+arguments = []
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 1073741824
+memory_bytes = 1073741824

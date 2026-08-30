@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/adapter-observation.schema.json",
+  "title": "Proofbound generic adapter execution observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "unit_id", "evidence_kind", "outcome", "input_artifacts", "generated_artifacts", "tool", "adapter", "commands", "runs", "started_unix_ms", "completed_unix_ms", "deterministic_result_sha256", "unit_configuration_sha256", "resource_budget", "resource_usage", "inventory", "normalization"],
+  "properties": {
+    "schema": { "const": "proofbound-adapter-observation/1" },
+    "unit_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+    "evidence_kind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "review", "assumption", "open"] },
+    "outcome": { "enum": ["passed", "failed"] },
+    "input_artifacts": { "$ref": "#/$defs/artifacts" },
+    "generated_artifacts": { "$ref": "#/$defs/artifacts" },
+    "tool": { "$ref": "#/$defs/tool" },
+    "adapter": { "$ref": "#/$defs/tool" },
+    "commands": { "type": "array", "items": { "$ref": "#/$defs/command" }, "minItems": 1, "maxItems": 4096 },
+    "runs": { "type": "array", "items": { "$ref": "#/$defs/run" }, "minItems": 1, "maxItems": 4096 },
+    "started_unix_ms": { "type": "integer", "minimum": 0 },
+    "completed_unix_ms": { "type": "integer", "minimum": 0 },
+    "deterministic_result_sha256": { "$ref": "#/$defs/digest" },
+    "unit_configuration_sha256": { "$ref": "#/$defs/digest" },
+    "resource_budget": { "$ref": "#/$defs/budget" },
+    "resource_usage": { "$ref": "#/$defs/usage" },
+    "inventory": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 100000 },
+    "normalization": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "artifact_binding": { "$ref": "#/$defs/artifact_binding" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["logical_name", "sha256", "size_bytes"],
+      "properties": {
+        "logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "sha256": { "$ref": "#/$defs/digest" },
+        "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "maxItems": 100000 },
+    "tool": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "version", "identity_sha256"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "identity_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "environment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "value_sha256", "secret"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 256 },
+        "value_sha256": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "secret": { "type": "boolean" }
+      }
+    },
+    "command": {
+      "type": "object", "additionalProperties": false,
+      "required": ["program", "args", "environment_allowlist"],
+      "properties": {
+        "program": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "args": { "type": "array", "items": { "type": "string", "maxLength": 4096 }, "maxItems": 4096 },
+        "environment_allowlist": { "type": "array", "items": { "$ref": "#/$defs/environment" }, "maxItems": 256 }
+      }
+    },
+    "run": {
+      "type": "object", "additionalProperties": false,
+      "required": ["command_index", "exit_code", "stdout_sha256", "stderr_sha256", "normalized_output_sha256", "output_truncated", "duration_ms"],
+      "properties": {
+        "command_index": { "type": "integer", "minimum": 0 },
+        "exit_code": { "type": ["integer", "null"] },
+        "stdout_sha256": { "$ref": "#/$defs/digest" },
+        "stderr_sha256": { "$ref": "#/$defs/digest" },
+        "normalized_output_sha256": { "$ref": "#/$defs/digest" },
+        "output_truncated": { "type": "boolean" },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "budget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["time_ms", "disk_bytes", "memory_bytes"],
+      "properties": {
+        "time_ms": { "type": "integer", "minimum": 0 },
+        "disk_bytes": { "type": "integer", "minimum": 0 },
+        "memory_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["time_ms", "peak_disk_bytes", "peak_memory_bytes"],
+      "properties": {
+        "time_ms": { "type": "integer", "minimum": 0 },
+        "peak_disk_bytes": { "type": "integer", "minimum": 0 },
+        "peak_memory_bytes": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "artifact_binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["theorem", "claims", "artifact_logical_name", "artifact_sha256", "canonical_payload", "schema_bound", "literal_claim_bound", "digest_bound", "reencoding_passed", "trailing_bytes_rejected"],
+      "properties": {
+        "theorem": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "claims": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 128 }, "minItems": 1, "uniqueItems": true, "maxItems": 100000 },
+        "artifact_logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "artifact_sha256": { "$ref": "#/$defs/digest" },
+        "canonical_payload": { "const": true },
+        "schema_bound": { "const": true },
+        "literal_claim_bound": { "const": true },
+        "digest_bound": { "const": true },
+        "reencoding_passed": { "const": true },
+        "trailing_bytes_rejected": { "const": true }
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+schema = "proofbound-evidence-unit/1"
+id = "example-artifact-binding"
+adapter = "canonical-artifact"
+kind = "artifact-soundness"
+claims = ["EXAMPLE-ARTIFACT-001"]
+tier = 3
+evaluation_mode = "kernel"
+binding_mode = "bytes-in-theorem"
+theorem = "YourProject.Artifact.publishedArtifactSoundness"
+assumptions = []
+inputs = [
+  "path/to/FORMAT.md",
+  "path/to/ArtifactClaim.lean",
+  "path/to/artifact_binding.json",
+  "path/to/canonical_artifact_checker.py",
+  "path/to/published.certificate",
+]
+outputs = []
+expected_inventory = ["published-certificate"]
+environment_allowlist = ["PATH", "PYTHONPATH"]
+
+[operation]
+type = "artifact-check"
+checker = "path/to/canonical_artifact_checker.py"
+arguments = [
+  "path/to/published.certificate",
+  "path/to/artifact_binding.json",
+]
+paths = [
+  "path/to/published.certificate",
+  "path/to/artifact_binding.json",
+]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 1073741824

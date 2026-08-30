@@ -1,0 +1,10 @@
+schema = "proofbound-translation-toolchain/1"
+charon_revision = "unavailable-until-pinned-update"
+aeneas_revision = "unavailable-until-pinned-update"
+rust_toolchain = "1.94.0"
+lean_toolchain = "v4.33.0"
+
+# The first implementation refuses translation evidence while either revision
+# remains unavailable. `doctor` reports this as a capability gap; it never
+# upgrades the claim using the handwritten model alone.
+

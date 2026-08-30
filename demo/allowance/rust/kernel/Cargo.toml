@@ -1,0 +1,19 @@
+[package]
+name = "allowance-kernel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.93"
+publish = false
+
+[features]
+default = []
+mutation-testing = []
+
+[lib]
+path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }

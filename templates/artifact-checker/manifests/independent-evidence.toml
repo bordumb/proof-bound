@@ -1,0 +1,26 @@
+schema = "proofbound-evidence-unit/1"
+id = "example-artifact-independent"
+adapter = "independent-check"
+kind = "independent-check"
+claims = ["EXAMPLE-ARTIFACT-001"]
+tier = 1
+expected_inventory = ["published-certificate"]
+assumptions = []
+inputs = [
+  "path/to/FORMAT.md",
+  "path/to/independent_checker.py",
+  "path/to/published.certificate",
+]
+outputs = []
+environment_allowlist = ["PYTHONPATH"]
+
+[operation]
+type = "independent-check"
+checker = "path/to/independent_checker.py"
+arguments = ["path/to/published.certificate"]
+paths = ["path/to/FORMAT.md"]
+
+[resource_budget]
+time_seconds = 30
+disk_bytes = 67108864
+memory_bytes = 268435456

@@ -1,0 +1,12 @@
+schema = "proofbound-assumption/1"
+id = "EXAMPLE-U64-REP-001"
+statement = "Every natural-number value presented to the handwritten refinement relation is within the unsigned 64-bit carrier represented by the translated Rust function."
+category = "representation-premise"
+owner = "project formalization owner"
+rationale = "The richer Lean relation may use Nat while the shipping Rust function uses u64; the adapter boundary must retain this carrier condition explicitly."
+scope = "Only the source-refinement edge for EXAMPLE-KERNEL-001."
+affected_claims = ["EXAMPLE-KERNEL-001"]
+review_evidence = ["templates/rust-aeneas-refinement/README.md#representation-premise"]
+discharge_plan = "Register a theorem showing that the generated request adapter constructs only values at most u64::MAX, then connect it with a discharged-by edge."
+source_citation = "docs/specs/0001_initial_spec.md#632-representation-premises-are-never-inferred"
+status = "active"

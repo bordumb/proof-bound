@@ -1,0 +1,35 @@
+schema = "proofbound-translation-unit/1"
+id = "transfer-kernel"
+adapter = "charon-aeneas"
+packages = ["allowance-kernel"]
+start_from = ["allowance_kernel::decide_transfer"]
+opaque = []
+include = []
+generated_dir = "demo/allowance/lean/Generated/Allowance"
+handwritten_refinement = "demo/allowance/lean/ProofboundDemo/TransferRefinement.lean"
+determinism_runs = 2
+determinism_normalization = "pretty-printed-llbc/1"
+forbid_generated_axioms = true
+claims = [
+  "DEMO-TRANSFER-001",
+  "DEMO-TRANSFER-002",
+  "DEMO-TRANSFER-003",
+  "DEMO-TRANSFER-004",
+  "DEMO-TRANSFER-005",
+]
+template_axioms = []
+warning_inventory = []
+
+[[external_bridges]]
+file = "demo/allowance/lean/ProofboundDemo/Bridges/Kernel.lean"
+module = "ProofboundDemo.Bridges.Kernel"
+reviewed_sha256 = "sha256:346fd7f34aefb9ebe02669775abadb6dbc5576566ad6e109dac8bcf949dd219d"
+
+[import_mapping]
+mode = "external-source-root"
+source_roots = ["demo/allowance/lean"]
+
+[resource_budget]
+time_seconds = 1800
+disk_bytes = 26843545600
+memory_bytes = 8589934592

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/assumption.schema.json",
+  "title": "Proofbound assumption",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "statement", "category", "owner", "rationale", "scope", "affected_claims", "review_evidence", "discharge_plan", "status"],
+  "properties": {
+    "schema": { "const": "proofbound-assumption/1" },
+    "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$", "maxLength": 160 },
+    "statement": { "type": "string", "minLength": 1, "maxLength": 16384 },
+    "category": { "enum": ["mathematical-hypothesis", "representation-premise", "translator-tcb", "compiler-tcb", "runtime-environment", "external-provider", "cryptographic-library", "human-attestation", "native-evaluation"] },
+    "owner": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "rationale": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "scope": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "affected_claims": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
+    "review_evidence": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 512 }, "uniqueItems": true, "maxItems": 4096 },
+    "discharge_plan": { "type": "string", "minLength": 1, "maxLength": 8192 },
+    "source_citation": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "status": { "enum": ["active", "discharged", "retired"] }
+  }
+}
+

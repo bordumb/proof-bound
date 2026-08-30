@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/translation-unit.schema.json",
+  "title": "Proofbound translation unit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "adapter", "packages", "start_from", "opaque", "include", "generated_dir", "handwritten_refinement", "determinism_runs", "determinism_normalization", "forbid_generated_axioms", "resource_budget", "claims"],
+  "properties": {
+    "schema": { "const": "proofbound-translation-unit/1" },
+    "id": { "$ref": "#/$defs/id" },
+    "adapter": { "const": "charon-aeneas" },
+    "packages": { "$ref": "#/$defs/names" },
+    "start_from": { "$ref": "#/$defs/names" },
+    "opaque": { "$ref": "#/$defs/names" },
+    "include": { "$ref": "#/$defs/names" },
+    "generated_dir": { "$ref": "#/$defs/path" },
+    "handwritten_refinement": { "$ref": "#/$defs/path" },
+    "determinism_runs": { "const": 2 },
+    "determinism_normalization": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "forbid_generated_axioms": { "const": true },
+    "external_bridges": { "type": "array", "items": { "$ref": "#/$defs/bridge" }, "uniqueItems": true, "maxItems": 1024 },
+    "template_axioms": { "type": "array", "items": { "$ref": "#/$defs/templateAxiom" }, "uniqueItems": true, "maxItems": 1024 },
+    "warning_inventory": { "type": "array", "items": { "$ref": "#/$defs/warning" }, "uniqueItems": true, "maxItems": 4096 },
+    "import_mapping": { "$ref": "#/$defs/importMapping" },
+    "resource_budget": { "$ref": "#/$defs/budget" },
+    "claims": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+    "path": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
+    "names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "maxItems": 4096 },
+    "bridge": { "type": "object", "additionalProperties": false, "required": ["file", "reviewed_sha256"], "properties": { "file": { "$ref": "#/$defs/path" }, "module": { "type": "string", "minLength": 1 }, "reviewed_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } } },
+    "templateAxiom": { "type": "object", "additionalProperties": false, "required": ["file", "count", "compiled"], "properties": { "file": { "$ref": "#/$defs/path" }, "count": { "type": "integer", "minimum": 0 }, "compiled": { "const": false } } },
+    "warning": { "type": "object", "additionalProperties": false, "required": ["artifact", "line", "kind"], "properties": { "artifact": { "$ref": "#/$defs/path" }, "line": { "type": "integer", "minimum": 1 }, "kind": { "type": "string", "minLength": 1, "maxLength": 128 } } },
+    "importMapping": { "type": "object", "additionalProperties": false, "required": ["mode"], "properties": { "mode": { "enum": ["external-source-root", "audited-rewrite"] }, "source_roots": { "type": "array", "items": { "$ref": "#/$defs/path" }, "uniqueItems": true }, "rewrite_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } } },
+    "budget": { "type": "object", "additionalProperties": false, "required": ["time_seconds", "disk_bytes", "memory_bytes"], "properties": { "time_seconds": { "type": "integer", "minimum": 1 }, "disk_bytes": { "type": "integer", "minimum": 1 }, "memory_bytes": { "type": "integer", "minimum": 1 } } }
+  }
+}

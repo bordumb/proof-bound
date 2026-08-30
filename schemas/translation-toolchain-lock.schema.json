@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/translation-toolchain-lock.schema.json",
+  "title": "Proofbound translation toolchain lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "charon_revision", "aeneas_revision", "rust_toolchain", "lean_toolchain"],
+  "properties": {
+    "schema": { "const": "proofbound-translation-toolchain/1" },
+    "charon_revision": { "$ref": "#/$defs/revision" },
+    "aeneas_revision": { "$ref": "#/$defs/revision" },
+    "rust_toolchain": { "$ref": "#/$defs/toolchain" },
+    "lean_toolchain": { "$ref": "#/$defs/toolchain" }
+  },
+  "$defs": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "maxLength": 256
+    },
+    "toolchain": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._+:/-]+$",
+      "maxLength": 512
+    }
+  }
+}

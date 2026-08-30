@@ -1,0 +1,13 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-AXIOM-003"
+title = "Undeclared project axioms invalidate theorem claims"
+statement = "A theorem carrying a project axiom not admitted by its policy cannot produce a proved claim status."
+subject = "rust:proofbound_core::PolicyDefinition::theorem_admission"
+profile = "ledger"
+tier = 0
+evidence = ["test:core-workspace"]
+assumptions = []
+open_obligations = ["Compiled Lean inventory extraction remains in the adapter trust boundary."]
+out_of_scope = ["Soundness of the Lean kernel itself."]
+source_roots = ["crates/proofbound-core/src/policy.rs", "lean/Proofbound/Audit.lean"]
+

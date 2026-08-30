@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.4.0
+**Version:** 0.5.0
 
 **Date:** 2026-08-30
 
@@ -12,6 +12,12 @@
 
 ### Revision history
 
+- **0.5.0** — bootstrap-contract reconciliation: defines the Tier 0 `ledger`
+  profile as an immutable built-in (§9.1); makes every shipped project and
+  claim manifest field normative (§11.1–11.2); closes the adapter observation
+  and canonical evidence wire schemas (§10.2); and records that the initial
+  implementation bootstrap cannot supply the historical ledger-before-proofs
+  evidence required of later dogfood milestones (§20 and ADR 0001).
 - **0.4.0** — precision revisions: separates trusted-transcription evidence
   from artifact soundness (§5, §7.1.1); defines a versioned canonical Lean
   expression encoding for statement identity (§8.2, §11.2); inventories only
@@ -290,7 +296,7 @@ Two qualifiers keep the strong kinds honest:
 - **Evaluation mode.** Every `theorem` and `artifact-soundness` record MUST
   state how the proof was checked: `kernel` (ordinary elaboration, `decide`)
   or `native` (`native_decide` or compiled evaluation). Native evaluation
-  enlarges the trusted computing base (§9.5) and must be visible at the
+  enlarges the trusted computing base (§9.6) and must be visible at the
   evidence level, not only in the trust profile.
 - **Binding mode.** Every `artifact-soundness` record MUST state binding mode
   `bytes-in-theorem` or `digest-theorem`. Every `trusted-transcription` record
@@ -343,9 +349,48 @@ Edges have explicit semantics:
 - `reviewed-by`; and
 - `admitted-by-policy`.
 
-Unknown node or edge kinds MUST be rejected. Cycles are allowed only for
-declared mutual theorem dependencies internal to one proof environment; cycles
-in artifact generation or provenance are invalid.
+The legal endpoint kinds are closed and normative:
+
+| Edge kind | Legal `(from, to)` node-kind pairs |
+|---|---|
+| `proves` | `(theorem, claim)` |
+| `refines` | `(translation-unit, claim)` |
+| `decodes` | `(artifact, claim)` |
+| `checks` | `(test-suite, claim)`, `(model-check-unit, claim)` |
+| `generated-from` | `(artifact, subject)` |
+| `depends-on` | `(claim, subject)`, `(subject, artifact)`, `(theorem, theorem)` |
+| `assumes` | `(claim, assumption)`, `(claim, premise)`, `(theorem, premise)`, `(assumption, claim)`, `(claim, claim)` |
+| `discharged-by` | `(premise, theorem)` |
+| `cross-checks` | `(test-suite, claim)`, `(model-check-unit, claim)` |
+| `covers-bounded-domain` | `(model-check-unit, claim)` |
+| `binds-digest` | `(artifact, claim)` |
+| `reviewed-by` | `(review, claim)`, `(assumption, review)` |
+| `admitted-by-policy` | `(claim, policy)` |
+
+`source-closure`, `toolchain`, and `tcb-component` nodes have no legal edge in
+this schema version. They remain typed inventory nodes and MUST NOT acquire an
+invented relationship merely to make them connected.
+
+The trusted in-process construction API MUST encode this table in its types:
+callers select an edge relation whose marker type accepts only the legal typed
+endpoint references. A generic unchecked `GraphEdge { from, to, kind }`
+constructor MUST NOT be public. A compiler assembling nodes dynamically MAY use
+a checked constructor derived from the same single table and MUST handle its
+error before emitting the graph. Because canonical JSON is an untrusted input,
+deserialization necessarily remains capable of representing an illegal edge;
+both the core validator and the dependency-independent release verifier MUST
+recheck the complete table and fail closed. Compile-fail tests MUST demonstrate
+that at least one kind-correct but relation-invalid construction, such as
+`test-suite --proves--> toolchain`, is rejected by Rust's type checker.
+
+Node identities retain one wire-level `NodeId` representation so graph records
+remain compact and language-neutral. Trusted constructors wrap those identities
+in node-kind marker references before an edge can be built; this closes
+claim/theorem/subject confusion at the construction boundary without requiring
+fourteen distinct serialized ID formats. Unknown node or edge kinds and illegal
+endpoint pairs MUST be rejected. Cycles are allowed only for declared mutual
+theorem dependencies internal to one proof environment; cycles in artifact
+generation or provenance are invalid.
 
 ### 6.3 Status derivation
 
@@ -411,6 +456,13 @@ Additional rules:
   demotion. Discharge is the only mechanism that removes a premise from the
   assumption facet, and it is policy-gated precisely so it cannot become a
   status-upgrade backdoor.
+- A Tier 0 ledger MAY register a future theorem premise before its owning
+  theorem evidence exists. Such a premise is attached directly to the claim by
+  an `assumes` edge, has no `theorem_evidence` identity, is necessarily
+  undischarged, and cannot contribute proof or linkage strength. Once the
+  theorem is registered, the premise record MUST bind that exact theorem
+  evidence identity. This narrow bootstrap form keeps a known representation
+  obligation visible without fabricating a theorem receipt.
 - **Precedence.** The formal facet takes the strongest evidence the policy
   admits. Weaker evidence is retained and displayed beneath the summary; it
   is never discarded or double-counted.
@@ -482,7 +534,7 @@ Requirements:
 - explicit separation between search/production and trusted checking.
 
 Full byte binding has real cost: embedding published bytes in the theorem
-generally requires native evaluation (which enlarges the TCB, §9.5) and grows
+generally requires native evaluation (which enlarges the TCB, §9.6) and grows
 generated modules. That cost is recorded in the TCB ledger and the evidence
 evaluation mode; it is not a reason to silently weaken the binding.
 
@@ -513,7 +565,7 @@ soundness:
 - its linkage facet is `TRANSCRIBED`, never `ARTIFACT_BOUND` (§6.3.2);
 - the transcriber and re-encoder join the claim's TCB inventory as
   `tcb-component` nodes; and
-- profile `artifact-bound` (§9.3) rejects it.
+- profile `artifact-bound` (§9.4) rejects it.
 
 ### 7.2 Pattern B: translated source refinement
 
@@ -701,7 +753,25 @@ it as a premise. Proofbound must distinguish:
 Policies are named trust profiles rather than informal release conventions.
 The initial built-in profiles are:
 
-### 9.1 `kernel`
+### 9.1 `ledger`
+
+- This is the built-in Tier 0 adoption profile.
+- It admits registered property-test, example-test, mutation-witness, review,
+  assumption, and open evidence; independent-check, exhaustive-check,
+  theorem, artifact-soundness,
+  source-refinement, and bounded-check evidence are not required or admitted
+  as formal proof by this profile.
+- Its strongest formal status is `TESTED`; absent passing empirical evidence is
+  `OPEN`. It never emits `PROVED` or `BOUNDED_CHECKED`.
+- Subject linkage is always `MODEL_ONLY`; stronger linkage evidence may remain
+  visible only as non-admitted supporting evidence and cannot promote a
+  Tier 0 claim.
+- Every report includes the mandatory “not proved / out of scope” section,
+  even when all registered Tier 0 tests pass.
+- Explicit assumptions remain first-class and are never hidden by a passing
+  test.
+
+### 9.2 `kernel`
 
 - Named theorem compiles.
 - No project axioms.
@@ -709,13 +779,13 @@ The initial built-in profiles are:
 - Only configured foundational proof-system axioms are allowed.
 - Evaluation mode is `kernel`.
 
-### 9.2 `kernel-with-assumptions`
+### 9.3 `kernel-with-assumptions`
 
 - Named theorem compiles.
 - Every project axiom is explicitly registered and allowlisted.
 - Claim output enumerates those assumptions prominently.
 
-### 9.3 `artifact-bound`
+### 9.4 `artifact-bound`
 
 - Satisfies `kernel` or `kernel-with-assumptions`.
 - The theorem binds canonical payload bytes, schema, literal claim, and digest.
@@ -723,21 +793,21 @@ The initial built-in profiles are:
   `trusted-transcription` evidence does not qualify (§7.1.1).
 - Re-encoding and trailing-byte checks pass.
 
-### 9.4 `source-refined`
+### 9.5 `source-refined`
 
 - Translation is deterministic and pinned.
 - Generated code compiles without undeclared axioms.
 - A named theorem connects the translated production function to the semantic
   model under registered representation premises.
 
-### 9.5 `native-evaluated`
+### 9.6 `native-evaluated`
 
 - A certificate-specific native evaluation premise is registered.
 - The policy states whether exactly one such premise is required.
 - The native implementation and complete TCB inventory are bound.
 - Every admitted theorem's evidence record carries evaluation mode `native`.
 
-### 9.6 `bounded`
+### 9.7 `bounded`
 
 - The bounded domain is explicit.
 - All harnesses are inventoried.
@@ -789,6 +859,15 @@ The core owns:
 
 The core does not own domain theorem statements or production semantics.
 
+Wire strings that are compared or interpreted as machine keys MUST cross the
+core boundary through schema-matched validated types, not interchangeable raw
+`String` values. In schema version 1 this applies to artifact `logical_name`
+and environment-variable `name`: both retain their ordinary JSON-string wire
+shape while enforcing the public length and syntax rules during construction
+and deserialization. Human-facing labels, tool display names and versions,
+command arguments, and diagnostic text remain bounded free text; content
+digests, not those labels alone, establish tool or artifact identity.
+
 ### 10.2 Adapters
 
 Adapters turn external tool results into canonical evidence records. An adapter
@@ -823,9 +902,14 @@ metadata, not source-text scanning (§17).
 Adapters communicate with the orchestrator over a versioned JSON subprocess
 protocol: requests and responses are schema-validated canonical JSON on
 stdin/stdout (`schemas/adapter-protocol.schema.json`), and evidence is
-returned as canonical receipt records. An adapter is therefore any process in
-any language that speaks the protocol — future language verticals do not link
-against the Rust core, and no adapter couples to a Rust ABI.
+returned either as a complete `proofbound-evidence/1` record or as a strict
+`proofbound-adapter-observation/1` execution receipt that the assurance
+compiler deterministically enriches with graph and source-closure identities.
+The latter prevents a tool adapter from fabricating project provenance it does
+not own. Both alternatives are closed schemas; an arbitrary JSON object is not
+an evidence boundary. An adapter is therefore any process in any language that
+speaks the protocol — future language verticals do not link against the Rust
+core, and no adapter couples to a Rust ABI.
 
 ### 10.3 Project plugins
 
@@ -875,11 +959,22 @@ Root `proofbound.toml`:
 ```toml
 schema = "proofbound-project/1"
 project = "allowance-demo"
+tier = 3
+
+claim_manifests = ["claims/*.toml"]
+assumption_manifests = ["assumptions/*.toml"]
+evidence_units = ["proofbound/evidence/*.toml"]
+translation_units = ["proofbound/translations/*.toml"]
+model_check_units = ["proofbound/model-checks/*.toml"]
+policy_manifests = ["proofbound/policies/*.toml"]
+review_manifests = ["proofbound/reviews/*.toml"]
+demo_registry = "proofbound/demos.toml"
 
 [source]
 semantic = ["rust/kernel/**", "lean/Allowance/**", "claims/**"]
 runner = ["python/**", "Cargo.lock", "lake-manifest.json"]
 presentation = ["demo/**", "docs/**"]
+external_evidence = ["docs/assurance/reference-audits/**"]
 
 [toolchains]
 rust = "rust-toolchain.toml"
@@ -887,10 +982,29 @@ lean = "lean-toolchain"
 python = ".python-version"
 translation = "proofbound/toolchains/translation.lock"
 
-claim_manifests = ["claims/*.toml"]
-translation_units = ["proofbound/translations/*.toml"]
-model_check_units = ["proofbound/model-checks/*.toml"]
+[limits]
+max_manifest_bytes = 2097152
+max_files = 100000
+max_total_bytes = 4294967296
 ```
+
+The project manifest is strict and rejects unknown fields. `tier` is the
+project-wide adoption ceiling from Section 4.3. The manifest arrays are
+relative, repository-contained paths or glob patterns for claims, assumptions,
+executable evidence units, translation units, model-check units, custom
+policies, and regression-review approvals. `demo_registry` is the optional
+single registry used by `proofbound demo`.
+
+The four source classes are security-relevant. `semantic` bytes can change a
+claim's meaning; `runner` bytes can change how evidence is produced;
+`presentation` bytes do not enter semantic closures; and `external_evidence`
+names audited material outside normal production semantics that must still be
+content-addressed. `[toolchains]` binds optional toolchain descriptor files.
+`[limits]` places fail-closed caps on individual manifest bytes, discovered
+files, and total closure bytes. Omitted optional collections are empty; omitted
+limits use the versioned schema defaults. `schemas/project.schema.json` is the
+machine-readable contract and MUST remain field-for-field consistent with this
+section.
 
 ### 11.2 Claim manifest
 
@@ -899,11 +1013,16 @@ schema = "proofbound-claim/1"
 id = "DEMO-TRANSFER-001"
 title = "Accepted transfers conserve value"
 statement = "For every accepted transfer, debit + credit is conserved."
+public_language = "Accepted transfers preserve the combined account value."
 formal_declaration = "ProofboundDemo.Transfer.accept_conserves"
 statement_encoding = "lean-expr-cbor/1"
-statement_sha256 = "…"
+statement_sha256 = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+foundational_axioms = ["Quot.sound", "propext"]
 subject = "rust:allowance-kernel::decide_transfer"
+subject_closure = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 profile = "source-refined"
+tier = 3
+primary_linkage = "refined"
 
 evidence = [
   "translation:transfer-kernel",
@@ -913,7 +1032,43 @@ evidence = [
 ]
 
 assumptions = ["DEMO-IDENTITY-AX-001"]
+premises = ["DEMO-U64-REP-001"]
+open_obligations = []
+out_of_scope = ["Correctness of the pinned compiler and proof-kernel TCB."]
+source_roots = ["rust/kernel/**", "lean/Allowance/Transfer/**"]
+
+[bounded_domain]
+id = "allowance-request-domain"
+description = "The explicitly registered finite request subdomain."
+cardinality = 17179869184
+ordering_key = [0, 1, 2, 3, 4, 5]
 ```
+
+Every claim has a stable ID, exact internal `statement`, bound `subject`, trust
+`profile`, cited `evidence`, cited `assumptions`, and explicit
+`open_obligations` and `out_of_scope` lists. `public_language` is an optional
+reader-facing restatement and cannot strengthen `statement`. `tier` optionally
+lowers the project ceiling for this claim. `primary_linkage` is required when
+more than one valid linkage is present and selects one of `refined`,
+`artifact-bound`, `transcribed`, or `model-only`. `premises` names
+representation or other dischargeable premises. `source_roots` overrides the
+project semantic patterns for the claim and therefore defines the minimum
+per-claim closure granularity from Section 11.4. `bounded_domain`, when used,
+defines the finite domain language, cardinality, and deterministic ordering
+that bounded evidence must match.
+
+The formal-declaration fields are an all-or-none triple. `formal_declaration`
+names the compiled Lean declaration; `statement_encoding` names the canonical
+encoding; and `statement_sha256` binds the encoded elaborated expression.
+`foundational_axioms` is the sorted exact expected transitive foundational
+axiom inventory for that declaration; project axioms are mapped separately to
+registered assumptions. A missing, extra, or reclassified axiom invalidates
+the compiled claim inventory.
+`subject_closure` optionally pins a previously reviewed semantic closure and
+drift invalidates it. The all-zero digests above are illustrative placeholders,
+not admissible reviewed evidence. `schemas/claim.schema.json` is the
+machine-readable contract and MUST remain field-for-field consistent with this
+section.
 
 `statement_sha256` binds the claim to the bytes produced by
 `statement_encoding`, currently the canonical elaborated-expression encoding
@@ -922,6 +1077,18 @@ Drift between the manifest digest and the compiled statement — a silently
 restated theorem — renders the claim `INVALID`. Subject identity is a
 symbol-level binding plus the claim's source closure; Proofbound does not
 pretend to bind object code, and says so in the receipt.
+
+Evidence units may use the `python-test` adapter with operation type
+`generator` when the same registered program both verifies and deliberately
+regenerates committed fixtures. Such a unit is `example-test` evidence only
+for its verify-only `check`/`reproduce` execution; `update` returns no evidence.
+Its non-empty `outputs` list is a literal, exact write allowlist, every output
+is also registered in `inputs` so committed drift invalidates cached checks,
+and `expected_inventory` is exactly the output list. The adapter invokes the
+program without a write switch for verification and may add the reserved
+`--update` switch only for `proofbound update UNIT` inside the orchestrator's
+sealed update shadow. A successful update response therefore carries no
+evidence record: regeneration is not assurance evidence.
 
 ### 11.3 Translation unit
 
@@ -1045,6 +1212,7 @@ proofbound graph [--format dot|json|html]
 proofbound diff BASE..HEAD
 proofbound update UNIT
 proofbound demo NAME
+proofbound release [--output DIR]
 ```
 
 ### 12.2 Behavior
@@ -1103,12 +1271,21 @@ Errors include:
 - affected downstream claims; and
 - remediation.
 
+When a command accepts `--json`, failures are emitted as the strict
+`proofbound-error/1` envelope in `schemas/error.schema.json`. Every field above
+is present in the envelope; fields that do not apply are `null` or an empty
+list rather than being omitted. Human output carries the same stable code and
+remediation. An unexpected internal error uses the reserved `PB-CLI-0001`
+fallback and MUST NOT be presented as a domain-specific validation result.
+
 ## 13. Initial repository structure
 
 The project SHOULD begin with:
 
 ```text
 proof-bound/
+├── .cargo/
+│   └── config.toml              # locked cargo xtask alias
 ├── AGENTS.md
 ├── README.md
 ├── LICENSE
@@ -1132,7 +1309,8 @@ proof-bound/
 │   ├── proofbound-adapter-lean/
 │   ├── proofbound-adapter-aeneas/
 │   ├── proofbound-adapter-kani/
-│   └── proofbound-adapter-test/
+│   ├── proofbound-adapter-test/
+│   └── xtask/                    # typed, cheap-first repository gate runner
 │
 ├── lean/
 │   ├── Proofbound/
@@ -1149,10 +1327,23 @@ proof-bound/
 ├── schemas/
 │   ├── project.schema.json
 │   ├── claim.schema.json
+│   ├── evidence-unit.schema.json
 │   ├── evidence.schema.json
 │   ├── assumption.schema.json
+│   ├── policy.schema.json
+│   ├── review.schema.json
 │   ├── translation-unit.schema.json
+│   ├── model-check-unit.schema.json
+│   ├── translation-toolchain-lock.schema.json
+│   ├── mutation-registry.schema.json
 │   ├── adapter-protocol.schema.json
+│   ├── adapter-observation.schema.json
+│   ├── closure.schema.json
+│   ├── demo-registry.schema.json
+│   ├── error.schema.json
+│   ├── graph.schema.json
+│   ├── report.schema.json
+│   ├── tcb.schema.json
 │   ├── lean-expr-v1.cddl
 │   └── receipt.schema.json
 │
@@ -1471,6 +1662,16 @@ The initial CI stages are:
     the graph and facets from the receipts the earlier stages produced, and
     its verdict — not the orchestrator's — is the verdict CI reports.
 
+Repository implementations may group these stages behind a typed development
+runner such as `cargo xtask ci`, but the ordering and trust boundary remain
+visible and testable. Cheap deterministic checks — formatting, linting,
+schemas, unit tests, and a proof-free release/verifier round trip — run before
+costly registered proof or model-check units. A full gate executes the fresh
+assurance compilation only once; release reproduction consumes those same
+receipts, and the standalone verifier remains the last process that decides
+success. Shell snippets are not used to construct adapter or release command
+arguments or temporary paths.
+
 ### 18.1 Verify vs update policy
 
 Every CI event class — pull request, push, schedule, release — runs
@@ -1508,6 +1709,15 @@ A release contains:
 - source and toolchain closures;
 - demo receipts; and
 - signed build provenance where available.
+
+`tcb-ledger.json` uses schema `proofbound-tcb-ledger/1`. Its sorted unique
+`components` array contains the exact `{ name, version, identity_sha256 }`
+identity of every tool and adapter named by released evidence; it does not
+invent a component category or rationale that the underlying receipt did not
+record. The independent verifier parses this ledger strictly and requires its
+component set to equal the union recomputed from evidence provenance. A
+missing, extra, duplicate, malformed, or conflicting component invalidates the
+release.
 
 Release verification runs through `proofbound-verify` (§10.4), so a release
 is checkable by a third party holding only the release artifacts and the

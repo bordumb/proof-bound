@@ -1,0 +1,27 @@
+schema = "proofbound-evidence-unit/1"
+id = "pbac-independent-diagnostic"
+adapter = "independent-check"
+kind = "independent-check"
+claims = ["PBAC-SUM-001", "PBAC-CALIBRATED-001"]
+tier = 1
+assumptions = []
+expected_inventory = ["valid-basic.pbac"]
+inputs = [
+  "demo/artifact-certificate/FORMAT.md",
+  "demo/artifact-certificate/fixtures/valid-basic.pbac",
+  "demo/artifact-certificate/fixtures/manifest.json",
+  "demo/artifact-certificate/python/artifact_certificate/checker.py",
+]
+outputs = []
+environment_allowlist = ["PATH", "PYTHONPATH"]
+
+[operation]
+type = "independent-check"
+checker = "demo/artifact-certificate/python/artifact_certificate/checker.py"
+arguments = ["demo/artifact-certificate/fixtures/valid-basic.pbac"]
+paths = ["demo/artifact-certificate/fixtures/manifest.json"]
+
+[resource_budget]
+time_seconds = 30
+disk_bytes = 67108864
+memory_bytes = 268435456

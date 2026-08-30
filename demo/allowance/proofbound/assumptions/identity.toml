@@ -1,0 +1,16 @@
+schema = "proofbound-assumption/1"
+id = "DEMO-IDENTITY-AX-001"
+statement = "The external identity provider's authorized=true response correctly identifies the holder of the source account."
+category = "external-provider"
+owner = "allowance-demo integrator"
+rationale = "The demo proves consequences of the authorization bit but neither Lean nor the Rust kernel authenticates a human or proves an external provider honest."
+scope = "Only the real-world interpretation of accepted transfers as authorized by the source-account holder; arithmetic safety and byte decoding do not depend on it."
+affected_claims = [
+  "DEMO-TRANSFER-001",
+  "DEMO-TRANSFER-002",
+  "DEMO-TRANSFER-003",
+]
+review_evidence = ["demo/allowance/README.md#explicit-assumption"]
+discharge_plan = "Replace the Boolean input boundary with a separately registered, policy-admitted authentication theorem or artifact-bound verification result."
+source_citation = "docs/specs/0001_initial_spec.md#143-explicit-assumption"
+status = "active"

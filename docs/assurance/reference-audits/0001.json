@@ -1,0 +1,31 @@
+{
+  "schema": "proofbound-reference-audit/1",
+  "specification": "docs/specs/0001_initial_spec.md",
+  "audited_at": "2026-08-30",
+  "subjects": [
+    {
+      "name": "Auths Proof",
+      "revision": "95c9d4583e10fdc3ffaecc0a96790bec1c922640",
+      "source_closure_sha256": "616fcfae33e76019a1e9c59dfc886375b8e2f92dbf381fb2074a7df7bfa5f741",
+      "closure_record": "formal/qualification/aeneas/source-closure.json",
+      "closure_record_sha256": "9bb83f20310acee4edbeb0b78ec2474171789e1cc976b7fc34b742e2335fdacc",
+      "retrieval": {
+        "kind": "pinned-git-revision",
+        "durable": true
+      }
+    },
+    {
+      "name": "Matrix Math",
+      "revision": "fb7afc70b27bbbf5c3cb8fde61e9d9acb482501d",
+      "source_closure_sha256": "7c47b198db3e279bf21f3839c877a851fefd23e475c4277f7dcd93dc22719048",
+      "closure_record": null,
+      "closure_record_sha256": null,
+      "retrieval": {
+        "kind": "retained-local-clone",
+        "durable": false,
+        "caveat": "The audited clone has no remote. Its closure identity was independently recomputed, but the bytes have not yet been sealed in a durable Proofbound CAS archive. The audit is reproducible only while that clone is retained."
+      }
+    }
+  ]
+}
+

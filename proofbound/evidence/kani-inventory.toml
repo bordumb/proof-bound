@@ -1,0 +1,23 @@
+schema = "proofbound-evidence-unit/1"
+id = "kani-inventory"
+adapter = "rust-test"
+kind = "example-test"
+claims = ["PB-SELF-KANI-004"]
+tier = 0
+inputs = ["crates/proofbound-adapter-kani/src/lib.rs"]
+outputs = []
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+expected_inventory = ["proofbound_adapter_kani::tests::inventory_comparison_reports_missing_and_extra"]
+
+[operation]
+type = "cargo-test"
+package = "proofbound-adapter-kani"
+manifest = "Cargo.toml"
+targets = ["--lib"]
+paths = []
+arguments = []
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 1073741824
+memory_bytes = 1073741824

@@ -1,0 +1,23 @@
+schema = "proofbound-evidence-unit/1"
+id = "accept-no-overdraft"
+adapter = "lean"
+kind = "theorem"
+claims = ["DEMO-TRANSFER-002"]
+tier = 2
+evaluation_mode = "kernel"
+theorem = "ProofboundDemo.Claims.Transfer.accept_never_overdraws"
+inputs = [
+  "demo/allowance/lean/ProofboundDemo/Claims/Transfer.lean",
+  "demo/allowance/lean/ProofboundDemo/Transfer.lean",
+]
+environment_allowlist = ["LEAN_PATH", "PATH"]
+
+[operation]
+type = "lean-audit"
+targets = ["ProofboundDemo.Claims.Transfer.accept_never_overdraws"]
+paths = ["demo/allowance/lean/ProofboundDemo/Claims/Transfer.lean"]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 1073741824

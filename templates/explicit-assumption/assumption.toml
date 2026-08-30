@@ -1,0 +1,12 @@
+schema = "proofbound-assumption/1"
+id = "EXAMPLE-IDENTITY-AX-001"
+statement = "The external identity provider's authorized = true response correctly identifies the holder of the source account."
+category = "external-provider"
+owner = "service integration owner"
+rationale = "The application proves and tests consequences of the provider response but does not prove the external provider honest or the human identity correct."
+scope = "Only the interpretation of EXAMPLE-AUTHORIZED-ACTION-001 as authorized by the source-account holder."
+affected_claims = ["EXAMPLE-AUTHORIZED-ACTION-001"]
+review_evidence = ["templates/explicit-assumption/README.md#review-boundary"]
+discharge_plan = "Replace the Boolean trust boundary with a separately registered authentication theorem or artifact-bound attestation check."
+source_citation = "docs/specs/0001_initial_spec.md#143-explicit-assumption"
+status = "active"

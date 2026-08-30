@@ -1,0 +1,27 @@
+schema = "proofbound-claim/1"
+id = "DEMO-TRANSFER-006"
+title = "Canonical request bytes decode consistently"
+statement = "Rust and Lean independently decode the registered version-1 accepted fixture to from=100, to=25, amount=30, cap=40, authorized=true."
+public_language = "The registered canonical request fixture is independently decoded to the same bounded request by Rust and Lean."
+subject = "artifact:demo/allowance/fixtures/v1/accepted.bin#sha256:75e52899209a8995303241c53b801553f6bd53be6da51320eb7f3409682930f1"
+formal_declaration = "ProofboundDemo.Claims.Canonical.acceptedFixture_decodes"
+statement_encoding = "lean-expr-cbor/1"
+statement_sha256 = "sha256:3b8154589c923160b2d8f22aa4809d00ac2afb0e6040c4416734017a08776a1e"
+foundational_axioms = ["propext"]
+profile = "kernel"
+tier = 2
+primary_linkage = "model-only"
+evidence = [
+  "theorem:canonical-decode",
+  "property-test:rust-kernel-tests",
+]
+assumptions = []
+open_obligations = []
+out_of_scope = ["Authenticity or provenance of whoever produced the fixture."]
+source_roots = [
+  "demo/allowance/fixtures/v1/accepted.bin",
+  "demo/allowance/fixtures/v1/manifest.json",
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/lean/ProofboundDemo/Claims/Canonical.lean",
+  "demo/allowance/lean/ProofboundDemo/Canonical.lean",
+]

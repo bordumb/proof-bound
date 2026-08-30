@@ -1,0 +1,17 @@
+[package]
+name = "proofbound-adapter-kani"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+proofbound-evidence = { path = "../proofbound-evidence" }
+proofbound-manifest = { path = "../proofbound-manifest" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+walkdir.workspace = true

@@ -1,0 +1,37 @@
+schema = "proofbound-claim/1"
+id = "DEMO-TRANSFER-002"
+title = "Accepted transfers never overdraw the source"
+statement = "For every accepted request, the returned source balance is no greater than the input source balance and checked subtraction has succeeded."
+public_language = "Given the explicit identity-provider assumption, an accepted transfer cannot overdraw the source account."
+subject = "rust:allowance-kernel::decide_transfer"
+formal_declaration = "ProofboundDemo.Claims.Transfer.accept_never_overdraws"
+statement_encoding = "lean-expr-cbor/1"
+statement_sha256 = "sha256:ee8be8f8ba76cabdee9ef30d570fe4eb4459b142152b3fd1849c783a620342e8"
+foundational_axioms = ["Quot.sound", "propext"]
+profile = "kernel-with-assumptions"
+tier = 2
+primary_linkage = "model-only"
+evidence = [
+  "theorem:accept-no-overdraft",
+  "bounded-check:transfer-bounds",
+  "property-test:rust-kernel-tests",
+  "mutation-witness:guard-mutations",
+]
+assumptions = ["DEMO-IDENTITY-AX-001"]
+premises = ["DEMO-U64-REP-001"]
+open_obligations = [
+  "Produce a deterministic Charon/Aeneas receipt for the registered shipping symbol.",
+]
+out_of_scope = ["Concurrent balance changes outside this pure decision kernel."]
+source_roots = [
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/lean/ProofboundDemo/Claims/Transfer.lean",
+  "demo/allowance/lean/ProofboundDemo/Transfer.lean",
+  "demo/allowance/lean/ProofboundDemo/TransferRefinement.lean",
+]
+
+[bounded_domain]
+id = "allowance-u8-seeds-with-overflow-lane"
+description = "All four u8 numeric seeds, both authorization values, and both low/high destination lanes; 2^34 finite requests, including destination-overflow cases."
+cardinality = 17179869184
+ordering_key = [0, 1, 2, 3, 4, 5]

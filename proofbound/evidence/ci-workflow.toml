@@ -1,0 +1,29 @@
+schema = "proofbound-evidence-unit/1"
+id = "ci-workflow"
+adapter = "rust-test"
+kind = "example-test"
+claims = ["PB-SELF-CI-009"]
+tier = 0
+inputs = [
+  ".cargo/config.toml",
+  ".github/workflows/ci.yml",
+  "justfile",
+  "crates/xtask/src/main.rs",
+  "crates/proofbound-manifest/src/validate.rs",
+]
+outputs = []
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+expected_inventory = ["proofbound_manifest::validate::tests::ci_workflow_registers_every_verify_only_stage_and_final_verifier"]
+
+[operation]
+type = "cargo-test"
+package = "proofbound-manifest"
+manifest = "Cargo.toml"
+targets = ["--lib"]
+paths = []
+arguments = []
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 1073741824
+memory_bytes = 1073741824

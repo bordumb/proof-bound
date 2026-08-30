@@ -1,0 +1,21 @@
+schema = "proofbound-claim/1"
+id = "DEMO-TRANSFER-007"
+title = "Python submits the exact canonical request bytes"
+statement = "In the registered example execution, the Python orchestrator submits the exact fixture bytes and accepts only a receiver receipt containing their SHA-256 digest."
+public_language = "Observed in the registered example test: Python submitted the exact canonical bytes and the receiver acknowledged their digest. This is empirical TESTED evidence, not a theorem."
+subject = "python:proofbound_demo.allowance::submit_exact_bytes"
+profile = "ledger"
+tier = 0
+primary_linkage = "model-only"
+evidence = ["example-test:python-exact-bytes"]
+assumptions = []
+open_obligations = []
+out_of_scope = [
+  "Network delivery beyond the registered SubmissionTransport boundary.",
+  "Execution or settlement by an external transfer provider.",
+]
+source_roots = [
+  "demo/allowance/python/proofbound_demo/allowance.py",
+  "demo/allowance/python/tests/test_allowance.py",
+  "demo/allowance/fixtures/v1/accepted.bin",
+]

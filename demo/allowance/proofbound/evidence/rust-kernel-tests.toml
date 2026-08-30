@@ -1,0 +1,37 @@
+schema = "proofbound-evidence-unit/1"
+id = "rust-kernel-tests"
+adapter = "rust-test"
+kind = "property-test"
+claims = [
+  "DEMO-TRANSFER-001",
+  "DEMO-TRANSFER-002",
+  "DEMO-TRANSFER-003",
+  "DEMO-TRANSFER-004",
+  "DEMO-TRANSFER-005",
+  "DEMO-TRANSFER-006",
+]
+tier = 0
+expected_inventory = [
+  "allowance_kernel::tests::accepted_transfer_uses_checked_arithmetic",
+  "allowance_kernel::tests::canonical_encoding_round_trips",
+  "canonical_fixtures::accepted_fixture_decodes_and_evaluates",
+  "canonical_fixtures::decoder_rejects_noncanonical_and_trailing_inputs",
+  "canonical_fixtures::denied_fixtures_have_stable_codes_and_unchanged_state",
+]
+inputs = [
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/rust/kernel/tests/canonical_fixtures.rs",
+  "demo/allowance/fixtures/v1/manifest.json",
+]
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+
+[operation]
+type = "cargo-test"
+package = "allowance-kernel"
+manifest = "Cargo.toml"
+targets = ["--lib", "--test=canonical_fixtures"]
+
+[resource_budget]
+time_seconds = 120
+disk_bytes = 1073741824
+memory_bytes = 2147483648

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/evidence-unit.schema.json",
+  "title": "Proofbound evidence unit configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "adapter", "kind", "claims", "tier", "operation", "resource_budget"],
+  "properties": {
+    "schema": { "const": "proofbound-evidence-unit/1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+    "adapter": { "enum": ["lean", "charon-aeneas", "kani", "rust-test", "python-test", "canonical-artifact", "source-closure", "independent-check", "human-review"] },
+    "kind": { "$ref": "evidence.schema.json#/$defs/kind" },
+    "claims": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
+    "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "operation": { "type": "object", "additionalProperties": false, "required": ["type"], "properties": {
+      "type": { "enum": ["cargo-test", "pytest", "generator", "lean-audit", "kani", "translation", "artifact-check", "independent-check", "review", "closure"] },
+      "package": { "type": "string", "minLength": 1, "maxLength": 256 },
+      "targets": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "maxItems": 4096 },
+      "paths": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 4096 },
+      "manifest": { "type": "string", "minLength": 1, "maxLength": 4096 },
+      "inventory": { "type": "string", "minLength": 1, "maxLength": 4096 },
+      "checker": { "type": "string", "minLength": 1, "maxLength": 4096 },
+      "arguments": { "type": "array", "items": { "type": "string", "maxLength": 4096 }, "maxItems": 4096 }
+    } },
+    "evaluation_mode": { "enum": ["kernel", "native"] },
+    "binding_mode": { "enum": ["bytes-in-theorem", "digest-theorem", "external-round-trip"] },
+    "theorem": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "refinement_theorem": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "premises": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "maxItems": 4096 },
+    "assumptions": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "maxItems": 4096 },
+    "expected_inventory": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "maxItems": 100000 },
+    "inputs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 100000 },
+    "outputs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 100000 },
+    "environment_allowlist": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" }, "uniqueItems": true, "maxItems": 256 },
+    "bounded_domain": { "$ref": "claim.schema.json#/$defs/boundedDomain" },
+    "resource_budget": { "type": "object", "additionalProperties": false, "required": ["time_seconds", "disk_bytes", "memory_bytes"], "properties": { "time_seconds": { "type": "integer", "minimum": 1 }, "disk_bytes": { "type": "integer", "minimum": 1 }, "memory_bytes": { "type": "integer", "minimum": 1 } } }
+  }
+}

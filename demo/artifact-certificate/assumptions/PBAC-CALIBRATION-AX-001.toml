@@ -1,0 +1,12 @@
+schema = "proofbound-assumption/1"
+id = "PBAC-CALIBRATION-AX-001"
+statement = "The external provider measurements represented by valid-basic.pbac are accurate."
+category = "external-provider"
+owner = "artifact-certificate demo operator"
+rationale = "The certificate proves arithmetic consistency but contains no evidence about the physical measurement process."
+scope = "Only PBAC-CALIBRATED-001 for the artifact whose SHA-256 is dd7cf87ba3535aad431c473b71286fb6806fcc785fc3b39290c4a99d561dfe2d."
+affected_claims = ["PBAC-CALIBRATED-001"]
+review_evidence = ["demo/artifact-certificate/README.md#claims-and-trust"]
+discharge_plan = "Replace the premise with a signed calibration attestation and a checker that binds its digest."
+source_citation = "ProofboundArtifactDemo.Claims.providerMeasurementsAccurate in demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean"
+status = "active"

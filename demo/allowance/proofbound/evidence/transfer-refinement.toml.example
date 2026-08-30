@@ -1,0 +1,32 @@
+schema = "proofbound-evidence-unit/1"
+id = "transfer-refinement"
+adapter = "charon-aeneas"
+kind = "source-refinement"
+claims = [
+  "DEMO-TRANSFER-001",
+  "DEMO-TRANSFER-002",
+  "DEMO-TRANSFER-003",
+  "DEMO-TRANSFER-004",
+  "DEMO-TRANSFER-005",
+]
+tier = 3
+refinement_theorem = "ProofboundDemo.Claims.Refinement.decideTransfer_refines"
+premises = ["DEMO-U64-REP-001"]
+inputs = [
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/lean/ProofboundDemo/Claims/Refinement.lean",
+  "demo/allowance/lean/ProofboundDemo/Bridges/Kernel.lean",
+  "demo/allowance/lean/ProofboundDemo/TransferRefinement.lean",
+  "demo/allowance/proofbound/translations/transfer-kernel.toml",
+]
+environment_allowlist = ["PATH", "LEAN_PATH"]
+
+[operation]
+type = "translation"
+manifest = "demo/allowance/proofbound/translations/transfer-kernel.toml"
+targets = ["allowance_kernel::decide_transfer"]
+
+[resource_budget]
+time_seconds = 1800
+disk_bytes = 26843545600
+memory_bytes = 8589934592

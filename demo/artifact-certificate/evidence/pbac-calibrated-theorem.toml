@@ -1,0 +1,28 @@
+schema = "proofbound-evidence-unit/1"
+id = "pbac-calibrated-theorem"
+adapter = "lean"
+kind = "theorem"
+claims = ["PBAC-CALIBRATED-001"]
+tier = 2
+evaluation_mode = "kernel"
+theorem = "ProofboundArtifactDemo.Claims.publishedCalibratedTotal"
+assumptions = ["PBAC-CALIBRATION-AX-001"]
+inputs = [
+  "demo/artifact-certificate/lean/ProofboundArtifactDemo/Certificate.lean",
+  "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean",
+]
+outputs = []
+environment_allowlist = ["LEAN_PATH", "PATH"]
+
+[operation]
+type = "lean-audit"
+targets = ["ProofboundArtifactDemo.Claims"]
+paths = [
+  "demo/artifact-certificate/lean/ProofboundArtifactDemo/Certificate.lean",
+  "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean",
+]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 1073741824

@@ -1,0 +1,26 @@
+schema = "proofbound-claim/1"
+id = "EXAMPLE-ARTIFACT-001"
+title = "The exact published certificate has the registered meaning"
+statement = "The exact canonical certificate accepted by the registered decoder satisfies the application-specific meaning predicate."
+public_language = "The published certificate is covered only after its tool-computed identity and exact compiled theorem statement are sealed."
+subject = "artifact:path/to/published.certificate"
+profile = "artifact-bound"
+tier = 3
+primary_linkage = "artifact-bound"
+evidence = [
+  "theorem:example-artifact-meaning",
+  "artifact:example-artifact-binding",
+  "independent:example-artifact-independent",
+]
+assumptions = []
+premises = []
+open_obligations = [
+  "Replace every template identity and path before registering this claim.",
+  "Seal the tool-computed artifact identity and lean-expr-cbor/1 statement digest; no placeholder digest is supplied by this template.",
+]
+out_of_scope = ["How an untrusted producer discovers a valid certificate."]
+source_roots = [
+  "path/to/checker/src/lib.rs",
+  "path/to/ArtifactClaim.lean",
+  "path/to/published.certificate",
+]

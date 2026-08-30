@@ -1,0 +1,105 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: "17 4 * * 1"
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+
+jobs:
+  verify-only:
+    name: Verify only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out the exact event head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Resolve the assurance merge base
+        id: revisions
+        env:
+          EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          head="$(git rev-parse HEAD)"
+          candidate="$EVENT_BASE"
+          if [ -z "$candidate" ]; then
+            candidate="$EVENT_BEFORE"
+          fi
+          if [ -z "$candidate" ] || [ "$candidate" = "0000000000000000000000000000000000000000" ]; then
+            if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+              base="$(git rev-parse HEAD^)"
+            else
+              base="$head"
+            fi
+          else
+            base="$(git merge-base "$candidate" "$head")"
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          components: clippy,rustfmt
+
+      - name: Install the repository Python version
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - name: Install pinned Python environment tools
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.15"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install pinned Lean toolchain
+        uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9 # v1.5.0
+        with:
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          mk_all-check: false
+          check-reservoir-eligibility: false
+          leanchecker: false
+          nanoda: false
+
+      - name: Bootstrap locked dependencies
+        run: |
+          cargo fetch --locked
+          test -f uv.lock
+          uv sync --frozen
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # These two proof-free gates deliberately run before Kani is installed.
+      # They catch formatting, lint, schema, and release/verifier defects first.
+      - name: Cheap preflight before proof tools
+        run: cargo xtask preflight
+
+      - name: Cheap release/verifier round trip before proof tools
+        run: cargo xtask release-smoke
+
+      - name: Install pinned Kani verifier after cheap gates
+        run: |
+          cargo install --locked kani-verifier --version 0.67.0
+          cargo kani setup
+
+      - name: Run all 12 verify-only stages with the independent verifier last
+        run: >-
+          cargo xtask ci
+          --diff "${{ steps.revisions.outputs.base }}..${{ steps.revisions.outputs.head }}"

@@ -1,0 +1,23 @@
+schema = "proofbound-evidence-unit/1"
+id = "closure-presentation-identity"
+adapter = "rust-test"
+kind = "example-test"
+claims = ["PB-SELF-CLOSURE-007"]
+tier = 0
+inputs = ["crates/proofbound-evidence/src/closure.rs"]
+outputs = []
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+expected_inventory = ["proofbound_evidence::closure::tests::presentation_only_change_preserves_semantic_closure_identity"]
+
+[operation]
+type = "cargo-test"
+package = "proofbound-evidence"
+manifest = "Cargo.toml"
+targets = ["--lib"]
+paths = []
+arguments = []
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 1073741824
+memory_bytes = 1073741824

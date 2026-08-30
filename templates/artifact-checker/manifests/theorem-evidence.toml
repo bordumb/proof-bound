@@ -1,0 +1,22 @@
+schema = "proofbound-evidence-unit/1"
+id = "example-artifact-meaning"
+adapter = "lean"
+kind = "theorem"
+claims = ["EXAMPLE-ARTIFACT-001"]
+tier = 2
+evaluation_mode = "kernel"
+theorem = "YourProject.Artifact.publishedArtifactSoundness"
+assumptions = []
+inputs = ["path/to/ArtifactClaim.lean"]
+outputs = []
+environment_allowlist = ["LEAN_PATH"]
+
+[operation]
+type = "lean-audit"
+targets = ["YourProject.Artifact.publishedArtifactSoundness"]
+paths = ["path/to/ArtifactClaim.lean"]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 1073741824

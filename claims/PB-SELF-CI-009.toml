@@ -1,0 +1,19 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-CI-009"
+title = "Named assurance gates are connected to CI"
+statement = "Every assurance stage named by Specification 0001 is represented by a verify-only CI step or an explicit capability diagnostic."
+subject = "workflow:.github/workflows/ci.yml"
+profile = "ledger"
+tier = 0
+evidence = ["test:ci-workflow"]
+assumptions = []
+open_obligations = ["Hosted CI service execution is externally observable rather than proved."]
+out_of_scope = ["Availability of third-party CI infrastructure."]
+source_roots = [
+  ".cargo/config.toml",
+  ".github/workflows/ci.yml",
+  "claims/PB-SELF-CI-009.toml",
+  "crates/proofbound-manifest/src/validate.rs",
+  "crates/xtask/src/main.rs",
+  "justfile",
+]

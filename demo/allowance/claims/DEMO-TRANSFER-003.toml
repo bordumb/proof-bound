@@ -1,0 +1,37 @@
+schema = "proofbound-claim/1"
+id = "DEMO-TRANSFER-003"
+title = "Accepted transfers respect the configured cap"
+statement = "For every accepted request, the requested amount is less than or equal to its configured cap."
+public_language = "Given the explicit identity-provider assumption, every accepted transfer respects its configured per-transfer cap; Kani additionally checks the registered finite 2^34 request domain."
+subject = "rust:allowance-kernel::decide_transfer"
+formal_declaration = "ProofboundDemo.Claims.Transfer.accept_respects_cap"
+statement_encoding = "lean-expr-cbor/1"
+statement_sha256 = "sha256:8e10c3a3ef53e898dd400d8348ac0a70cb485c9012aaade92f7ba49ef94324be"
+foundational_axioms = ["Quot.sound", "propext"]
+profile = "kernel-with-assumptions"
+tier = 2
+primary_linkage = "model-only"
+evidence = [
+  "theorem:accept-respects-cap",
+  "bounded-check:transfer-bounds",
+  "property-test:rust-kernel-tests",
+  "mutation-witness:guard-mutations",
+]
+assumptions = ["DEMO-IDENTITY-AX-001"]
+premises = ["DEMO-U64-REP-001"]
+open_obligations = [
+  "Produce a deterministic Charon/Aeneas receipt for the registered shipping symbol.",
+]
+out_of_scope = ["Whether the configured cap reflects an appropriate business policy."]
+source_roots = [
+  "demo/allowance/rust/kernel/src/lib.rs",
+  "demo/allowance/lean/ProofboundDemo/Claims/Transfer.lean",
+  "demo/allowance/lean/ProofboundDemo/Transfer.lean",
+  "demo/allowance/lean/ProofboundDemo/TransferRefinement.lean",
+]
+
+[bounded_domain]
+id = "allowance-u8-seeds-with-overflow-lane"
+description = "All four u8 numeric seeds, both authorization values, and both low/high destination lanes; 2^34 finite requests, including destination-overflow cases."
+cardinality = 17179869184
+ordering_key = [0, 1, 2, 3, 4, 5]

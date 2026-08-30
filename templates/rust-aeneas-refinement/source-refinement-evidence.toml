@@ -1,0 +1,26 @@
+schema = "proofbound-evidence-unit/1"
+id = "example-kernel-refinement"
+adapter = "charon-aeneas"
+kind = "source-refinement"
+claims = ["EXAMPLE-KERNEL-001"]
+tier = 3
+refinement_theorem = "YourProject.Kernel.withdraw_refines"
+premises = ["EXAMPLE-U64-REP-001"]
+assumptions = []
+inputs = [
+  "templates/rust-aeneas-refinement/rust/src/lib.rs",
+  "templates/rust-aeneas-refinement/lean/KernelRefinement.lean",
+  "templates/rust-aeneas-refinement/translation-unit.toml",
+]
+outputs = ["templates/rust-aeneas-refinement/lean/Generated"]
+environment_allowlist = ["PATH", "LEAN_PATH"]
+
+[operation]
+type = "translation"
+manifest = "templates/rust-aeneas-refinement/translation-unit.toml"
+targets = ["proofbound_refinement_template::withdraw"]
+
+[resource_budget]
+time_seconds = 1800
+disk_bytes = 26843545600
+memory_bytes = 8589934592
