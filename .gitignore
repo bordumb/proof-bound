@@ -1,0 +1,14 @@
+target/
+.lake/
+.proofbound/
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+.DS_Store
+
+# The repository-owned Cargo alias is reviewed source even when a developer's
+# global ignore file excludes personal `.cargo/` directories.
+!.cargo/
+!.cargo/config.toml
