@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.3.0
+**Version:** 0.4.0
 
 **Date:** 2026-08-30
 
@@ -12,7 +12,12 @@
 
 ### Revision history
 
-- **0.1.0** — initial draft.
+- **0.4.0** — precision revisions: separates trusted-transcription evidence
+  from artifact soundness (§5, §7.1.1); defines a versioned canonical Lean
+  expression encoding for statement identity (§8.2, §11.2); inventories only
+  explicitly attributed public Lean claims (§8.2, §17); separates handwritten
+  external bridges from generator-owned directories (§11.3); and pins the
+  reference audits to full revisions and source-closure identities (§15).
 - **0.3.0** — adoption and independence revisions: adoption tiers and
   brownfield/greenfield workflows (§4.3–4.4); independent receipt verifier
   (§10.4); premise nodes with policy-gated discharge (§6.1–6.3, §8.1);
@@ -29,6 +34,7 @@
   `check`/`update` contract (§12.2); closure granularity floor (§11.4);
   milestone reordering to follow the extraction rule, including a reference
   adoption pilot (§20).
+- **0.1.0** — initial draft.
 
 ## 1. Executive summary
 
@@ -266,7 +272,8 @@ kinds simultaneously.
 | Evidence kind | Meaning |
 |---|---|
 | `theorem` | A proof assistant kernel accepted the named theorem. |
-| `artifact-soundness` | A theorem links acceptance of exact canonical bytes to a formal meaning. |
+| `artifact-soundness` | A theorem links acceptance of exact canonical bytes, or a digest checked inside the theorem boundary, to a formal meaning. |
+| `trusted-transcription` | Typed values are transcribed outside the theorem boundary and byte identity is enforced by an external round-trip; the transcriber and re-encoder are trusted components. |
 | `source-refinement` | Translated or otherwise linked production code refines formal semantics under stated representation premises. |
 | `bounded-check` | A bounded model checker established the property over the registered finite domain. |
 | `independent-check` | A deliberately independent implementation agreed on registered vectors or artifacts. |
@@ -285,9 +292,10 @@ Two qualifiers keep the strong kinds honest:
   or `native` (`native_decide` or compiled evaluation). Native evaluation
   enlarges the trusted computing base (§9.5) and must be visible at the
   evidence level, not only in the trust profile.
-- **Binding mode.** Every `artifact-soundness` record MUST state its binding:
-  `bytes-in-theorem`, `digest-theorem`, or `external-round-trip`
-  (Section 7.1.1). The three are not interchangeable and the graph never
+- **Binding mode.** Every `artifact-soundness` record MUST state binding mode
+  `bytes-in-theorem` or `digest-theorem`. Every `trusted-transcription` record
+  MUST state binding mode `external-round-trip` (Section 7.1.1). These evidence
+  kinds and binding modes are not interchangeable, and the graph never
   conflates them.
 
 The status vocabulary MUST NOT compress these into a single scalar such as
@@ -380,7 +388,7 @@ Linkage facet, from the subject-binding evidence:
 |---|---|
 | `source-refinement` with a named refinement theorem and registered representation premises | `REFINED` |
 | `artifact-soundness` with binding `bytes-in-theorem` or `digest-theorem` | `ARTIFACT_BOUND` |
-| `artifact-soundness` with binding `external-round-trip` (§7.1.1) | `TRANSCRIBED` |
+| `trusted-transcription` with binding `external-round-trip` (§7.1.1) | `TRANSCRIBED` |
 | no subject binding | `MODEL_ONLY` |
 
 Additional rules:
@@ -498,8 +506,10 @@ weaker shape rather than pretending it is the strong one.
 Proofbound admits trusted transcription but never conflates it with artifact
 soundness:
 
-- its `artifact-soundness` evidence MUST carry binding mode
+- its evidence kind is `trusted-transcription` with binding mode
   `external-round-trip`;
+- it is not `artifact-soundness` evidence, because no theorem establishes the
+  binding between the published bytes and the theorem input;
 - its linkage facet is `TRANSCRIBED`, never `ARTIFACT_BOUND` (§6.3.2);
 - the transcriber and re-encoder join the claim's TCB inventory as
   `tcb-component` nodes; and
@@ -626,6 +636,46 @@ the elaborated environment. Source-text search is insufficient. The audit must:
 - compare the set against the claim's policy; and
 - reject `sorryAx`, undeclared project axioms, or stale declaration identities.
 
+Public claim discovery is explicit rather than exhaustive over helper
+declarations. A project marks each public claim theorem with a Proofbound
+attribute carrying its stable claim ID:
+
+```lean
+@[proofbound_claim "DEMO-TRANSFER-001"]
+theorem accept_conserves : TransferProperty := by
+  -- proof
+```
+
+The Lean adapter MUST enumerate these attributes from the compiled environment,
+not by scanning source text. Attributed declarations and claim manifests match
+bidirectionally: duplicate IDs, an attributed declaration without a manifest,
+or a manifest naming an unattributed declaration fail closed. Helper lemmas do
+not carry the attribute and are not individually inventoried; their contribution
+remains visible through the public theorem's transitive dependencies and axiom
+audit. The attribute supplies identity only and cannot assert an assurance
+status.
+
+Attribution must not become the escape hatch: a theorem nobody attributes
+would otherwise silently escape the inventory — the same failure shape as a
+hand-maintained list. Two controls close the loop. A module registered as a
+public-claim surface requires every theorem it declares to be attributed or
+explicitly exempted with a recorded reason, and report generation refuses to
+cite any unattributed declaration in public claim language. An unattributed
+theorem can exist; it cannot be published.
+
+The statement digest MUST be computed from a versioned canonical encoding of
+the elaborated Lean expression, never from pretty-printer output. Version
+`lean-expr-cbor/1` is canonical CBOR conforming to
+`schemas/lean-expr-v1.cddl`: bound variables use de Bruijn indices; binder names,
+source positions, and presentation metadata are excluded; constants use fully
+qualified names; universe levels, binder information, projections, and literal
+values are encoded explicitly; maps and integer forms use canonical CBOR; and
+expressions containing unresolved metavariables or free variables are rejected.
+The encoding version is part of the claim record and domain-separates the bytes
+being hashed. Changing the encoding version is an explicit assurance migration,
+not silent statement drift. The receipt additionally binds the Lean adapter and
+toolchain identities used to elaborate and encode the expression.
+
 The compiled audit applies to **all** claim-bearing modules, including
 generated result-local modules; gating generated modules by text-parsing
 `#print axioms` output while the claim inventory uses the compiled audit is
@@ -670,7 +720,7 @@ The initial built-in profiles are:
 - Satisfies `kernel` or `kernel-with-assumptions`.
 - The theorem binds canonical payload bytes, schema, literal claim, and digest.
 - Binding mode is `bytes-in-theorem` or `digest-theorem`;
-  `external-round-trip` binding does not qualify (§7.1.1).
+  `trusted-transcription` evidence does not qualify (§7.1.1).
 - Re-encoding and trailing-byte checks pass.
 
 ### 9.4 `source-refined`
@@ -766,7 +816,7 @@ Initial adapters:
 - `human-review`.
 
 Adapters MUST fail if a configured target is silently skipped. Kani harnesses,
-Lean declarations, translation symbols, and tests must be inventoried, and
+attributed Lean claims, translation symbols, and tests must be inventoried, and
 ungated discoveries must fail the build. Inventories are derived from tool
 metadata, not source-text scanning (§17).
 
@@ -850,6 +900,7 @@ id = "DEMO-TRANSFER-001"
 title = "Accepted transfers conserve value"
 statement = "For every accepted transfer, debit + credit is conserved."
 formal_declaration = "ProofboundDemo.Transfer.accept_conserves"
+statement_encoding = "lean-expr-cbor/1"
 statement_sha256 = "…"
 subject = "rust:allowance-kernel::decide_transfer"
 profile = "source-refined"
@@ -864,12 +915,13 @@ evidence = [
 assumptions = ["DEMO-IDENTITY-AX-001"]
 ```
 
-`statement_sha256` binds the claim to the elaborated, pretty-printed statement
-recorded by the compiled axiom audit (§8.2). Drift between the manifest digest
-and the compiled statement — a silently restated theorem — renders the claim
-`INVALID`. Subject identity is a symbol-level binding plus the claim's source
-closure; Proofbound does not pretend to bind object code, and says so in the
-receipt.
+`statement_sha256` binds the claim to the bytes produced by
+`statement_encoding`, currently the canonical elaborated-expression encoding
+`lean-expr-cbor/1` defined in Section 8.2. It never hashes pretty-printer output.
+Drift between the manifest digest and the compiled statement — a silently
+restated theorem — renders the claim `INVALID`. Subject identity is a
+symbol-level binding plus the claim's source closure; Proofbound does not
+pretend to bind object code, and says so in the receipt.
 
 ### 11.3 Translation unit
 
@@ -888,10 +940,9 @@ determinism_normalization = "pretty-printed-llbc/1"
 forbid_generated_axioms = true
 
 [[external_bridges]]
-# Hand-authored files that live inside the generated tree (external
-# function/type models). Declared and byte-pinned, never discovered by
-# convention.
-file = "lean/Generated/Transfer/FunsExternal.lean"
+# Hand-authored external function/type models. They live outside the
+# generator-owned tree, are declared explicitly, and are byte-pinned.
+file = "lean/Bridges/TransferExternal.lean"
 reviewed_sha256 = "…"
 
 [[template_axioms]]
@@ -911,11 +962,28 @@ kind = "upstream-sorry"
 The schema is deliberately wider than a package-and-symbols pair because the
 reference implementation needed every one of these fields in practice:
 start-from, opaque, and included symbol sets drive the extractor invocation;
-hand-reviewed external bridges live inside the generated tree and must be
-byte-pinned; translator template axioms exist and must stay uncompiled with
-exact per-file counts; raw LLBC is nondeterministic and must be normalized
-before byte comparison; and upstream translator warnings must be inventoried
-so that new ones fail the build instead of scrolling past.
+hand-reviewed external bridges must be byte-pinned; translator template axioms
+exist and must stay uncompiled with exact per-file counts; raw LLBC is
+nondeterministic and must be normalized before byte comparison; and upstream
+translator warnings must be inventoried so that new ones fail the build instead
+of scrolling past.
+
+`generated_dir` is exclusively generator-owned. A generated module MAY import
+a declared handwritten external bridge, but the bridge path MUST be outside
+`generated_dir`; translation validation rejects overlap in either direction.
+Regeneration may replace the complete generated directory, so no handwritten
+source may depend on preservation by a generator cleanup routine. External
+bridges remain separately reviewed and content-addressed by the translation
+manifest.
+
+Out-of-tree bridges need explicit import support, because translators emit
+imports expecting external models inside their own output namespace. The
+adapter MUST provide one of two declared mechanisms: map the bridge's module
+name to its external path in the build configuration (e.g. Lake source
+roots), or apply an audited import-rewrite normalization to generated
+output — the same discipline as `determinism_normalization`, applied
+identically to both reproduction runs so byte comparison still holds. Silent
+hand-editing of generated imports is not an option.
 
 **Inversion requirement.** In Auths Proof, the qualification manifest is a
 cross-check of hard-coded orchestration: extractor flags, symbol lists, output
@@ -1085,6 +1153,7 @@ proof-bound/
 │   ├── assumption.schema.json
 │   ├── translation-unit.schema.json
 │   ├── adapter-protocol.schema.json
+│   ├── lean-expr-v1.cddl
 │   └── receipt.schema.json
 │
 ├── templates/
@@ -1217,11 +1286,27 @@ rule to its own provenance. Each item below is therefore graded:
   compromised, partial, or does not generalize; Proofbound rebuilds it.
 
 These assessments are themselves claims about repositories at a point in
-time, so they are pinned: Auths Proof audited at commit `95c9d45` (branch
-`codex/formal-source-closure`); Matrix Math audited at commit `fb7afc7`.
-The Matrix Math repository has no remote, so its digest is a local-only
-identity — the assessment is reproducible only against that local clone,
-and this caveat is part of the record, not a footnote to be dropped.
+time, so the complete audit subjects are pinned:
+
+- **Auths Proof:** commit
+  `95c9d4583e10fdc3ffaecc0a96790bec1c922640`; translation source-closure
+  digest `616fcfae33e76019a1e9c59dfc886375b8e2f92dbf381fb2074a7df7bfa5f741`;
+  SHA-256 of the canonical closure record
+  `formal/qualification/aeneas/source-closure.json`:
+  `9bb83f20310acee4edbeb0b78ec2474171789e1cc976b7fc34b742e2335fdacc`.
+- **Matrix Math:** commit
+  `fb7afc70b27bbbf5c3cb8fde61e9d9acb482501d`; canonical source-closure
+  digest `7c47b198db3e279bf21f3839c877a851fefd23e475c4277f7dcd93dc22719048`.
+
+Abbreviated revisions are insufficient audit identities. A reference audit
+MUST pin the full revision plus either a durable, content-addressed source
+archive or a canonical closure record that enumerates and hashes every audited
+file. A closure digest identifies bytes but does not make them retrievable. In
+particular, Matrix Math has no remote: before the local history can be treated
+as disposable, the exact audited closure MUST be sealed in Proofbound's CAS or
+another durable archive and that archive's digest added to this record. Until
+then, the audit is reproducible only from the retained local clone, and this
+caveat is part of the evidence rather than a footnote to be dropped.
 
 ### 15.1 From Matrix Math
 
@@ -1247,11 +1332,11 @@ campaign machinery, or checker implementation.
 |---|---|---|
 | Manifest-driven translation units | redesign | The reference manifest is a cross-check of hard-coded orchestration constants — extractor flags, symbol lists, output mappings, literal unit counts. Proofbound inverts the relationship so manifests drive invocation (§11.3). |
 | Charon/Aeneas deterministic regeneration | extract | Run-twice byte comparison over normalized (pretty-printed) LLBC, plus extraction-environment hardening against ambient compiler flags. |
-| Quarantined generated Lean | extract | With one correction: hand-authored external bridges living inside the generated tree must be declared and byte-pinned in the manifest (§11.3), not discovered by convention. |
+| Quarantined generated Lean | extract | With one correction: Proofbound moves hand-authored external bridges outside the generator-owned tree, declares and byte-pins them independently, and permits generated modules to import them (§11.3). They are never discovered by convention or preserved inside a replaceable output directory. |
 | Representation-premise registration | extract | Elevated to a normative status rule (§6.3.2). |
 | Handwritten refinement theorem registration | extract | |
 | Kani harness inventory and ungated-harness rejection | redesign | The reference gate is a package-level textual scan for `#[kani::proof]`; a `cfg_attr`-wrapped or reformatted attribute escapes it, and no per-harness registry exists. Proofbound requires a per-harness inventory derived from tool metadata (e.g. `cargo kani list`), matched bidirectionally against the manifest. |
-| Claim-to-evidence compliance inventory | redesign | The reference theorem inventory is a hand-maintained literal list covering a fraction of declared theorems; nothing forces a new theorem to be registered. Proofbound diffs the compiled environment's declaration set against the registered inventory so an unregistered claim-scope declaration fails closed (§17). |
+| Claim-to-evidence compliance inventory | redesign | The reference theorem inventory is a hand-maintained literal list covering a fraction of public claims. Proofbound enumerates compiled declarations carrying `@[proofbound_claim "…"]` and matches that attributed public-claim set bidirectionally against manifests. Helper declarations are intentionally outside the inventory (§8.2, §17). |
 | Translation source closures | extract | Including build-metadata-driven package-closure discovery so a newly added module cannot escape the closure. |
 | Generated-code drift checks | redesign | The reference byte-verifies generated code only on push events; pull-request CI regenerates and accepts drift. The comparison mechanism extracts; the policy is rebuilt fail-closed for every event class (§18.1). |
 | Layered project architecture enforcement | extract | |
@@ -1354,10 +1439,12 @@ It MUST:
 - meter input bytes and collection counts;
 - reject duplicate IDs and ambiguous paths;
 - reject missing, stale, or extra generated files;
-- reject unregistered Lean declarations, Kani harnesses, and translation
-  units — for Lean, by diffing the compiled environment's declaration set
-  against the registered inventory rather than by source-text scanning; for
-  Kani, by per-harness tool-metadata inventory rather than attribute grep;
+- reject unregistered attributed Lean claims, Kani harnesses, and translation
+  units — for Lean, by matching compiled declarations carrying the
+  `proofbound_claim` attribute bidirectionally against the registered public
+  claim inventory rather than by source-text scanning or inventorying helper
+  declarations; for Kani, by per-harness tool-metadata inventory rather than
+  attribute grep;
 - reject successful subprocess exit without expected evidence;
 - never execute arbitrary manifest shell strings;
 - use typed adapter command construction;
@@ -1515,11 +1602,12 @@ experience; this ordering is the protection.
 
 - Manifest-driven Charon/Aeneas invocation (the Section 11.3 inversion),
   compiled declaration/axiom audit applied to all generated modules,
-  per-harness Kani inventory, unregistered-declaration rejection,
+  per-harness Kani inventory, unregistered-attributed-claim rejection,
   deterministic regeneration, and source closures.
 - Acceptance: the allowance kernel is translated and refined purely from
-  manifests; an ungated harness, unregistered theorem, or generated axiom
-  fails closed.
+  manifests; an ungated harness, attributed public theorem missing from the
+  claim inventory, manifest claim missing its compiled attribute, or generated
+  axiom fails closed. Unattributed helper lemmas do not require claim records.
 
 ### M5: reference adoption pilot
 
