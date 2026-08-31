@@ -1,12 +1,14 @@
 # Experiment 0003: semver precedence
 
-- **Status:** planned
+- **Status:** running
 - **Registered:** 2026-08-31
-- **Started / concluded:** — / —
-- **Subject:** the `semver` crate (crates.io); exact version and source
-  digest TBD-at-start
-- **Proofbound:** TBD-at-start (post-bootstrap commit)
-- **Operator:** TBD-at-start
+- **Started / concluded:** 2026-08-31 / —
+- **Subject:** `semver` crate version `1.0.28` from crates.io; exact `.crate`
+  archive SHA-256
+  `8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd`
+  (33,064 bytes), to be vendored at `other_repos/semver-1.0.28`
+- **Proofbound:** `04cf8111fe31648997a36d417531566ddd6b8756`
+- **Operator:** Codex (GPT-5)
 
 ## Why this crate
 
@@ -46,6 +48,11 @@ shipping code. First test of the full ladder on code we do not own.
 ## Journal (append-only)
 
 - **2026-08-31** — Pre-registered. Not started.
+- **2026-08-31** — START. Selected the newest locally cached crates.io
+  release, `semver` `1.0.28`; pinned its exact 33,064-byte crate archive at
+  SHA-256 `8a7852d0…1cd`; pinned Proofbound at
+  `04cf8111fe31648997a36d417531566ddd6b8756`. No subject file was extracted,
+  read, built, or modified before this START record.
 
 ## Findings
 
