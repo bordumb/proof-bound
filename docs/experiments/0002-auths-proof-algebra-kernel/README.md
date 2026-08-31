@@ -1,15 +1,14 @@
 # Experiment 0002: Auths Proof algebra kernel
 
-- **Status:** planned
+- **Status:** running
 - **Registered:** 2026-08-31
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-08-31 / —
 - **Subject:** `auths-proof` repository at commit
   `95c9d4583e10fdc3ffaecc0a96790bec1c922640` (branch
   `codex/formal-source-closure`), translation source-closure digest
   `616fcfae33e76019a1e9c59dfc886375b8e2f92dbf381fb2074a7df7bfa5f741`
-- **Proofbound:** `90a117e` at registration; re-pin at start after the
-  bootstrap commit lands
-- **Operator:** TBD-at-start
+- **Proofbound:** `bc00b8f83683a0633debe2c8597fae9900e0bd09`
+- **Operator:** Codex (GPT-5)
 
 ## Why this subject, why this unit
 
@@ -52,6 +51,13 @@ scope until this one answers.
 ## Journal (append-only)
 
 - **2026-08-31** — Pre-registered. Not started.
+- **2026-08-31** — START. Created the required local-only throwaway branch
+  `dev-proof-bound-experiment` at subject commit
+  `95c9d4583e10fdc3ffaecc0a96790bec1c922640`; verified the committed
+  translation closure's internal digest
+  `616fcfae33e76019a1e9c59dfc886375b8e2f92dbf381fb2074a7df7bfa5f741`
+  and its file SHA-256 `9bb83f20310acee4edbeb0b78ec2474171789e1cc976b7fc34b742e2335fdacc`;
+  pinned Proofbound at `bc00b8f83683a0633debe2c8597fae9900e0bd09`.
 
 ## Findings
 
