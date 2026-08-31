@@ -288,9 +288,18 @@ fn rust_package_dependencies(root: &Path, patterns: &[String]) -> Result<BTreeSe
                 .get(&id)
                 .expect("closed package IDs originate in package map");
             let directory = manifest.parent().context("Cargo.toml has no parent")?;
-            Ok(format!("{}/**", normalized_relative(root, directory)?))
+            recursive_package_pattern(root, directory)
         })
         .collect()
+}
+
+fn recursive_package_pattern(root: &Path, directory: &Path) -> Result<String> {
+    let relative = normalized_relative(root, directory)?;
+    if relative.is_empty() {
+        Ok("**".to_owned())
+    } else {
+        Ok(format!("{relative}/**"))
+    }
 }
 
 fn package_probe(root: &Path, pattern: &str) -> Option<PathBuf> {
@@ -368,6 +377,22 @@ mod tests {
     use crate::compile::cache_key_identity;
     use proofbound_manifest::EvidenceUnitManifest;
     use serde_json::json;
+
+    #[test]
+    fn root_package_dependency_pattern_is_relative_and_recursive() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(
+            recursive_package_pattern(root.path(), root.path()).unwrap(),
+            "**"
+        );
+
+        let nested = root.path().join("crates/member");
+        fs::create_dir_all(&nested).unwrap();
+        assert_eq!(
+            recursive_package_pattern(root.path(), &nested).unwrap(),
+            "crates/member/**"
+        );
+    }
 
     fn write_manifest_fixture(root: &Path) {
         for directory in ["src", "claims", "assumptions", "policies"] {

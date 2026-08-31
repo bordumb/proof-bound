@@ -10,7 +10,7 @@ a reference repository, an external crate, or Proofbound itself.
 |---|---|---|---|---|
 | [0001](0001-matrix-math-release-verification/README.md) | Matrix Math release verification | `matrix-math-publish` (GitHub) | Pattern A at scale; independent release verification; producer-absent boundary | concluded |
 | [0002](0002-auths-proof-algebra-kernel/README.md) | Auths Proof algebra kernel | `auths-proof` repo | §11.3 manifest inversion; per-harness Kani inventory | concluded |
-| [0003](0003-semver-precedence/README.md) | semver precedence | `semver` crate (crates.io) | Tier 0 brownfield UX; Pattern B on foreign code | running |
+| [0003](0003-semver-precedence/README.md) | semver precedence | `semver` crate (crates.io) | Tier 0 brownfield UX; Pattern B on foreign code | concluded |
 | [0004](0004-base64-canonical-bytes/README.md) | base64 canonical bytes | `base64` crate (crates.io) | Tier 0→1 ladder; Pattern A on foreign bytes | planned |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
