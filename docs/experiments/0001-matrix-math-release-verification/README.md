@@ -111,6 +111,16 @@ a historical record; this experiment binds only the publish repo.
   private search appears in no receipt. Elapsed operator wall time was about
   0.25 hours. Five divergences are indexed in the shared ledger and disposed
   by ADR 0008.
+- **2026-08-31** — POST-CONCLUSION REPAIR. At the operator's direction, the
+  omitted hand-computed omega fixture was recovered from the private reference
+  repository only after a provenance and sensitivity audit. The exact
+  10,051-byte blob (`6e2cc34a…ea2d`, SHA-256 `00ccbe73…e2d`) was committed as
+  the sole change on the subject's local `dev-proof-bound-experiment` branch
+  at `878c0a660a7df966d4ca5de574b1587247bb4871`. The formerly red `mm-cli`
+  target then passed 20/20; schema round-trip, exact evaluator, symmetric
+  domain, and native CLI verification checks also passed. Nothing was pushed
+  or published. This repairs F05 but does not retroactively change the
+  pre-registered Q1–Q5 outcomes.
 
 ## Findings
 
@@ -120,7 +130,7 @@ a historical record; this experiment binds only the publish repo.
 | EXP-0001-F02 | Proofbound's structured release producer and independent verifier disagree on the compiled-receipt wire shape for empty provenance collections. | Release at local test pin `f7c8076…`; isolated verifier returned `PBV_NON_CANONICAL`; typed canonicalization changed 25,103 bytes to 25,053 bytes, first divergence at empty `additional_closures` / `generated_artifacts`. | `adr (#8)`; product bug left fail-closed |
 | EXP-0001-F03 | The committed omega module has the requested digest-theorem/native source shape, but the theorem could not be freshly compiled or audited. | Artifact SHA-256 `55148017…895f`; generated module SHA-256 `c83bc7da…9376`; `.lake/packages` empty and pinned Mathlib unavailable. | `accepted-limitation`; Q2 unanswered |
 | EXP-0001-F04 | The selected rank module is a typed transcription, but the original certificate is absent and v0.5 has no adapter path that materializes `trusted-transcription` plus the transcriber/re-encoder TCB nodes. | `Cert_c5bb171443bb54f0.lean` SHA-256 `6b1d2ace…1fb5`; historical digest `c5bb1714…2f0b`; focused Rust round-trip tests 4/4; only the omega certificate is tracked. | `adr (#8)`; Q3 fail, no core fork |
-| EXP-0001-F05 | The publish snapshot's `mm-cli` tests are not clean-checkout reproducible: four omega generator tests reference an omitted fixture. | Offline release test: 16 passed, 4 failed; missing `tests/vectors/omega-l2-hand.json`. | `adr (#8)`; subject packaging defect, test candidate changed transparently |
+| EXP-0001-F05 | The publish snapshot's `mm-cli` tests were not clean-checkout reproducible: four omega generator tests referenced an omitted fixture. | Baseline: 16 passed, 4 failed. Exact fixture restored from audited blob `6e2cc34a…ea2d`; repaired branch: 20/20 plus all focused checks green. | `bug (fixed at subject commit 878c0a6)`; original baseline retained |
 | EXP-0001-F06 | The private campaign revision/path is absent, but `mm-cli` still compiles the public `mm-search` producer and Q4's literal receipt wording contradicts its required explicit exclusion. | `mm-cli` normal dependency on `mm-search`; structured Tier-0 receipt includes the registered exclusion and no private repository identity. | `adr (#8)`; Q4 fail under literal criterion |
 | EXP-0001-F07 | The bounded Tier-0 overlay cost about 0.25 wall-clock hours and three local subject commits after the synthetic snapshot: generated ledger, exact test binding, and 22 vendored schemas. | Two successful fresh checks took 18.7s and 17.3s; final status `TESTED / MODEL_ONLY`; five ledgered divergences. | `case-record`; Q5 pass |
 
