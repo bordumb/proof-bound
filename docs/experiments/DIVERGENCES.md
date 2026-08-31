@@ -11,4 +11,8 @@ Dispositions: `spec-change (§n, version)` · `adr (#n)` · `case-record` ·
 
 | ID | Experiment | Finding | Disposition | Link |
 |---|---|---|---|---|
-| — | — | none recorded yet | — | — |
+| EXP-0001-D01 | 0001 | Subject-native release verification is substring-based and repository-local, contrary to the structured portable-release contract. | `adr (#8)` | [ADR 0008](../adr/0008-experiment-0001-fail-closed-dispositions.md) |
+| EXP-0001-D02 | 0001 | A clean external Proofbound release serialized empty provenance collections differently from the independent verifier's typed canonical form. | `adr (#8)` | [ADR 0008](../adr/0008-experiment-0001-fail-closed-dispositions.md) |
+| EXP-0001-D03 | 0001 | Proofbound v0.5 has no manifest/adapter route that emits trusted-transcription evidence with its transcriber and re-encoder TCB nodes. | `adr (#8)` | [ADR 0008](../adr/0008-experiment-0001-fail-closed-dispositions.md) |
+| EXP-0001-D04 | 0001 | The pinned publish archive omits a fixture required by four registered `mm-cli` tests. | `adr (#8)` | [ADR 0008](../adr/0008-experiment-0001-fail-closed-dispositions.md) |
+| EXP-0001-D05 | 0001 | Q4 requires an explicit producer exclusion in the receipt and simultaneously says the private search must appear in no receipt. | `adr (#8)` | [ADR 0008](../adr/0008-experiment-0001-fail-closed-dispositions.md) |

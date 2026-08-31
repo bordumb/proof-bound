@@ -12,3 +12,5 @@ __pycache__/
 # global ignore file excludes personal `.cargo/` directories.
 !.cargo/
 !.cargo/config.toml
+
+other_repos/

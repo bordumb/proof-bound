@@ -1,9 +1,9 @@
 # Experiment 0001: Matrix Math release verification (publish repo)
 
-- **Status:** running
+- **Status:** concluded
 - **Registered:** 2026-08-31 (re-registered same day against the publish
   repo; see journal)
-- **Started / concluded:** 2026-08-31 / —
+- **Started / concluded:** 2026-08-31 / 2026-08-31
 - **Subject:** `matrix-math-publish` at commit
   `3794e68b9dfeeae2b7d6d7d3c29bf512530a5b09`
   (github.com/bsd-developer/matrix-math-publish; local checkout at
@@ -82,13 +82,64 @@ a historical record; this experiment binds only the publish repo.
   `3794e68b9dfeeae2b7d6d7d3c29bf512530a5b09`, deterministic Git-archive
   SHA-256 `6f2003904ecc12cd1056f0c2ffcf6ab70abd879720022bee2ea3f9c02454a845`,
   and Proofbound commit `926f5eab41a20aaca7a1a892ac83181f5bd34247`.
+- **2026-08-31** — CHEAP BASELINE. The committed omega artifact reproduced
+  byte digest `55148017090a8883ab18bbd1316196fadc32b2f5f41cbf751d838d5c334f895f`
+  and passed the Rust check, but the subject reported `XC`: no Lean theorem
+  was built. The focused round-trip tests passed 4/4; the full `mm-cli` test
+  target failed 4/20 because the publish snapshot omits
+  `tests/vectors/omega-l2-hand.json`.
+- **2026-08-31** — CAPABILITY. Lean and Lake are installed, but the pinned
+  Mathlib checkout is absent. Lake attempted to fetch it and failed DNS. Per
+  the experiment rules no toolchain was installed, and the affected formal
+  question was left unanswered.
+- **2026-08-31** — TIER 0. `proofbound init` produced a working overlay in an
+  isolated Git snapshot on branch `dev-proof-bound-experiment`. The first
+  selected omega test honestly failed because its untracked fixture was not
+  in the pinned archive. A self-contained exact-byte `CompareWriter` test was
+  then registered and produced `TESTED / MODEL_ONLY`, policy admitted, with
+  its assumption and not-proved section visible.
+- **2026-08-31** — RELEASE. External adoption required copying the 22 pinned
+  v0.5 public schema files into the subject snapshot. Proofbound then emitted
+  a clean portable release, but a separately copied `proofbound-verify` binary
+  rejected it with `PBV_NON_CANONICAL`. Typed reserialization showed the
+  producer emitted empty `additional_closures` and `generated_artifacts` in
+  wire shapes the verifier canonicalizes differently. Q1 therefore failed;
+  the verifier was not bypassed and the product was not patched mid-pilot.
+- **2026-08-31** — CLOSE. Applied the questions literally. In particular, Q4
+  was not stretched into a pass: the required out-of-scope disclosure itself
+  necessarily appears in the receipt, while the pass sentence says the
+  private search appears in no receipt. Elapsed operator wall time was about
+  0.25 hours. Five divergences are indexed in the shared ledger and disposed
+  by ADR 0008.
 
 ## Findings
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| — | — | — | — |
+| EXP-0001-F01 | The native `mm verify-release` path uses substring field extraction, requires the repository-local CAS, and has no committed release/CAS payload at the pin. | `crates/mm-cli/src/report.rs:240-312`; no tracked `docs/results/**` or `data/cas/**`; `mm report` rejected the omega artifact as `unknown_field l_star`. | `adr (#8)`; Q1 fail |
+| EXP-0001-F02 | Proofbound's structured release producer and independent verifier disagree on the compiled-receipt wire shape for empty provenance collections. | Release at local test pin `f7c8076…`; isolated verifier returned `PBV_NON_CANONICAL`; typed canonicalization changed 25,103 bytes to 25,053 bytes, first divergence at empty `additional_closures` / `generated_artifacts`. | `adr (#8)`; product bug left fail-closed |
+| EXP-0001-F03 | The committed omega module has the requested digest-theorem/native source shape, but the theorem could not be freshly compiled or audited. | Artifact SHA-256 `55148017…895f`; generated module SHA-256 `c83bc7da…9376`; `.lake/packages` empty and pinned Mathlib unavailable. | `accepted-limitation`; Q2 unanswered |
+| EXP-0001-F04 | The selected rank module is a typed transcription, but the original certificate is absent and v0.5 has no adapter path that materializes `trusted-transcription` plus the transcriber/re-encoder TCB nodes. | `Cert_c5bb171443bb54f0.lean` SHA-256 `6b1d2ace…1fb5`; historical digest `c5bb1714…2f0b`; focused Rust round-trip tests 4/4; only the omega certificate is tracked. | `adr (#8)`; Q3 fail, no core fork |
+| EXP-0001-F05 | The publish snapshot's `mm-cli` tests are not clean-checkout reproducible: four omega generator tests reference an omitted fixture. | Offline release test: 16 passed, 4 failed; missing `tests/vectors/omega-l2-hand.json`. | `adr (#8)`; subject packaging defect, test candidate changed transparently |
+| EXP-0001-F06 | The private campaign revision/path is absent, but `mm-cli` still compiles the public `mm-search` producer and Q4's literal receipt wording contradicts its required explicit exclusion. | `mm-cli` normal dependency on `mm-search`; structured Tier-0 receipt includes the registered exclusion and no private repository identity. | `adr (#8)`; Q4 fail under literal criterion |
+| EXP-0001-F07 | The bounded Tier-0 overlay cost about 0.25 wall-clock hours and three local subject commits after the synthetic snapshot: generated ledger, exact test binding, and 22 vendored schemas. | Two successful fresh checks took 18.7s and 17.3s; final status `TESTED / MODEL_ONLY`; five ledgered divergences. | `case-record`; Q5 pass |
 
 ## Outcome
 
-Not yet run.
+1. **Q1 — FAIL.** The native path is string-search/local-CAS based. The
+   replacement path used structured parsing, but its emitted release was
+   rejected by the independent verifier as non-canonical. A release that its
+   independent verifier rejects does not pass.
+2. **Q2 — UNANSWERED.** Static inspection found the correct
+   `digest-theorem` and `native_decide` shape, but the pinned Mathlib dependency
+   was unavailable, so no fresh compiled theorem or axiom audit exists.
+3. **Q3 — FAIL.** The subject is clearly trusted transcription, but the exact
+   source artifact is absent and Proofbound v0.5 cannot materialize that
+   evidence/TCB shape without framework work. No core fork was made.
+4. **Q4 — FAIL.** The bounded Tier-0 claim verified and disclosed the producer
+   exclusion, and no private-repository identity entered the closure or TCB.
+   The literal pass criterion is nevertheless false: that disclosure appears
+   in the receipt, and the public `mm-search` producer remains in the binary's
+   build closure.
+5. **Q5 — PASS.** About 0.25 operator wall-clock hours and five divergences
+   were recorded. No aggregate score is reported.
