@@ -192,12 +192,14 @@ fn compare_manifest_path(
             path,
             regressions,
         ),
-        Some("proofbound-evidence-unit/1") => compare_evidence_manifests(
-            parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
-            parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
-            path,
-            regressions,
-        ),
+        Some("proofbound-evidence-unit/1" | "proofbound-evidence-unit/2") => {
+            compare_evidence_manifests(
+                parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
+                parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
+                path,
+                regressions,
+            )
+        }
         Some("proofbound-model-check-unit/1") => compare_model_check_manifests(
             parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
             parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
@@ -571,6 +573,17 @@ fn compare_evidence_manifests(
         .union(&string_set(&new.claims))
         .cloned()
         .collect::<BTreeSet<_>>();
+    if old.schema != new.schema || old.id != new.id {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::FormalDowngrade,
+            format!(
+                "evidence unit {} changed its schema or stable identity at {path}",
+                old.id
+            ),
+        )?;
+    }
     for claim in removed_strings(&old.claims, &new.claims) {
         add_regression(
             regressions,
@@ -678,6 +691,17 @@ fn compare_evidence_manifests(
             &claims,
             RegressionKind::EnlargedTcb,
             format!("evidence unit {} adapter or typed command changed", old.id),
+        )?;
+    }
+    if old.transcription != new.transcription {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::LinkageDowngrade,
+            format!(
+                "evidence unit {} changed its exact trusted-transcription source, committed bytes, driver, ABI, or format registration",
+                old.id
+            ),
         )?;
     }
     if binding_rank(new.binding_mode) < binding_rank(old.binding_mode) {
@@ -1595,6 +1619,63 @@ claims = ["TEST-CLAIM-001"]
             regressions
                 .iter()
                 .any(|item| item.detail.contains("inventoried target"))
+        );
+    }
+
+    #[test]
+    fn trusted_transcription_registration_changes_are_never_silent() {
+        let mut old = evidence();
+        old.schema = "proofbound-evidence-unit/2".into();
+        old.id = "registered-transcription".into();
+        old.adapter = proofbound_manifest::AdapterKind::TrustedTranscription;
+        old.kind = EvidenceKind::TrustedTranscription;
+        old.tier = 1;
+        old.operation.kind = proofbound_manifest::OperationKind::Transcription;
+        old.operation.manifest = None;
+        old.operation.targets.clear();
+        old.evaluation_mode = None;
+        old.binding_mode = Some(BindingMode::ExternalRoundTrip);
+        old.theorem = None;
+        old.expected_inventory = vec!["fixtures/source.bin".into(), "fixtures/value.txt".into()];
+        old.inputs = vec![
+            "fixtures/source.bin".into(),
+            "fixtures/value.txt".into(),
+            "scripts/driver.py".into(),
+        ];
+        old.transcription = Some(
+            serde_json::from_value(json!({
+                "schema": "proofbound-trusted-transcription/1",
+                "source": "fixtures/source.bin",
+                "committed_transcription": "fixtures/value.txt",
+                "driver": "scripts/driver.py",
+                "source_format": "subject-bytes/1",
+                "transcribed_format": "subject-text/1",
+                "driver_abi": "proofbound-transcription-driver/1"
+            }))
+            .unwrap(),
+        );
+        let mut new = old.clone();
+        new.transcription.as_mut().unwrap().driver = "scripts/replacement.py".into();
+        new.inputs[2] = "scripts/replacement.py".into();
+
+        let mut regressions = Vec::new();
+        compare_evidence_manifests(
+            Some(old),
+            Some(new),
+            "proofbound/evidence/transcription.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::LinkageDowngrade)
+        );
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::SourceClosureWeakened)
         );
     }
 

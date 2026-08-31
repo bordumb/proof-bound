@@ -12,6 +12,9 @@ pub const EVIDENCE_SCHEMA_V2: &str = "proofbound-evidence/2";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const CLOSURE_SCHEMA_V1: &str = "proofbound-source-closure/1";
 pub const POLICY_SCHEMA_V1: &str = "proofbound-policy/1";
+pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcription/1";
+pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
+pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
 
 /// Small canonical index stored as `<release>/release.json`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -261,9 +264,8 @@ impl EvidenceKind {
     pub const fn minimum_tier(self) -> Tier {
         match self {
             Self::Theorem => Tier::Model,
-            Self::ArtifactSoundness | Self::TrustedTranscription | Self::SourceRefinement => {
-                Tier::Bound
-            }
+            Self::ArtifactSoundness | Self::SourceRefinement => Tier::Bound,
+            Self::TrustedTranscription => Tier::Bounded,
             Self::BoundedCheck | Self::IndependentCheck | Self::ExhaustiveCheck => Tier::Bounded,
             _ => Tier::Ledger,
         }
@@ -332,12 +334,31 @@ pub struct ArtifactBindingReceipt {
     pub artifact: ArtifactIdentityReceipt,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranscriptionRole {
+    Transcriber,
+    Reencoder,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranscriptionTcbRoleReceipt {
+    pub tcb_node: String,
+    pub role_identity: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrustedTranscriptionReceipt {
-    pub transcriber_tcb_node: String,
-    pub reencoder_tcb_node: String,
-    pub round_trip_passed: bool,
+    pub schema: String,
+    pub source: ArtifactIdentityReceipt,
+    pub committed_transcription: ArtifactIdentityReceipt,
+    pub transcribed_candidate: ArtifactIdentityReceipt,
+    pub reencoded_source: ArtifactIdentityReceipt,
+    pub driver: ArtifactIdentityReceipt,
+    pub transcriber: TranscriptionTcbRoleReceipt,
+    pub reencoder: TranscriptionTcbRoleReceipt,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -656,6 +677,7 @@ pub struct PremiseReceipt {
 #[serde(rename_all = "kebab-case")]
 pub enum BuiltInProfile {
     Ledger,
+    Transcribed,
     Kernel,
     KernelWithAssumptions,
     ArtifactBound,
@@ -669,6 +691,7 @@ impl BuiltInProfile {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Ledger => "ledger",
+            Self::Transcribed => "transcribed",
             Self::Kernel => "kernel",
             Self::KernelWithAssumptions => "kernel-with-assumptions",
             Self::ArtifactBound => "artifact-bound",
@@ -682,7 +705,7 @@ impl BuiltInProfile {
     pub const fn minimum_tier(self) -> Tier {
         match self {
             Self::Ledger => Tier::Ledger,
-            Self::Bounded => Tier::Bounded,
+            Self::Bounded | Self::Transcribed => Tier::Bounded,
             Self::Kernel | Self::KernelWithAssumptions | Self::NativeEvaluated => Tier::Model,
             Self::ArtifactBound | Self::SourceRefined => Tier::Bound,
         }

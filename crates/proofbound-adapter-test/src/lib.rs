@@ -1,9 +1,12 @@
-//! Manifest-driven Rust/Python test and Python checker adapter.
+//! Manifest-driven Rust/Python test, Python checker, generator, and trusted
+//! transcription adapter.
 //!
 //! Collection is performed through Cargo/libtest and pytest metadata.  Source
 //! text is never searched for test names.  Configured tests are resolved to one
 //! and only one collected node and then executed individually, preventing a
-//! successful command from silently skipping a target.
+//! successful command from silently skipping a target. Trusted transcription
+//! uses a fixed two-command driver ABI in a disposable shadow and compares all
+//! four byte identities independently.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -17,8 +20,9 @@ use std::{
 
 use proofbound_evidence::{canonical_json, domain_hash, sha256_bytes};
 use proofbound_manifest::{
-    AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, EvidenceKind,
-    EvidenceUnitManifest, OperationKind,
+    AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, BindingMode, EvidenceKind,
+    EvidenceUnitManifest, OperationKind, TRANSLATION_RESERVED_PATH_COMPONENTS,
+    TranscriptionDriverAbi, TrustedTranscriptionSchema,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,6 +35,9 @@ pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/1";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TOOL_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INVENTORY: usize = 100_000;
+const TRUSTED_TRANSCRIPTION_SCHEMA: &str = "proofbound-trusted-transcription/1";
+const TRANSCRIPTION_DRIVER_ABI: &str = "proofbound-transcription-driver/1";
+const TRANSCRIPTION_ROLE_DOMAIN: &str = "proofbound-transcription-tcb-role/1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -55,6 +62,8 @@ pub struct AdapterObservation {
     pub normalization: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifact_binding: Option<ArtifactBindingObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trusted_transcription: Option<TrustedTranscriptionObservation>,
 }
 
 /// Facts reported by a canonical artifact checker and independently validated
@@ -64,6 +73,28 @@ pub struct AdapterObservation {
 pub struct ArtifactBindingObservation {
     pub artifact_logical_name: String,
     pub artifact_sha256: String,
+}
+
+/// Independently observed byte identities and role-separated tool identities
+/// for the degraded trusted-transcription route.
+///
+/// This deliberately contains no success boolean, claim identifier, binding
+/// assertion, or TCB node identifier. The compiler derives validity and its
+/// TCB nodes from these facts.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrustedTranscriptionObservation {
+    pub schema: String,
+    pub source: ArtifactObservation,
+    pub committed_transcription: ArtifactObservation,
+    pub transcribed_candidate: ArtifactObservation,
+    pub reencoded_source: ArtifactObservation,
+    pub driver: ArtifactObservation,
+    pub driver_abi: String,
+    pub source_format: String,
+    pub transcribed_format: String,
+    pub transcriber_role_identity: String,
+    pub reencoder_role_identity: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -170,6 +201,24 @@ struct ProcessOutput {
 }
 
 type TestRunResult = (Vec<CommandObservation>, Vec<ProcessOutput>, Vec<String>);
+
+struct TranscriptionRunResult {
+    commands: Vec<CommandObservation>,
+    outputs: Vec<ProcessOutput>,
+    inventory: Vec<String>,
+    facts: TranscriptionFacts,
+}
+
+struct TranscriptionFacts {
+    generated_artifacts: Vec<ArtifactObservation>,
+    unit_id: String,
+    source: ArtifactObservation,
+    committed_transcription: ArtifactObservation,
+    driver: ArtifactObservation,
+    driver_abi: String,
+    source_format: String,
+    transcribed_format: String,
+}
 
 #[derive(Clone, Copy)]
 struct Deadline {
@@ -360,7 +409,7 @@ impl AdapterError {
             ),
             Self::ToolFailed(_) => (
                 "PB-TEST-1007",
-                "reproduce the individually selected test and fix its failure",
+                "reproduce the exact registered operation and fix its failure",
             ),
             Self::Io(_) | Self::Internal(_) => (
                 "PB-TEST-1099",
@@ -444,7 +493,11 @@ fn validate_request(request: &AdapterRequest, original: &[u8]) -> Result<(), Ada
         || request.project_root != "."
         || !matches!(
             request.adapter.as_str(),
-            "rust-test" | "python-test" | "canonical-artifact" | "independent-check"
+            "rust-test"
+                | "python-test"
+                | "canonical-artifact"
+                | "independent-check"
+                | "trusted-transcription"
         )
     {
         return Err(AdapterError::Request(
@@ -488,7 +541,7 @@ fn execute_request<E: Executor>(
     let flavor = validate_unit(request, &unit)?;
     if request.operation == "update" && flavor != TestFlavor::Generator {
         return Err(AdapterError::Request(
-            "test and checker adapters have no committed generated artifacts; update is unsupported"
+            "this adapter route has no committed generated artifacts; update is unsupported"
                 .to_owned(),
         ));
     }
@@ -512,7 +565,10 @@ fn execute_request<E: Executor>(
             environment.insert("PYTHONDONTWRITEBYTECODE".to_owned(), "1".to_owned());
             environment.insert("PYTEST_DISABLE_PLUGIN_AUTOLOAD".to_owned(), "1".to_owned());
         }
-        TestFlavor::CanonicalArtifact | TestFlavor::IndependentCheck | TestFlavor::Generator => {
+        TestFlavor::CanonicalArtifact
+        | TestFlavor::IndependentCheck
+        | TestFlavor::Generator
+        | TestFlavor::TrustedTranscription => {
             environment.insert("PYTHONDONTWRITEBYTECODE".to_owned(), "1".to_owned());
         }
     }
@@ -547,6 +603,7 @@ fn execute_request<E: Executor>(
         started,
         budget_ms: budget.time_ms,
     };
+    let mut transcription_facts = None;
     let (mut commands, mut outputs, mut inventory) = match flavor {
         TestFlavor::Rust => run_rust_tests(
             request,
@@ -581,6 +638,18 @@ fn execute_request<E: Executor>(
             executor,
             deadline,
         )?,
+        TestFlavor::TrustedTranscription => {
+            let result = run_trusted_transcription(
+                request,
+                &unit,
+                &execution_root,
+                &environment,
+                executor,
+                deadline,
+            )?;
+            transcription_facts = Some(result.facts);
+            (result.commands, result.outputs, result.inventory)
+        }
     };
     let artifact_binding = if flavor == TestFlavor::CanonicalArtifact
         && matches!(request.operation.as_str(), "check" | "reproduce")
@@ -613,6 +682,13 @@ fn execute_request<E: Executor>(
             budget.disk_bytes
         )));
     }
+    let time_ms = elapsed_ms(started);
+    if time_ms > budget.time_ms {
+        return Err(AdapterError::Budget(format!(
+            "adapter execution used {time_ms} ms, limit is {}",
+            budget.time_ms
+        )));
+    }
     let runs = observe_runs(&all_outputs, &execution_root, &root);
     // `observe_runs` indexes the combined list already; offset is retained as
     // an assertion against accidental command/output skew.
@@ -626,14 +702,20 @@ fn execute_request<E: Executor>(
         return Ok((None, inventory));
     }
     let input_artifacts = collect_input_artifacts(&root, &unit.inputs)?;
-    let generated_artifacts = if flavor == TestFlavor::Generator {
-        collect_exact_outputs(&execution_root, &unit.outputs)?
-    } else {
-        Vec::new()
+    let (generated_artifacts, trusted_transcription) = match transcription_facts {
+        Some(facts) => {
+            let generated_artifacts = facts.generated_artifacts.clone();
+            let observation = trusted_transcription_observation(&input_artifacts, facts)?;
+            (generated_artifacts, Some(observation))
+        }
+        None if flavor == TestFlavor::Generator => {
+            (collect_exact_outputs(&execution_root, &unit.outputs)?, None)
+        }
+        None => (Vec::new(), None),
     };
     let unit_bytes =
         canonical_json(&request.unit).map_err(|error| AdapterError::Internal(error.to_string()))?;
-    let result = serde_json::json!({"inventory":inventory,"artifact_binding":artifact_binding,"run_hashes":runs.iter().map(|run| &run.normalized_output_sha256).collect::<Vec<_>>()});
+    let result = serde_json::json!({"inventory":inventory,"artifact_binding":artifact_binding,"trusted_transcription":trusted_transcription,"run_hashes":runs.iter().map(|run| &run.normalized_output_sha256).collect::<Vec<_>>()});
     let completed_unix_ms = unix_ms()?;
     let observation = AdapterObservation {
         schema: OBSERVATION_SCHEMA.to_owned(),
@@ -655,13 +737,18 @@ fn execute_request<E: Executor>(
         unit_configuration_sha256: domain_hash("proofbound-unit-configuration/1", &unit_bytes),
         resource_budget: budget,
         resource_usage: UsageObservation {
-            time_ms: elapsed_ms(started),
+            time_ms,
             peak_disk_bytes: disk_bytes,
             peak_memory_bytes: None,
         },
         inventory: inventory.clone(),
-        normalization: "stable-tool-output/1".to_owned(),
+        normalization: if flavor == TestFlavor::TrustedTranscription {
+            "exact-transcription-bytes/1".to_owned()
+        } else {
+            "stable-tool-output/1".to_owned()
+        },
         artifact_binding,
+        trusted_transcription,
     };
     Ok((Some(observation), inventory))
 }
@@ -673,17 +760,13 @@ enum TestFlavor {
     Generator,
     CanonicalArtifact,
     IndependentCheck,
+    TrustedTranscription,
 }
 
 fn validate_unit(
     request: &AdapterRequest,
     unit: &EvidenceUnitManifest,
 ) -> Result<TestFlavor, AdapterError> {
-    if unit.schema != "proofbound-evidence-unit/1" {
-        return Err(AdapterError::Unit(
-            "expected proofbound-evidence-unit/1".to_owned(),
-        ));
-    }
     let flavor = match (request.adapter.as_str(), unit.adapter, unit.operation.kind) {
         ("rust-test", AdapterKind::RustTest, OperationKind::CargoTest) => TestFlavor::Rust,
         ("python-test", AdapterKind::PythonTest, OperationKind::Pytest) => TestFlavor::Python,
@@ -694,12 +777,30 @@ fn validate_unit(
         ("independent-check", AdapterKind::IndependentCheck, OperationKind::IndependentCheck) => {
             TestFlavor::IndependentCheck
         }
+        (
+            "trusted-transcription",
+            AdapterKind::TrustedTranscription,
+            OperationKind::Transcription,
+        ) => TestFlavor::TrustedTranscription,
         _ => {
             return Err(AdapterError::Unit(
                 "adapter and operation type do not agree".to_owned(),
             ));
         }
     };
+    let expected_schema = if flavor == TestFlavor::TrustedTranscription {
+        "proofbound-evidence-unit/2"
+    } else {
+        "proofbound-evidence-unit/1"
+    };
+    if unit.schema != expected_schema {
+        return Err(AdapterError::Unit(format!("expected {expected_schema}")));
+    }
+    if !valid_local_id(&unit.id) {
+        return Err(AdapterError::Unit(
+            "unit id must use the strict lowercase segmented grammar".to_owned(),
+        ));
+    }
     require_unique("claims", &unit.claims)?;
     require_unique("expected_inventory", &unit.expected_inventory)?;
     require_unique("targets", &unit.operation.targets)?;
@@ -732,6 +833,7 @@ fn validate_unit(
         validate_relative_path(manifest)?;
     }
     validate_checker_configuration(flavor, unit)?;
+    validate_transcription_configuration(flavor, unit)?;
     validate_arguments(flavor, &unit.operation.arguments)?;
     Ok(flavor)
 }
@@ -841,6 +943,119 @@ fn validate_checker_configuration(
     }
 }
 
+fn validate_transcription_configuration(
+    flavor: TestFlavor,
+    unit: &EvidenceUnitManifest,
+) -> Result<(), AdapterError> {
+    let Some(config) = &unit.transcription else {
+        return if flavor == TestFlavor::TrustedTranscription {
+            Err(AdapterError::Unit(
+                "trusted-transcription requires the typed transcription block".to_owned(),
+            ))
+        } else {
+            Ok(())
+        };
+    };
+    if flavor != TestFlavor::TrustedTranscription {
+        return Err(AdapterError::Unit(
+            "only trusted-transcription units may configure transcription".to_owned(),
+        ));
+    }
+    if config.schema != TrustedTranscriptionSchema::Version1
+        || config.driver_abi != TranscriptionDriverAbi::Version1
+    {
+        return Err(AdapterError::Unit(
+            "trusted transcription requires the version-1 typed record and driver ABI".to_owned(),
+        ));
+    }
+    for path in [
+        &config.source,
+        &config.committed_transcription,
+        &config.driver,
+    ] {
+        validate_transcription_path(path)?;
+    }
+    if [
+        &config.source,
+        &config.committed_transcription,
+        &config.driver,
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>()
+    .len()
+        != 3
+    {
+        return Err(AdapterError::Unit(
+            "source, committed transcription, and driver must be distinct paths".to_owned(),
+        ));
+    }
+    if Path::new(&config.driver)
+        .extension()
+        .and_then(|value| value.to_str())
+        != Some("py")
+    {
+        return Err(AdapterError::Unit(
+            "trusted transcription driver must be a repository-relative .py file".to_owned(),
+        ));
+    }
+    if !safe_format(&config.source_format)
+        || !safe_format(&config.transcribed_format)
+        || config.source_format == config.transcribed_format
+    {
+        return Err(AdapterError::Unit(
+            "transcription format names must be safe portable tokens".to_owned(),
+        ));
+    }
+
+    let mut exact_inputs = vec![
+        config.source.clone(),
+        config.committed_transcription.clone(),
+        config.driver.clone(),
+    ];
+    exact_inputs.sort();
+    if unit.inputs != exact_inputs {
+        return Err(AdapterError::Unit(
+            "trusted-transcription inputs must be the exact sorted source, committed transcription, and driver paths"
+                .to_owned(),
+        ));
+    }
+    let mut exact_inventory = vec![
+        config.source.clone(),
+        config.committed_transcription.clone(),
+    ];
+    exact_inventory.sort();
+    if unit.expected_inventory != exact_inventory {
+        return Err(AdapterError::Inventory(
+            "trusted-transcription expected_inventory must be the exact sorted source and committed transcription paths"
+                .to_owned(),
+        ));
+    }
+    if unit.kind != EvidenceKind::TrustedTranscription
+        || unit.binding_mode != Some(BindingMode::ExternalRoundTrip)
+        || unit.evaluation_mode.is_some()
+        || unit.theorem.is_some()
+        || unit.refinement_theorem.is_some()
+        || !unit.premises.is_empty()
+        || !unit.assumptions.is_empty()
+        || unit.bounded_domain.is_some()
+        || unit.operation.package.is_some()
+        || unit.operation.manifest.is_some()
+        || unit.operation.inventory.is_some()
+        || unit.operation.checker.is_some()
+        || !unit.operation.targets.is_empty()
+        || !unit.operation.paths.is_empty()
+        || !unit.operation.arguments.is_empty()
+        || !unit.outputs.is_empty()
+        || unit.environment_allowlist != ["PATH"]
+    {
+        return Err(AdapterError::Unit(
+            "trusted-transcription permits only its typed block, external-round-trip binding, the exact PATH allowlist, and an otherwise empty transcription operation"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_arguments(flavor: TestFlavor, arguments: &[String]) -> Result<(), AdapterError> {
     if arguments.len() > 4096 {
         return Err(AdapterError::Unit("too many arguments".to_owned()));
@@ -869,9 +1084,10 @@ fn validate_arguments(flavor: TestFlavor, arguments: &[String]) -> Result<(), Ad
     let forbidden = match flavor {
         TestFlavor::Rust => &forbidden_rust[..],
         TestFlavor::Python => &forbidden_python[..],
-        TestFlavor::CanonicalArtifact | TestFlavor::IndependentCheck | TestFlavor::Generator => {
-            &[][..]
-        }
+        TestFlavor::CanonicalArtifact
+        | TestFlavor::IndependentCheck
+        | TestFlavor::Generator
+        | TestFlavor::TrustedTranscription => &[][..],
     };
     for argument in arguments {
         if argument.len() > 4096
@@ -916,7 +1132,10 @@ fn tool_identity<E: Executor>(
                 args: vec!["-m".to_owned(), "pytest".to_owned(), "--version".to_owned()],
             },
         ],
-        TestFlavor::CanonicalArtifact | TestFlavor::IndependentCheck | TestFlavor::Generator => {
+        TestFlavor::CanonicalArtifact
+        | TestFlavor::IndependentCheck
+        | TestFlavor::Generator
+        | TestFlavor::TrustedTranscription => {
             vec![ProcessSpec {
                 program: "python3".to_owned(),
                 args: vec!["--version".to_owned()],
@@ -952,6 +1171,7 @@ fn tool_identity<E: Executor>(
         TestFlavor::CanonicalArtifact => "Python/canonical-artifact-checker",
         TestFlavor::IndependentCheck => "Python/independent-checker",
         TestFlavor::Generator => "Python/registered-generator",
+        TestFlavor::TrustedTranscription => "Python/trusted-transcription-driver",
     };
     let commands = specs
         .iter()
@@ -1517,6 +1737,354 @@ fn run_python_generator<E: Executor>(
         vec![output],
         inventory,
     ))
+}
+
+fn run_trusted_transcription<E: Executor>(
+    request: &AdapterRequest,
+    unit: &EvidenceUnitManifest,
+    execution_root: &Path,
+    environment: &BTreeMap<String, String>,
+    executor: &mut E,
+    deadline: Deadline,
+) -> Result<TranscriptionRunResult, AdapterError> {
+    if !matches!(
+        request.operation.as_str(),
+        "inventory" | "check" | "reproduce"
+    ) {
+        return Err(AdapterError::Request(
+            "trusted transcription executes only for inventory, check, or reproduce".to_owned(),
+        ));
+    }
+    let config = unit.transcription.as_ref().ok_or_else(|| {
+        AdapterError::Unit("trusted-transcription requires its typed configuration".to_owned())
+    })?;
+    let source = shadow_path(execution_root, &config.source)?;
+    let committed = shadow_path(execution_root, &config.committed_transcription)?;
+    let driver = shadow_path(execution_root, &config.driver)?;
+    if !source.is_file() || !committed.is_file() || !driver.is_file() {
+        return Err(AdapterError::UnsafePath(
+            "trusted-transcription paths must resolve to three regular files".to_owned(),
+        ));
+    }
+    let source_bytes = fs::read(&source)?;
+    let committed_bytes = fs::read(&committed)?;
+    let source_observation = artifact_from_bytes(config.source.clone(), &source_bytes);
+    let committed_observation =
+        artifact_from_bytes(config.committed_transcription.clone(), &committed_bytes);
+    let driver_observation = artifact_from_bytes(config.driver.clone(), &fs::read(&driver)?);
+
+    let workspace = execution_root.parent().ok_or_else(|| {
+        AdapterError::Internal("sealed project has no workspace parent".to_owned())
+    })?;
+    let work_root = workspace.join("trusted-transcription").join(&unit.id);
+    fs::create_dir_all(&work_root)?;
+    let transcribe_root = work_root.join("transcribe");
+    fs::create_dir(&transcribe_root)?;
+    let candidate_path = transcribe_root.join("candidate.out");
+
+    let environment_observation = observe_environment(environment, &unit.environment_allowlist);
+    let project_before = snapshot_tree(execution_root)?;
+    let transcribe_spec = ProcessSpec {
+        program: "python3".to_owned(),
+        args: vec![
+            driver.to_string_lossy().into_owned(),
+            "transcribe".to_owned(),
+            "--source".to_owned(),
+            source.to_string_lossy().into_owned(),
+            "--output".to_owned(),
+            candidate_path.to_string_lossy().into_owned(),
+        ],
+    };
+    let transcribe_output = executor.run(
+        &transcribe_spec,
+        execution_root,
+        environment,
+        deadline.remaining()?,
+    )?;
+    ensure_silent_success(&transcribe_spec, &transcribe_output)?;
+    ensure_tree_unchanged(
+        "transcriber",
+        &project_before,
+        &snapshot_tree(execution_root)?,
+    )?;
+    let candidate_bytes = read_exact_stage_output(&transcribe_root, "candidate.out")?;
+    if candidate_bytes != committed_bytes {
+        return Err(AdapterError::ToolFailed(
+            "transcribed candidate does not byte-match the exact committed transcription"
+                .to_owned(),
+        ));
+    }
+
+    let reencode_root = work_root.join("reencode");
+    fs::create_dir(&reencode_root)?;
+    let reencoded_path = reencode_root.join("source.out");
+    let reencode_spec = ProcessSpec {
+        program: "python3".to_owned(),
+        args: vec![
+            driver.to_string_lossy().into_owned(),
+            "reencode".to_owned(),
+            "--transcription".to_owned(),
+            candidate_path.to_string_lossy().into_owned(),
+            "--output".to_owned(),
+            reencoded_path.to_string_lossy().into_owned(),
+        ],
+    };
+    let reencode_output = executor.run(
+        &reencode_spec,
+        execution_root,
+        environment,
+        deadline.remaining()?,
+    )?;
+    ensure_silent_success(&reencode_spec, &reencode_output)?;
+    ensure_tree_unchanged(
+        "re-encoder",
+        &project_before,
+        &snapshot_tree(execution_root)?,
+    )?;
+    let candidate_after_reencode = read_exact_stage_output(&transcribe_root, "candidate.out")?;
+    if candidate_after_reencode != candidate_bytes {
+        return Err(AdapterError::ToolFailed(
+            "re-encoder changed the transcribed candidate".to_owned(),
+        ));
+    }
+    let reencoded_bytes = read_exact_stage_output(&reencode_root, "source.out")?;
+    if reencoded_bytes != source_bytes {
+        return Err(AdapterError::ToolFailed(
+            "re-encoded bytes do not byte-match the exact source".to_owned(),
+        ));
+    }
+    validate_transcription_work_tree(&work_root)?;
+
+    let mut generated_artifacts = vec![
+        artifact_from_bytes(
+            format!("trusted-transcription/{}/transcribed-candidate", unit.id),
+            &candidate_bytes,
+        ),
+        artifact_from_bytes(
+            format!("trusted-transcription/{}/reencoded-source", unit.id),
+            &reencoded_bytes,
+        ),
+    ];
+    generated_artifacts.sort_by(|left, right| left.logical_name.cmp(&right.logical_name));
+    Ok(TranscriptionRunResult {
+        commands: vec![
+            observe_command(&transcribe_spec, &environment_observation),
+            observe_command(&reencode_spec, &environment_observation),
+        ],
+        outputs: vec![transcribe_output, reencode_output],
+        inventory: unit.expected_inventory.clone(),
+        facts: TranscriptionFacts {
+            generated_artifacts,
+            unit_id: unit.id.clone(),
+            source: source_observation,
+            committed_transcription: committed_observation,
+            driver: driver_observation,
+            driver_abi: TRANSCRIPTION_DRIVER_ABI.to_owned(),
+            source_format: config.source_format.clone(),
+            transcribed_format: config.transcribed_format.clone(),
+        },
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum TreeSnapshotEntry {
+    Directory,
+    File { sha256: String, size_bytes: u64 },
+}
+
+fn snapshot_tree(root: &Path) -> Result<Vec<(PathBuf, TreeSnapshotEntry)>, AdapterError> {
+    let mut snapshot = Vec::new();
+    for entry in WalkDir::new(root)
+        .min_depth(1)
+        .follow_links(false)
+        .sort_by_file_name()
+    {
+        let entry = entry.map_err(walk_error)?;
+        let relative = entry
+            .path()
+            .strip_prefix(root)
+            .map_err(|_| AdapterError::UnsafePath(entry.path().display().to_string()))?
+            .to_path_buf();
+        let observed = if entry.file_type().is_dir() {
+            TreeSnapshotEntry::Directory
+        } else if entry.file_type().is_file() {
+            let bytes = fs::read(entry.path())?;
+            TreeSnapshotEntry::File {
+                sha256: sha256_bytes(&bytes),
+                size_bytes: bytes.len().try_into().unwrap_or(u64::MAX),
+            }
+        } else {
+            return Err(AdapterError::UnsafePath(entry.path().display().to_string()));
+        };
+        snapshot.push((relative, observed));
+    }
+    Ok(snapshot)
+}
+
+fn ensure_tree_unchanged(
+    role: &str,
+    before: &[(PathBuf, TreeSnapshotEntry)],
+    after: &[(PathBuf, TreeSnapshotEntry)],
+) -> Result<(), AdapterError> {
+    if before != after {
+        return Err(AdapterError::ToolFailed(format!(
+            "{role} changed files outside its adapter-owned output directory"
+        )));
+    }
+    Ok(())
+}
+
+fn read_exact_stage_output(root: &Path, expected: &str) -> Result<Vec<u8>, AdapterError> {
+    let mut found = None;
+    for entry in WalkDir::new(root)
+        .min_depth(1)
+        .follow_links(false)
+        .sort_by_file_name()
+    {
+        let entry = entry.map_err(walk_error)?;
+        let relative = entry
+            .path()
+            .strip_prefix(root)
+            .map_err(|_| AdapterError::UnsafePath(entry.path().display().to_string()))?;
+        if relative != Path::new(expected) || !entry.file_type().is_file() {
+            return Err(AdapterError::Inventory(format!(
+                "transcription driver emitted unexpected path `{}`",
+                relative.display()
+            )));
+        }
+        if found.is_some() {
+            return Err(AdapterError::Inventory(
+                "transcription driver emitted duplicate output".to_owned(),
+            ));
+        }
+        found = Some(fs::read(entry.path())?);
+    }
+    found.ok_or_else(|| {
+        AdapterError::Inventory(format!(
+            "transcription driver did not emit required output `{expected}`"
+        ))
+    })
+}
+
+fn validate_transcription_work_tree(root: &Path) -> Result<(), AdapterError> {
+    let expected = BTreeSet::from([
+        PathBuf::from("transcribe"),
+        PathBuf::from("transcribe/candidate.out"),
+        PathBuf::from("reencode"),
+        PathBuf::from("reencode/source.out"),
+    ]);
+    let mut actual = BTreeSet::new();
+    for entry in WalkDir::new(root).min_depth(1).follow_links(false) {
+        let entry = entry.map_err(walk_error)?;
+        if !entry.file_type().is_dir() && !entry.file_type().is_file() {
+            return Err(AdapterError::UnsafePath(entry.path().display().to_string()));
+        }
+        actual.insert(
+            entry
+                .path()
+                .strip_prefix(root)
+                .map_err(|_| AdapterError::UnsafePath(entry.path().display().to_string()))?
+                .to_path_buf(),
+        );
+    }
+    if actual != expected {
+        return Err(AdapterError::Inventory(
+            "transcription work directory contains missing or extra paths".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_silent_success(spec: &ProcessSpec, output: &ProcessOutput) -> Result<(), AdapterError> {
+    ensure_success(spec, output)?;
+    if !output.stdout.is_empty() || !output.stderr.is_empty() {
+        return Err(AdapterError::Inventory(
+            "transcription driver must emit only its exact output file; stdout and stderr must be empty"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn artifact_from_bytes(logical_name: String, bytes: &[u8]) -> ArtifactObservation {
+    ArtifactObservation {
+        logical_name,
+        sha256: sha256_bytes(bytes),
+        size_bytes: bytes.len().try_into().unwrap_or(u64::MAX),
+    }
+}
+
+fn trusted_transcription_observation(
+    inputs: &[ArtifactObservation],
+    facts: TranscriptionFacts,
+) -> Result<TrustedTranscriptionObservation, AdapterError> {
+    let find_input = |logical_name: &str| {
+        inputs
+            .iter()
+            .find(|artifact| artifact.logical_name == logical_name)
+            .cloned()
+            .ok_or_else(|| {
+                AdapterError::Internal(format!(
+                    "registered transcription input `{logical_name}` was not observed"
+                ))
+            })
+    };
+    for execution_input in [&facts.source, &facts.committed_transcription, &facts.driver] {
+        if find_input(&execution_input.logical_name)? != *execution_input {
+            return Err(AdapterError::ToolFailed(format!(
+                "registered input `{}` changed between sealed execution and observation",
+                execution_input.logical_name
+            )));
+        }
+    }
+    let source = facts.source;
+    let committed_transcription = facts.committed_transcription;
+    let driver = facts.driver;
+    let candidate_name = format!(
+        "trusted-transcription/{}/transcribed-candidate",
+        facts.unit_id
+    );
+    let reencoded_name = format!("trusted-transcription/{}/reencoded-source", facts.unit_id);
+    let find_generated = |logical_name: &str| {
+        facts
+            .generated_artifacts
+            .iter()
+            .find(|artifact| artifact.logical_name == logical_name)
+            .cloned()
+            .ok_or_else(|| {
+                AdapterError::Internal(format!(
+                    "generated transcription artifact `{logical_name}` was not observed"
+                ))
+            })
+    };
+    let transcribed_candidate = find_generated(&candidate_name)?;
+    let reencoded_source = find_generated(&reencoded_name)?;
+    let role_identity = |role: &str| -> Result<String, AdapterError> {
+        let value = serde_json::json!({
+            "abi": &facts.driver_abi,
+            "driver": &driver,
+            "role": role,
+        });
+        Ok(domain_hash(
+            TRANSCRIPTION_ROLE_DOMAIN,
+            &canonical_json(&value).map_err(|error| AdapterError::Internal(error.to_string()))?,
+        ))
+    };
+    let transcriber_role_identity = role_identity("transcriber")?;
+    let reencoder_role_identity = role_identity("reencoder")?;
+    Ok(TrustedTranscriptionObservation {
+        schema: TRUSTED_TRANSCRIPTION_SCHEMA.to_owned(),
+        source,
+        committed_transcription,
+        transcribed_candidate,
+        reencoded_source,
+        driver: driver.clone(),
+        driver_abi: facts.driver_abi.clone(),
+        source_format: facts.source_format,
+        transcribed_format: facts.transcribed_format,
+        transcriber_role_identity,
+        reencoder_role_identity,
+    })
 }
 
 fn validate_artifact_checker_report(
@@ -2153,6 +2721,23 @@ fn validate_relative_path(path: &str) -> Result<(), AdapterError> {
     Ok(())
 }
 
+fn validate_transcription_path(path: &str) -> Result<(), AdapterError> {
+    validate_relative_path(path)?;
+    if !path.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
+        || path.contains(['\\', '*', '?', '[', ']', '{', '}'])
+        || path.contains("//")
+        || path.ends_with('/')
+        || path.split('/').any(|component| {
+            component.is_empty()
+                || matches!(component, "." | "..")
+                || TRANSLATION_RESERVED_PATH_COMPONENTS.contains(&component)
+        })
+    {
+        return Err(AdapterError::UnsafePath(path.to_owned()));
+    }
+    Ok(())
+}
+
 fn reject_symlink_components(root: &Path, candidate: &Path) -> Result<(), AdapterError> {
     let relative = candidate
         .strip_prefix(root)
@@ -2282,6 +2867,30 @@ fn safe_atom(value: &str) -> bool {
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
 }
+fn safe_format(value: &str) -> bool {
+    if value.len() > 128 {
+        return false;
+    }
+    let Some((name, version)) = value.split_once('/') else {
+        return false;
+    };
+    !name.contains('/')
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && name.split(['-', '_', '.', '+']).all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+        && version
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_digit() && byte != b'0')
+        && version.bytes().all(|byte| byte.is_ascii_digit())
+}
 fn safe_symbol(value: &str) -> bool {
     !value.is_empty() && value.len() <= 1024 && value.split("::").all(safe_atom)
 }
@@ -2291,6 +2900,20 @@ fn safe_id(value: &str) -> bool {
             .chars()
             .next()
             .is_some_and(|ch| ch.is_ascii_lowercase())
+}
+fn valid_local_id(value: &str) -> bool {
+    value.len() <= 128
+        && value.split('-').enumerate().all(|(index, segment)| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                && (index != 0
+                    || segment
+                        .bytes()
+                        .next()
+                        .is_some_and(|byte| byte.is_ascii_lowercase()))
+        })
 }
 fn safe_libtest_name(value: &str) -> bool {
     !value.is_empty() && value.len() <= 1024 && value.split("::").all(safe_test_tail)
@@ -2388,6 +3011,65 @@ mod tests {
         }
         serde_json::from_value(value).unwrap()
     }
+
+    fn transcription_unit() -> EvidenceUnitManifest {
+        serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/2",
+            "id": "round-trip",
+            "adapter": "trusted-transcription",
+            "kind": "trusted-transcription",
+            "claims": ["CLAIM-ONE"],
+            "tier": 1,
+            "operation": { "type": "transcription" },
+            "binding_mode": "external-round-trip",
+            "expected_inventory": ["committed.txt", "source.bin"],
+            "inputs": ["committed.txt", "driver.py", "source.bin"],
+            "outputs": [],
+            "environment_allowlist": ["PATH"],
+            "transcription": {
+                "schema": "proofbound-trusted-transcription/1",
+                "source": "source.bin",
+                "committed_transcription": "committed.txt",
+                "driver": "driver.py",
+                "source_format": "subject-bytes/1",
+                "transcribed_format": "typed-literals/1",
+                "driver_abi": "proofbound-transcription-driver/1"
+            },
+            "resource_budget": {
+                "time_seconds": 30,
+                "disk_bytes": 16777216,
+                "memory_bytes": 16777216
+            }
+        }))
+        .unwrap()
+    }
+
+    fn write_transcription_fixture(root: &Path, driver: &str) {
+        fs::write(root.join("source.bin"), b"source bytes\n").unwrap();
+        fs::write(root.join("committed.txt"), b"typed:source bytes\n").unwrap();
+        fs::write(root.join("driver.py"), driver).unwrap();
+    }
+
+    const VALID_TRANSCRIPTION_DRIVER: &str = r#"import argparse
+from pathlib import Path
+
+p = argparse.ArgumentParser()
+sub = p.add_subparsers(dest="mode", required=True)
+t = sub.add_parser("transcribe")
+t.add_argument("--source", required=True)
+t.add_argument("--output", required=True)
+r = sub.add_parser("reencode")
+r.add_argument("--transcription", required=True)
+r.add_argument("--output", required=True)
+a = p.parse_args()
+if a.mode == "transcribe":
+    Path(a.output).write_bytes(b"typed:" + Path(a.source).read_bytes())
+else:
+    data = Path(a.transcription).read_bytes()
+    if not data.startswith(b"typed:"):
+        raise SystemExit(2)
+    Path(a.output).write_bytes(data[len(b"typed:"):])
+"#;
 
     #[test]
     fn nullable_observation_fields_are_required_and_accept_explicit_null() {
@@ -2619,6 +3301,284 @@ mod tests {
     }
 
     #[test]
+    fn trusted_transcription_requires_exact_typed_configuration() {
+        let unit = transcription_unit();
+        assert_eq!(
+            validate_unit(&request("trusted-transcription", "check", &unit), &unit).unwrap(),
+            TestFlavor::TrustedTranscription
+        );
+
+        let mut v1 = unit.clone();
+        v1.schema = "proofbound-evidence-unit/1".to_owned();
+        assert!(validate_unit(&request("trusted-transcription", "check", &v1), &v1).is_err());
+
+        let mut strong_binding = unit.clone();
+        strong_binding.binding_mode = Some(BindingMode::DigestTheorem);
+        assert!(
+            validate_unit(
+                &request("trusted-transcription", "check", &strong_binding),
+                &strong_binding
+            )
+            .is_err()
+        );
+
+        let mut extra_input = unit.clone();
+        extra_input.inputs.push("unreviewed.txt".to_owned());
+        assert!(
+            validate_unit(
+                &request("trusted-transcription", "check", &extra_input),
+                &extra_input
+            )
+            .is_err()
+        );
+
+        let mut empty_inventory = unit.clone();
+        empty_inventory.expected_inventory.clear();
+        assert!(matches!(
+            validate_unit(
+                &request("trusted-transcription", "check", &empty_inventory),
+                &empty_inventory
+            ),
+            Err(AdapterError::Inventory(_))
+        ));
+
+        let mut escaped = unit.clone();
+        escaped.transcription.as_mut().unwrap().source = "../source.bin".to_owned();
+        assert!(matches!(
+            validate_unit(
+                &request("trusted-transcription", "check", &escaped),
+                &escaped
+            ),
+            Err(AdapterError::UnsafePath(_))
+        ));
+        for unsafe_path in [
+            "a//source.bin",
+            ".proofbound/source.bin",
+            "glob/*.bin",
+            "unicode/é.bin",
+            "back\\slash.bin",
+        ] {
+            let mut unsafe_unit = unit.clone();
+            unsafe_unit.transcription.as_mut().unwrap().source = unsafe_path.to_owned();
+            assert!(matches!(
+                validate_unit(
+                    &request("trusted-transcription", "check", &unsafe_unit),
+                    &unsafe_unit
+                ),
+                Err(AdapterError::UnsafePath(_))
+            ));
+        }
+
+        let mut arbitrary_arguments = unit.clone();
+        arbitrary_arguments.operation.arguments = vec!["--smuggle".to_owned()];
+        assert!(
+            validate_unit(
+                &request("trusted-transcription", "check", &arbitrary_arguments),
+                &arbitrary_arguments
+            )
+            .is_err()
+        );
+
+        let mut no_path = unit.clone();
+        no_path.environment_allowlist.clear();
+        assert!(
+            validate_unit(
+                &request("trusted-transcription", "check", &no_path),
+                &no_path
+            )
+            .is_err(),
+            "the sealed adapter process must receive its exact PATH capability"
+        );
+
+        let mut extra_environment = unit.clone();
+        extra_environment
+            .environment_allowlist
+            .push("HOME".to_owned());
+        assert!(
+            validate_unit(
+                &request("trusted-transcription", "check", &extra_environment),
+                &extra_environment
+            )
+            .is_err(),
+            "transcription must not gain undeclared ambient environment"
+        );
+    }
+
+    #[test]
+    fn trusted_transcription_observes_connected_raw_byte_round_trip() {
+        let root = tempfile::tempdir().unwrap();
+        write_transcription_fixture(root.path(), VALID_TRANSCRIPTION_DRIVER);
+        let unit = transcription_unit();
+        let (observation, inventory) = execute_request(
+            &request("trusted-transcription", "check", &unit),
+            root.path(),
+            &mut RealExecutor,
+        )
+        .unwrap();
+        let observation = observation.unwrap();
+        assert_eq!(inventory, ["committed.txt", "source.bin"]);
+        assert_eq!(observation.inventory, inventory);
+        assert_eq!(observation.commands.len(), 3);
+        assert_eq!(observation.runs.len(), 3);
+        assert_eq!(observation.generated_artifacts.len(), 2);
+        assert_eq!(observation.normalization, "exact-transcription-bytes/1");
+        assert!(observation.artifact_binding.is_none());
+
+        for forbidden in ["accepted", "tcb_node", "claim_id", "binding_valid"] {
+            let mut smuggled = serde_json::to_value(&observation).unwrap();
+            smuggled["trusted_transcription"][forbidden] = json!(true);
+            assert!(
+                serde_json::from_value::<AdapterObservation>(smuggled).is_err(),
+                "checker-authored `{forbidden}` must have no observation representation"
+            );
+        }
+
+        let facts = observation.trusted_transcription.unwrap();
+        assert_eq!(facts.schema, "proofbound-trusted-transcription/1");
+        assert_eq!(facts.source.logical_name, "source.bin");
+        assert_eq!(facts.committed_transcription.logical_name, "committed.txt");
+        assert_eq!(facts.driver.logical_name, "driver.py");
+        assert_eq!(
+            facts.transcribed_candidate.sha256,
+            facts.committed_transcription.sha256
+        );
+        assert_eq!(
+            facts.transcribed_candidate.size_bytes,
+            facts.committed_transcription.size_bytes
+        );
+        assert_eq!(facts.reencoded_source.sha256, facts.source.sha256);
+        assert_eq!(facts.reencoded_source.size_bytes, facts.source.size_bytes);
+        assert_ne!(
+            facts.transcriber_role_identity,
+            facts.reencoder_role_identity
+        );
+        assert_eq!(
+            observation.commands[2].args[2], "--transcription",
+            "the second fixed ABI call must consume the candidate"
+        );
+        assert!(
+            observation.commands[2].args[3]
+                .ends_with("/trusted-transcription/round-trip/transcribe/candidate.out")
+        );
+    }
+
+    #[test]
+    fn trusted_transcription_inventory_is_exact_and_evidence_backed() {
+        let root = tempfile::tempdir().unwrap();
+        write_transcription_fixture(root.path(), VALID_TRANSCRIPTION_DRIVER);
+        let unit = transcription_unit();
+        let (observation, inventory) = execute_request(
+            &request("trusted-transcription", "inventory", &unit),
+            root.path(),
+            &mut RealExecutor,
+        )
+        .unwrap();
+        assert_eq!(inventory, ["committed.txt", "source.bin"]);
+        let observation = observation.expect("successful inventory is evidence-backed");
+        assert_eq!(observation.inventory, inventory);
+        assert_eq!(observation.commands.len(), 3);
+        assert!(observation.trusted_transcription.is_some());
+    }
+
+    #[test]
+    fn trusted_transcription_rejects_missing_extra_partial_and_trailing_outputs() {
+        let cases = [
+            (
+                "missing",
+                r#"import argparse
+p=argparse.ArgumentParser(); p.add_argument("mode"); p.add_argument("--source"); p.add_argument("--output"); p.parse_args()
+"#,
+            ),
+            (
+                "extra",
+                r#"import argparse
+from pathlib import Path
+p=argparse.ArgumentParser(); p.add_argument("mode"); p.add_argument("--source"); p.add_argument("--output"); a=p.parse_args(); Path(a.output).write_bytes(b"typed:"+Path(a.source).read_bytes()); Path(a.output).with_name("extra").write_bytes(b"smuggled")
+"#,
+            ),
+            (
+                "partial",
+                r#"import argparse
+from pathlib import Path
+p=argparse.ArgumentParser(); p.add_argument("mode"); p.add_argument("--source"); p.add_argument("--output"); a=p.parse_args(); Path(a.output).write_bytes(b"typed:source")
+"#,
+            ),
+            (
+                "trailing",
+                r#"import argparse
+from pathlib import Path
+p=argparse.ArgumentParser(); p.add_argument("mode"); p.add_argument("--source"); p.add_argument("--output"); a=p.parse_args(); Path(a.output).write_bytes(b"typed:"+Path(a.source).read_bytes()+b"trailing")
+"#,
+            ),
+        ];
+        for (label, driver) in cases {
+            let root = tempfile::tempdir().unwrap();
+            write_transcription_fixture(root.path(), driver);
+            let result = execute_request(
+                &request("trusted-transcription", "check", &transcription_unit()),
+                root.path(),
+                &mut RealExecutor,
+            );
+            assert!(result.is_err(), "{label} output must fail closed");
+        }
+    }
+
+    #[test]
+    fn trusted_transcription_rejects_stream_output_and_shadow_mutation() {
+        for (label, driver) in [
+            (
+                "stdout",
+                VALID_TRANSCRIPTION_DRIVER.replace(
+                    "if a.mode == \"transcribe\":",
+                    "print('unframed trailing output')\nif a.mode == \"transcribe\":",
+                ),
+            ),
+            (
+                "mutation",
+                VALID_TRANSCRIPTION_DRIVER.replace(
+                    "if a.mode == \"transcribe\":",
+                    "Path(a.source).write_bytes(b'mutated')\nif a.mode == \"transcribe\":",
+                ),
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            write_transcription_fixture(root.path(), &driver);
+            let result = execute_request(
+                &request("trusted-transcription", "check", &transcription_unit()),
+                root.path(),
+                &mut RealExecutor,
+            );
+            assert!(result.is_err(), "{label} must fail closed");
+            assert_eq!(
+                fs::read(root.path().join("source.bin")).unwrap(),
+                b"source bytes\n",
+                "execution must remain confined to the disposable shadow"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trusted_transcription_rejects_symlinked_inputs() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        write_transcription_fixture(root.path(), VALID_TRANSCRIPTION_DRIVER);
+        fs::rename(
+            root.path().join("source.bin"),
+            root.path().join("real-source.bin"),
+        )
+        .unwrap();
+        symlink("real-source.bin", root.path().join("source.bin")).unwrap();
+        let result = execute_request(
+            &request("trusted-transcription", "check", &transcription_unit()),
+            root.path(),
+            &mut RealExecutor,
+        );
+        assert!(matches!(result, Err(AdapterError::UnsafePath(_))));
+    }
+
+    #[test]
     fn generator_unit_has_exact_outputs_and_reserved_update_switch() {
         let root = tempfile::tempdir().unwrap();
         fs::create_dir(root.path().join("fixtures")).unwrap();
@@ -2770,6 +3730,7 @@ affected_claims = ["CLAIM-ONE"]
             inventory: vec![],
             normalization: "stable-tool-output/1".to_owned(),
             artifact_binding: None,
+            trusted_transcription: None,
         };
         let bytes = canonical_json(&observation).unwrap();
         assert_eq!(

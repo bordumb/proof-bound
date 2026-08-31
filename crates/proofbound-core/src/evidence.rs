@@ -13,7 +13,7 @@ use crate::{
     AdapterStrength, AssumptionCategory, AssumptionId, AssumptionStatus, BindingMode, CacheOrigin,
     ClaimId, ClosureKind, EnvironmentId, ErrorCode, EvaluationMode, EvidenceId, EvidenceKind,
     EvidenceStatus, IndependenceMode, LinkageFacet, NodeId, ObligationId, PolicyId, PremiseId,
-    Sha256Digest, StructuredError, Tier, TreeState, UnitId, ValidationErrors,
+    Sha256Digest, StableIdError, StructuredError, Tier, TreeState, UnitId, ValidationErrors,
     lean_statement_wire_digest,
 };
 
@@ -22,6 +22,9 @@ pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 pub const EVIDENCE_SCHEMA_V1: &str = "proofbound-evidence/1";
 pub const EVIDENCE_SCHEMA_V2: &str = "proofbound-evidence/2";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
+pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcription/1";
+pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
+pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
 
 fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
@@ -610,13 +613,88 @@ pub struct ArtifactBindingEvidence {
     pub artifact: ArtifactIdentity,
 }
 
-/// Trusted components and round-trip check for the degraded transcription form.
+/// One of the two domain-separated trusted roles in a transcription boundary.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranscriptionRole {
+    Transcriber,
+    Reencoder,
+}
+
+/// A graph reference paired with the independently derived identity of its
+/// trusted role.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranscriptionTcbRole {
+    pub tcb_node: NodeId,
+    pub role_identity: Sha256Digest,
+}
+
+#[derive(Serialize)]
+struct TranscriptionRoleIdentityMaterial<'a> {
+    abi: &'static str,
+    driver: &'a ArtifactIdentity,
+    role: TranscriptionRole,
+}
+
+/// Derives a trusted-role identity from the complete driver identity and its
+/// fixed ABI. The domain and role keep a single two-mode driver from collapsing
+/// the transcriber and re-encoder into one TCB identity.
+#[must_use]
+pub fn transcription_role_identity(
+    role: TranscriptionRole,
+    driver: &ArtifactIdentity,
+) -> Sha256Digest {
+    let material = serde_json::to_vec(&TranscriptionRoleIdentityMaterial {
+        abi: TRANSCRIPTION_DRIVER_ABI_V1,
+        driver,
+        role,
+    })
+    .expect("trusted-transcription role material is infallibly serializable");
+    let mut framed =
+        Vec::with_capacity(TRANSCRIPTION_TCB_ROLE_DOMAIN_V1.len() + 1 + material.len());
+    framed.extend_from_slice(TRANSCRIPTION_TCB_ROLE_DOMAIN_V1.as_bytes());
+    framed.push(0);
+    framed.extend_from_slice(&material);
+    Sha256Digest::of_bytes(framed)
+}
+
+/// Derives the only graph node identity accepted for one transcription TCB
+/// role. Unit scoping allows different registered drivers to coexist without
+/// giving a producer freedom to redirect a receipt to an arbitrary TCB node.
+pub fn transcription_tcb_node_id(
+    unit_id: &UnitId,
+    role: TranscriptionRole,
+) -> Result<NodeId, StableIdError> {
+    let unit_name = unit_id
+        .as_str()
+        .strip_prefix("unit:")
+        .unwrap_or(unit_id.as_str());
+    let role_name = match role {
+        TranscriptionRole::Transcriber => "transcriber",
+        TranscriptionRole::Reencoder => "reencoder",
+    };
+    NodeId::new(format!("tcb:trusted-transcription:{unit_name}:{role_name}"))
+}
+
+/// Exact inputs, independently observed outputs, and trusted role identities
+/// for the degraded transcription form. Equality of the two byte-identity
+/// pairs derives the round trip; no checker-authored success bit is accepted.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrustedTranscriptionEvidence {
-    pub transcriber_tcb: NodeId,
-    pub reencoder_tcb: NodeId,
-    pub round_trip_passed: bool,
+    pub schema: String,
+    pub source: ArtifactIdentity,
+    pub committed_transcription: ArtifactIdentity,
+    pub transcribed_candidate: ArtifactIdentity,
+    pub reencoded_source: ArtifactIdentity,
+    pub driver: ArtifactIdentity,
+    pub transcriber: TranscriptionTcbRole,
+    pub reencoder: TranscriptionTcbRole,
+}
+
+fn same_artifact_bytes(left: &ArtifactIdentity, right: &ArtifactIdentity) -> bool {
+    left.sha256 == right.sha256 && left.size_bytes == right.size_bytes
 }
 
 /// Facts required to connect translated production code to a semantic model.
@@ -912,15 +990,153 @@ impl EvidenceRecord {
                 }
             }
             EvidenceKind::TrustedTranscription => {
-                if self.binding_mode != Some(BindingMode::ExternalRoundTrip)
-                    || self
-                        .trusted_transcription
-                        .as_ref()
-                        .is_none_or(|record| !record.round_trip_passed)
-                {
+                if self.binding_mode != Some(BindingMode::ExternalRoundTrip) {
                     errors.push(error(
-                        "trusted transcription requires a passing external round-trip binding".into(),
-                        "record external-round-trip and both trusted components",
+                        "trusted transcription requires external-round-trip binding".into(),
+                        "record external-round-trip and the complete derived transcription record",
+                    ));
+                }
+                if let Some(record) = &self.trusted_transcription {
+                    if record.schema != TRUSTED_TRANSCRIPTION_SCHEMA_V1 {
+                        errors.push(error(
+                            format!(
+                                "trusted transcription uses unsupported nested schema '{}'",
+                                record.schema
+                            ),
+                            "regenerate proofbound-trusted-transcription/1 evidence",
+                        ));
+                    }
+                    let artifact_names = [
+                        record.source.logical_name.as_str(),
+                        record.committed_transcription.logical_name.as_str(),
+                        record.transcribed_candidate.logical_name.as_str(),
+                        record.reencoded_source.logical_name.as_str(),
+                        record.driver.logical_name.as_str(),
+                    ];
+                    if artifact_names.into_iter().collect::<BTreeSet<_>>().len()
+                        != artifact_names.len()
+                    {
+                        errors.push(error(
+                            "trusted transcription aliases two artifact roles to one logical name"
+                                .into(),
+                            "give source, committed transcription, candidate, re-encoded source, and driver distinct logical names",
+                        ));
+                    }
+                    if self.provenance.input_artifacts.len() != 3 {
+                        errors.push(error(
+                            "trusted transcription provenance input inventory is not the exact three registered artifacts"
+                                .into(),
+                            "record only the source, committed transcription, and driver as inputs",
+                        ));
+                    }
+                    if self.provenance.generated_artifacts.len() != 2 {
+                        errors.push(error(
+                            "trusted transcription provenance generated inventory is not the exact two observed outputs"
+                                .into(),
+                            "record only the transcribed candidate and re-encoded source as generated artifacts",
+                        ));
+                    }
+                    for (label, artifact) in [
+                        ("source", &record.source),
+                        ("committed transcription", &record.committed_transcription),
+                        ("driver", &record.driver),
+                    ] {
+                        if self
+                            .provenance
+                            .input_artifacts
+                            .iter()
+                            .filter(|candidate| *candidate == artifact)
+                            .count()
+                            != 1
+                        {
+                            errors.push(error(
+                                format!(
+                                    "trusted transcription {label} identity does not match exactly one provenance input artifact"
+                                ),
+                                "bind every trusted-transcription input by its complete logical name, digest, and size",
+                            ));
+                        }
+                    }
+                    for (label, artifact) in [
+                        ("transcribed candidate", &record.transcribed_candidate),
+                        ("re-encoded source", &record.reencoded_source),
+                    ] {
+                        if self
+                            .provenance
+                            .generated_artifacts
+                            .iter()
+                            .filter(|candidate| *candidate == artifact)
+                            .count()
+                            != 1
+                        {
+                            errors.push(error(
+                                format!(
+                                    "trusted transcription {label} identity does not match exactly one provenance generated artifact"
+                                ),
+                                "bind both independently observed outputs by their complete logical name, digest, and size",
+                            ));
+                        }
+                    }
+                    if !same_artifact_bytes(
+                        &record.committed_transcription,
+                        &record.transcribed_candidate,
+                    ) {
+                        errors.push(error(
+                            "transcribed candidate bytes do not match the committed transcription"
+                                .into(),
+                            "regenerate the transcription and require identical digest and byte size before recording evidence",
+                        ));
+                    }
+                    if !same_artifact_bytes(&record.source, &record.reencoded_source) {
+                        errors.push(error(
+                            "re-encoded source bytes do not match the registered source".into(),
+                            "run the external round trip and require identical digest and byte size before recording evidence",
+                        ));
+                    }
+                    let expected_transcriber = transcription_role_identity(
+                        TranscriptionRole::Transcriber,
+                        &record.driver,
+                    );
+                    let expected_reencoder = transcription_role_identity(
+                        TranscriptionRole::Reencoder,
+                        &record.driver,
+                    );
+                    if record.transcriber.role_identity != expected_transcriber
+                        || record.reencoder.role_identity != expected_reencoder
+                    {
+                        errors.push(error(
+                            "trusted transcription TCB role identity is not derived from the exact registered driver and ABI"
+                                .into(),
+                            "derive each role identity with proofbound-transcription-tcb-role/1 from the complete driver identity",
+                        ));
+                    }
+                    let expected_transcriber_node =
+                        transcription_tcb_node_id(&self.unit_id, TranscriptionRole::Transcriber);
+                    let expected_reencoder_node =
+                        transcription_tcb_node_id(&self.unit_id, TranscriptionRole::Reencoder);
+                    if expected_transcriber_node.as_ref() != Ok(&record.transcriber.tcb_node)
+                        || expected_reencoder_node.as_ref() != Ok(&record.reencoder.tcb_node)
+                    {
+                        errors.push(error(
+                            "trusted transcription TCB node identity is not derived from the evidence unit and role"
+                                .into(),
+                            "use tcb:trusted-transcription:<unit>:transcriber and the corresponding reencoder node",
+                        ));
+                    }
+                    if record.transcriber.tcb_node == record.reencoder.tcb_node
+                        || record.transcriber.role_identity == record.reencoder.role_identity
+                    {
+                        errors.push(error(
+                            "trusted transcription collapses the transcriber and re-encoder TCB roles"
+                                .into(),
+                            "record two distinct TCB nodes with domain-separated role identities",
+                        ));
+                    }
+                } else {
+                    errors.push(error(
+                        "trusted transcription is missing its derived external round-trip record"
+                            .into(),
+                        "record both exact inputs, both observed outputs, the driver, and both TCB roles",
                     ));
                 }
             }
@@ -1241,6 +1457,40 @@ mod tests {
             "manual_status": "PROVED"
         });
         assert!(serde_json::from_value::<EvidenceRecord>(value).is_err());
+    }
+
+    #[test]
+    fn trusted_transcription_rejects_legacy_or_forged_success_booleans() {
+        let legacy = serde_json::json!({
+            "transcriber_tcb": "tcb:transcriber",
+            "reencoder_tcb": "tcb:reencoder",
+            "round_trip_passed": true
+        });
+        assert!(serde_json::from_value::<TrustedTranscriptionEvidence>(legacy).is_err());
+
+        let artifact = serde_json::json!({
+            "logical_name": "artifact.bin",
+            "sha256": format!("sha256:{}", Sha256Digest::of_bytes(b"artifact")),
+            "size_bytes": 8
+        });
+        let forged = serde_json::json!({
+            "schema": TRUSTED_TRANSCRIPTION_SCHEMA_V1,
+            "source": artifact,
+            "committed_transcription": artifact,
+            "transcribed_candidate": artifact,
+            "reencoded_source": artifact,
+            "driver": artifact,
+            "transcriber": {
+                "tcb_node": "tcb:transcriber",
+                "role_identity": format!("sha256:{}", Sha256Digest::of_bytes(b"transcriber"))
+            },
+            "reencoder": {
+                "tcb_node": "tcb:reencoder",
+                "role_identity": format!("sha256:{}", Sha256Digest::of_bytes(b"reencoder"))
+            },
+            "round_trip_passed": true
+        });
+        assert!(serde_json::from_value::<TrustedTranscriptionEvidence>(forged).is_err());
     }
 
     #[test]

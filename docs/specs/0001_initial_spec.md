@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.8.0
+**Version:** 0.9.0
 
 **Date:** 2026-08-31
 
@@ -12,6 +12,12 @@
 
 ### Revision history
 
+- **0.9.0** — executable trusted transcription: introduces the closed
+  `proofbound-evidence-unit/2` transcription route and fixed Python driver ABI,
+  derives distinct transcriber and re-encoder TCB roles from observed driver
+  bytes, carries all four compared artifact identities without a checker-
+  authored success Boolean, and adds the immutable Tier 1 `transcribed`
+  profile (§7.1.1, §9.1.1, §11.2.1; ADR 0015).
 - **0.8.0** — authoritative translation manifests: replaces the flat,
   partially advisory translation-unit format with ordered typed
   Charon/Aeneas invocations, exact intermediate and output identities, a
@@ -257,7 +263,7 @@ language never exceeds what the tier can support.
 | Tier | Adds | Requires | Strongest status |
 |---|---|---|---|
 | **0** | Claim ledger: registered claims, explicit assumptions, existing tests bound as evidence | The `proofbound` CLI only — no new toolchains | `TESTED` / `ASSUMED` / `OPEN` |
-| **1** | Bounded model checking, independent and exhaustive checks | Kani (or equivalent) | `BOUNDED_CHECKED` |
+| **1** | Trusted transcription, bounded model checking, independent and exhaustive checks | A registered transcription driver and/or Kani (or equivalent) | `OPEN` + `TRANSCRIBED`, or `BOUNDED_CHECKED` |
 | **2** | Model theorems and the compiled axiom audit | Lean toolchain | `PROVED` + `MODEL_ONLY` |
 | **3** | Source refinement and artifact binding | Charon/Aeneas, digest theorems | `PROVED` + `REFINED` / `ARTIFACT_BOUND` |
 
@@ -615,6 +621,11 @@ soundness:
   `tcb-component` nodes; and
 - profile `artifact-bound` (§9.4) rejects it.
 
+Version 0.9 makes this route executable rather than taxonomic only. Its typed
+manifest, connected two-step ABI, artifact comparisons, and derived TCB
+identities are specified in Section 11.2.1. Neither an adapter exit status nor
+a manifest-authored Boolean can substitute for those comparisons.
+
 ### 7.2 Pattern B: translated source refinement
 
 This pattern is appropriate when a small pure production kernel is itself the
@@ -818,6 +829,23 @@ The initial built-in profiles are:
   even when all registered Tier 0 tests pass.
 - Explicit assumptions remain first-class and are never hidden by a passing
   test.
+
+### 9.1.1 `transcribed`
+
+- This is the built-in Tier 1 profile for the degraded binding in Section
+  7.1.1.
+- It requires passing `trusted-transcription` evidence whose binding is
+  `external-round-trip`, whose typed artifact identities form the exact
+  connected round trip in Section 11.2.1, and whose linkage derives as
+  `TRANSCRIBED`.
+- It requires no theorem and never turns transcription evidence into
+  `PROVED`. In the absence of separately admitted formal evidence, the formal
+  facet remains `OPEN` while the linkage facet is `TRANSCRIBED`.
+- It does not admit `ARTIFACT_BOUND` or `REFINED`, and it makes no claim about
+  a shipping implementation. A project needing those statements must select
+  the corresponding stronger profile and supply its distinct evidence.
+- The transcriber and re-encoder are separate TCB roles even when one pinned
+  driver file implements both operations.
 
 ### 9.2 `kernel`
 
@@ -1190,6 +1218,121 @@ program without a write switch for verification and may add the reserved
 `--update` switch only for `proofbound update UNIT` inside the orchestrator's
 sealed update shadow. A successful update response therefore carries no
 evidence record: regeneration is not assurance evidence.
+
+### 11.2.1 Executable trusted-transcription unit
+
+Trusted transcription uses a deliberately new evidence-unit version; version
+1 is not silently reinterpreted:
+
+```toml
+schema = "proofbound-evidence-unit/2"
+id = "trusted-values"
+adapter = "trusted-transcription"
+kind = "trusted-transcription"
+claims = ["EXAMPLE-TRANSCRIPTION-001"]
+tier = 1
+binding_mode = "external-round-trip"
+expected_inventory = ["source/values.pbtt", "transcribed/values.json"]
+inputs = [
+  "python/transcription_driver.py",
+  "source/values.pbtt",
+  "transcribed/values.json",
+]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "transcription"
+
+[transcription]
+schema = "proofbound-trusted-transcription/1"
+source = "source/values.pbtt"
+committed_transcription = "transcribed/values.json"
+driver = "python/transcription_driver.py"
+source_format = "proofbound-u32-lines/1"
+transcribed_format = "proofbound-u32-json/1"
+driver_abi = "proofbound-transcription-driver/1"
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 67108864
+memory_bytes = 268435456
+```
+
+`proofbound-evidence-unit/2` is reserved for this exact route. It requires the
+adapter, evidence kind, operation, binding, and nested schemas shown above.
+Conversely, `/1` forbids the transcription block and all three new typed enum
+values; an old generic checker cannot relabel itself as trusted transcription.
+All unrelated operation fields and evidence qualifiers are absent or empty:
+there is no theorem, evaluation mode, bounded domain, configured argument,
+checker path, package, target, manifest, inventory file, premise, or
+assumption. The environment allowlist is exactly `["PATH"]`: the adapter needs
+it to resolve `python3`, hashes and binds its value in provenance, and records
+the resolved Python executable identity. No other parent environment enters
+the driver process.
+
+The three transcription paths are distinct, repository-relative exact file
+paths, not globs; each is at most 4096 printable-ASCII bytes and obeys the
+reserved-component rules of Section 11.3. The driver ends in `.py`.
+`inputs` is exactly the lexically sorted set of source, committed
+transcription, and driver. `expected_inventory` is exactly the lexically
+sorted set of source and committed transcription. `outputs` is empty because
+neither `check` nor this evidence kind owns a committed write. The two format
+identifiers are distinct, at most 128 bytes, and use the versioned grammar
+`^[a-z][a-z0-9]*(?:[-_.+][a-z0-9]+)*/[1-9][0-9]*$`.
+
+The fixed `proofbound-transcription-driver/1` ABI consists of exactly these two
+commands, in order, under the evidence unit's declared budget:
+
+```text
+python3 DRIVER transcribe --source SOURCE --output FRESH_CANDIDATE
+python3 DRIVER reencode --transcription FRESH_CANDIDATE --output FRESH_REENCODED
+```
+
+The adapter owns every argument after the driver path; the manifest cannot add
+arguments. Both commands run in one sealed shadow with the same registered
+driver. The re-encoder consumes the freshly produced candidate, not the
+committed transcription. This connected execution prevents two unrelated
+comparisons from being presented as one round trip. The adapter requires all
+of the following:
+
+1. the fresh candidate equals the committed transcription byte-for-byte; and
+2. the fresh re-encoding equals the source byte-for-byte.
+
+The observation carries a strict nested
+`proofbound-trusted-transcription/1` record containing the source, committed
+transcription, fresh candidate, fresh re-encoding, and driver artifact
+identities; both format IDs; the fixed ABI; and the distinct transcriber and
+re-encoder role identities. Its input artifacts are the exact sorted manifest
+input set. Its generated artifacts are exactly, in lexical order,
+`trusted-transcription/<unit-id>/reencoded-source` and
+`trusted-transcription/<unit-id>/transcribed-candidate`. No transcription-
+specific or driver-authored success/binding Boolean, and no TCB node ID,
+exists in the nested observation or manifest; the generic protocol outcome is
+derived from execution and comparison results.
+
+The compiler admits that observation only when every registered path, format,
+inventory member, and artifact identity matches. The canonical version-2
+evidence record then retains the five artifact identities and two derived role
+records under its nested `proofbound-trusted-transcription/1` value. Each role
+identity is independently recomputed from canonical `{abi, driver, role}`
+content under the `proofbound-transcription-tcb-role/1` digest domain. The
+compiler derives the distinct node IDs
+`tcb:trusted-transcription:<unit-id>:transcriber` and
+`tcb:trusted-transcription:<unit-id>:reencoder`, where `<unit-id>` is the
+manifest ID without a `unit:` prefix. Their TCB-ledger names are respectively
+`trusted-transcription/<unit-id>/transcriber` and
+`trusted-transcription/<unit-id>/reencoder`; each ledger version is the fixed
+ABI `proofbound-transcription-driver/1`, and its identity is the corresponding
+derived role digest. These remain separate even when one driver implements
+both roles. The independent verifier repeats the derivation and both byte-
+identity comparisons. A passing record yields only `TRANSCRIBED` linkage. It
+cannot yield `PROVED`, `ARTIFACT_BOUND`, or `REFINED`.
+
+`schemas/evidence-unit.schema.json`,
+`schemas/adapter-observation.schema.json`, `schemas/evidence.schema.json`, and
+`schemas/receipt.schema.json` are the closed machine-readable contracts for
+this route and MUST remain field-for-field consistent with this section.
 
 ### 11.3 Translation unit
 
@@ -1618,6 +1761,7 @@ proof-bound/
 ├── templates/
 │   ├── artifact-checker/
 │   ├── rust-aeneas-refinement/
+│   ├── trusted-transcription/
 │   └── explicit-assumption/
 │
 ├── claims/                       # Proofbound's own self-assurance claims
@@ -2068,13 +2212,13 @@ experience; this ordering is the protection.
 
 - Extract canonical schemas, graph construction, faceted status derivation,
   policies, receipts, and the CLI (`doctor`, `status`, `claim`, `explain`)
-  from the two demos plus the reference-repository study; migrate both demos
-  onto the extracted core.
+  from the two original demos plus the reference-repository study; migrate
+  both original demos onto the extracted core.
 - Build `proofbound-verify` (§10.4) against the same specification with no
   shared source, plus the registered synthetic-graph corpus that
   cross-checks the two derivations.
-- Acceptance: both demos run through the shared core with no demo-specific
-  logic in core source; synthetic graph tests prove no status can be
+- Acceptance: both original demos run through the shared core with no demo-
+  specific logic in core source; synthetic graph tests prove no status can be
   upgraded by omitting evidence or assumptions — in both implementations;
   `init` produces a working Tier 0 ledger on an arbitrary existing
   repository, not only on the demos; every extracted abstraction carries a

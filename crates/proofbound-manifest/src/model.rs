@@ -192,7 +192,38 @@ pub struct EvidenceUnitManifest {
     #[serde(default)]
     pub environment_allowlist: Vec<String>,
     pub bounded_domain: Option<BoundedDomain>,
+    #[serde(default)]
+    pub transcription: Option<TrustedTranscriptionConfig>,
     pub resource_budget: ResourceBudget,
+}
+
+/// Manifest-owned inputs for the executable trusted-transcription route.
+///
+/// The adapter derives the two trusted roles from the registered driver and
+/// this typed configuration. Manifests never author TCB node identities or a
+/// Boolean assertion that the round trip passed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrustedTranscriptionConfig {
+    pub schema: TrustedTranscriptionSchema,
+    pub source: String,
+    pub committed_transcription: String,
+    pub driver: String,
+    pub source_format: String,
+    pub transcribed_format: String,
+    pub driver_abi: TranscriptionDriverAbi,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TrustedTranscriptionSchema {
+    #[serde(rename = "proofbound-trusted-transcription/1")]
+    Version1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TranscriptionDriverAbi {
+    #[serde(rename = "proofbound-transcription-driver/1")]
+    Version1,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,6 +238,7 @@ pub enum AdapterKind {
     SourceClosure,
     IndependentCheck,
     HumanReview,
+    TrustedTranscription,
 }
 
 impl AdapterKind {
@@ -219,7 +251,8 @@ impl AdapterKind {
             Self::CanonicalArtifact
             | Self::IndependentCheck
             | Self::SourceClosure
-            | Self::HumanReview => "proofbound-adapter-test",
+            | Self::HumanReview
+            | Self::TrustedTranscription => "proofbound-adapter-test",
         }
     }
 }
@@ -307,6 +340,7 @@ pub enum OperationKind {
     IndependentCheck,
     Review,
     Closure,
+    Transcription,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

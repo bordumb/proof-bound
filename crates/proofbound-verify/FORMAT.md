@@ -125,7 +125,7 @@ measurement.
 
 Kind-specific requirements include compiled theorem identity and axiom audit,
 the complete `lean-expr-cbor/1` statement wire, theorem-derived artifact
-binding, explicit transcription TCB and round trip,
+binding, content-derived trusted transcription,
 deterministic source refinement with registered premises, explicit bounded
 domains/harnesses, the registered solver, exact nonzero per-harness unwind
 bounds, the exact ordered unique nonblank bounded-solver assumptions (including
@@ -154,6 +154,27 @@ encoding and digest. The v2 `ArtifactBindingReceipt` is exactly
 "size_bytes": ...}}`; the six v1 checker-authored binding booleans are not
 accepted. Release-envelope, compiled-release, and evidence v1 inputs are
 rejected rather than guessed or migrated by the verifier.
+
+A trusted-transcription detail is the nested, versioned
+`proofbound-trusted-transcription/1` record. Its provenance input inventory is
+exactly `{source, committed_transcription, driver}` and its generated inventory
+is exactly `{transcribed_candidate, reencoded_source}`; all five logical names
+are distinct. Every reference is a complete artifact identity. The verifier
+requires candidate digest and size to equal the committed transcription, and
+re-encoded digest and size to equal the source. Thus both legs are derived from
+observed bytes rather than a `round_trip_passed` boolean, which is not part of
+the wire format and is rejected as an unknown field.
+
+The nested record also carries `transcriber` and `reencoder` subrecords with a
+TCB node and role identity. For each role, the verifier independently computes
+`sha256(proofbound-transcription-tcb-role/1 || NUL || canonical({abi, driver,
+role}))`, where `abi` is `proofbound-transcription-driver/1`. The two identities
+and nodes must differ. Node IDs are fixed to
+`tcb:trusted-transcription:<unit-without-unit-prefix>:<role>`. The sealed TCB
+ledger must contain the corresponding unit-scoped components named
+`trusted-transcription/<unit-without-unit-prefix>/<role>`, with the ABI as
+version and the recomputed role digest as identity. This permits two units with
+different drivers without collapsing their trust identities.
 
 The closed enum spellings are defined by `src/format.rs`: most inputs use
 `kebab-case`; the three output facets use `SCREAMING_SNAKE_CASE`. `FlowScope`
@@ -195,6 +216,12 @@ as non-admitted support, so linkage remains `MODEL_ONLY`.
 Admission is orthogonal to evidence availability: for example, an independent
 check can support a Ledger claim as `TESTED`, but that evidence kind still
 requires effective Tier 1.
+
+The immutable Tier-1 `transcribed` profile requires valid
+`trusted-transcription` evidence and `TRANSCRIBED` linkage, but no theorem. The
+record therefore leaves the formal facet `OPEN` unless separate evidence earns
+a formal standing. Trusted transcription itself can never yield `PROVED` or
+`ARTIFACT_BOUND`; attempting either upgrade is a status mismatch.
 
 Every field in `reported_statuses` must equal the recomputed value. Its required
 `public_statement` is independently derived from `public_language` when

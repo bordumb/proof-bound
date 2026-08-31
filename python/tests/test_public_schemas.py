@@ -109,7 +109,7 @@ def sample_bounded_evidence() -> dict[str, object]:
             },
             "adapter": {
                 "name": "proofbound-adapter-kani",
-                "version": "0.8.0",
+                "version": "0.9.0",
                 "identity_sha256": digest,
             },
             "execution_kind": "observed-processes",
@@ -499,6 +499,8 @@ def test_every_shipped_template_manifest_matches_its_public_schema() -> None:
         "templates/rust-aeneas-refinement/representation-premise.toml": "assumption.schema.json",
         "templates/rust-aeneas-refinement/source-refinement-evidence.toml": "evidence-unit.schema.json",
         "templates/rust-aeneas-refinement/translation-unit.toml": "translation-unit.schema.json",
+        "templates/trusted-transcription/claim.toml": "claim.schema.json",
+        "templates/trusted-transcription/evidence-unit.toml": "evidence-unit.schema.json",
     }
     assert {
         path.as_posix()
@@ -508,6 +510,122 @@ def test_every_shipped_template_manifest_matches_its_public_schema() -> None:
     for relative, schema in template_contracts.items():
         with (ROOT / relative).open("rb") as source:
             validator(schema).validate(tomllib.load(source))
+
+
+def test_trusted_transcription_route_is_versioned_and_closed() -> None:
+    with (
+        ROOT / "demo/trusted-transcription/evidence/trusted-values.toml"
+    ).open("rb") as source:
+        unit = tomllib.load(source)
+    validate_unit = validator("evidence-unit.schema.json")
+    validate_unit.validate(unit)
+
+    legacy = json.loads(json.dumps(unit))
+    legacy["schema"] = "proofbound-evidence-unit/1"
+    assert list(validate_unit.iter_errors(legacy))
+
+    smuggled = json.loads(json.dumps(unit))
+    smuggled["operation"]["arguments"] = ["--accept-anything"]
+    assert list(validate_unit.iter_errors(smuggled))
+
+    extra_environment = json.loads(json.dumps(unit))
+    extra_environment["environment_allowlist"].append("HOME")
+    assert list(validate_unit.iter_errors(extra_environment))
+
+    digest = f"sha256:{'01' * 32}"
+    artifact = {"logical_name": "source", "sha256": digest, "size_bytes": 1}
+    observation = sample_adapter_observation()
+    observation["evidence_kind"] = "trusted-transcription"
+    observation["inventory"] = ["source", "transcribed"]
+    observation["trusted_transcription"] = {
+        "schema": "proofbound-trusted-transcription/1",
+        "source": artifact,
+        "committed_transcription": {
+            "logical_name": "transcribed",
+            "sha256": digest,
+            "size_bytes": 1,
+        },
+        "transcribed_candidate": {
+            "logical_name": "candidate",
+            "sha256": digest,
+            "size_bytes": 1,
+        },
+        "reencoded_source": {
+            "logical_name": "reencoded",
+            "sha256": digest,
+            "size_bytes": 1,
+        },
+        "driver": {"logical_name": "driver", "sha256": digest, "size_bytes": 1},
+        "driver_abi": "proofbound-transcription-driver/1",
+        "source_format": "proofbound-u32-lines/1",
+        "transcribed_format": "proofbound-u32-json/1",
+        "transcriber_role_identity": digest,
+        "reencoder_role_identity": digest,
+    }
+    validator("adapter-observation.schema.json").validate(observation)
+
+    del observation["trusted_transcription"]
+    assert list(validator("adapter-observation.schema.json").iter_errors(observation))
+
+    evidence = sample_bounded_evidence()
+    evidence["kind"] = "trusted-transcription"
+    evidence["binding_mode"] = "external-round-trip"
+    del evidence["bounded_check"]
+    role = {"tcb_node": "tcb:transcriber", "role_identity": digest}
+    evidence["trusted_transcription"] = {
+        "schema": "proofbound-trusted-transcription/1",
+        "source": artifact,
+        "committed_transcription": artifact,
+        "transcribed_candidate": artifact,
+        "reencoded_source": artifact,
+        "driver": artifact,
+        "transcriber": role,
+        "reencoder": {"tcb_node": "tcb:reencoder", "role_identity": digest},
+    }
+    validate_evidence = validator("evidence.schema.json")
+    validate_evidence.validate(evidence)
+
+    evidence["trusted_transcription"] = {
+        "transcriber_tcb": "tcb:transcriber",
+        "reencoder_tcb": "tcb:reencoder",
+        "round_trip_passed": True,
+    }
+    assert list(validate_evidence.iter_errors(evidence))
+
+
+def test_shipped_transcription_drivers_round_trip_the_fresh_candidate(
+    tmp_path: Path,
+) -> None:
+    for relative in ["demo/trusted-transcription", "templates/trusted-transcription"]:
+        root = ROOT / relative
+        candidate = tmp_path / f"{root.parent.name}-candidate.json"
+        reencoded = tmp_path / f"{root.parent.name}-reencoded.pbtt"
+        subprocess.run(
+            [
+                "python3",
+                str(root / "python/transcription_driver.py"),
+                "transcribe",
+                "--source",
+                str(root / "source/values.pbtt"),
+                "--output",
+                str(candidate),
+            ],
+            check=True,
+        )
+        assert candidate.read_bytes() == (root / "transcribed/values.json").read_bytes()
+        subprocess.run(
+            [
+                "python3",
+                str(root / "python/transcription_driver.py"),
+                "reencode",
+                "--transcription",
+                str(candidate),
+                "--output",
+                str(reencoded),
+            ],
+            check=True,
+        )
+        assert reencoded.read_bytes() == (root / "source/values.pbtt").read_bytes()
 
 
 def test_structured_error_contract_is_closed_and_complete() -> None:

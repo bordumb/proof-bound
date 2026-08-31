@@ -140,7 +140,8 @@ fn collect_requirements(bundle: &ProjectBundle) -> Vec<UnitRequirement> {
             AdapterKind::Kani => vec!["cargo", "kani"],
             AdapterKind::PythonTest
             | AdapterKind::CanonicalArtifact
-            | AdapterKind::IndependentCheck => vec!["python3"],
+            | AdapterKind::IndependentCheck
+            | AdapterKind::TrustedTranscription => vec!["python3"],
             AdapterKind::RustTest => vec!["cargo", "rustc"],
             AdapterKind::SourceClosure | AdapterKind::HumanReview => vec!["git"],
         };

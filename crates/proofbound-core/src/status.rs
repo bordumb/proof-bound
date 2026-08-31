@@ -1120,7 +1120,7 @@ fn validate_evidence_graph_node(
     if let Some(transcription) = &record.trusted_transcription {
         require_node_kind(
             graph,
-            &transcription.transcriber_tcb,
+            &transcription.transcriber.tcb_node,
             &[NodeKind::TcbComponent],
             claim_id,
             "transcriber TCB component",
@@ -1128,7 +1128,7 @@ fn validate_evidence_graph_node(
         );
         require_node_kind(
             graph,
-            &transcription.reencoder_tcb,
+            &transcription.reencoder.tcb_node,
             &[NodeKind::TcbComponent],
             claim_id,
             "re-encoder TCB component",
@@ -1257,6 +1257,13 @@ fn policy_blockers(
             "artifact-binding-required",
             "artifact-bound policy rejects transcription or an unbound model".into(),
             "bind canonical bytes with bytes-in-theorem or digest-theorem evidence",
+        );
+    }
+    if input.policy.requires_trusted_transcription() && linkage != LinkageFacet::Transcribed {
+        block(
+            "trusted-transcription-required",
+            "transcribed policy requires a derived external round trip".into(),
+            "supply valid trusted-transcription evidence with both exact input/output byte pairs and distinct TCB roles",
         );
     }
     if input.policy.requires_source_refinement() && linkage != LinkageFacet::Refined {

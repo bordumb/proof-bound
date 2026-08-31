@@ -17,6 +17,7 @@ use crate::{
 
 const BUILTIN_PROFILES: &[&str] = &[
     "ledger",
+    "transcribed",
     "kernel",
     "kernel-with-assumptions",
     "artifact-bound",
@@ -242,7 +243,7 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
 fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     let mut known_refs = BTreeSet::new();
     for (id, (path, unit)) in &bundle.evidence_units {
-        schema(path, &unit.schema, "proofbound-evidence-unit/1")?;
+        validate_evidence_schema(path, unit)?;
         local_id(id, path)?;
         if unit.tier > bundle.project.tier {
             return Err(SemanticError::TierExceeded {
@@ -297,6 +298,15 @@ fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
         if let Some(path_value) = &unit.operation.checker {
             relative_path(id, path_value)?;
         }
+        if let Some(transcription) = &unit.transcription {
+            for path_value in [
+                &transcription.source,
+                &transcription.committed_transcription,
+                &transcription.driver,
+            ] {
+                transcription_path(id, path_value)?;
+            }
+        }
     }
     for (id, (_, unit)) in &bundle.translation_units {
         let reference = format!("translation:{id}");
@@ -336,6 +346,42 @@ fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
         }
     }
     Ok(())
+}
+
+fn validate_evidence_schema(
+    path: &Path,
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    match unit.schema.as_str() {
+        "proofbound-evidence-unit/1"
+            if unit.transcription.is_none()
+                && unit.adapter != AdapterKind::TrustedTranscription
+                && unit.kind != EvidenceKind::TrustedTranscription
+                && unit.operation.kind != OperationKind::Transcription =>
+        {
+            Ok(())
+        }
+        "proofbound-evidence-unit/2"
+            if unit.transcription.is_some()
+                && unit.adapter == AdapterKind::TrustedTranscription
+                && unit.kind == EvidenceKind::TrustedTranscription
+                && unit.operation.kind == OperationKind::Transcription =>
+        {
+            Ok(())
+        }
+        "proofbound-evidence-unit/1" | "proofbound-evidence-unit/2" => {
+            Err(SemanticError::EvidenceQualifier {
+                unit: unit.id.clone(),
+                message: "evidence-unit/1 excludes trusted transcription; evidence-unit/2 is reserved for the typed trusted-transcription route"
+                    .to_owned(),
+            })
+        }
+        _ => Err(SemanticError::Schema {
+            path: path.to_owned(),
+            expected: "proofbound-evidence-unit/1 or proofbound-evidence-unit/2",
+            actual: unit.schema.clone(),
+        }),
+    }
 }
 
 fn evidence_references(kind: EvidenceKind, id: &str) -> Vec<String> {
@@ -437,6 +483,14 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
             message: "bounded evidence requires a finite domain".to_owned(),
         });
     }
+    if unit.kind == EvidenceKind::TrustedTranscription {
+        validate_transcription_qualifiers(unit)?;
+    } else if unit.transcription.is_some() {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "only trusted-transcription evidence may declare [transcription]".to_owned(),
+        });
+    }
     let operation_ok = matches!(
         (unit.adapter, unit.operation.kind),
         (AdapterKind::RustTest, OperationKind::CargoTest)
@@ -452,6 +506,10 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
             )
             | (AdapterKind::HumanReview, OperationKind::Review)
             | (AdapterKind::SourceClosure, OperationKind::Closure)
+            | (
+                AdapterKind::TrustedTranscription,
+                OperationKind::Transcription
+            )
     );
     if !operation_ok {
         return Err(SemanticError::EvidenceQualifier {
@@ -460,6 +518,127 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
         });
     }
     Ok(())
+}
+
+fn validate_transcription_qualifiers(
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    let transcription =
+        unit.transcription
+            .as_ref()
+            .ok_or_else(|| SemanticError::EvidenceQualifier {
+                unit: unit.id.clone(),
+                message: "trusted-transcription requires the typed [transcription] block"
+                    .to_owned(),
+            })?;
+    let paths = [
+        transcription.source.as_str(),
+        transcription.committed_transcription.as_str(),
+        transcription.driver.as_str(),
+    ];
+    if paths.iter().collect::<BTreeSet<_>>().len() != paths.len() {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message:
+                "transcription source, committed transcription, and driver paths must be distinct"
+                    .to_owned(),
+        });
+    }
+    if Path::new(&transcription.driver)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("py")
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "proofbound-transcription-driver/1 requires a registered .py driver"
+                .to_owned(),
+        });
+    }
+    if !valid_format_id(&transcription.source_format)
+        || !valid_format_id(&transcription.transcribed_format)
+        || transcription.source_format == transcription.transcribed_format
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message:
+                "source_format and transcribed_format must be distinct versioned format identifiers"
+                    .to_owned(),
+        });
+    }
+
+    let mut exact_inputs = paths
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    exact_inputs.sort();
+    if unit.inputs != exact_inputs {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "trusted-transcription inputs must be the exact sorted source, committed-transcription, and driver path set"
+                .to_owned(),
+        });
+    }
+    let mut exact_inventory = vec![
+        transcription.source.clone(),
+        transcription.committed_transcription.clone(),
+    ];
+    exact_inventory.sort();
+    if unit.expected_inventory != exact_inventory {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "trusted-transcription expected_inventory must be the exact sorted source and committed-transcription path set"
+                .to_owned(),
+        });
+    }
+    if !unit.outputs.is_empty()
+        || unit.environment_allowlist != ["PATH"]
+        || unit.evaluation_mode.is_some()
+        || unit.theorem.is_some()
+        || unit.refinement_theorem.is_some()
+        || !unit.premises.is_empty()
+        || !unit.assumptions.is_empty()
+        || unit.bounded_domain.is_some()
+        || unit.operation.package.is_some()
+        || !unit.operation.targets.is_empty()
+        || !unit.operation.paths.is_empty()
+        || unit.operation.manifest.is_some()
+        || unit.operation.inventory.is_some()
+        || unit.operation.checker.is_some()
+        || !unit.operation.arguments.is_empty()
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "trusted-transcription admits only its typed block, exact inputs/inventory, PATH environment, claims, tier, binding, operation type, and budget"
+                .to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn valid_format_id(value: &str) -> bool {
+    if value.len() > 128 {
+        return false;
+    }
+    let Some((name, version)) = value.split_once('/') else {
+        return false;
+    };
+    !name.contains('/')
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && name.split(['-', '_', '.', '+']).all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+        && version
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_digit() && byte != b'0')
+        && version.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
@@ -1176,6 +1355,13 @@ fn validate_policies(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                     "artifact-bound extension must retain artifact binding",
                 ));
             }
+            "transcribed" if policy.required_binding != "transcribed" => {
+                return Err(weak(
+                    id,
+                    &policy.extends,
+                    "transcribed extensions must retain trusted-transcription binding",
+                ));
+            }
             "source-refined"
                 if policy.required_binding != "source-refined"
                     || !policy.require_registered_premises =>
@@ -1389,6 +1575,20 @@ fn translation_path(owner: &str, value: &str) -> Result<(), SemanticError> {
     relative_path(owner, value)
 }
 
+fn transcription_path(owner: &str, value: &str) -> Result<(), SemanticError> {
+    translation_path(owner, value)?;
+    if value
+        .bytes()
+        .any(|byte| matches!(byte, b'*' | b'?' | b'[' | b']' | b'{' | b'}'))
+    {
+        return Err(SemanticError::UnsafePath {
+            owner: owner.to_owned(),
+            path: value.to_owned(),
+        });
+    }
+    Ok(())
+}
+
 fn validate_exact_package_manifest(
     root: &Path,
     unit: &str,
@@ -1547,6 +1747,7 @@ mod tests {
             outputs: vec![],
             environment_allowlist: vec![],
             bounded_domain: None,
+            transcription: None,
             resource_budget: crate::ResourceBudget {
                 time_seconds: 1,
                 disk_bytes: 1,
@@ -1554,6 +1755,60 @@ mod tests {
             },
         };
         assert!(validate_unit_qualifiers(&unit).is_err());
+    }
+
+    #[test]
+    fn trusted_transcription_v2_is_closed_and_exactly_inventoried() {
+        let bundle = repository_bundle();
+        let (path, registered) = bundle.evidence_units.get("trusted-values").unwrap();
+        assert_eq!(registered.schema, "proofbound-evidence-unit/2");
+        validate_evidence_schema(path, registered).unwrap();
+        validate_unit_qualifiers(registered).unwrap();
+
+        let mut legacy = registered.clone();
+        legacy.schema = "proofbound-evidence-unit/1".to_owned();
+        assert!(validate_evidence_schema(path, &legacy).is_err());
+
+        let mut reordered_inventory = registered.clone();
+        reordered_inventory.expected_inventory.reverse();
+        assert!(validate_unit_qualifiers(&reordered_inventory).is_err());
+
+        let mut extra_input = registered.clone();
+        extra_input.inputs.push("unregistered-helper.py".to_owned());
+        assert!(validate_unit_qualifiers(&extra_input).is_err());
+
+        let mut smuggled_argument = registered.clone();
+        smuggled_argument
+            .operation
+            .arguments
+            .push("--trust-me".to_owned());
+        assert!(validate_unit_qualifiers(&smuggled_argument).is_err());
+
+        let mut missing_path = registered.clone();
+        missing_path.environment_allowlist.clear();
+        assert!(validate_unit_qualifiers(&missing_path).is_err());
+    }
+
+    #[test]
+    fn trusted_transcription_requires_distinct_versioned_formats_and_exact_paths() {
+        let bundle = repository_bundle();
+        let (_, registered) = bundle.evidence_units.get("trusted-values").unwrap();
+
+        let mut same_format = registered.clone();
+        let transcription = same_format.transcription.as_mut().unwrap();
+        transcription.transcribed_format = transcription.source_format.clone();
+        assert!(validate_unit_qualifiers(&same_format).is_err());
+
+        let mut globbed_source = registered.clone();
+        globbed_source.transcription.as_mut().unwrap().source =
+            "demo/trusted-transcription/source/*.pbtt".to_owned();
+        assert!(
+            transcription_path(
+                "trusted-values",
+                &globbed_source.transcription.as_ref().unwrap().source
+            )
+            .is_err()
+        );
     }
 
     #[test]

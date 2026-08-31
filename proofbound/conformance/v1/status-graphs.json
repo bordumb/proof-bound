@@ -194,6 +194,19 @@
       "expected": {"formal": "PROVED", "linkage": "TRANSCRIBED", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
     },
     {
+      "id": "transcribed-tier-one-without-theorem",
+      "tier": 1,
+      "policy": {"components": ["transcribed"]},
+      "evidence": [
+        {"id": "transcription", "kind": "trusted-transcription"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "OPEN", "linkage": "TRANSCRIBED", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true},
+      "asserted": {"formal": "PROVED", "linkage": "ARTIFACT_BOUND", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
       "id": "source-refined-with-visible-premise",
       "tier": 3,
       "policy": {"components": ["source-refined"]},

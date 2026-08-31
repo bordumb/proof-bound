@@ -39,7 +39,9 @@ premises, primary-linkage selection, tier and policy blocks, failed/drifted/
 missing/unregistered evidence, and omission or status-upgrade attacks.
 It includes the security regression where passing artifact evidence cites an
 admitted but unrelated theorem and must derive `INVALID`, never
-`ARTIFACT_BOUND`.
+`ARTIFACT_BOUND`. It also fixes the Tier-1 `transcribed` profile at
+`OPEN + TRANSCRIBED` without a theorem and carries an adversarial asserted
+`PROVED + ARTIFACT_BOUND` upgrade that every implementation must reject.
 
 ## Canonical release fixture
 

@@ -24,8 +24,16 @@
     "resource_usage": { "$ref": "#/$defs/usage" },
     "inventory": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 100000 },
     "normalization": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" },
-    "artifact_binding": { "$ref": "#/$defs/artifact_binding" }
+    "artifact_binding": { "$ref": "#/$defs/artifact_binding" },
+    "trusted_transcription": { "$ref": "#/$defs/trusted_transcription" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "evidence_kind": { "const": "trusted-transcription" } }, "required": ["evidence_kind"] },
+      "then": { "required": ["trusted_transcription"] },
+      "else": { "not": { "required": ["trusted_transcription"] } }
+    }
+  ],
   "$defs": {
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "artifact": {
@@ -102,6 +110,24 @@
       "properties": {
         "artifact_logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 },
         "artifact_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "trusted_transcription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "source", "committed_transcription", "transcribed_candidate", "reencoded_source", "driver", "driver_abi", "source_format", "transcribed_format", "transcriber_role_identity", "reencoder_role_identity"],
+      "properties": {
+        "schema": { "const": "proofbound-trusted-transcription/1" },
+        "source": { "$ref": "#/$defs/artifact" },
+        "committed_transcription": { "$ref": "#/$defs/artifact" },
+        "transcribed_candidate": { "$ref": "#/$defs/artifact" },
+        "reencoded_source": { "$ref": "#/$defs/artifact" },
+        "driver": { "$ref": "#/$defs/artifact" },
+        "driver_abi": { "const": "proofbound-transcription-driver/1" },
+        "source_format": { "type": "string", "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[-_.+][a-z0-9]+)*/[1-9][0-9]*$" },
+        "transcribed_format": { "type": "string", "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[-_.+][a-z0-9]+)*/[1-9][0-9]*$" },
+        "transcriber_role_identity": { "$ref": "#/$defs/digest" },
+        "reencoder_role_identity": { "$ref": "#/$defs/digest" }
       }
     }
   }

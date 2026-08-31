@@ -113,7 +113,7 @@
       "allOf": [
         { "if": { "properties": { "kind": { "const": "theorem" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "theorem"] } },
         { "if": { "properties": { "kind": { "const": "artifact-soundness" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "binding_mode", "artifact_binding"] } },
-        { "if": { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] }, "then": { "required": ["binding_mode", "trusted_transcription"] } },
+        { "if": { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] }, "then": { "required": ["binding_mode", "trusted_transcription"], "properties": { "binding_mode": { "const": "external-round-trip" } } } },
         { "if": { "properties": { "kind": { "const": "source-refinement" } }, "required": ["kind"] }, "then": { "required": ["source_refinement"] } },
         { "if": { "properties": { "kind": { "const": "bounded-check" } }, "required": ["kind"] }, "then": { "required": ["bounded_check"] } },
         { "if": { "properties": { "kind": { "const": "exhaustive-check" } }, "required": ["kind"] }, "then": { "required": ["exhaustive_check"] } },
@@ -137,8 +137,25 @@
     },
     "trustedTranscriptionReceipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["transcriber_tcb_node", "reencoder_tcb_node", "round_trip_passed"],
-      "properties": { "transcriber_tcb_node": { "$ref": "#/$defs/id" }, "reencoder_tcb_node": { "$ref": "#/$defs/id" }, "round_trip_passed": { "type": "boolean" } }
+      "required": ["schema", "source", "committed_transcription", "transcribed_candidate", "reencoded_source", "driver", "transcriber", "reencoder"],
+      "properties": {
+        "schema": { "const": "proofbound-trusted-transcription/1" },
+        "source": { "$ref": "#/$defs/artifact" },
+        "committed_transcription": { "$ref": "#/$defs/artifact" },
+        "transcribed_candidate": { "$ref": "#/$defs/artifact" },
+        "reencoded_source": { "$ref": "#/$defs/artifact" },
+        "driver": { "$ref": "#/$defs/artifact" },
+        "transcriber": { "$ref": "#/$defs/transcriptionRole" },
+        "reencoder": { "$ref": "#/$defs/transcriptionRole" }
+      }
+    },
+    "transcriptionRole": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tcb_node", "role_identity"],
+      "properties": {
+        "tcb_node": { "$ref": "#/$defs/id" },
+        "role_identity": { "$ref": "#/$defs/digest" }
+      }
     },
     "sourceRefinementReceipt": {
       "type": "object", "additionalProperties": false,
@@ -291,7 +308,7 @@
     "digests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "uniqueItems": true, "maxItems": 100000 },
     "assumptionCategory": { "enum": ["mathematical-hypothesis", "representation-premise", "translator-tcb", "compiler-tcb", "runtime-environment", "external-provider", "cryptographic-library", "human-attestation", "native-evaluation"] },
     "evidenceKind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "review", "assumption", "open"] },
-    "profile": { "enum": ["ledger", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] },
+    "profile": { "enum": ["ledger", "transcribed", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] },
     "linkage": { "enum": ["REFINED", "ARTIFACT_BOUND", "TRANSCRIBED", "MODEL_ONLY"] }
   }
 }

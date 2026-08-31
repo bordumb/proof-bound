@@ -77,6 +77,7 @@ fn request() -> AdapterRequest {
             outputs: Vec::new(),
             environment_allowlist: Vec::new(),
             bounded_domain: None,
+            transcription: None,
             resource_budget: ResourceBudget {
                 time_seconds: 10,
                 disk_bytes: 1 << 20,

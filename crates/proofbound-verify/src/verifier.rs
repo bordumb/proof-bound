@@ -17,8 +17,9 @@ use crate::{
     EvidenceReceipt, Exclusion, ExecutionKind, FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphNode,
     HashedRecord, IndependenceMode, LinkageFacet, NodeKind, OpenObligation, POLICY_SCHEMA_V1,
     PolicyReceipt, PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V2, ReleaseEnvelope,
-    ReportedClaimStatus, SourceClosureReceipt, Tier, TreeState, canonical_json, domain_hash,
-    raw_sha256,
+    ReportedClaimStatus, SourceClosureReceipt, TRANSCRIPTION_DRIVER_ABI_V1,
+    TRANSCRIPTION_TCB_ROLE_DOMAIN_V1, TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole,
+    TreeState, canonical_json, domain_hash, raw_sha256,
     statement_wire::{LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding, statement_digest},
 };
 
@@ -1530,24 +1531,151 @@ fn validate_evidence_shape(
             }
         }
         EvidenceKind::TrustedTranscription => {
-            let valid_tcb = evidence.trusted_transcription.as_ref().is_some_and(|item| {
-                item.round_trip_passed
-                    && nodes
-                        .get(item.transcriber_tcb_node.as_str())
-                        .is_some_and(|node| node.kind == NodeKind::TcbComponent)
-                    && nodes
-                        .get(item.reencoder_tcb_node.as_str())
-                        .is_some_and(|node| node.kind == NodeKind::TcbComponent)
-            });
             if evidence.binding_mode != Some(BindingMode::ExternalRoundTrip)
                 || evidence.evaluation_mode.is_some()
-                || !valid_tcb
             {
                 evidence_issue(
                     issues,
                     id,
-                    "trusted transcription lacks a complete external round trip",
+                    "trusted transcription requires external-round-trip binding and no evaluation mode",
                 );
+            }
+            if let Some(item) = &evidence.trusted_transcription {
+                if item.schema != TRUSTED_TRANSCRIPTION_SCHEMA_V1 {
+                    evidence_issue(
+                        issues,
+                        id,
+                        format!(
+                            "trusted transcription uses unsupported nested schema '{}'",
+                            item.schema
+                        ),
+                    );
+                }
+                let artifact_names = [
+                    item.source.logical_name.as_str(),
+                    item.committed_transcription.logical_name.as_str(),
+                    item.transcribed_candidate.logical_name.as_str(),
+                    item.reencoded_source.logical_name.as_str(),
+                    item.driver.logical_name.as_str(),
+                ];
+                if artifact_names.into_iter().collect::<BTreeSet<_>>().len() != artifact_names.len()
+                {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "trusted transcription aliases two artifact roles to one logical name",
+                    );
+                }
+                if evidence.provenance.input_artifacts.len() != 3 {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "trusted transcription provenance must contain exactly three input artifacts",
+                    );
+                }
+                if evidence.provenance.generated_artifacts.len() != 2 {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "trusted transcription provenance must contain exactly two generated artifacts",
+                    );
+                }
+                for (label, artifact) in [
+                    ("source", &item.source),
+                    ("committed transcription", &item.committed_transcription),
+                    ("driver", &item.driver),
+                ] {
+                    if exact_artifact_count(&evidence.provenance.input_artifacts, artifact) != 1 {
+                        evidence_issue(
+                            issues,
+                            id,
+                            format!(
+                                "trusted transcription {label} does not match exactly one provenance input artifact"
+                            ),
+                        );
+                    }
+                }
+                for (label, artifact) in [
+                    ("transcribed candidate", &item.transcribed_candidate),
+                    ("re-encoded source", &item.reencoded_source),
+                ] {
+                    if exact_artifact_count(&evidence.provenance.generated_artifacts, artifact) != 1
+                    {
+                        evidence_issue(
+                            issues,
+                            id,
+                            format!(
+                                "trusted transcription {label} does not match exactly one provenance generated artifact"
+                            ),
+                        );
+                    }
+                }
+                if !same_artifact_bytes(&item.committed_transcription, &item.transcribed_candidate)
+                {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "transcribed candidate bytes do not match the committed transcription",
+                    );
+                }
+                if !same_artifact_bytes(&item.source, &item.reencoded_source) {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "re-encoded source bytes do not match the registered source",
+                    );
+                }
+                let expected_transcriber =
+                    transcription_role_identity(TranscriptionRole::Transcriber, &item.driver);
+                let expected_reencoder =
+                    transcription_role_identity(TranscriptionRole::Reencoder, &item.driver);
+                if item.transcriber.role_identity != expected_transcriber
+                    || item.reencoder.role_identity != expected_reencoder
+                {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "trusted transcription TCB role identity is not derived from the exact driver and ABI",
+                    );
+                }
+                if item.transcriber.tcb_node
+                    != transcription_tcb_node_id(&evidence.unit_id, TranscriptionRole::Transcriber)
+                    || item.reencoder.tcb_node
+                        != transcription_tcb_node_id(
+                            &evidence.unit_id,
+                            TranscriptionRole::Reencoder,
+                        )
+                {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "trusted transcription TCB node identity is not derived from the evidence unit and role",
+                    );
+                }
+                if item.transcriber.tcb_node == item.reencoder.tcb_node
+                    || item.transcriber.role_identity == item.reencoder.role_identity
+                {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "trusted transcription collapses the transcriber and re-encoder TCB roles",
+                    );
+                }
+                for (label, role) in [
+                    ("transcriber", &item.transcriber),
+                    ("re-encoder", &item.reencoder),
+                ] {
+                    if nodes
+                        .get(role.tcb_node.as_str())
+                        .is_none_or(|node| node.kind != NodeKind::TcbComponent)
+                    {
+                        evidence_issue(
+                            issues,
+                            id,
+                            format!("{label} TCB node is absent or has the wrong kind"),
+                        );
+                    }
+                }
             }
         }
         EvidenceKind::SourceRefinement => {
@@ -1692,6 +1820,46 @@ fn artifact_binding_shape(binding: &ArtifactBindingReceipt, evidence: &EvidenceR
             .filter(|artifact| *artifact == &binding.artifact)
             .count()
             == 1
+}
+
+#[derive(Serialize)]
+struct TranscriptionRoleIdentityMaterial<'a> {
+    abi: &'static str,
+    driver: &'a crate::ArtifactIdentityReceipt,
+    role: TranscriptionRole,
+}
+
+fn transcription_role_identity(
+    role: TranscriptionRole,
+    driver: &crate::ArtifactIdentityReceipt,
+) -> String {
+    let material = TranscriptionRoleIdentityMaterial {
+        abi: TRANSCRIPTION_DRIVER_ABI_V1,
+        driver,
+        role,
+    };
+    domain_hash(
+        TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
+        &canonical_json(&material)
+            .expect("trusted-transcription role material is infallibly serializable"),
+    )
+}
+
+fn same_artifact_bytes(
+    left: &crate::ArtifactIdentityReceipt,
+    right: &crate::ArtifactIdentityReceipt,
+) -> bool {
+    left.sha256 == right.sha256 && left.size_bytes == right.size_bytes
+}
+
+fn exact_artifact_count(
+    inventory: &[crate::ArtifactIdentityReceipt],
+    artifact: &crate::ArtifactIdentityReceipt,
+) -> usize {
+    inventory
+        .iter()
+        .filter(|candidate| *candidate == artifact)
+        .count()
 }
 
 fn validate_sealed_files(
@@ -1932,15 +2100,38 @@ fn validate_tcb_ledger(
     let mut expected = BTreeSet::new();
     let mut expected_identities = BTreeMap::<(String, String), String>::new();
     for evidence in &release.evidence {
-        for identity in [
+        let mut evidence_components = [
             &evidence.record.provenance.tool,
             &evidence.record.provenance.adapter,
-        ] {
-            let component = TcbComponent {
-                name: identity.name.clone(),
-                version: identity.version.clone(),
-                identity_sha256: identity.identity_sha256.clone(),
-            };
+        ]
+        .into_iter()
+        .map(|identity| TcbComponent {
+            name: identity.name.clone(),
+            version: identity.version.clone(),
+            identity_sha256: identity.identity_sha256.clone(),
+        })
+        .collect::<Vec<_>>();
+        if let Some(transcription) = &evidence.record.trusted_transcription {
+            evidence_components.extend([
+                TcbComponent {
+                    name: transcription_tcb_component_name(
+                        &evidence.record.unit_id,
+                        TranscriptionRole::Transcriber,
+                    ),
+                    version: TRANSCRIPTION_DRIVER_ABI_V1.into(),
+                    identity_sha256: transcription.transcriber.role_identity.clone(),
+                },
+                TcbComponent {
+                    name: transcription_tcb_component_name(
+                        &evidence.record.unit_id,
+                        TranscriptionRole::Reencoder,
+                    ),
+                    version: TRANSCRIPTION_DRIVER_ABI_V1.into(),
+                    identity_sha256: transcription.reencoder.role_identity.clone(),
+                },
+            ]);
+        }
+        for component in evidence_components {
             let key = (component.name.clone(), component.version.clone());
             if let Some(old) = expected_identities.insert(key, component.identity_sha256.clone())
                 && old != component.identity_sha256
@@ -1983,6 +2174,25 @@ fn validate_tcb_ledger(
             )
             .at("tcb-ledger.json"),
         );
+    }
+}
+
+fn transcription_tcb_component_name(unit_id: &str, role: TranscriptionRole) -> String {
+    let unit_name = unit_id.strip_prefix("unit:").unwrap_or(unit_id);
+    let role_name = transcription_role_name(role);
+    format!("trusted-transcription/{unit_name}/{role_name}")
+}
+
+fn transcription_tcb_node_id(unit_id: &str, role: TranscriptionRole) -> String {
+    let unit_name = unit_id.strip_prefix("unit:").unwrap_or(unit_id);
+    let role_name = transcription_role_name(role);
+    format!("tcb:trusted-transcription:{unit_name}:{role_name}")
+}
+
+const fn transcription_role_name(role: TranscriptionRole) -> &'static str {
+    match role {
+        TranscriptionRole::Transcriber => "transcriber",
+        TranscriptionRole::Reencoder => "reencoder",
     }
 }
 
@@ -2385,6 +2595,7 @@ fn validate_policy(policy: &PolicyReceipt, issues: &mut Vec<VerificationIssue>) 
     }
     let profiles = [
         BuiltInProfile::Ledger,
+        BuiltInProfile::Transcribed,
         BuiltInProfile::Kernel,
         BuiltInProfile::KernelWithAssumptions,
         BuiltInProfile::ArtifactBound,
@@ -2398,7 +2609,10 @@ fn validate_policy(policy: &PolicyReceipt, issues: &mut Vec<VerificationIssue>) 
         && (policy.components != BTreeSet::from([profile])
             || policy.admit_exhaustive_as_proved
             || policy.require_no_assumptions
-            || !policy.additional_required_evidence.is_empty())
+            || !policy.additional_required_evidence.is_empty()
+            || (profile == BuiltInProfile::Transcribed
+                && (!policy.allowed_foundational_axioms.is_empty()
+                    || !policy.allowed_project_axioms.is_empty())))
     {
         issues.push(issue("built-in policy semantics were redefined".into()));
     }
@@ -2995,6 +3209,8 @@ fn derive_claim(
         && (!policy_requires_theorem(policy) || formal == FormalFacet::Proved)
         && (!policy.components.contains(&BuiltInProfile::ArtifactBound)
             || linkage == LinkageFacet::ArtifactBound)
+        && (!policy.components.contains(&BuiltInProfile::Transcribed)
+            || linkage == LinkageFacet::Transcribed)
         && (!policy.components.contains(&BuiltInProfile::SourceRefined)
             || linkage == LinkageFacet::Refined)
         && (!policy.components.contains(&BuiltInProfile::Bounded)

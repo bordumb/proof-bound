@@ -1,9 +1,9 @@
 schema = "proofbound-project/1"
 project = "proofbound"
 tier = 3
-claim_manifests = ["claims/*.toml", "demo/allowance/claims/*.toml", "demo/artifact-certificate/claims/*.toml"]
+claim_manifests = ["claims/*.toml", "demo/allowance/claims/*.toml", "demo/artifact-certificate/claims/*.toml", "demo/trusted-transcription/claims/*.toml"]
 assumption_manifests = ["demo/allowance/proofbound/assumptions/*.toml", "demo/artifact-certificate/assumptions/*.toml"]
-evidence_units = ["proofbound/evidence/*.toml", "demo/allowance/proofbound/evidence/*.toml", "demo/artifact-certificate/evidence/*.toml"]
+evidence_units = ["proofbound/evidence/*.toml", "demo/allowance/proofbound/evidence/*.toml", "demo/artifact-certificate/evidence/*.toml", "demo/trusted-transcription/evidence/*.toml"]
 translation_units = ["demo/allowance/proofbound/translations/*.toml"]
 model_check_units = ["demo/allowance/proofbound/model-checks/*.toml"]
 policy_manifests = ["demo/artifact-certificate/policies/*.toml"]

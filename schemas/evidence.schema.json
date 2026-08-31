@@ -32,7 +32,7 @@
   "allOf": [
     { "if": { "properties": { "kind": { "const": "theorem" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "theorem"] } },
     { "if": { "properties": { "kind": { "const": "artifact-soundness" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "binding_mode", "artifact_binding"] } },
-    { "if": { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] }, "then": { "required": ["binding_mode", "trusted_transcription"] } },
+    { "if": { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] }, "then": { "required": ["binding_mode", "trusted_transcription"], "properties": { "binding_mode": { "const": "external-round-trip" } } } },
     { "if": { "properties": { "kind": { "const": "source-refinement" } }, "required": ["kind"] }, "then": { "required": ["source_refinement"] } },
     { "if": { "properties": { "kind": { "const": "bounded-check" } }, "required": ["kind"] }, "then": { "required": ["bounded_check"] } },
     { "if": { "properties": { "kind": { "const": "exhaustive-check" } }, "required": ["kind"] }, "then": { "required": ["exhaustive_check"] } },
@@ -182,11 +182,24 @@
     },
     "trustedTranscription": {
       "type": "object", "additionalProperties": false,
-      "required": ["transcriber_tcb", "reencoder_tcb", "round_trip_passed"],
+      "required": ["schema", "source", "committed_transcription", "transcribed_candidate", "reencoded_source", "driver", "transcriber", "reencoder"],
       "properties": {
-        "transcriber_tcb": { "$ref": "#/$defs/id" },
-        "reencoder_tcb": { "$ref": "#/$defs/id" },
-        "round_trip_passed": { "type": "boolean" }
+        "schema": { "const": "proofbound-trusted-transcription/1" },
+        "source": { "$ref": "#/$defs/artifact" },
+        "committed_transcription": { "$ref": "#/$defs/artifact" },
+        "transcribed_candidate": { "$ref": "#/$defs/artifact" },
+        "reencoded_source": { "$ref": "#/$defs/artifact" },
+        "driver": { "$ref": "#/$defs/artifact" },
+        "transcriber": { "$ref": "#/$defs/transcriptionRole" },
+        "reencoder": { "$ref": "#/$defs/transcriptionRole" }
+      }
+    },
+    "transcriptionRole": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tcb_node", "role_identity"],
+      "properties": {
+        "tcb_node": { "$ref": "#/$defs/id" },
+        "role_identity": { "$ref": "#/$defs/digest" }
       }
     },
     "sourceRefinement": {

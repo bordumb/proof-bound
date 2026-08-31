@@ -8,8 +8,9 @@ use crate::{
     EvidenceProvenance, ExecutionKind, ExecutionRun, ExhaustiveCheckEvidence, GRAPH_SCHEMA_V1,
     GraphEdge, GraphNode, IndependenceMode, MutationWitnessEvidence, NativePremiseRule,
     POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage, Sha256Digest,
-    SourceRefinementEvidence, TheoremEvidence, ToolIdentity, TreeState,
-    TrustedTranscriptionEvidence, UnitId,
+    SourceRefinementEvidence, TRUSTED_TRANSCRIPTION_SCHEMA_V1, TheoremEvidence, ToolIdentity,
+    TranscriptionRole, TranscriptionTcbRole, TreeState, TrustedTranscriptionEvidence, UnitId,
+    transcription_role_identity,
 };
 
 fn claim_id() -> ClaimId {
@@ -26,6 +27,65 @@ fn bound_artifact() -> ArtifactIdentity {
         sha256: digest("artifact"),
         size_bytes: 8,
     }
+}
+
+fn named_artifact(logical_name: &str, digest_label: &str, size_bytes: u64) -> ArtifactIdentity {
+    ArtifactIdentity {
+        logical_name: ArtifactLogicalName::new(logical_name).unwrap(),
+        sha256: digest(digest_label),
+        size_bytes,
+    }
+}
+
+fn attach_trusted_transcription(record: &mut EvidenceRecord, prefix: &str) {
+    let source = named_artifact(&format!("{prefix}/source.bin"), "source-bytes", 12);
+    let committed_transcription = named_artifact(
+        &format!("{prefix}/committed.transcription"),
+        "transcribed-bytes",
+        18,
+    );
+    let transcribed_candidate = named_artifact(
+        &format!("{prefix}/candidate.transcription"),
+        "transcribed-bytes",
+        18,
+    );
+    let reencoded_source = named_artifact(
+        &format!("{prefix}/reencoded-source.bin"),
+        "source-bytes",
+        12,
+    );
+    let driver = named_artifact(
+        &format!("{prefix}/driver"),
+        &format!("driver-bytes:{prefix}"),
+        24,
+    );
+    record.provenance.input_artifacts.extend([
+        source.clone(),
+        committed_transcription.clone(),
+        driver.clone(),
+    ]);
+    record
+        .provenance
+        .generated_artifacts
+        .extend([transcribed_candidate.clone(), reencoded_source.clone()]);
+    record.binding_mode = Some(BindingMode::ExternalRoundTrip);
+    record.trusted_transcription = Some(TrustedTranscriptionEvidence {
+        schema: TRUSTED_TRANSCRIPTION_SCHEMA_V1.into(),
+        source,
+        committed_transcription,
+        transcribed_candidate,
+        reencoded_source,
+        transcriber: TranscriptionTcbRole {
+            tcb_node: NodeId::new(format!("tcb:trusted-transcription:{prefix}:transcriber"))
+                .unwrap(),
+            role_identity: transcription_role_identity(TranscriptionRole::Transcriber, &driver),
+        },
+        reencoder: TranscriptionTcbRole {
+            tcb_node: NodeId::new(format!("tcb:trusted-transcription:{prefix}:reencoder")).unwrap(),
+            role_identity: transcription_role_identity(TranscriptionRole::Reencoder, &driver),
+        },
+        driver,
+    });
 }
 
 fn lean_string(value: &str) -> serde_json::Value {
@@ -1070,24 +1130,173 @@ fn trusted_transcription_never_satisfies_artifact_bound() {
         EvidenceKind::TrustedTranscription,
         "artifact:transcribed",
     );
-    transcription.binding_mode = Some(BindingMode::ExternalRoundTrip);
-    transcription.trusted_transcription = Some(TrustedTranscriptionEvidence {
-        transcriber_tcb: NodeId::new("tcb:transcriber").unwrap(),
-        reencoder_tcb: NodeId::new("tcb:reencoder").unwrap(),
-        round_trip_passed: true,
-    });
+    attach_trusted_transcription(&mut transcription, "transcription");
     add_record(&mut input, transcription, NodeKind::Artifact, true);
-    for id in ["tcb:transcriber", "tcb:reencoder"] {
-        input.graph.nodes.push(GraphNode {
-            id: NodeId::new(id).unwrap(),
-            kind: NodeKind::TcbComponent,
-            proof_environment: None,
-        });
-    }
+    register_transcription_tcb_nodes(&mut input, "transcription");
     let status = derive_claim_status(&input);
     assert_eq!(status.formal, FormalFacet::Proved);
     assert_eq!(status.linkage, Some(LinkageFacet::Transcribed));
     assert!(!status.policy.admitted);
+}
+
+fn register_transcription_tcb_nodes(input: &mut ClaimEvaluationInput, prefix: &str) {
+    for suffix in ["transcriber", "reencoder"] {
+        input.graph.nodes.push(GraphNode {
+            id: NodeId::new(format!("tcb:trusted-transcription:{prefix}:{suffix}")).unwrap(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        });
+    }
+}
+
+#[test]
+fn transcribed_profile_admits_only_derived_transcription_without_a_theorem() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "profile-transcription",
+        EvidenceKind::TrustedTranscription,
+        "artifact:profile-transcription",
+    );
+    attach_trusted_transcription(&mut transcription, "profile-transcription");
+    add_record(&mut input, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut input, "profile-transcription");
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Open);
+    assert_eq!(status.linkage, Some(LinkageFacet::Transcribed));
+    assert!(status.policy.admitted);
+}
+
+#[test]
+fn transcription_content_mismatch_fails_closed() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "mismatched-transcription",
+        EvidenceKind::TrustedTranscription,
+        "artifact:mismatched-transcription",
+    );
+    attach_trusted_transcription(&mut transcription, "mismatched-transcription");
+    transcription
+        .trusted_transcription
+        .as_mut()
+        .unwrap()
+        .transcribed_candidate
+        .size_bytes += 1;
+    add_record(&mut input, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut input, "mismatched-transcription");
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert_eq!(status.linkage, None);
+    assert!(!status.policy.admitted);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("candidate bytes do not match the committed transcription")
+    }));
+}
+
+#[test]
+fn transcription_requires_distinct_derived_tcb_roles() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "reused-role",
+        EvidenceKind::TrustedTranscription,
+        "artifact:reused-role",
+    );
+    attach_trusted_transcription(&mut transcription, "reused-role");
+    let detail = transcription.trusted_transcription.as_mut().unwrap();
+    detail.reencoder.tcb_node = detail.transcriber.tcb_node.clone();
+    detail.reencoder.role_identity = detail.transcriber.role_identity;
+    add_record(&mut input, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut input, "reused-role");
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("collapses the transcriber and re-encoder TCB roles")
+    }));
+}
+
+#[test]
+fn transcription_role_identity_is_recomputed_from_the_driver() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "forged-role",
+        EvidenceKind::TrustedTranscription,
+        "artifact:forged-role",
+    );
+    attach_trusted_transcription(&mut transcription, "forged-role");
+    transcription
+        .trusted_transcription
+        .as_mut()
+        .unwrap()
+        .reencoder
+        .role_identity = digest("checker-authored-role");
+    add_record(&mut input, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut input, "forged-role");
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("not derived from the exact registered driver and ABI")
+    }));
+}
+
+#[test]
+fn transcription_rejects_logical_aliases_and_hidden_provenance() {
+    let mut alias = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "alias",
+        EvidenceKind::TrustedTranscription,
+        "artifact:alias",
+    );
+    attach_trusted_transcription(&mut transcription, "alias");
+    let generated = {
+        let detail = transcription.trusted_transcription.as_mut().unwrap();
+        detail.transcribed_candidate.logical_name =
+            detail.committed_transcription.logical_name.clone();
+        vec![
+            detail.transcribed_candidate.clone(),
+            detail.reencoded_source.clone(),
+        ]
+    };
+    transcription.provenance.generated_artifacts = generated;
+    add_record(&mut alias, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut alias, "alias");
+    let status = derive_claim_status(&alias);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(
+        status
+            .errors
+            .iter()
+            .any(|error| error.message.contains("aliases two artifact roles"))
+    );
+
+    let mut hidden = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "hidden",
+        EvidenceKind::TrustedTranscription,
+        "artifact:hidden",
+    );
+    attach_trusted_transcription(&mut transcription, "hidden");
+    transcription
+        .provenance
+        .input_artifacts
+        .push(named_artifact("hidden/extra", "hidden-extra", 5));
+    add_record(&mut hidden, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut hidden, "hidden");
+    let status = derive_claim_status(&hidden);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("not the exact three registered artifacts")
+    }));
 }
 
 #[test]
@@ -1276,20 +1485,9 @@ fn multiple_linkages_are_invalid_without_an_explicit_primary() {
         EvidenceKind::TrustedTranscription,
         "artifact:weak",
     );
-    transcription.binding_mode = Some(BindingMode::ExternalRoundTrip);
-    transcription.trusted_transcription = Some(TrustedTranscriptionEvidence {
-        transcriber_tcb: NodeId::new("tcb:a").unwrap(),
-        reencoder_tcb: NodeId::new("tcb:b").unwrap(),
-        round_trip_passed: true,
-    });
+    attach_trusted_transcription(&mut transcription, "transcribed");
     add_record(&mut input, transcription, NodeKind::Artifact, true);
-    for id in ["tcb:a", "tcb:b"] {
-        input.graph.nodes.push(GraphNode {
-            id: NodeId::new(id).unwrap(),
-            kind: NodeKind::TcbComponent,
-            proof_environment: None,
-        });
-    }
+    register_transcription_tcb_nodes(&mut input, "transcribed");
     assert_eq!(derive_claim_status(&input).formal, FormalFacet::Invalid);
     input.claim.primary_linkage = Some(LinkageFacet::ArtifactBound);
     let resolved = derive_claim_status(&input);
@@ -1566,6 +1764,7 @@ fn read_status_corpus() -> CorpusDocument {
 fn corpus_profile(name: &str) -> BuiltInProfile {
     match name {
         "ledger" => BuiltInProfile::Ledger,
+        "transcribed" => BuiltInProfile::Transcribed,
         "kernel" => BuiltInProfile::Kernel,
         "kernel-with-assumptions" => BuiltInProfile::KernelWithAssumptions,
         "artifact-bound" => BuiltInProfile::ArtifactBound,
@@ -1698,15 +1897,11 @@ fn build_core_corpus_case(case: &CorpusCase) -> ClaimEvaluationInput {
                     EvidenceKind::TrustedTranscription,
                     &format!("artifact:{}", raw.id),
                 );
-                record.binding_mode = Some(BindingMode::ExternalRoundTrip);
-                record.trusted_transcription = Some(TrustedTranscriptionEvidence {
-                    transcriber_tcb: NodeId::new(format!("tcb:{}-transcriber", raw.id)).unwrap(),
-                    reencoder_tcb: NodeId::new(format!("tcb:{}-reencoder", raw.id)).unwrap(),
-                    round_trip_passed: true,
-                });
+                attach_trusted_transcription(&mut record, &raw.id);
                 for suffix in ["transcriber", "reencoder"] {
                     input.graph.nodes.push(GraphNode {
-                        id: NodeId::new(format!("tcb:{}-{suffix}", raw.id)).unwrap(),
+                        id: NodeId::new(format!("tcb:trusted-transcription:{}:{suffix}", raw.id))
+                            .unwrap(),
                         kind: NodeKind::TcbComponent,
                         proof_environment: None,
                     });

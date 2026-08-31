@@ -226,6 +226,7 @@ const fn adapter_name(adapter: AdapterKind) -> &'static str {
         AdapterKind::SourceClosure => "source-closure",
         AdapterKind::IndependentCheck => "independent-check",
         AdapterKind::HumanReview => "human-review",
+        AdapterKind::TrustedTranscription => "trusted-transcription",
     }
 }
 
@@ -264,7 +265,8 @@ pub(crate) fn cache_identities(
         AdapterKind::RustTest => &["cargo", "rustc"],
         AdapterKind::PythonTest
         | AdapterKind::CanonicalArtifact
-        | AdapterKind::IndependentCheck => &["python3"],
+        | AdapterKind::IndependentCheck
+        | AdapterKind::TrustedTranscription => &["python3"],
         AdapterKind::SourceClosure | AdapterKind::HumanReview => &[],
     };
     for program in programs {

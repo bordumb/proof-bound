@@ -12,6 +12,99 @@ fn digest(label: &str) -> String {
     raw_sha256(label.as_bytes())
 }
 
+fn named_artifact(
+    logical_name: &str,
+    digest_label: &str,
+    size_bytes: u64,
+) -> ArtifactIdentityReceipt {
+    ArtifactIdentityReceipt {
+        logical_name: logical_name.into(),
+        sha256: digest(digest_label),
+        size_bytes,
+    }
+}
+
+#[derive(serde::Serialize)]
+struct TranscriptionRoleMaterial<'a> {
+    abi: &'static str,
+    driver: &'a ArtifactIdentityReceipt,
+    role: TranscriptionRole,
+}
+
+fn transcription_role_identity(
+    role: TranscriptionRole,
+    driver: &ArtifactIdentityReceipt,
+) -> String {
+    domain_hash(
+        TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
+        &canonical_json(&TranscriptionRoleMaterial {
+            abi: TRANSCRIPTION_DRIVER_ABI_V1,
+            driver,
+            role,
+        })
+        .unwrap(),
+    )
+}
+
+fn trusted_transcription(
+    prefix: &str,
+    closure: &str,
+) -> (TrustedTranscriptionReceipt, EvidenceProvenance) {
+    let source = named_artifact(&format!("{prefix}/source.bin"), "source-bytes", 12);
+    let committed_transcription = named_artifact(
+        &format!("{prefix}/committed.transcription"),
+        "transcribed-bytes",
+        18,
+    );
+    let transcribed_candidate = named_artifact(
+        &format!("{prefix}/candidate.transcription"),
+        "transcribed-bytes",
+        18,
+    );
+    let reencoded_source = named_artifact(
+        &format!("{prefix}/reencoded-source.bin"),
+        "source-bytes",
+        12,
+    );
+    let driver = named_artifact(
+        &format!("{prefix}/driver"),
+        &format!("driver-bytes:{prefix}"),
+        24,
+    );
+    let mut provenance = provenance(closure);
+    provenance.input_artifacts = vec![
+        source.clone(),
+        committed_transcription.clone(),
+        driver.clone(),
+    ];
+    provenance.input_artifacts.sort();
+    provenance.generated_artifacts = vec![transcribed_candidate.clone(), reencoded_source.clone()];
+    provenance.generated_artifacts.sort();
+    provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&provenance.cache_material()).unwrap(),
+    );
+    (
+        TrustedTranscriptionReceipt {
+            schema: TRUSTED_TRANSCRIPTION_SCHEMA_V1.into(),
+            source,
+            committed_transcription,
+            transcribed_candidate,
+            reencoded_source,
+            transcriber: TranscriptionTcbRoleReceipt {
+                tcb_node: format!("tcb:trusted-transcription:{prefix}:transcriber"),
+                role_identity: transcription_role_identity(TranscriptionRole::Transcriber, &driver),
+            },
+            reencoder: TranscriptionTcbRoleReceipt {
+                tcb_node: format!("tcb:trusted-transcription:{prefix}:reencoder"),
+                role_identity: transcription_role_identity(TranscriptionRole::Reencoder, &driver),
+            },
+            driver,
+        },
+        provenance,
+    )
+}
+
 fn string_literal(value: &str) -> serde_json::Value {
     serde_json::json!([7, [1, value]])
 }
@@ -359,24 +452,48 @@ fn rehash_first_evidence(release: &mut CompiledRelease) {
     }
 }
 
+fn recache_and_rehash_first_evidence(release: &mut CompiledRelease) {
+    let provenance = &mut release.evidence[0].record.provenance;
+    provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&provenance.cache_material()).unwrap(),
+    );
+    rehash_first_evidence(release);
+}
+
 fn tcb_ledger_value(release: &CompiledRelease) -> serde_json::Value {
-    let components = release
-        .evidence
-        .iter()
-        .flat_map(|evidence| {
-            [
-                &evidence.record.provenance.tool,
-                &evidence.record.provenance.adapter,
-            ]
-        })
-        .map(|identity| {
-            (
+    let mut components = BTreeSet::new();
+    for evidence in &release.evidence {
+        for identity in [
+            &evidence.record.provenance.tool,
+            &evidence.record.provenance.adapter,
+        ] {
+            components.insert((
                 identity.name.clone(),
                 identity.version.clone(),
                 identity.identity_sha256.clone(),
-            )
-        })
-        .collect::<BTreeSet<_>>();
+            ));
+        }
+        if let Some(transcription) = &evidence.record.trusted_transcription {
+            let unit = evidence
+                .record
+                .unit_id
+                .strip_prefix("unit:")
+                .unwrap_or(&evidence.record.unit_id);
+            components.extend([
+                (
+                    format!("trusted-transcription/{unit}/transcriber"),
+                    TRANSCRIPTION_DRIVER_ABI_V1.into(),
+                    transcription.transcriber.role_identity.clone(),
+                ),
+                (
+                    format!("trusted-transcription/{unit}/reencoder"),
+                    TRANSCRIPTION_DRIVER_ABI_V1.into(),
+                    transcription.reencoder.role_identity.clone(),
+                ),
+            ]);
+        }
+    }
     serde_json::json!({
         "schema": "proofbound-tcb-ledger/1",
         "components": components.into_iter().map(|(name, version, identity_sha256)| {
@@ -958,12 +1075,12 @@ fn add_binding_paths(release: &mut CompiledRelease) {
             proof_environment: None,
         },
         GraphNode {
-            id: "tcb:transcriber".into(),
+            id: "tcb:trusted-transcription:transcription:transcriber".into(),
             kind: NodeKind::TcbComponent,
             proof_environment: None,
         },
         GraphNode {
-            id: "tcb:reencoder".into(),
+            id: "tcb:trusted-transcription:transcription:reencoder".into(),
             kind: NodeKind::TcbComponent,
             proof_environment: None,
         },
@@ -1021,6 +1138,8 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         open_obligation: None,
         provenance: artifact_provenance,
     });
+    let (trusted_transcription, transcription_provenance) =
+        trusted_transcription("transcription", &release.closures[0].sha256);
     let transcription = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: "unit:transcription".into(),
@@ -1032,11 +1151,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         binding_mode: Some(BindingMode::ExternalRoundTrip),
         theorem: None,
         artifact_binding: None,
-        trusted_transcription: Some(TrustedTranscriptionReceipt {
-            transcriber_tcb_node: "tcb:transcriber".into(),
-            reencoder_tcb_node: "tcb:reencoder".into(),
-            round_trip_passed: true,
-        }),
+        trusted_transcription: Some(trusted_transcription),
         source_refinement: None,
         bounded_check: None,
         exhaustive_check: None,
@@ -1046,7 +1161,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
-        provenance: provenance(&release.closures[0].sha256),
+        provenance: transcription_provenance,
     });
     release.claims[0]
         .cited_evidence
@@ -1068,6 +1183,62 @@ fn artifact_bound_release() -> CompiledRelease {
     release.claims[0].primary_linkage = None;
     release.policies[0].components = BTreeSet::from([BuiltInProfile::ArtifactBound]);
     release.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
+    release
+}
+
+fn transcribed_release() -> CompiledRelease {
+    let mut release = base_release();
+    release.project_tier = Tier::Bounded;
+    release.graph.nodes[3] = GraphNode {
+        id: "artifact:transcription".into(),
+        kind: NodeKind::Artifact,
+        proof_environment: None,
+    };
+    release.graph.nodes.extend([
+        GraphNode {
+            id: "tcb:trusted-transcription:transcription:transcriber".into(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        },
+        GraphNode {
+            id: "tcb:trusted-transcription:transcription:reencoder".into(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        },
+    ]);
+    let (detail, provenance) = trusted_transcription("transcription", &release.closures[0].sha256);
+    let transcription = hash_evidence(EvidenceReceipt {
+        schema: EVIDENCE_SCHEMA_V2.into(),
+        unit_id: "unit:transcription".into(),
+        node_id: "artifact:transcription".into(),
+        kind: EvidenceKind::TrustedTranscription,
+        claim_ids: BTreeSet::from(["c".into()]),
+        outcome: EvidenceOutcome::Passed,
+        evaluation_mode: None,
+        binding_mode: Some(BindingMode::ExternalRoundTrip),
+        theorem: None,
+        artifact_binding: None,
+        trusted_transcription: Some(detail),
+        source_refinement: None,
+        bounded_check: None,
+        exhaustive_check: None,
+        mutation_witness: None,
+        independence: None,
+        inventoried_targets: Default::default(),
+        assumptions: Default::default(),
+        premises: Default::default(),
+        open_obligation: None,
+        provenance,
+    });
+    release.claims[0].cited_evidence = BTreeSet::from([transcription.sha256.clone()]);
+    release.evidence = vec![transcription];
+    release.claims[0].policy = "transcribed".into();
+    release.policies[0].id = "transcribed".into();
+    release.policies[0].components = BTreeSet::from([BuiltInProfile::Transcribed]);
+    release.reported_statuses[0].formal = FormalFacet::Open;
+    release.reported_statuses[0].linkage = Some(LinkageFacet::Transcribed);
+    release.reported_statuses[0].policy_admitted = true;
+    release.graph_sha256 = graph_hash(&release.graph);
     release
 }
 
@@ -1564,6 +1735,266 @@ fn known_status_upgrade_attacks_are_rejected() {
 }
 
 #[test]
+fn transcribed_profile_accepts_only_open_transcribed_status() {
+    let release = transcribed_release();
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.claims[0].formal, FormalFacet::Open);
+    assert_eq!(report.claims[0].linkage, Some(LinkageFacet::Transcribed));
+    assert!(report.claims[0].policy_admitted);
+
+    let mut redefined = release.clone();
+    redefined.policies[0].require_no_assumptions = true;
+    let error = verify_compiled_release(&redefined).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidPolicy));
+
+    let mut upgraded = release;
+    upgraded.reported_statuses[0].formal = FormalFacet::Proved;
+    upgraded.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
+    let error = verify_compiled_release(&upgraded).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+}
+
+#[test]
+fn trusted_transcription_recomputes_both_byte_equalities() {
+    let mut candidate_mismatch = transcribed_release();
+    let generated = {
+        let detail = candidate_mismatch.evidence[0]
+            .record
+            .trusted_transcription
+            .as_mut()
+            .unwrap();
+        detail.transcribed_candidate.size_bytes += 1;
+        vec![
+            detail.transcribed_candidate.clone(),
+            detail.reencoded_source.clone(),
+        ]
+    };
+    candidate_mismatch.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts = generated;
+    candidate_mismatch.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts
+        .sort();
+    recache_and_rehash_first_evidence(&mut candidate_mismatch);
+    let error = verify_compiled_release(&candidate_mismatch).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("candidate bytes do not match the committed transcription")
+    }));
+
+    let mut reencoded_mismatch = transcribed_release();
+    let generated = {
+        let detail = reencoded_mismatch.evidence[0]
+            .record
+            .trusted_transcription
+            .as_mut()
+            .unwrap();
+        detail.reencoded_source.sha256 = digest("mismatched re-encoding");
+        vec![
+            detail.transcribed_candidate.clone(),
+            detail.reencoded_source.clone(),
+        ]
+    };
+    reencoded_mismatch.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts = generated;
+    reencoded_mismatch.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts
+        .sort();
+    recache_and_rehash_first_evidence(&mut reencoded_mismatch);
+    let error = verify_compiled_release(&reencoded_mismatch).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("re-encoded source bytes do not match the registered source")
+    }));
+}
+
+#[test]
+fn trusted_transcription_rejects_aliasing_and_hidden_provenance() {
+    let mut alias = transcribed_release();
+    let generated = {
+        let detail = alias.evidence[0]
+            .record
+            .trusted_transcription
+            .as_mut()
+            .unwrap();
+        detail.transcribed_candidate.logical_name =
+            detail.committed_transcription.logical_name.clone();
+        vec![
+            detail.transcribed_candidate.clone(),
+            detail.reencoded_source.clone(),
+        ]
+    };
+    alias.evidence[0].record.provenance.generated_artifacts = generated;
+    alias.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts
+        .sort();
+    recache_and_rehash_first_evidence(&mut alias);
+    let error = verify_compiled_release(&alias).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("aliases two artifact roles"))
+    );
+
+    let mut extra = transcribed_release();
+    extra.evidence[0]
+        .record
+        .provenance
+        .input_artifacts
+        .push(named_artifact("hidden/input", "hidden", 6));
+    extra.evidence[0].record.provenance.input_artifacts.sort();
+    recache_and_rehash_first_evidence(&mut extra);
+    let error = verify_compiled_release(&extra).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("exactly three input artifacts"))
+    );
+}
+
+#[test]
+fn trusted_transcription_rejects_missing_reused_or_forged_tcb_roles() {
+    let mut missing = transcribed_release();
+    missing
+        .graph
+        .nodes
+        .retain(|node| node.id != "tcb:trusted-transcription:transcription:reencoder");
+    missing.graph_sha256 = graph_hash(&missing.graph);
+    let error = verify_compiled_release(&missing).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut reused = transcribed_release();
+    let transcriber_node = reused.evidence[0]
+        .record
+        .trusted_transcription
+        .as_ref()
+        .unwrap()
+        .transcriber
+        .tcb_node
+        .clone();
+    reused.evidence[0]
+        .record
+        .trusted_transcription
+        .as_mut()
+        .unwrap()
+        .reencoder
+        .tcb_node = transcriber_node;
+    rehash_first_evidence(&mut reused);
+    let error = verify_compiled_release(&reused).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut forged = transcribed_release();
+    forged.evidence[0]
+        .record
+        .trusted_transcription
+        .as_mut()
+        .unwrap()
+        .reencoder
+        .role_identity = digest("checker-authored-role");
+    rehash_first_evidence(&mut forged);
+    let error = verify_compiled_release(&forged).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("not derived from the exact driver"))
+    );
+}
+
+#[test]
+fn trusted_transcription_wire_rejects_legacy_and_forged_booleans() {
+    let release = transcribed_release();
+    let mut forged = serde_json::to_value(&release).unwrap();
+    forged["evidence"][0]["record"]["trusted_transcription"]
+        .as_object_mut()
+        .unwrap()
+        .insert("round_trip_passed".into(), true.into());
+    assert!(serde_json::from_value::<CompiledRelease>(forged).is_err());
+
+    let mut legacy = serde_json::to_value(&release).unwrap();
+    legacy["evidence"][0]["record"]["trusted_transcription"] = serde_json::json!({
+        "transcriber_tcb_node": "tcb:transcriber",
+        "reencoder_tcb_node": "tcb:reencoder",
+        "round_trip_passed": true
+    });
+    assert!(serde_json::from_value::<CompiledRelease>(legacy).is_err());
+}
+
+#[test]
+fn unit_scoped_transcription_tcb_roles_allow_distinct_drivers() {
+    let mut release = transcribed_release();
+    let (detail, provenance) =
+        trusted_transcription("transcription-two", &release.closures[0].sha256);
+    release.graph.nodes.extend([
+        GraphNode {
+            id: "artifact:transcription-two".into(),
+            kind: NodeKind::Artifact,
+            proof_environment: None,
+        },
+        GraphNode {
+            id: "tcb:trusted-transcription:transcription-two:transcriber".into(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        },
+        GraphNode {
+            id: "tcb:trusted-transcription:transcription-two:reencoder".into(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        },
+    ]);
+    let second = hash_evidence(EvidenceReceipt {
+        schema: EVIDENCE_SCHEMA_V2.into(),
+        unit_id: "unit:transcription-two".into(),
+        node_id: "artifact:transcription-two".into(),
+        kind: EvidenceKind::TrustedTranscription,
+        claim_ids: BTreeSet::from(["c".into()]),
+        outcome: EvidenceOutcome::Passed,
+        evaluation_mode: None,
+        binding_mode: Some(BindingMode::ExternalRoundTrip),
+        theorem: None,
+        artifact_binding: None,
+        trusted_transcription: Some(detail),
+        source_refinement: None,
+        bounded_check: None,
+        exhaustive_check: None,
+        mutation_witness: None,
+        independence: None,
+        inventoried_targets: Default::default(),
+        assumptions: Default::default(),
+        premises: Default::default(),
+        open_obligation: None,
+        provenance,
+    });
+    release.claims[0]
+        .cited_evidence
+        .insert(second.sha256.clone());
+    release.evidence.push(second);
+    release.graph_sha256 = graph_hash(&release.graph);
+
+    verify_compiled_release(&release).unwrap();
+    let directory = write_release(&release);
+    verify_release_dir(directory.path()).unwrap();
+}
+
+#[test]
 fn sealed_file_hashes_are_recomputed_from_release_bytes() {
     let mut release = base_release();
     let directory = tempfile::tempdir().unwrap();
@@ -1777,6 +2208,7 @@ fn load_raw_corpus() -> RawCorpus {
 fn raw_profile(profile: &str) -> BuiltInProfile {
     match profile {
         "ledger" => BuiltInProfile::Ledger,
+        "transcribed" => BuiltInProfile::Transcribed,
         "kernel" => BuiltInProfile::Kernel,
         "kernel-with-assumptions" => BuiltInProfile::KernelWithAssumptions,
         "artifact-bound" => BuiltInProfile::ArtifactBound,
@@ -2020,14 +2452,13 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                     format!("artifact:{}", raw.id),
                 );
                 record.binding_mode = Some(BindingMode::ExternalRoundTrip);
-                record.trusted_transcription = Some(TrustedTranscriptionReceipt {
-                    transcriber_tcb_node: format!("tcb:{}-transcriber", raw.id),
-                    reencoder_tcb_node: format!("tcb:{}-reencoder", raw.id),
-                    round_trip_passed: true,
-                });
+                let (detail, provenance) =
+                    trusted_transcription(&raw.id, &release.closures[0].sha256);
+                record.trusted_transcription = Some(detail);
+                record.provenance = provenance;
                 for suffix in ["transcriber", "reencoder"] {
                     release.graph.nodes.push(GraphNode {
-                        id: format!("tcb:{}-{suffix}", raw.id),
+                        id: format!("tcb:trusted-transcription:{}:{suffix}", raw.id),
                         kind: NodeKind::TcbComponent,
                         proof_environment: None,
                     });

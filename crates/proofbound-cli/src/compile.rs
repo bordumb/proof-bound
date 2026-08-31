@@ -16,8 +16,10 @@ use proofbound_core::{
     EvidenceStatus, ExecutionKind, ExecutionRun, FlowScope, GraphEdge, GraphNode, IndependenceMode,
     LinkageFacet, MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind, ObligationId,
     OpenObligation, OutOfScope, PolicyDefinition, PolicyId, PremiseId, PremiseRecord,
-    ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence, Tier, ToolIdentity,
-    TreeState, UnitId, derive_claim_status,
+    ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence,
+    TRANSCRIPTION_DRIVER_ABI_V1, Tier, ToolIdentity, TranscriptionRole, TranscriptionTcbRole,
+    TreeState, TrustedTranscriptionEvidence, UnitId, derive_claim_status,
+    transcription_role_identity,
 };
 use proofbound_evidence::{
     ClosureMember, ClosureRecord, ContentAddressedStore, canonical_json, domain_hash, git_identity,
@@ -1690,6 +1692,7 @@ fn reusable_cached_record(
         || record.evaluation_mode != expected_evaluation
         || record.binding_mode != expected_binding
         || record.bounded_check.as_ref() != expected_bounded_check.as_ref()
+        || trusted_transcription_record_matches_unit(unit, &record).is_err()
         || !has_observed_adapter_execution(&record)
         || (!unit.expected_inventory.is_empty() && record.inventoried_targets != expected_inventory)
         || record.provenance.semantic_source_closure != parse_digest(semantic_closure).ok()?
@@ -1740,8 +1743,10 @@ fn response_to_record(
     // Accepting an adapter-authored core record here would let a checker
     // manufacture a theorem link instead of joining independently checked
     // bytes to the audited theorem statement.
-    let mut record = if unit.kind == ManifestEvidenceKind::ArtifactSoundness
-        || unit.adapter == AdapterKind::Kani
+    let mut record = if matches!(
+        unit.kind,
+        ManifestEvidenceKind::ArtifactSoundness | ManifestEvidenceKind::TrustedTranscription
+    ) || unit.adapter == AdapterKind::Kani
     {
         observation_to_record(root, unit, registered_model, closure_ids, &value)?
     } else if let Ok(record) = serde_json::from_value::<EvidenceRecord>(value.clone()) {
@@ -1873,6 +1878,7 @@ fn bind_record_to_execution(
     };
     record.provenance.semantic_source_closure = parse_digest(semantic_closure)?;
     record.provenance.additional_closures = additional_closures.to_vec();
+    trusted_transcription_record_matches_unit(unit, record)?;
 
     for claim in &expected_claims {
         record.validate(claim).map_err(|errors| {
@@ -1922,6 +1928,8 @@ struct AdapterObservation {
     normalization: String,
     #[serde(default)]
     artifact_binding: Option<ArtifactBindingObservation>,
+    #[serde(default)]
+    trusted_transcription: Option<TrustedTranscriptionObservation>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1929,6 +1937,22 @@ struct AdapterObservation {
 struct ArtifactBindingObservation {
     artifact_logical_name: String,
     artifact_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrustedTranscriptionObservation {
+    schema: String,
+    source: ArtifactObservation,
+    committed_transcription: ArtifactObservation,
+    transcribed_candidate: ArtifactObservation,
+    reencoded_source: ArtifactObservation,
+    driver: ArtifactObservation,
+    driver_abi: String,
+    source_format: String,
+    transcribed_format: String,
+    transcriber_role_identity: String,
+    reencoder_role_identity: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -2105,6 +2129,7 @@ fn observation_to_record(
         }
         (_, None) => None,
     };
+    let trusted_transcription = trusted_transcription_from_observation(unit, kind, &observation)?;
     let source_refinement = if kind == EvidenceKind::SourceRefinement {
         Some(SourceRefinementEvidence {
             refinement_theorem: EvidenceId::new(format!("theorem:{}-theorem", unit.id))?,
@@ -2229,7 +2254,7 @@ fn observation_to_record(
         }),
         theorem: None,
         artifact_binding,
-        trusted_transcription: None,
+        trusted_transcription,
         source_refinement,
         bounded_check,
         exhaustive_check: None,
@@ -2245,11 +2270,209 @@ fn observation_to_record(
 }
 
 fn core_artifact(value: ArtifactObservation) -> Result<ArtifactIdentity> {
+    core_artifact_ref(&value)
+}
+
+fn core_artifact_ref(value: &ArtifactObservation) -> Result<ArtifactIdentity> {
     Ok(ArtifactIdentity {
-        logical_name: ArtifactLogicalName::new(value.logical_name)?,
+        logical_name: ArtifactLogicalName::new(value.logical_name.clone())?,
         sha256: parse_digest(&value.sha256)?,
         size_bytes: value.size_bytes,
     })
+}
+
+fn trusted_transcription_from_observation(
+    unit: &EvidenceUnitManifest,
+    kind: EvidenceKind,
+    observation: &AdapterObservation,
+) -> Result<Option<TrustedTranscriptionEvidence>> {
+    let Some(observed) = observation.trusted_transcription.as_ref() else {
+        if kind == EvidenceKind::TrustedTranscription {
+            bail!(
+                "PB-ADAPTER-0026: trusted-transcription observation omitted its exact round-trip identities"
+            );
+        }
+        return Ok(None);
+    };
+    if kind != EvidenceKind::TrustedTranscription {
+        bail!(
+            "PB-ADAPTER-0026: non-transcription observation asserted trusted-transcription facts"
+        );
+    }
+    let config = unit.transcription.as_ref().context(
+        "PB-ADAPTER-0026: trusted-transcription evidence omitted its registered transcription configuration",
+    )?;
+    let config_schema = serde_json::to_value(config.schema)?;
+    let driver_abi = serde_json::to_value(config.driver_abi)?;
+    if observed.schema != config_schema.as_str().unwrap_or_default()
+        || observed.driver_abi != driver_abi.as_str().unwrap_or_default()
+        || observed.source_format != config.source_format
+        || observed.transcribed_format != config.transcribed_format
+    {
+        bail!(
+            "PB-ADAPTER-0026: trusted-transcription observation disagrees with its registered schema, ABI, or formats"
+        );
+    }
+    let mut expected_environment = unit
+        .environment_allowlist
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    expected_environment.extend(["PYTHONDONTWRITEBYTECODE", "TERM"]);
+    if observation.commands.iter().any(|command| {
+        let actual = command
+            .environment_allowlist
+            .iter()
+            .map(|variable| variable.name.as_str())
+            .collect::<BTreeSet<_>>();
+        actual.len() != command.environment_allowlist.len() || actual != expected_environment
+    }) {
+        bail!(
+            "PB-ADAPTER-0026: trusted-transcription command environments do not exactly match the registered allowlist"
+        );
+    }
+
+    let source = core_artifact_ref(&observed.source)?;
+    let committed_transcription = core_artifact_ref(&observed.committed_transcription)?;
+    let transcribed_candidate = core_artifact_ref(&observed.transcribed_candidate)?;
+    let reencoded_source = core_artifact_ref(&observed.reencoded_source)?;
+    let driver = core_artifact_ref(&observed.driver)?;
+    if observation.input_artifacts.len() != 3 || observation.generated_artifacts.len() != 2 {
+        bail!(
+            "PB-ADAPTER-0026: trusted-transcription provenance must contain exactly three registered inputs and two observed outputs"
+        );
+    }
+    let expected_candidate_name =
+        format!("trusted-transcription/{}/transcribed-candidate", unit.id);
+    let expected_reencoded_name = format!("trusted-transcription/{}/reencoded-source", unit.id);
+    if source.logical_name.as_str() != config.source
+        || committed_transcription.logical_name.as_str() != config.committed_transcription
+        || driver.logical_name.as_str() != config.driver
+        || transcribed_candidate.logical_name.as_str() != expected_candidate_name
+        || reencoded_source.logical_name.as_str() != expected_reencoded_name
+    {
+        bail!(
+            "PB-ADAPTER-0026: trusted-transcription artifact names disagree with the registered inputs or derived output names"
+        );
+    }
+    for (label, expected) in [
+        ("source", &source),
+        ("committed transcription", &committed_transcription),
+        ("driver", &driver),
+    ] {
+        let matches = observation
+            .input_artifacts
+            .iter()
+            .filter_map(|artifact| core_artifact_ref(artifact).ok())
+            .filter(|artifact| artifact == expected)
+            .count();
+        if matches != 1 {
+            bail!(
+                "PB-ADAPTER-0026: trusted-transcription {label} is not present exactly once in observed inputs"
+            );
+        }
+    }
+    for (label, expected) in [
+        ("transcribed candidate", &transcribed_candidate),
+        ("re-encoded source", &reencoded_source),
+    ] {
+        let matches = observation
+            .generated_artifacts
+            .iter()
+            .filter_map(|artifact| core_artifact_ref(artifact).ok())
+            .filter(|artifact| artifact == expected)
+            .count();
+        if matches != 1 {
+            bail!(
+                "PB-ADAPTER-0026: trusted-transcription {label} is not present exactly once in observed outputs"
+            );
+        }
+    }
+
+    let expected_transcriber = transcription_role_identity(TranscriptionRole::Transcriber, &driver);
+    let expected_reencoder = transcription_role_identity(TranscriptionRole::Reencoder, &driver);
+    if parse_digest(&observed.transcriber_role_identity)? != expected_transcriber
+        || parse_digest(&observed.reencoder_role_identity)? != expected_reencoder
+    {
+        bail!(
+            "PB-ADAPTER-0026: trusted-transcription role identities are not derived from the exact driver and fixed ABI"
+        );
+    }
+    Ok(Some(TrustedTranscriptionEvidence {
+        schema: observed.schema.clone(),
+        source,
+        committed_transcription,
+        transcribed_candidate,
+        reencoded_source,
+        driver,
+        transcriber: TranscriptionTcbRole {
+            tcb_node: transcription_tcb_node(&unit.id, TranscriptionRole::Transcriber)?,
+            role_identity: expected_transcriber,
+        },
+        reencoder: TranscriptionTcbRole {
+            tcb_node: transcription_tcb_node(&unit.id, TranscriptionRole::Reencoder)?,
+            role_identity: expected_reencoder,
+        },
+    }))
+}
+
+fn transcription_tcb_node(unit_id: &str, role: TranscriptionRole) -> Result<NodeId> {
+    let role = match role {
+        TranscriptionRole::Transcriber => "transcriber",
+        TranscriptionRole::Reencoder => "reencoder",
+    };
+    Ok(NodeId::new(format!(
+        "tcb:trusted-transcription:{unit_id}:{role}"
+    ))?)
+}
+
+fn trusted_transcription_record_matches_unit(
+    unit: &EvidenceUnitManifest,
+    record: &EvidenceRecord,
+) -> Result<()> {
+    let (Some(config), Some(transcription)) = (
+        unit.transcription.as_ref(),
+        record.trusted_transcription.as_ref(),
+    ) else {
+        if unit.kind == ManifestEvidenceKind::TrustedTranscription
+            || record.kind == EvidenceKind::TrustedTranscription
+            || unit.transcription.is_some()
+            || record.trusted_transcription.is_some()
+        {
+            bail!(
+                "PB-CACHE-0004: trusted-transcription cache record is missing its registered typed detail"
+            );
+        }
+        return Ok(());
+    };
+    if unit.kind != ManifestEvidenceKind::TrustedTranscription
+        || record.kind != EvidenceKind::TrustedTranscription
+        || transcription.schema
+            != serde_json::to_value(config.schema)?
+                .as_str()
+                .unwrap_or_default()
+        || transcription.source.logical_name.as_str() != config.source
+        || transcription.committed_transcription.logical_name.as_str()
+            != config.committed_transcription
+        || transcription.driver.logical_name.as_str() != config.driver
+        || transcription.transcribed_candidate.logical_name.as_str()
+            != format!("trusted-transcription/{}/transcribed-candidate", unit.id)
+        || transcription.reencoded_source.logical_name.as_str()
+            != format!("trusted-transcription/{}/reencoded-source", unit.id)
+        || transcription.transcriber.tcb_node
+            != transcription_tcb_node(&unit.id, TranscriptionRole::Transcriber)?
+        || transcription.reencoder.tcb_node
+            != transcription_tcb_node(&unit.id, TranscriptionRole::Reencoder)?
+        || transcription.transcriber.role_identity
+            != transcription_role_identity(TranscriptionRole::Transcriber, &transcription.driver)
+        || transcription.reencoder.role_identity
+            != transcription_role_identity(TranscriptionRole::Reencoder, &transcription.driver)
+    {
+        bail!(
+            "PB-CACHE-0004: trusted-transcription cache record disagrees with its current registration or derived identities"
+        );
+    }
+    Ok(())
 }
 
 fn core_tool(value: ToolObservation) -> Result<ToolIdentity> {
@@ -2606,6 +2829,18 @@ fn graph_for_claim(
                 proof_environment: record.theorem.as_ref().map(|item| item.environment.clone()),
             },
         )?;
+        if let Some(transcription) = &record.trusted_transcription {
+            for role in [&transcription.transcriber, &transcription.reencoder] {
+                insert_node(
+                    &mut nodes,
+                    GraphNode {
+                        id: role.tcb_node.clone(),
+                        kind: NodeKind::TcbComponent,
+                        proof_environment: None,
+                    },
+                )?;
+            }
+        }
         let reviews_assumption = record.kind == EvidenceKind::Review
             && assumptions
                 .iter()
@@ -2751,6 +2986,7 @@ fn resolve_policy(bundle: &ProjectBundle, claim: &ClaimManifest) -> Result<Polic
         return compile_custom_policy(manifest, &registered_assumptions);
     }
     let profile = match claim.profile.as_str() {
+        "transcribed" => BuiltInProfile::Transcribed,
         "kernel" => BuiltInProfile::Kernel,
         "kernel-with-assumptions" => BuiltInProfile::KernelWithAssumptions,
         "artifact-bound" => BuiltInProfile::ArtifactBound,
@@ -2759,11 +2995,18 @@ fn resolve_policy(bundle: &ProjectBundle, claim: &ClaimManifest) -> Result<Polic
         "bounded" => BuiltInProfile::Bounded,
         other => bail!("PB-POLICY-0002: unknown policy {other}"),
     };
-    let foundational = ["Classical.choice", "propext", "Quot.sound"]
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-    let project_axioms = if profile == BuiltInProfile::Kernel {
+    let foundational = if profile == BuiltInProfile::Transcribed {
+        BTreeSet::new()
+    } else {
+        ["Classical.choice", "propext", "Quot.sound"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    };
+    let project_axioms = if matches!(
+        profile,
+        BuiltInProfile::Transcribed | BuiltInProfile::Kernel
+    ) {
         BTreeSet::new()
     } else {
         claim
@@ -2803,6 +3046,7 @@ fn compile_custom_policy(
 
     let binding = match manifest.required_binding.as_str() {
         "none" => None,
+        "transcribed" => Some(BuiltInProfile::Transcribed),
         "artifact-bound" => Some(BuiltInProfile::ArtifactBound),
         "source-refined" => Some(BuiltInProfile::SourceRefined),
         other => bail!(
@@ -2811,6 +3055,13 @@ fn compile_custom_policy(
         ),
     };
     match base {
+        BuiltInProfile::Transcribed if binding != Some(BuiltInProfile::Transcribed) => {
+            bail!(
+                "PB-POLICY-0001: policy {} weakens transcribed to {}",
+                manifest.id,
+                manifest.required_binding
+            );
+        }
         BuiltInProfile::ArtifactBound if binding != Some(BuiltInProfile::ArtifactBound) => {
             bail!(
                 "PB-POLICY-0001: policy {} weakens artifact-bound to {}",
@@ -2958,6 +3209,7 @@ fn compile_custom_policy(
 fn built_in_profile(value: &str) -> Result<BuiltInProfile> {
     match value {
         "ledger" => Ok(BuiltInProfile::Ledger),
+        "transcribed" => Ok(BuiltInProfile::Transcribed),
         "kernel" => Ok(BuiltInProfile::Kernel),
         "kernel-with-assumptions" => Ok(BuiltInProfile::KernelWithAssumptions),
         "artifact-bound" => Ok(BuiltInProfile::ArtifactBound),
@@ -3854,6 +4106,26 @@ fn tcb_projection(compiled: &CompiledProject) -> Result<serde_json::Value> {
         for tool in [&evidence.provenance.tool, &evidence.provenance.adapter] {
             insert_tcb_component(&mut components, tool)?;
         }
+        if let Some(transcription) = &evidence.trusted_transcription {
+            let unit_id = evidence
+                .unit_id
+                .as_str()
+                .strip_prefix("unit:")
+                .unwrap_or(evidence.unit_id.as_str());
+            for (role_name, role) in [
+                ("transcriber", &transcription.transcriber),
+                ("reencoder", &transcription.reencoder),
+            ] {
+                insert_tcb_component(
+                    &mut components,
+                    &ToolIdentity {
+                        name: format!("trusted-transcription/{unit_id}/{role_name}"),
+                        version: TRANSCRIPTION_DRIVER_ABI_V1.into(),
+                        identity_sha256: role.role_identity,
+                    },
+                )?;
+            }
+        }
     }
     Ok(serde_json::json!({
         "schema": "proofbound-tcb-ledger/1",
@@ -4237,9 +4509,20 @@ fn release_evidence_record(
         .transpose()?;
     let trusted_transcription = evidence.trusted_transcription.as_ref().map(|item| {
         serde_json::json!({
-            "transcriber_tcb_node": item.transcriber_tcb,
-            "reencoder_tcb_node": item.reencoder_tcb,
-            "round_trip_passed": item.round_trip_passed,
+            "schema": item.schema,
+            "source": release_artifact_identity(&item.source),
+            "committed_transcription": release_artifact_identity(&item.committed_transcription),
+            "transcribed_candidate": release_artifact_identity(&item.transcribed_candidate),
+            "reencoded_source": release_artifact_identity(&item.reencoded_source),
+            "driver": release_artifact_identity(&item.driver),
+            "transcriber": {
+                "tcb_node": item.transcriber.tcb_node,
+                "role_identity": format!("sha256:{}", item.transcriber.role_identity),
+            },
+            "reencoder": {
+                "tcb_node": item.reencoder.tcb_node,
+                "role_identity": format!("sha256:{}", item.reencoder.role_identity),
+            },
         })
     });
     let source_refinement = evidence
@@ -4437,6 +4720,14 @@ fn artifact_records(values: &[ArtifactIdentity]) -> Result<Vec<serde_json::Value
             })
         })
         .collect())
+}
+
+fn release_artifact_identity(value: &ArtifactIdentity) -> serde_json::Value {
+    serde_json::json!({
+        "logical_name": value.logical_name,
+        "sha256": format!("sha256:{}", value.sha256),
+        "size_bytes": value.size_bytes,
+    })
 }
 
 fn map_evidence_set(
@@ -5760,6 +6051,203 @@ mod tests {
                 &oversized_normalization
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn trusted_transcription_observation_derives_round_trip_and_tcb_roles() {
+        let unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/2",
+            "id": "round-trip",
+            "adapter": "trusted-transcription",
+            "kind": "trusted-transcription",
+            "claims": ["CLAIM-ONE"],
+            "tier": 1,
+            "binding_mode": "external-round-trip",
+            "operation": {"type": "transcription"},
+            "expected_inventory": ["fixtures/source.bin", "fixtures/transcription.txt"],
+            "inputs": [
+                "fixtures/source.bin",
+                "fixtures/transcription.txt",
+                "scripts/transcription_driver.py"
+            ],
+            "outputs": [],
+            "environment_allowlist": ["PATH"],
+            "transcription": {
+                "schema": "proofbound-trusted-transcription/1",
+                "source": "fixtures/source.bin",
+                "committed_transcription": "fixtures/transcription.txt",
+                "driver": "scripts/transcription_driver.py",
+                "source_format": "subject-bytes/1",
+                "transcribed_format": "subject-text/1",
+                "driver_abi": "proofbound-transcription-driver/1"
+            },
+            "resource_budget": {"time_seconds": 10, "disk_bytes": 1000, "memory_bytes": 1000}
+        }))
+        .unwrap();
+        let digest = |label: &str| format!("sha256:{}", Sha256Digest::of_bytes(label.as_bytes()));
+        let source_digest = digest("source bytes");
+        let transcription_digest = digest("transcription bytes");
+        let driver = ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new("scripts/transcription_driver.py").unwrap(),
+            sha256: parse_digest(&digest("driver bytes")).unwrap(),
+            size_bytes: 12,
+        };
+        let transcriber_identity = format!(
+            "sha256:{}",
+            transcription_role_identity(TranscriptionRole::Transcriber, &driver)
+        );
+        let reencoder_identity = format!(
+            "sha256:{}",
+            transcription_role_identity(TranscriptionRole::Reencoder, &driver)
+        );
+        let run = |index: usize| {
+            json!({
+                "command_index": index,
+                "exit_code": 0,
+                "stdout_sha256": digest(&format!("stdout-{index}")),
+                "stderr_sha256": digest(&format!("stderr-{index}")),
+                "normalized_output_sha256": digest(&format!("normalized-{index}")),
+                "output_truncated": false,
+                "duration_ms": 1
+            })
+        };
+        let environment = || {
+            json!([
+                {"name":"PATH","value_sha256":digest("path"),"secret":false},
+                {"name":"PYTHONDONTWRITEBYTECODE","value_sha256":digest("no-bytecode"),"secret":false},
+                {"name":"TERM","value_sha256":digest("term"),"secret":false}
+            ])
+        };
+        let observation = json!({
+            "schema": "proofbound-adapter-observation/1",
+            "unit_id": "round-trip",
+            "evidence_kind": "trusted-transcription",
+            "outcome": "passed",
+            "input_artifacts": [
+                {"logical_name":"fixtures/source.bin","sha256":source_digest,"size_bytes":12},
+                {"logical_name":"fixtures/transcription.txt","sha256":transcription_digest,"size_bytes":21},
+                {"logical_name":"scripts/transcription_driver.py","sha256":digest("driver bytes"),"size_bytes":12}
+            ],
+            "generated_artifacts": [
+                {"logical_name":"trusted-transcription/round-trip/reencoded-source","sha256":source_digest,"size_bytes":12},
+                {"logical_name":"trusted-transcription/round-trip/transcribed-candidate","sha256":transcription_digest,"size_bytes":21}
+            ],
+            "tool": {"name":"python3","version":"3","identity_sha256":digest("python")},
+            "adapter": {"name":"proofbound-adapter-test","version":"1","identity_sha256":digest("adapter")},
+            "commands": [
+                {"program":"python3","args":["transcribe"],"environment_allowlist":environment()},
+                {"program":"python3","args":["reencode"],"environment_allowlist":environment()}
+            ],
+            "runs": [run(0), run(1)],
+            "started_unix_ms": 1,
+            "completed_unix_ms": 3,
+            "deterministic_result_sha256": digest("result"),
+            "unit_configuration_sha256": digest("unit"),
+            "resource_budget": {"time_ms":10000,"disk_bytes":1000,"memory_bytes":1000},
+            "resource_usage": {"time_ms":2,"peak_disk_bytes":33,"peak_memory_bytes":null},
+            "inventory": ["fixtures/source.bin", "fixtures/transcription.txt"],
+            "normalization": "exact-transcription-bytes/1",
+            "trusted_transcription": {
+                "schema": "proofbound-trusted-transcription/1",
+                "source": {"logical_name":"fixtures/source.bin","sha256":source_digest,"size_bytes":12},
+                "committed_transcription": {"logical_name":"fixtures/transcription.txt","sha256":transcription_digest,"size_bytes":21},
+                "transcribed_candidate": {"logical_name":"trusted-transcription/round-trip/transcribed-candidate","sha256":transcription_digest,"size_bytes":21},
+                "reencoded_source": {"logical_name":"trusted-transcription/round-trip/reencoded-source","sha256":source_digest,"size_bytes":12},
+                "driver": {"logical_name":"scripts/transcription_driver.py","sha256":digest("driver bytes"),"size_bytes":12},
+                "driver_abi": "proofbound-transcription-driver/1",
+                "source_format": "subject-bytes/1",
+                "transcribed_format": "subject-text/1",
+                "transcriber_role_identity": transcriber_identity,
+                "reencoder_role_identity": reencoder_identity
+            }
+        });
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap();
+        let closure = digest("closure");
+        let record = observation_to_record(
+            root,
+            &unit,
+            None,
+            std::slice::from_ref(&closure),
+            &observation,
+        )
+        .unwrap();
+        record
+            .validate(&ClaimId::new("CLAIM-ONE").unwrap())
+            .unwrap();
+        let detail = record.trusted_transcription.as_ref().unwrap();
+        assert_eq!(
+            detail.transcriber.tcb_node.as_str(),
+            "tcb:trusted-transcription:round-trip:transcriber"
+        );
+        assert_eq!(
+            detail.reencoder.tcb_node.as_str(),
+            "tcb:trusted-transcription:round-trip:reencoder"
+        );
+        let released = release_evidence_record(
+            &record,
+            &closure,
+            &BTreeMap::from([(closure.clone(), closure.clone())]),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            released["trusted_transcription"]["schema"],
+            "proofbound-trusted-transcription/1"
+        );
+        assert!(
+            released["trusted_transcription"]
+                .get("round_trip_passed")
+                .is_none()
+        );
+
+        let mut smuggled_boolean = observation.clone();
+        smuggled_boolean["trusted_transcription"]["round_trip_passed"] = json!(true);
+        assert!(
+            observation_to_record(
+                root,
+                &unit,
+                None,
+                std::slice::from_ref(&closure),
+                &smuggled_boolean
+            )
+            .is_err()
+        );
+
+        let mut swapped_roles = observation.clone();
+        swapped_roles["trusted_transcription"]["transcriber_role_identity"] =
+            observation["trusted_transcription"]["reencoder_role_identity"].clone();
+        assert!(
+            observation_to_record(
+                root,
+                &unit,
+                None,
+                std::slice::from_ref(&closure),
+                &swapped_roles
+            )
+            .is_err()
+        );
+
+        let mut mismatched_candidate = observation;
+        let wrong_digest = digest("wrong transcription");
+        mismatched_candidate["trusted_transcription"]["transcribed_candidate"]["sha256"] =
+            json!(wrong_digest.clone());
+        mismatched_candidate["generated_artifacts"][1]["sha256"] = json!(wrong_digest);
+        let invalid = observation_to_record(
+            root,
+            &unit,
+            None,
+            std::slice::from_ref(&closure),
+            &mismatched_candidate,
+        )
+        .unwrap();
+        assert!(
+            invalid
+                .validate(&ClaimId::new("CLAIM-ONE").unwrap())
+                .is_err()
         );
     }
 

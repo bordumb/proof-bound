@@ -1,0 +1,22 @@
+schema = "proofbound-claim/1"
+id = "DEMO-TRANSCRIPTION-001"
+title = "The committed typed values represent the exact registered source bytes"
+statement = "The canonical typed JSON values [2, 7, 11] are the registered transcription of the exact canonical u32-line source and re-encode byte-for-byte to that source."
+public_language = "The checked transcription round trip preserves the exact registered bytes, with the Python transcriber and re-encoder explicitly trusted."
+subject = "artifact:demo/trusted-transcription/source/values.pbtt"
+profile = "transcribed"
+tier = 1
+primary_linkage = "transcribed"
+evidence = ["transcription:trusted-values"]
+assumptions = []
+premises = []
+open_obligations = []
+out_of_scope = [
+  "No theorem establishes the transcription or byte binding.",
+  "The registered Python driver is trusted separately in its transcriber and re-encoder roles.",
+  "This evidence does not bind any shipping implementation or establish source refinement.",
+]
+source_roots = [
+  "demo/trusted-transcription/source/values.pbtt",
+  "demo/trusted-transcription/transcribed/values.json",
+]

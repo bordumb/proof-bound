@@ -7,15 +7,15 @@
   "required": ["schema", "id", "extends", "allow_project_axioms", "allowed_foundational_axioms", "allow_native", "allow_exhaustive_as_proved", "required_binding", "require_registered_premises"],
   "properties": {
     "schema": { "const": "proofbound-policy/1" },
-    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128, "not": { "enum": ["ledger", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] } },
-    "extends": { "enum": ["ledger", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128, "not": { "enum": ["ledger", "transcribed", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] } },
+    "extends": { "enum": ["ledger", "transcribed", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] },
     "allow_project_axioms": { "type": "boolean" },
     "allowed_project_axioms": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "maxItems": 4096 },
     "allowed_foundational_axioms": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "maxItems": 4096 },
     "allow_native": { "type": "boolean" },
     "native_premise_count": { "type": "integer", "minimum": 0, "maximum": 16 },
     "allow_exhaustive_as_proved": { "type": "boolean" },
-    "required_binding": { "enum": ["none", "source-refined", "artifact-bound"] },
+    "required_binding": { "enum": ["none", "transcribed", "source-refined", "artifact-bound"] },
     "require_registered_premises": { "type": "boolean" },
     "publication_allows_open": { "type": "boolean", "default": false }
   }
