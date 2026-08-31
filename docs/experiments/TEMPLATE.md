@@ -14,6 +14,19 @@ Three to five falsifiable questions, each with an explicit pass criterion.
 Committed before any experiment work begins. Do not edit after work starts —
 add follow-up questions in the journal instead.
 
+Before committing this section, review the questions, scope, and pass criteria
+as one system. Each pass criterion must be internally satisfiable, and criteria
+must not contradict one another under the same registered conditions. Criteria
+that intentionally cover mutually exclusive outcomes or different runs must
+name those conditions explicitly. For mathematical claims, name the quantified
+carrier and domain, the equality or projection being used, and the exact
+property claimed (for example, a total preorder on concrete values versus a
+total order on equivalence classes). Distinguish a finite corpus result from a
+universal claim, and give each question a concrete observation that would
+falsify it. If a term remains ambiguous, a criterion both requires and forbids
+the same observation, or the conditions needed to reconcile criteria are
+unstated, the experiment is not ready to register.
+
 1. **Q1 —** <question>? Pass: <observable criterion>.
 2. **Q2 —** ...
 
