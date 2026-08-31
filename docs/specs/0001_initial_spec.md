@@ -18,7 +18,9 @@
   shadows; advances adapter observations to `/2`; and advances evidence,
   compiled state, releases, and envelopes to `/3` so one typed exit-101
   detection run does not reinterpret the all-zero version-2 contract (§5,
-  §10.2, §11.2.2, §11.5; ADR 0017).
+  §10.2, §11.2.2, §11.5; ADR 0017). It also makes translation-tool readiness
+  truthful by using each native identity command and exact observable-identity
+  matching instead of a GNU-style flag or substring (§10.2, §12.2; ADR 0018).
 - **0.10.0** — exact executable inventories: fixes the five adapter operation
   response meanings; requires passed observed-process evidence to carry a
   nonempty exact inventory and only successful, untruncated runs; closes the
@@ -1051,7 +1053,15 @@ interpretation is invalid:
 
 - `doctor` probes the registered tool identity and required capabilities. A
   successful response has `evidence: null` and an empty `inventory`; capability
-  discovery is not assurance evidence.
+  discovery is not assurance evidence. Charon and Aeneas are probed with their
+  native commands, exactly `charon version` and `aeneas -version`. Each probe
+  requires exit zero, bounded valid UTF-8, one nonempty stdout line terminated
+  by at most one LF, and empty stderr; CR, unknown, dirty, truncated, multiline,
+  or otherwise malformed output is incompatible rather than available. Charon
+  must report a canonical three-component numeric version with no leading
+  zeroes. Aeneas must report exactly `aeneas <revision>`, where the revision is
+  7–40 lowercase hexadecimal characters. The normalized identities are
+  compared by equality with their lock fields, never by substring or prefix.
 - `inventory` executes the authoritative discovery needed by the route and
   compares it bidirectionally with the registration. A successful response has
   `evidence: null` and the exact nonempty canonical inventory. It does not
@@ -1881,7 +1891,12 @@ proofbound release [--output DIR]
   with one worked placeholder claim bound to an existing test, and no new
   toolchain requirements. It does not invent domain claims.
 - `doctor` verifies tools, versions, required capabilities, and reports which
-  units the host can afford (§16.3).
+  units the host can afford (§16.3). It distinguishes a missing executable
+  from a spawn/configuration failure and from an installed executable whose
+  native identity output is malformed. A valid installed identity remains
+  ready even when it differs from a project lock; the separate locked-toolchain
+  capability is then unavailable and reports the exact mismatch. Only a ready
+  tool and an available project capability can satisfy a unit.
 - `check` materializes evidence and compiles the assurance graph. It writes
   receipts and the evidence store only; it never modifies committed files,
   including generated code. Valid cached receipts are reused (§16.2), and

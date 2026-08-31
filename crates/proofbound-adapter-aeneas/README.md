@@ -16,6 +16,15 @@ through exactly one declared external source root, and compares committed
 Lean and report artifacts as raw bytes. Only the pretty-printed LLBC
 projection is normalized for the two-run determinism check.
 
+Tool identity is fail-closed. The adapter invokes exactly `charon version` and
+`aeneas -version`, accepts only a bounded UTF-8 single line on stdout with an
+empty stderr and zero exit status, and normalizes the results to the Charon
+numeric version and lowercase Aeneas revision. Those values must equal the
+toolchain lock and the generated translation report fields byte-for-byte;
+substring, dirty, unknown, multiline, and truncated identities are rejected.
+Evidence records the unambiguous tagged pair
+`charon-version:<version>;aeneas-revision:<revision>`.
+
 Every `produced` path is relative to the invocation's Aeneas `-dest` root.
 When `aeneas_subdir` is set, Lean-source mappings include that prefix while
 the report remains exactly `translation.json` at the destination root. Every

@@ -30,8 +30,10 @@ renamed, or unmapped output is a hard failure.
 
 ## Verify-only workflow
 
-1. Pin full Charon and Aeneas revisions in the project translation-toolchain
-   lock.
+1. Pin the exact native Charon and Aeneas identities in the project
+   translation-toolchain lock: the line printed by `charon version`, and the
+   revision token printed by `aeneas -version`. Do not use a prefix or an
+   unobservable full source commit in a version-1 lock.
 2. Register `translation-unit.toml`, `source-refinement-evidence.toml`, the
    claim, and the representation premise in the project manifest.
 3. Run the pinned translation once outside the registered evidence path to

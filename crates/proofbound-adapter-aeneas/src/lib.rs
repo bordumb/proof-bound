@@ -39,6 +39,7 @@ pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
 pub const ADAPTER_ID: &str = "charon-aeneas";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TOOL_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_TOOL_IDENTITY_BYTES: usize = 2048;
 const MAX_INVENTORY: usize = 100_000;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1235,6 +1236,8 @@ fn validate_toolchain_lock(
     ] {
         if revision.trim().is_empty()
             || revision.starts_with("unavailable")
+            || revision.eq_ignore_ascii_case("unknown")
+            || revision.to_ascii_lowercase().contains("dirty")
             || !revision
                 .chars()
                 .all(|ch| ch.is_ascii_hexdigit() || matches!(ch, '.' | '-' | '_' | 'v'))
@@ -1276,42 +1279,34 @@ fn translation_tool_identity<E: Executor>(
     environment_observation: &[EnvironmentObservation],
     executor: &mut E,
 ) -> Result<(ToolObservation, Vec<CommandObservation>, Vec<ProcessOutput>), AdapterError> {
-    let specs = [
-        ProcessSpec {
-            program: "charon".to_owned(),
-            args: vec!["--version".to_owned()],
-        },
-        ProcessSpec {
-            program: "aeneas".to_owned(),
-            args: vec!["--version".to_owned()],
-        },
-    ];
-    let pins = [&lock.charon_revision, &lock.aeneas_revision];
-    let mut outputs = Vec::new();
-    let mut versions = Vec::new();
-    for (spec, pin) in specs.iter().zip(pins) {
-        let output = executor.run(spec, root, environment, Duration::from_secs(20))?;
-        ensure_success(spec, &output)?;
-        let bytes = if output.stdout.is_empty() {
-            &output.stderr
-        } else {
-            &output.stdout
-        };
-        let version = std::str::from_utf8(bytes)
-            .map_err(|error| AdapterError::Toolchain(error.to_string()))?
-            .trim()
-            .to_owned();
-        if version.is_empty() || !version.contains(pin) {
-            return Err(AdapterError::Toolchain(format!(
-                "{} version `{version}` does not contain pinned revision `{pin}`",
-                spec.program
-            )));
-        }
-        versions.push(version);
-        outputs.push(output);
+    let charon_spec = ProcessSpec {
+        program: "charon".to_owned(),
+        args: vec!["version".to_owned()],
+    };
+    let charon_output = executor.run(&charon_spec, root, environment, Duration::from_secs(20))?;
+    let charon_version = parse_charon_identity(&charon_output)?;
+    if charon_version != lock.charon_revision {
+        return Err(AdapterError::Toolchain(format!(
+            "charon identity `{charon_version}` does not exactly match pinned identity `{}`",
+            lock.charon_revision,
+        )));
     }
-    let version = versions.join("; ");
-    let commands = specs
+
+    let aeneas_spec = ProcessSpec {
+        program: "aeneas".to_owned(),
+        args: vec!["-version".to_owned()],
+    };
+    let aeneas_output = executor.run(&aeneas_spec, root, environment, Duration::from_secs(20))?;
+    let aeneas_revision = parse_aeneas_identity(&aeneas_output)?;
+    if aeneas_revision != lock.aeneas_revision {
+        return Err(AdapterError::Toolchain(format!(
+            "aeneas identity `{aeneas_revision}` does not exactly match pinned identity `{}`",
+            lock.aeneas_revision,
+        )));
+    }
+
+    let version = format!("charon-version:{charon_version};aeneas-revision:{aeneas_revision}");
+    let commands = [&charon_spec, &aeneas_spec]
         .iter()
         .map(|spec| observe_command(spec, environment_observation))
         .collect();
@@ -1322,8 +1317,85 @@ fn translation_tool_identity<E: Executor>(
             identity_sha256: domain_hash("proofbound-tool-identity/1", version.as_bytes()),
         },
         commands,
-        outputs,
+        vec![charon_output, aeneas_output],
     ))
+}
+
+fn strict_identity_stdout<'a>(
+    tool: &str,
+    output: &'a ProcessOutput,
+) -> Result<&'a str, AdapterError> {
+    if output.status != Some(0) {
+        return Err(AdapterError::Toolchain(format!(
+            "{tool} identity probe exited {:?}, expected 0",
+            output.status
+        )));
+    }
+    if output.truncated {
+        return Err(AdapterError::Toolchain(format!(
+            "{tool} identity probe output was truncated"
+        )));
+    }
+    if !output.stderr.is_empty() {
+        return Err(AdapterError::Toolchain(format!(
+            "{tool} identity probe wrote to stderr"
+        )));
+    }
+    if output.stdout.is_empty() || output.stdout.len() > MAX_TOOL_IDENTITY_BYTES {
+        return Err(AdapterError::Toolchain(format!(
+            "{tool} identity probe stdout must contain 1..={MAX_TOOL_IDENTITY_BYTES} bytes"
+        )));
+    }
+    let text = std::str::from_utf8(&output.stdout).map_err(|_| {
+        AdapterError::Toolchain(format!("{tool} identity probe stdout is not UTF-8"))
+    })?;
+    let line = text.strip_suffix('\n').unwrap_or(text);
+    if line.is_empty()
+        || line.contains(['\r', '\n'])
+        || line.trim() != line
+        || line.chars().any(char::is_control)
+    {
+        return Err(AdapterError::Toolchain(format!(
+            "{tool} identity probe stdout is not one canonical line"
+        )));
+    }
+    Ok(line)
+}
+
+fn parse_charon_identity(output: &ProcessOutput) -> Result<String, AdapterError> {
+    let version = strict_identity_stdout("charon", output)?;
+    let mut components = version.split('.');
+    let valid_component = |component: &str| {
+        !component.is_empty()
+            && component.bytes().all(|byte| byte.is_ascii_digit())
+            && (component == "0" || !component.starts_with('0'))
+    };
+    let valid = components.by_ref().take(3).all(valid_component);
+    if !valid || components.next().is_some() || version.matches('.').count() != 2 {
+        return Err(AdapterError::Toolchain(format!(
+            "charon identity `{version}` is not a canonical numeric version"
+        )));
+    }
+    Ok(version.to_owned())
+}
+
+fn parse_aeneas_identity(output: &ProcessOutput) -> Result<String, AdapterError> {
+    let line = strict_identity_stdout("aeneas", output)?;
+    let revision = line.strip_prefix("aeneas ").ok_or_else(|| {
+        AdapterError::Toolchain(
+            "aeneas identity does not have the required `aeneas <revision>` form".to_owned(),
+        )
+    })?;
+    if !(7..=40).contains(&revision.len())
+        || !revision
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(AdapterError::Toolchain(format!(
+            "aeneas identity revision `{revision}` is not lowercase hexadecimal"
+        )));
+    }
+    Ok(revision.to_owned())
 }
 
 #[derive(Clone, Debug)]
@@ -1833,11 +1905,11 @@ fn translation_report_inventory(
             report_mapping.produced
         )));
     }
-    if !report.aeneas_version.contains(&lock.aeneas_revision)
-        || !report.charon_version.contains(&lock.charon_revision)
+    if report.aeneas_version != lock.aeneas_revision
+        || report.charon_version != lock.charon_revision
     {
         return Err(AdapterError::Toolchain(format!(
-            "translation report `{}` does not contain both pinned tool revisions",
+            "translation report `{}` does not exactly match both pinned tool identities",
             report_mapping.produced
         )));
     }
@@ -3171,6 +3243,16 @@ mod tests {
             .ok_or_else(|| AdapterError::Internal(format!("missing fake argument `{flag}`")))
     }
 
+    fn identity_output(stdout: &[u8]) -> ProcessOutput {
+        ProcessOutput {
+            status: Some(0),
+            stdout: stdout.to_vec(),
+            stderr: Vec::new(),
+            truncated: false,
+            duration_ms: 1,
+        }
+    }
+
     fn sample_translation() -> TranslationUnitManifest {
         serde_json::from_value(json!({
             "schema":"proofbound-translation-unit/3","id":"kernel","pipeline":"charon-aeneas",
@@ -3558,6 +3640,19 @@ mod tests {
         let mut opaque = report.clone();
         opaque["functions"][0]["is_opaque"] = json!(true);
         assert!(translation_report_inventory(&generated(&opaque), &invocation, &lock).is_err());
+
+        let mut version_superstring = report.clone();
+        version_superstring["aeneas_version"] = json!("aeneas-pin-extra");
+        assert!(
+            translation_report_inventory(&generated(&version_superstring), &invocation, &lock)
+                .is_err()
+        );
+        version_superstring["aeneas_version"] = json!("aeneas-pin");
+        version_superstring["charon_version"] = json!("charon-pin-extra");
+        assert!(
+            translation_report_inventory(&generated(&version_superstring), &invocation, &lock)
+                .is_err()
+        );
 
         let mut unknown_invocation = invocation.clone();
         unknown_invocation.start_from = vec!["demo_kernel::GLOBAL".to_owned()];
@@ -4060,43 +4155,128 @@ mod tests {
     }
 
     #[test]
-    fn fake_tools_must_report_both_pinned_revisions() {
+    fn fake_tools_use_exact_argv_and_report_tagged_pinned_identities() {
         let lock = TranslationToolchainLock {
             schema: "proofbound-translation-toolchain/1".to_owned(),
-            charon_revision: "abc123".to_owned(),
-            aeneas_revision: "def456".to_owned(),
+            charon_revision: "0.1.225".to_owned(),
+            aeneas_revision: "deadbeef".to_owned(),
             rust_toolchain: "1.94.0".to_owned(),
             lean_toolchain: "v4.33.0".to_owned(),
         };
-        let success = |text: &[u8]| ProcessOutput {
-            status: Some(0),
-            stdout: text.to_vec(),
-            stderr: Vec::new(),
-            truncated: false,
-            duration_ms: 1,
-        };
         let mut fake = FakeExecutor::default();
-        fake.outputs.push_back(success(b"charon abc123\n"));
-        fake.outputs.push_back(success(b"aeneas def456\n"));
+        fake.outputs.push_back(identity_output(b"0.1.225\n"));
+        fake.outputs
+            .push_back(identity_output(b"aeneas deadbeef\n"));
         let (identity, _, _) =
             translation_tool_identity(Path::new("."), &lock, &BTreeMap::new(), &[], &mut fake)
                 .unwrap();
-        assert!(identity.version.contains("abc123"));
-        assert!(identity.version.contains("def456"));
+        assert_eq!(
+            identity.version,
+            "charon-version:0.1.225;aeneas-revision:deadbeef"
+        );
+        assert_eq!(fake.seen.len(), 2);
         assert_eq!(fake.seen[0].program, "charon");
+        assert_eq!(fake.seen[0].args, ["version"]);
         assert_eq!(fake.seen[1].program, "aeneas");
+        assert_eq!(fake.seen[1].args, ["-version"]);
 
-        let mut mismatched = FakeExecutor::default();
-        mismatched.outputs.push_back(success(b"charon wrong\n"));
+        let mut charon_superstring = FakeExecutor::default();
+        charon_superstring
+            .outputs
+            .push_back(identity_output(b"0.1.2250\n"));
         assert!(
             translation_tool_identity(
                 Path::new("."),
                 &lock,
                 &BTreeMap::new(),
                 &[],
-                &mut mismatched,
+                &mut charon_superstring,
             )
             .is_err()
         );
+
+        let mut aeneas_superstring = FakeExecutor::default();
+        aeneas_superstring
+            .outputs
+            .push_back(identity_output(b"0.1.225\n"));
+        aeneas_superstring
+            .outputs
+            .push_back(identity_output(b"aeneas deadbeef0\n"));
+        assert!(
+            translation_tool_identity(
+                Path::new("."),
+                &lock,
+                &BTreeMap::new(),
+                &[],
+                &mut aeneas_superstring,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn identity_output_is_strict_bounded_and_fail_closed() {
+        assert_eq!(
+            parse_charon_identity(&identity_output(b"0.1.225\n")).unwrap(),
+            "0.1.225"
+        );
+        assert_eq!(
+            parse_aeneas_identity(&identity_output(b"aeneas 3a8586fa\n")).unwrap(),
+            "3a8586fa"
+        );
+        assert_eq!(
+            parse_charon_identity(&identity_output(b"0.1.225")).unwrap(),
+            "0.1.225"
+        );
+        assert_eq!(
+            parse_aeneas_identity(&identity_output(b"aeneas 1234567\n")).unwrap(),
+            "1234567"
+        );
+
+        for stdout in [
+            b"".as_slice(),
+            b"\xff".as_slice(),
+            b"0.1.225\nextra\n".as_slice(),
+            b"unknown\n".as_slice(),
+            b"0.1.225-dirty\n".as_slice(),
+            b"01.1.225\n".as_slice(),
+            b"0.1.225\r\n".as_slice(),
+            b" 0.1.225\n".as_slice(),
+        ] {
+            assert!(parse_charon_identity(&identity_output(stdout)).is_err());
+        }
+        for stdout in [
+            b"aeneas\n".as_slice(),
+            b"aeneas 123456\n".as_slice(),
+            b"aeneas unknown\n".as_slice(),
+            b"aeneas 3a8586fa-dirty\n".as_slice(),
+            b"aeneas 3A8586FA\n".as_slice(),
+            b"aeneas 3a8586fa\r\n".as_slice(),
+            b"aeneas 3a8586fa\nextra\n".as_slice(),
+        ] {
+            assert!(parse_aeneas_identity(&identity_output(stdout)).is_err());
+        }
+        let maximum_revision = format!("aeneas {}\n", "a".repeat(40));
+        assert_eq!(
+            parse_aeneas_identity(&identity_output(maximum_revision.as_bytes())).unwrap(),
+            "a".repeat(40)
+        );
+        let oversized_revision = format!("aeneas {}\n", "a".repeat(41));
+        assert!(parse_aeneas_identity(&identity_output(oversized_revision.as_bytes())).is_err());
+
+        let mut nonzero = identity_output(b"0.1.225\n");
+        nonzero.status = Some(1);
+        assert!(parse_charon_identity(&nonzero).is_err());
+
+        let mut stderr = identity_output(b"aeneas 3a8586fa\n");
+        stderr.stderr = b"warning\n".to_vec();
+        assert!(parse_aeneas_identity(&stderr).is_err());
+
+        let mut truncated = identity_output(b"0.1.225\n");
+        truncated.truncated = true;
+        assert!(parse_charon_identity(&truncated).is_err());
+
+        let oversized = identity_output(&vec![b'1'; MAX_TOOL_IDENTITY_BYTES + 1]);
+        assert!(parse_aeneas_identity(&oversized).is_err());
     }
 }

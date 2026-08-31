@@ -76,7 +76,10 @@ inventory entry, evidence fate, and affected-claim set. Multiple mutations may
 not share a unit. `translation-toolchain-lock.schema.json` is the corresponding
 closed auxiliary TOML contract consumed by the Charon/Aeneas adapter.
 Schema validation covers their strict shape; adapters additionally enforce
-cross-entry uniqueness, concrete tool revisions, and repository bindings.
+cross-entry uniqueness, exact observable native tool identities, and repository
+bindings. Charon is probed with `charon version`; Aeneas is probed with
+`aeneas -version`. Version-1 lock fields do not attest source commits or build
+provenance beyond those native outputs.
 
 `error.schema.json` defines the stable `proofbound-error/1` failure envelope
 used by JSON-capable CLI commands. Non-applicable contextual fields are
