@@ -16,10 +16,15 @@
   `ARTIFACT_BOUND` only from the exact elaborated root proposition carried by
   an admitted theorem, removes checker-authored linkage booleans, makes the
   complete canonical theorem statement available to the independent verifier,
-  and introduces an explicitly provisional `2-binding-preview` envelope
-  family so this security change stands alone without assigning an incomplete
-  meaning to the final version-2 receipt (§5, §7.1, §9.4, §10.2, §10.4;
-  ADR 0012).
+  and replaces the explicit `2-binding-preview` identities with the final
+  version-2 evidence and release envelopes (§5, §7.1, §9.4, §10.2, §10.4;
+  ADR 0012). The same versioned transition completes the deferred
+  receipt-fidelity work: exact registered bounded assumptions, nullable
+  unknown peak memory, separate internal/reader/rendered claim text, and
+  complete ordered execution provenance with an explicit distinction between
+  observed processes and compiler-internal derivations (§6.3.2, §9.7, §11.5,
+  §16;
+  ADR 0013).
 - **0.6.0** — bounded-evidence fidelity: requires the bounded receipt's solver
   and per-harness unwind bounds to equal the registered model-check unit, with
   exact harness/unwind key coverage and nonzero bounds (§9.7); and requires
@@ -494,11 +499,17 @@ Additional rules:
   broke and why, and the presence of any `INVALID` claim causes a nonzero
   exit. `INVALID` overrides all other facets.
 - **Bounded language.** A `BOUNDED_CHECKED` claim's `public_statement` is the
-  compiled reader-facing claim text followed by the literal separator
-  ` Registered finite domain: ` and the registered finite-domain language.
+  derived status text, never a replacement for the claim's internal
+  `statement`. Its base text is the claim's optional `public_language` when
+  present and otherwise its internal `statement`, followed by the literal
+  separator ` Registered finite domain: ` and the registered finite-domain
+  language.
   The property is never replaced by domain-only wording, and no unbounded
-  language is emitted for bounded evidence. The same composition applies when
-  an explicitly policy-admitted exhaustive finite check yields `PROVED`.
+  language is emitted for bounded evidence. The version-2 compiled claim keeps
+  `statement` and optional `public_language` as separate fields, while the
+  reported status keeps the derived `public_statement`; both status engines
+  independently reproduce this composition. The same composition applies
+  when an explicitly policy-admitted exhaustive finite check yields `PROVED`.
 - **Exhaustiveness.** `exhaustive-check` over a registered finite domain
   MAY be admitted as `PROVED` only when the policy explicitly says so and
   the domain registration is itself part of the claim closure; otherwise it
@@ -859,6 +870,11 @@ The initial built-in profiles are:
   The receipt's solver equals the registered solver; its harness set and
   unwind-bound key set are identical; and every recorded unwind bound is the
   registered nonzero bound for that harness.
+- `bounded_check.assumptions` is required even when empty. It is the exact
+  ordered list from the registered model-check unit: every member is a
+  nonblank string, duplicate exact strings are rejected, and the compiler
+  neither trims, classifies, nor substitutes entries. These execution-model
+  assumptions do not silently become project-assumption ledger IDs.
 - No unbounded claim is emitted.
 
 Projects MAY define stricter profiles. They MUST NOT redefine the meaning of a
@@ -949,7 +965,7 @@ metadata, not source-text scanning (§17).
 Adapters communicate with the orchestrator over a versioned JSON subprocess
 protocol: requests and responses are schema-validated canonical JSON on
 stdin/stdout (`schemas/adapter-protocol.schema.json`), and evidence is
-returned either as a complete `proofbound-evidence/2-binding-preview` record or as a strict
+returned either as a complete `proofbound-evidence/2` record or as a strict
 `proofbound-adapter-observation/1` execution receipt that the assurance
 compiler deterministically enriches with graph and source-closure identities.
 The latter prevents a tool adapter from fabricating project provenance it does
@@ -957,6 +973,27 @@ not own. Both alternatives are closed schemas; an arbitrary JSON object is not
 an evidence boundary. An adapter is therefore any process in any language that
 speaks the protocol — future language verticals do not link against the Rust
 core, and no adapter couples to a Rust ABI.
+
+An execution observation carries the complete ordered `commands` array and an
+equally sized ordered `runs` array. Run `i` has `command_index = i` and binds
+that command's exit state, raw stdout/stderr identities, normalized-output
+identity, truncation state, and duration. A nonblank `normalization` identifier
+names the transformation used before the deterministic-result identity was
+computed. The compiler preserves these fields in `proofbound-evidence/2`
+provenance instead of selecting a representative command; it also records the
+separate typed `reproduction_command`. An unavailable memory observation is
+the explicit JSON value `null`, never an invented zero.
+
+Every adapter observation represents actual subprocess execution. When the
+assurance compiler turns one into canonical evidence, provenance has
+`execution_kind = "observed-processes"`; `commands` and `runs` are both
+nonempty and have identical length. Evidence derived wholly inside the
+assurance compiler instead has `execution_kind = "compiler-internal"` and
+both arrays are empty. Compiler-internal derivation MUST NOT fabricate a
+process command or run merely to satisfy a provenance shape. Its separate
+typed `reproduction_command`, normalization identity, configuration identity,
+timing, budget, and usage remain required so the derivation can still be
+reproduced and audited.
 
 ### 10.3 Project plugins
 
@@ -1100,10 +1137,16 @@ ordering_key = [0, 1, 2, 3, 4, 5]
 Every claim has a stable ID, exact internal `statement`, bound `subject`, trust
 `profile`, cited `evidence`, cited `assumptions`, and explicit
 `open_obligations` and `out_of_scope` lists. `public_language` is an optional
-reader-facing restatement and cannot strengthen `statement`. `tier` optionally
-lowers the project ceiling for this claim. `primary_linkage` is required when
-more than one valid linkage is present and selects one of `refined`,
-`artifact-bound`, `transcribed`, or `model-only`. `premises` names
+reader-facing restatement and cannot strengthen `statement`; it never replaces
+the internal field. The version-2 compiled release retains `statement` and,
+when supplied, `public_language` separately. Its reported claim status carries
+the independently derived `public_statement`: `public_language` when present,
+otherwise `statement`, with the bounded-domain suffix required by Section
+6.3.2 when applicable. All three values are therefore auditable without
+presenting rendered language as the registered internal proposition. `tier`
+optionally lowers the project ceiling for this claim. `primary_linkage` is
+required when more than one valid linkage is present and selects one of
+`refined`, `artifact-bound`, `transcribed`, or `model-only`. `premises` names
 representation or other dischargeable premises. `source_roots` overrides the
 project semantic patterns for the claim and therefore defines the minimum
 per-claim closure granularity from Section 11.4. `bounded_domain`, when used,
@@ -1245,6 +1288,58 @@ aspirational refinement and MAY be added later without schema change. What is
 prohibited is the reference failure mode: a single project-global closure
 copied identically into every claim, which conveys no per-claim dependency
 information while inflating the manifest by orders of magnitude.
+
+### 11.5 Version-2 evidence and release receipt semantics
+
+`proofbound-evidence/2`, `proofbound-compiled-release/2`, and
+`proofbound-release-envelope/2` are a coordinated wire transition. Version 1
+records are not silently reinterpreted under these rules.
+
+The canonical evidence record has these additional fidelity requirements:
+
+- `bounded_check.assumptions` is a required array. It preserves the registered
+  model-check unit's strings exactly and in order, including the distinction
+  between an empty array and a missing field. Every string is nonblank and
+  exact duplicates are invalid. During assurance compilation the producer
+  compares the array with the registered model; the portable release does not
+  claim to embed that complete external registration.
+- `resource_usage.peak_memory_bytes` is required and nullable. A nonnegative
+  integer is a measurement, including the legitimate measurement zero;
+  `null` means not measured. The declared memory budget remains a required
+  nonnegative integer and is not a substitute for observed usage.
+- `provenance.execution_kind` is required. For `observed-processes`,
+  `provenance.commands` preserves every observed typed command in execution
+  order; `provenance.runs` has the same nonzero length and order, and run `i`
+  has `command_index = i`. Each run carries required nullable exit status, raw
+  output identities, normalized-output identity, truncation state, and
+  duration. No command or run may be collapsed into a representative summary.
+  For `compiler-internal`, both arrays are empty because no subprocess was
+  observed; inventing a process record for an internal derivation is invalid.
+  For both kinds, `provenance.normalization` is a required nonblank identifier
+  and `provenance.reproduction_command` remains a separate required typed
+  command.
+
+The compiled release keeps a claim's required internal `statement` and its
+optional `public_language` as distinct fields. Each reported claim status
+contains the required derived `public_statement` described in Section 6.3.2.
+The independent verifier recomputes that rendered field from the retained
+claim inputs and rejects substitution or drift.
+
+The producer's private compiled-state boundary advances at the same time to
+`proofbound-compiled-project/2`, and claim-input identities use the
+`proofbound-claim-input/2` domain. Reporting and release commands MUST reject
+version-1 compiled state and require a fresh `proofbound check`; otherwise an
+evidence-free legacy ledger claim could be released after its internal
+statement had already been replaced by reader-facing language.
+
+The closed public schemas in `schemas/evidence.schema.json`,
+`schemas/receipt.schema.json`, and
+`schemas/adapter-observation.schema.json` are the machine-readable contracts
+and MUST remain field-for-field consistent with these rules. Cross-field rules
+that JSON Schema cannot express — exact model-registration equality, aligned
+command/run lengths and positions, and derivation of rendered language — are
+validated by the producer and, where the portable receipt contains both sides,
+independently by `proofbound-verify`.
 
 ## 12. Command-line UX
 
@@ -1622,7 +1717,9 @@ Every evidence record MUST bind:
 - exact input artifact digests;
 - generated artifact digests;
 - complete tool identity;
-- command and environment allowlist;
+- every exact typed command in execution order, its aligned run record, and
+  the nonblank normalization identifier;
+- a separate exact typed reproduction command;
 - start and completion timestamps as diagnostic metadata;
 - deterministic result identity;
 - resource bounds; and
@@ -1668,7 +1765,9 @@ therefore requires:
 - every translation, model-check, and proof unit declares an expected
   resource budget (time, disk, memory) in its manifest;
 - `doctor` reports which units the host can afford;
-- adapters report actual cost in receipts so budgets stay honest; and
+- adapters report actual cost in receipts so budgets stay honest; an unknown
+  peak-memory observation is required as `null`, while numeric zero means a
+  measured zero-byte peak; and
 - budget overruns are diagnostics, never silent truncation of coverage.
 
 ## 17. Security and failure policy

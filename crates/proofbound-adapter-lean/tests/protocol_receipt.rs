@@ -9,7 +9,9 @@ use proofbound_adapter_lean::{
     protocol::{ADAPTER_NAME, ADAPTER_PROTOCOL_SCHEMA, LeanAdapterResponse},
     wire::{STATEMENT_ENCODING, statement_digest},
 };
-use proofbound_core::{CommandSpec, EnvironmentId, ResourceUsage, Sha256Digest, ToolIdentity};
+use proofbound_core::{
+    CommandSpec, EnvironmentId, ExecutionRun, ResourceUsage, Sha256Digest, ToolIdentity,
+};
 use proofbound_evidence::canonical_json;
 use proofbound_manifest::{
     AdapterKind, AdapterOperation, AdapterRequest, EvaluationMode, EvidenceKind,
@@ -98,17 +100,50 @@ fn request() -> AdapterRequest {
                     version: "fixture/1".to_owned(),
                     identity_sha256: Sha256Digest::of_bytes(b"fixture audit executable"),
                 },
-                command: CommandSpec {
-                    program: "/fixture/proofbound_lean_audit".to_owned(),
-                    args: vec!["Fixture".to_owned(), "--surface=Fixture".to_owned()],
-                    environment_allowlist: Vec::new(),
-                },
+                commands: vec![
+                    CommandSpec {
+                        program: "/fixture/lake".to_owned(),
+                        args: vec![
+                            "exe".to_owned(),
+                            "proofbound_lean_audit".to_owned(),
+                            "Fixture".to_owned(),
+                            "--surface=Fixture".to_owned(),
+                        ],
+                        environment_allowlist: Vec::new(),
+                    },
+                    CommandSpec {
+                        program: "/fixture/lake".to_owned(),
+                        args: vec!["--version".to_owned()],
+                        environment_allowlist: Vec::new(),
+                    },
+                ],
+                runs: vec![
+                    ExecutionRun {
+                        command_index: 0,
+                        exit_code: Some(0),
+                        stdout_sha256: Sha256Digest::of_bytes(b"fixture stdout"),
+                        stderr_sha256: Sha256Digest::of_bytes(b""),
+                        normalized_output_sha256: Sha256Digest::of_bytes(b"fixture normalized"),
+                        output_truncated: false,
+                        duration_ms: 4,
+                    },
+                    ExecutionRun {
+                        command_index: 1,
+                        exit_code: Some(0),
+                        stdout_sha256: Sha256Digest::of_bytes(b"Lake fixture/1\n"),
+                        stderr_sha256: Sha256Digest::of_bytes(b""),
+                        normalized_output_sha256: Sha256Digest::of_bytes(b"Lake fixture/1"),
+                        output_truncated: false,
+                        duration_ms: 1,
+                    },
+                ],
+                normalization: "proofbound-lean-command-output/1".into(),
                 started_unix_ms: 1_000,
                 completed_unix_ms: 1_005,
                 resource_usage: ResourceUsage {
                     time_ms: 5,
                     peak_disk_bytes: 0,
-                    peak_memory_bytes: 0,
+                    peak_memory_bytes: None,
                 },
             }),
         },
@@ -137,9 +172,46 @@ fn canonical_protocol_returns_a_direct_core_evidence_record() {
     let evidence = response.evidence.unwrap();
     let claim = proofbound_core::ClaimId::new("FIXTURE-CLAIM-001").unwrap();
     evidence.validate(&claim).unwrap();
+    assert_eq!(evidence.provenance.commands.len(), 2);
+    assert_eq!(evidence.provenance.runs.len(), 2);
+    assert_eq!(
+        evidence.provenance.commands[0].args,
+        [
+            "exe",
+            "proofbound_lean_audit",
+            "Fixture",
+            "--surface=Fixture"
+        ]
+    );
+    assert_eq!(evidence.provenance.commands[1].args, ["--version"]);
+    assert_eq!(evidence.provenance.runs[0].command_index, 0);
+    assert_eq!(evidence.provenance.runs[1].command_index, 1);
+    assert_eq!(evidence.provenance.started_unix_ms, 1_000);
+    assert_eq!(evidence.provenance.completed_unix_ms, 1_005);
+    assert_eq!(evidence.provenance.resource_usage.time_ms, 5);
+    assert_eq!(
+        evidence.provenance.runs[1].normalized_output_sha256,
+        Sha256Digest::of_bytes(b"Lake fixture/1")
+    );
     let round_trip = serde_json::to_value(&evidence).unwrap();
     let decoded: proofbound_core::EvidenceRecord = serde_json::from_value(round_trip).unwrap();
     assert_eq!(decoded, evidence);
+}
+
+#[test]
+fn captured_execution_enforces_one_total_budget_for_both_commands() {
+    let mut request = request();
+    let execution = &mut request.unit["audit"]["execution"];
+    execution["runs"][0]["duration_ms"] = json!(6_000);
+    execution["runs"][1]["duration_ms"] = json!(6_000);
+    execution["resource_usage"]["time_ms"] = json!(12_000);
+    execution["completed_unix_ms"] = json!(13_000);
+
+    let output = handle_bytes(&canonical_json(&request).unwrap(), root());
+    let response: LeanAdapterResponse = serde_json::from_slice(&output).unwrap();
+    assert!(!response.success);
+    assert!(response.evidence.is_none());
+    assert_eq!(response.diagnostics[0].code, "PB-LEAN-0011");
 }
 
 #[test]

@@ -93,6 +93,7 @@ pub struct CommandObservation {
 #[serde(deny_unknown_fields)]
 pub struct EnvironmentObservation {
     pub name: String,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
     pub value_sha256: Option<String>,
     pub secret: bool,
 }
@@ -101,6 +102,7 @@ pub struct EnvironmentObservation {
 #[serde(deny_unknown_fields)]
 pub struct RunObservation {
     pub command_index: usize,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
     pub exit_code: Option<i32>,
     pub stdout_sha256: String,
     pub stderr_sha256: String,
@@ -122,7 +124,16 @@ pub struct BudgetObservation {
 pub struct UsageObservation {
     pub time_ms: u64,
     pub peak_disk_bytes: u64,
+    #[serde(deserialize_with = "deserialize_required_nullable")]
     pub peak_memory_bytes: Option<u64>,
+}
+
+fn deserialize_required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 #[derive(Clone, Debug)]
@@ -2376,6 +2387,46 @@ mod tests {
             "import_mapping":{"mode":"external-source-root","source_roots":["lean"]},
             "resource_budget":{"time_seconds":60,"disk_bytes":1000000,"memory_bytes":1000000},"claims":["DEMO-ONE"]
         })).unwrap()
+    }
+
+    #[test]
+    fn nullable_observation_fields_are_required_and_accept_explicit_null() {
+        let environment = json!({"name":"PATH","value_sha256":null,"secret":false});
+        let parsed: EnvironmentObservation = serde_json::from_value(environment.clone()).unwrap();
+        assert_eq!(parsed.value_sha256, None);
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap()["value_sha256"],
+            Value::Null
+        );
+        let mut missing = environment;
+        missing.as_object_mut().unwrap().remove("value_sha256");
+        assert!(serde_json::from_value::<EnvironmentObservation>(missing).is_err());
+
+        let run = json!({
+            "command_index":0,"exit_code":null,"stdout_sha256":"sha256:00",
+            "stderr_sha256":"sha256:01","normalized_output_sha256":"sha256:02",
+            "output_truncated":false,"duration_ms":1
+        });
+        let parsed: RunObservation = serde_json::from_value(run.clone()).unwrap();
+        assert_eq!(parsed.exit_code, None);
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap()["exit_code"],
+            Value::Null
+        );
+        let mut missing = run;
+        missing.as_object_mut().unwrap().remove("exit_code");
+        assert!(serde_json::from_value::<RunObservation>(missing).is_err());
+
+        let usage = json!({"time_ms":1,"peak_disk_bytes":2,"peak_memory_bytes":null});
+        let parsed: UsageObservation = serde_json::from_value(usage.clone()).unwrap();
+        assert_eq!(parsed.peak_memory_bytes, None);
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap()["peak_memory_bytes"],
+            Value::Null
+        );
+        let mut missing = usage;
+        missing.as_object_mut().unwrap().remove("peak_memory_bytes");
+        assert!(serde_json::from_value::<UsageObservation>(missing).is_err());
     }
 
     #[test]

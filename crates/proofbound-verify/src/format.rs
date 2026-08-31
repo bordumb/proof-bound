@@ -1,16 +1,14 @@
-//! Closed `proofbound-compiled-release/2-binding-preview` receipt format.
+//! Closed `proofbound-compiled-release/2` receipt format.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-pub const RELEASE_ENVELOPE_SCHEMA_BINDING_PREVIEW: &str =
-    "proofbound-release-envelope/2-binding-preview";
-pub const COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW: &str =
-    "proofbound-compiled-release/2-binding-preview";
+pub const RELEASE_ENVELOPE_SCHEMA_V2: &str = "proofbound-release-envelope/2";
+pub const COMPILED_RELEASE_SCHEMA_V2: &str = "proofbound-compiled-release/2";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
-pub const EVIDENCE_SCHEMA_BINDING_PREVIEW: &str = "proofbound-evidence/2-binding-preview";
+pub const EVIDENCE_SCHEMA_V2: &str = "proofbound-evidence/2";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const CLOSURE_SCHEMA_V1: &str = "proofbound-source-closure/1";
 pub const POLICY_SCHEMA_V1: &str = "proofbound-policy/1";
@@ -215,7 +213,11 @@ pub struct ClaimReceipt {
     pub id: String,
     pub node_id: String,
     pub title: String,
+    /// Exact internal property registered for theorem and evidence matching.
     pub statement: String,
+    /// Optional reader-facing property language; never replaces `statement`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_language: Option<String>,
     pub subject: String,
     pub policy: String,
     /// Optional per-claim tier ceiling; absence inherits `project_tier`.
@@ -374,6 +376,8 @@ pub struct BoundedCheckReceipt {
     pub harnesses: BTreeSet<String>,
     #[serde(default)]
     pub unwind_bounds: BTreeMap<String, u64>,
+    /// Exact solver assumptions reported for this bounded execution.
+    pub assumptions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -414,6 +418,46 @@ pub struct ToolIdentity {
     pub identity_sha256: String,
 }
 
+/// One environment variable admitted to a typed command.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentReceipt {
+    pub name: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub value_sha256: Option<String>,
+    pub secret: bool,
+}
+
+/// One exact process invocation in adapter execution order.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandReceipt {
+    pub program: String,
+    pub args: Vec<String>,
+    pub environment_allowlist: Vec<EnvironmentReceipt>,
+}
+
+/// Captured outcome for exactly one indexed command.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionRunReceipt {
+    pub command_index: usize,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub exit_code: Option<i32>,
+    pub stdout_sha256: String,
+    pub stderr_sha256: String,
+    pub normalized_output_sha256: String,
+    pub output_truncated: bool,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecutionKind {
+    ObservedProcesses,
+    CompilerInternal,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CacheKeyMaterial {
@@ -440,10 +484,11 @@ pub struct EvidenceProvenance {
     pub generated_artifacts: Vec<ArtifactIdentityReceipt>,
     pub tool: ToolIdentity,
     pub adapter: ToolIdentity,
-    pub command: Vec<String>,
-    pub reproduction_command: Vec<String>,
-    #[serde(default)]
-    pub environment_allowlist: BTreeSet<String>,
+    pub execution_kind: ExecutionKind,
+    pub commands: Vec<CommandReceipt>,
+    pub runs: Vec<ExecutionRunReceipt>,
+    pub normalization: String,
+    pub reproduction_command: CommandReceipt,
     pub started_unix_ms: u64,
     pub completed_unix_ms: u64,
     pub deterministic_result_sha256: String,
@@ -452,7 +497,25 @@ pub struct EvidenceProvenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reused_from: Option<String>,
     pub resource_budget: ResourceMeasure,
-    pub actual_cost: ResourceMeasure,
+    pub actual_cost: ActualCostReceipt,
+}
+
+/// Measured adapter cost; `None` means peak memory was not measured.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActualCostReceipt {
+    pub time_ms: u64,
+    pub disk_bytes: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub memory_bytes: Option<u64>,
+}
+
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 impl EvidenceProvenance {
@@ -719,6 +782,7 @@ pub enum AssumptionFacet {
 #[serde(deny_unknown_fields)]
 pub struct ReportedClaimStatus {
     pub claim_id: String,
+    pub public_statement: String,
     pub formal: FormalFacet,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linkage: Option<LinkageFacet>,

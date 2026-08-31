@@ -12,13 +12,13 @@ use thiserror::Error;
 use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, AssumptionCategory, AssumptionFacet,
     AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode, BuiltInProfile,
-    CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW, ClaimReceipt,
-    ClosureKind, CompiledRelease, EVIDENCE_SCHEMA_BINDING_PREVIEW, EdgeKind, EvaluationMode,
-    EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, FlowScope, FormalFacet,
-    GRAPH_SCHEMA_V1, GraphNode, HashedRecord, IndependenceMode, LinkageFacet, NodeKind,
-    OpenObligation, POLICY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
-    RELEASE_ENVELOPE_SCHEMA_BINDING_PREVIEW, ReleaseEnvelope, ReportedClaimStatus,
-    SourceClosureReceipt, Tier, TreeState, canonical_json, domain_hash, raw_sha256,
+    CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V2, ClaimReceipt, ClosureKind,
+    CompiledRelease, EVIDENCE_SCHEMA_V2, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
+    EvidenceReceipt, Exclusion, ExecutionKind, FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphNode,
+    HashedRecord, IndependenceMode, LinkageFacet, NodeKind, OpenObligation, POLICY_SCHEMA_V1,
+    PolicyReceipt, PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V2, ReleaseEnvelope,
+    ReportedClaimStatus, SourceClosureReceipt, Tier, TreeState, canonical_json, domain_hash,
+    raw_sha256,
     statement_wire::{LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding, statement_digest},
 };
 
@@ -196,7 +196,7 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
 
     let envelope_path = root.join("release.json");
     let (envelope, _) = read_canonical::<ReleaseEnvelope>(&envelope_path, MAX_ENVELOPE_BYTES)?;
-    if envelope.schema != RELEASE_ENVELOPE_SCHEMA_BINDING_PREVIEW {
+    if envelope.schema != RELEASE_ENVELOPE_SCHEMA_V2 {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
                 VerificationIssueCode::PbvSchema,
@@ -218,7 +218,7 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
     }
     let (release, payload_bytes) =
         read_canonical::<CompiledRelease>(&payload_path, MAX_PAYLOAD_BYTES)?;
-    let actual_payload = domain_hash(COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW, &payload_bytes);
+    let actual_payload = domain_hash(COMPILED_RELEASE_SCHEMA_V2, &payload_bytes);
     if actual_payload != envelope.payload_sha256 {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
@@ -250,7 +250,7 @@ fn verify_compiled_release_internal(
     release_root: Option<&Path>,
 ) -> Result<VerificationReport, VerificationErrors> {
     let mut issues = Vec::new();
-    if release.schema != COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW {
+    if release.schema != COMPILED_RELEASE_SCHEMA_V2 {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
             format!("unsupported compiled release schema '{}'", release.schema),
@@ -1067,7 +1067,7 @@ fn validate_evidence_records(
             ));
         }
         if let Ok(bytes) = canonical_json(evidence) {
-            let actual = domain_hash(EVIDENCE_SCHEMA_BINDING_PREVIEW, &bytes);
+            let actual = domain_hash(EVIDENCE_SCHEMA_V2, &bytes);
             if actual != wrapper.sha256 {
                 evidence_issue(
                     issues,
@@ -1076,7 +1076,7 @@ fn validate_evidence_records(
                 );
             }
         }
-        if evidence.schema != EVIDENCE_SCHEMA_BINDING_PREVIEW {
+        if evidence.schema != EVIDENCE_SCHEMA_V2 {
             evidence_issue(
                 issues,
                 &wrapper.sha256,
@@ -1179,26 +1179,91 @@ fn validate_provenance(id: &str, evidence: &EvidenceReceipt, issues: &mut Vec<Ve
         || provenance.tool.version.trim().is_empty()
         || provenance.adapter.name.trim().is_empty()
         || provenance.adapter.version.trim().is_empty()
-        || provenance.command.is_empty()
-        || provenance.command.iter().any(|arg| arg.is_empty())
-        || provenance.reproduction_command.is_empty()
-        || provenance
-            .reproduction_command
-            .iter()
-            .any(|arg| arg.is_empty())
+    {
+        evidence_issue(issues, id, "tool and adapter identities must be complete");
+    }
+    match provenance.execution_kind {
+        ExecutionKind::ObservedProcesses => {
+            if provenance.commands.is_empty() || provenance.commands.len() > 4096 {
+                evidence_issue(
+                    issues,
+                    id,
+                    "observed-process provenance must retain one through 4096 exact commands",
+                );
+            }
+            if provenance.runs.len() != provenance.commands.len() {
+                evidence_issue(
+                    issues,
+                    id,
+                    "execution runs must exactly cover the command vector without omission",
+                );
+            }
+        }
+        ExecutionKind::CompilerInternal => {
+            if !provenance.commands.is_empty() || !provenance.runs.is_empty() {
+                evidence_issue(
+                    issues,
+                    id,
+                    "compiler-internal provenance must not fabricate process commands or runs",
+                );
+            }
+        }
+    }
+    if provenance.normalization.trim().is_empty() || provenance.normalization.chars().count() > 1024
     {
         evidence_issue(
             issues,
             id,
-            "tool identities and reproduction commands must be complete",
+            "output normalization must contain 1 through 1024 characters",
         );
     }
-    if provenance
-        .environment_allowlist
-        .iter()
-        .any(|name| name.trim().is_empty())
-    {
-        evidence_issue(issues, id, "environment names must be non-empty");
+    for (index, command) in provenance.commands.iter().enumerate() {
+        validate_command(id, &format!("command {index}"), command, issues);
+    }
+    validate_command(
+        id,
+        "reproduction command",
+        &provenance.reproduction_command,
+        issues,
+    );
+    for (index, run) in provenance.runs.iter().enumerate() {
+        if run.command_index != index {
+            evidence_issue(
+                issues,
+                id,
+                format!(
+                    "execution run {index} has command_index {}; runs must retain exact command order",
+                    run.command_index
+                ),
+            );
+        }
+        if run.output_truncated {
+            evidence_issue(
+                issues,
+                id,
+                format!("execution run {index} reports truncated output"),
+            );
+        }
+        if evidence.outcome == EvidenceOutcome::Passed && run.exit_code.is_none() {
+            evidence_issue(
+                issues,
+                id,
+                format!("passed evidence has incomplete execution run {index}"),
+            );
+        }
+        for (label, digest) in [
+            ("stdout", &run.stdout_sha256),
+            ("stderr", &run.stderr_sha256),
+            ("normalized output", &run.normalized_output_sha256),
+        ] {
+            if !valid_digest(digest) {
+                evidence_issue(
+                    issues,
+                    id,
+                    format!("execution run {index} {label} digest is invalid: '{digest}'"),
+                );
+            }
+        }
     }
     validate_artifact_inventory(id, "input", &provenance.input_artifacts, issues);
     validate_artifact_inventory(id, "generated", &provenance.generated_artifacts, issues);
@@ -1223,6 +1288,95 @@ fn validate_provenance(id: &str, evidence: &EvidenceReceipt, issues: &mut Vec<Ve
         }
         Err(error) => evidence_issue(issues, id, format!("cache material is invalid: {error}")),
     }
+}
+
+fn validate_command(
+    evidence_id: &str,
+    label: &str,
+    command: &crate::CommandReceipt,
+    issues: &mut Vec<VerificationIssue>,
+) {
+    let program = command.program.trim();
+    let executable = program
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(program)
+        .to_ascii_lowercase();
+    let is_shell = matches!(
+        executable.as_str(),
+        "sh" | "bash" | "dash" | "zsh" | "fish" | "cmd" | "cmd.exe" | "powershell" | "pwsh"
+    );
+    if program.is_empty()
+        || command.program.chars().count() > 4096
+        || command.program.contains('\0')
+        || is_shell
+        || command.args.len() > 4096
+        || command
+            .args
+            .iter()
+            .any(|argument| argument.chars().count() > 4096 || argument.contains('\0'))
+    {
+        evidence_issue(
+            issues,
+            evidence_id,
+            format!("{label} is not a bounded typed non-shell command"),
+        );
+    }
+    if command.environment_allowlist.len() > 256 {
+        evidence_issue(
+            issues,
+            evidence_id,
+            format!("{label} environment allowlist exceeds 256 entries"),
+        );
+    }
+    let mut names = BTreeSet::new();
+    for environment in &command.environment_allowlist {
+        if !valid_environment_name(&environment.name) {
+            evidence_issue(
+                issues,
+                evidence_id,
+                format!(
+                    "{label} environment name '{}' is not portable",
+                    environment.name
+                ),
+            );
+        }
+        if !names.insert(environment.name.as_str()) {
+            evidence_issue(
+                issues,
+                evidence_id,
+                format!(
+                    "{label} environment allowlist repeats name '{}'",
+                    environment.name
+                ),
+            );
+        }
+        if environment
+            .value_sha256
+            .as_deref()
+            .is_some_and(|digest| !valid_digest(digest))
+        {
+            evidence_issue(
+                issues,
+                evidence_id,
+                format!(
+                    "{label} environment value for '{}' has an invalid digest",
+                    environment.name
+                ),
+            );
+        }
+    }
+}
+
+fn valid_environment_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 256 {
+        return false;
+    }
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn validate_artifact_inventory(
@@ -1415,6 +1569,11 @@ fn validate_evidence_shape(
             if evidence.evaluation_mode.is_some()
                 || evidence.binding_mode.is_some()
                 || !evidence.bounded_check.as_ref().is_some_and(|item| {
+                    let assumptions = item
+                        .assumptions
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<BTreeSet<_>>();
                     !item.domain.id.trim().is_empty()
                         && !item.domain.description.trim().is_empty()
                         && valid_digest(&item.domain.registration_sha256)
@@ -1422,12 +1581,17 @@ fn validate_evidence_shape(
                         && !item.harnesses.is_empty()
                         && item.unwind_bounds.keys().eq(item.harnesses.iter())
                         && item.unwind_bounds.values().all(|bound| *bound > 0)
+                        && item.assumptions.len() <= 4096
+                        && assumptions.len() == item.assumptions.len()
+                        && item.assumptions.iter().all(|assumption| {
+                            !assumption.trim().is_empty() && assumption.chars().count() <= 4096
+                        })
                 })
             {
                 evidence_issue(
                     issues,
                     id,
-                    "bounded check has no explicit domain, solver, or exact nonzero per-harness unwind bounds",
+                    "bounded check has no explicit domain, solver, exact nonzero per-harness unwind bounds, or bounded assumption inventory",
                 );
             }
         }
@@ -2321,10 +2485,14 @@ fn derive_claim(
     if claim.id.trim().is_empty()
         || claim.title.trim().is_empty()
         || claim.statement.trim().is_empty()
+        || claim
+            .public_language
+            .as_deref()
+            .is_some_and(|language| language.trim().is_empty())
     {
         claim_issue!(
             VerificationIssueCode::PbvSchema,
-            "claim identity, title, and exact statement must be non-empty",
+            "claim identity, title, internal statement, and optional public language must be non-empty",
         );
     }
     require_claim_node(
@@ -2351,6 +2519,7 @@ fn derive_claim(
         return (
             ReportedClaimStatus {
                 claim_id: claim.id.clone(),
+                public_statement: claim_public_property(claim).to_owned(),
                 formal: FormalFacet::Invalid,
                 linkage: None,
                 assumption: AssumptionFacet::None,
@@ -2708,8 +2877,9 @@ fn derive_claim(
     if matches!(formal, FormalFacet::BoundedChecked) || exhaustive_as_proof {
         match claim.registered_domain_language.as_deref() {
             Some(domain) if !domain.trim().is_empty() => {
-                let public_statement = bounded_public_statement(&claim.statement, domain);
-                if public_statement == domain || !public_statement.starts_with(&claim.statement) {
+                let property = claim_public_property(claim);
+                let public_statement = bounded_public_statement(property, domain);
+                if public_statement == domain || !public_statement.starts_with(property) {
                     claim_issue!(
                         VerificationIssueCode::PbvInvalidEvidence,
                         "bounded public language does not retain the claim property",
@@ -2840,9 +3010,22 @@ fn derive_claim(
             .additional_required_evidence
             .iter()
             .all(|kind| valid.iter().any(|id| evidence[id].kind == *kind));
+    let public_statement = if matches!(formal, FormalFacet::BoundedChecked) || exhaustive_as_proof {
+        claim
+            .registered_domain_language
+            .as_deref()
+            .filter(|domain| !domain.trim().is_empty())
+            .map_or_else(
+                || claim_public_property(claim).to_owned(),
+                |domain| bounded_public_statement(claim_public_property(claim), domain),
+            )
+    } else {
+        claim_public_property(claim).to_owned()
+    };
     (
         ReportedClaimStatus {
             claim_id: claim.id.clone(),
+            public_statement,
             formal,
             linkage: (formal != FormalFacet::Invalid).then_some(linkage),
             assumption: standing,
@@ -2856,6 +3039,10 @@ fn derive_claim(
 
 fn bounded_public_statement(property: &str, domain: &str) -> String {
     format!("{property} Registered finite domain: {domain}")
+}
+
+fn claim_public_property(claim: &ClaimReceipt) -> &str {
+    claim.public_language.as_deref().unwrap_or(&claim.statement)
 }
 
 fn graph_node_is(graph: &AssuranceGraph, id: &str, kind: NodeKind) -> bool {
@@ -3065,10 +3252,11 @@ fn choose_linkage(
 
 fn compact_status(status: &ReportedClaimStatus) -> String {
     format!(
-        "{:?}/{:?}/{:?}; policy={}; assumptions={:?}; premises={:?}",
+        "{:?}/{:?}/{:?}; public={:?}; policy={}; assumptions={:?}; premises={:?}",
         status.formal,
         status.linkage,
         status.assumption,
+        status.public_statement,
         status.policy_admitted,
         status.assumptions,
         status.undischarged_premises

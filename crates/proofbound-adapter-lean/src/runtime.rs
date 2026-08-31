@@ -9,9 +9,10 @@ use std::{
 };
 
 use proofbound_core::{
-    CommandSpec, EnvironmentVariable, EnvironmentVariableName, ResourceUsage, Sha256Digest,
-    ToolIdentity,
+    CommandSpec, EnvironmentVariable, EnvironmentVariableName, ExecutionRun, ResourceUsage,
+    Sha256Digest, ToolIdentity,
 };
+use proofbound_evidence::canonical_json;
 use sha2::{Digest as _, Sha256};
 
 use crate::{
@@ -23,6 +24,7 @@ use crate::{
 const MAX_TOOL_OUTPUT: usize = 64 << 20;
 const MAX_TOOL_IDENTITY_BYTES: u64 = 512 << 20;
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
+const EXECUTION_NORMALIZATION: &str = "proofbound-lean-command-output/1";
 
 #[derive(Clone, Debug)]
 pub struct AuditRun {
@@ -62,30 +64,77 @@ pub fn execute_audit(root: &Path, unit: &LeanAdapterUnit) -> Result<AuditRun, Ad
     args.push(surface.clone());
     args.push(format!("--surface={surface}"));
     let environment = environment_allowlist(&unit.evidence_unit.environment_allowlist)?;
-    let command = CommandSpec {
+    let audit_command = CommandSpec {
         program: lake.to_string_lossy().into_owned(),
         args,
         environment_allowlist: environment,
     };
+    let version_command = CommandSpec {
+        program: lake.to_string_lossy().into_owned(),
+        args: vec!["--version".to_owned()],
+        environment_allowlist: Vec::new(),
+    };
 
     let time_limit = Duration::from_secs(unit.evidence_unit.resource_budget.time_seconds);
-    let result = run_bounded(&root, &command, time_limit)?;
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
+    let execution_started = Instant::now();
+    let deadline = execution_started.checked_add(time_limit).ok_or_else(|| {
+        AdapterError::new(RESOURCE, "Lean audit time budget exceeds platform limits")
+    })?;
+    let audit_result = run_bounded(
+        &root,
+        &audit_command,
+        remaining_budget(deadline)?,
+        "Lean audit",
+    )?;
+    if !audit_result.status.success() {
+        let stderr = String::from_utf8_lossy(&audit_result.stderr);
         return Err(AdapterError::new(
             TOOL,
             format!(
                 "proofbound_lean_audit failed with {}: {}",
-                result.status,
+                audit_result.status,
                 truncate(&stderr, 8_192)
             ),
         ));
     }
-    let output = parse_audit_bytes(&result.stdout)?;
+    let output = parse_audit_bytes(&audit_result.stdout)?;
+    let normalized_audit_output = canonical_json(&output).map_err(|error| {
+        AdapterError::new(
+            TOOL,
+            format!("cannot serialize normalized Lean audit output: {error}"),
+        )
+    })?;
 
     let audit_binary = root.join(".lake/build/bin/proofbound_lean_audit");
     let identity = hash_regular_file(&audit_binary)?;
-    let version = lake_version(&root, &lake)?;
+    let version_result = run_bounded(
+        &root,
+        &version_command,
+        remaining_budget(deadline)?,
+        "Lake version query",
+    )?;
+    if !version_result.status.success()
+        || version_result.stdout.len() > 4_096
+        || version_result.stderr.len() > 4_096
+    {
+        return Err(AdapterError::new(
+            TOOL,
+            "Lake/Lean version query failed or produced oversized output",
+        ));
+    }
+    let version = parse_lake_version(&version_result.stdout)?;
+    let normalized_version_output_sha256 = Sha256Digest::of_bytes(version.as_bytes());
+    let execution_elapsed = execution_started.elapsed();
+    if execution_elapsed > time_limit {
+        return Err(AdapterError::new(
+            RESOURCE,
+            format!(
+                "Lean audit and version query exceeded their total time budget of {} ms",
+                time_limit.as_millis()
+            ),
+        ));
+    }
+    let execution_elapsed_ms = u64::try_from(execution_elapsed.as_millis()).unwrap_or(u64::MAX);
     let tool = ToolIdentity {
         name: "proofbound_lean_audit".to_owned(),
         version,
@@ -96,13 +145,34 @@ pub fn execute_audit(root: &Path, unit: &LeanAdapterUnit) -> Result<AuditRun, Ad
         output,
         execution: CapturedExecution {
             tool,
-            command,
-            started_unix_ms: result.started_unix_ms,
-            completed_unix_ms: result.completed_unix_ms,
+            commands: vec![audit_command, version_command],
+            runs: vec![
+                ExecutionRun {
+                    command_index: 0,
+                    exit_code: audit_result.status.code(),
+                    stdout_sha256: Sha256Digest::of_bytes(&audit_result.stdout),
+                    stderr_sha256: Sha256Digest::of_bytes(&audit_result.stderr),
+                    normalized_output_sha256: Sha256Digest::of_bytes(&normalized_audit_output),
+                    output_truncated: false,
+                    duration_ms: audit_result.elapsed_ms,
+                },
+                ExecutionRun {
+                    command_index: 1,
+                    exit_code: version_result.status.code(),
+                    stdout_sha256: Sha256Digest::of_bytes(&version_result.stdout),
+                    stderr_sha256: Sha256Digest::of_bytes(&version_result.stderr),
+                    normalized_output_sha256: normalized_version_output_sha256,
+                    output_truncated: false,
+                    duration_ms: version_result.elapsed_ms,
+                },
+            ],
+            normalization: EXECUTION_NORMALIZATION.into(),
+            started_unix_ms: audit_result.started_unix_ms,
+            completed_unix_ms: version_result.completed_unix_ms,
             resource_usage: ResourceUsage {
-                time_ms: result.elapsed_ms,
+                time_ms: execution_elapsed_ms,
                 peak_disk_bytes: 0,
-                peak_memory_bytes: 0,
+                peak_memory_bytes: None,
             },
         },
     })
@@ -134,9 +204,23 @@ pub fn validate_captured_execution(
     execution: &CapturedExecution,
     budget_ms: u64,
 ) -> Result<(), AdapterError> {
+    let recorded_run_time = execution
+        .runs
+        .iter()
+        .try_fold(0_u64, |total, run| total.checked_add(run.duration_ms));
     if execution.tool.name.trim().is_empty()
         || execution.tool.version.trim().is_empty()
-        || execution.command.program.trim().is_empty()
+        || execution.commands.is_empty()
+        || execution.commands.len() != execution.runs.len()
+        || execution.normalization.trim().is_empty()
+        || execution
+            .commands
+            .iter()
+            .any(|command| command.program.trim().is_empty())
+        || execution.runs.iter().enumerate().any(|(index, run)| {
+            run.command_index != index || run.exit_code.is_none() || run.output_truncated
+        })
+        || recorded_run_time.is_none_or(|total| total > execution.resource_usage.time_ms)
     {
         return Err(AdapterError::new(
             TOOL,
@@ -290,19 +374,35 @@ fn lake_version(root: &Path, lake: &Path) -> Result<String, AdapterError> {
         .env_clear()
         .output()
         .map_err(|error| AdapterError::new(TOOL, format!("cannot query Lake version: {error}")))?;
-    if !output.status.success() || output.stdout.len() > 4_096 {
+    if !output.status.success() || output.stdout.len() > 4_096 || output.stderr.len() > 4_096 {
         return Err(AdapterError::new(
             TOOL,
             "Lake/Lean version query failed or produced oversized output",
         ));
     }
-    let version = String::from_utf8(output.stdout)
+    parse_lake_version(&output.stdout)
+}
+
+fn parse_lake_version(stdout: &[u8]) -> Result<String, AdapterError> {
+    let version = String::from_utf8(stdout.to_vec())
         .map_err(|error| AdapterError::new(TOOL, format!("Lake version is not UTF-8: {error}")))?;
     let version = version.trim();
     if version.is_empty() {
         return Err(AdapterError::new(TOOL, "Lake version is empty"));
     }
     Ok(version.to_owned())
+}
+
+fn remaining_budget(deadline: Instant) -> Result<Duration, AdapterError> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or_else(|| {
+            AdapterError::new(
+                RESOURCE,
+                "Lean audit and version query exhausted their total time budget",
+            )
+        })
 }
 
 struct BoundedOutput {
@@ -318,6 +418,7 @@ fn run_bounded(
     root: &Path,
     command: &CommandSpec,
     timeout: Duration,
+    label: &str,
 ) -> Result<BoundedOutput, AdapterError> {
     let started_unix_ms = unix_ms()?;
     let started = Instant::now();
@@ -335,22 +436,22 @@ fn run_bounded(
     }
     let mut child = process
         .spawn()
-        .map_err(|error| AdapterError::new(TOOL, format!("cannot start Lean audit: {error}")))?;
+        .map_err(|error| AdapterError::new(TOOL, format!("cannot start {label}: {error}")))?;
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| AdapterError::new(TOOL, "cannot capture Lean audit stdout"))?;
+        .ok_or_else(|| AdapterError::new(TOOL, format!("cannot capture {label} stdout")))?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| AdapterError::new(TOOL, "cannot capture Lean audit stderr"))?;
+        .ok_or_else(|| AdapterError::new(TOOL, format!("cannot capture {label} stderr")))?;
     let stdout_reader = thread::spawn(move || read_limited(stdout, MAX_TOOL_OUTPUT));
     let stderr_reader = thread::spawn(move || read_limited(stderr, MAX_TOOL_OUTPUT));
 
     let status = loop {
         if let Some(status) = child
             .try_wait()
-            .map_err(|error| AdapterError::new(TOOL, format!("cannot poll Lean audit: {error}")))?
+            .map_err(|error| AdapterError::new(TOOL, format!("cannot poll {label}: {error}")))?
         {
             break status;
         }
@@ -362,7 +463,7 @@ fn run_bounded(
             return Err(AdapterError::new(
                 RESOURCE,
                 format!(
-                    "Lean audit exceeded time budget of {} ms",
+                    "{label} exceeded remaining time budget of {} ms",
                     timeout.as_millis()
                 ),
             ));
@@ -372,20 +473,16 @@ fn run_bounded(
 
     let stdout = stdout_reader
         .join()
-        .map_err(|_| AdapterError::new(TOOL, "Lean audit stdout reader panicked"))?
-        .map_err(|error| {
-            AdapterError::new(TOOL, format!("cannot read Lean audit stdout: {error}"))
-        })?;
+        .map_err(|_| AdapterError::new(TOOL, format!("{label} stdout reader panicked")))?
+        .map_err(|error| AdapterError::new(TOOL, format!("cannot read {label} stdout: {error}")))?;
     let stderr = stderr_reader
         .join()
-        .map_err(|_| AdapterError::new(TOOL, "Lean audit stderr reader panicked"))?
-        .map_err(|error| {
-            AdapterError::new(TOOL, format!("cannot read Lean audit stderr: {error}"))
-        })?;
+        .map_err(|_| AdapterError::new(TOOL, format!("{label} stderr reader panicked")))?
+        .map_err(|error| AdapterError::new(TOOL, format!("cannot read {label} stderr: {error}")))?;
     if stdout.len() > MAX_TOOL_OUTPUT || stderr.len() > MAX_TOOL_OUTPUT {
         return Err(AdapterError::new(
             RESOURCE,
-            format!("Lean audit output exceeds {MAX_TOOL_OUTPUT} bytes"),
+            format!("{label} output exceeds {MAX_TOOL_OUTPUT} bytes"),
         ));
     }
     let completed_unix_ms = unix_ms()?;
@@ -467,5 +564,16 @@ mod tests {
         let data = vec![7_u8; 100];
         let output = read_limited(data.as_slice(), 10).unwrap();
         assert_eq!(output.len(), 11);
+    }
+
+    #[test]
+    fn version_normalization_is_the_exact_trimmed_tool_identity() {
+        let raw = b"  Lake version 5.0.0 (Lean version 4.24.0)  \n";
+        let version = parse_lake_version(raw).unwrap();
+        assert_eq!(version, "Lake version 5.0.0 (Lean version 4.24.0)");
+        assert_eq!(
+            Sha256Digest::of_bytes(version.as_bytes()),
+            Sha256Digest::of_bytes(b"Lake version 5.0.0 (Lean version 4.24.0)")
+        );
     }
 }

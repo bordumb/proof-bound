@@ -2,6 +2,11 @@
 
 Status: accepted
 
+Follow-up: ADR 0013 implements the four deferred receipt-fidelity changes in
+the version-2 wire shipped by Proofbound 0.7. ADR 0012 resolves the separate
+artifact-binding admission hole. The deferral language below records the state
+at this decision; it is no longer the current implementation limit.
+
 ## Context
 
 Experiment 0004 applied Proofbound to the crates.io `base64` 0.22.1 package.

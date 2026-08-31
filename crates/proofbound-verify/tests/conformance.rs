@@ -79,9 +79,27 @@ fn provenance(closure: &str) -> EvidenceProvenance {
         generated_artifacts: Default::default(),
         tool,
         adapter,
-        command: vec!["synthetic-runner".into(), "check".into()],
-        reproduction_command: vec!["synthetic-runner".into(), "check".into()],
-        environment_allowlist: Default::default(),
+        execution_kind: ExecutionKind::ObservedProcesses,
+        commands: vec![CommandReceipt {
+            program: "synthetic-runner".into(),
+            args: vec!["check".into()],
+            environment_allowlist: Vec::new(),
+        }],
+        runs: vec![ExecutionRunReceipt {
+            command_index: 0,
+            exit_code: Some(0),
+            stdout_sha256: digest("stdout"),
+            stderr_sha256: digest("stderr"),
+            normalized_output_sha256: digest("normalized output"),
+            output_truncated: false,
+            duration_ms: 1,
+        }],
+        normalization: "synthetic-output/1".into(),
+        reproduction_command: CommandReceipt {
+            program: "synthetic-runner".into(),
+            args: vec!["check".into()],
+            environment_allowlist: Vec::new(),
+        },
         started_unix_ms: 100,
         completed_unix_ms: 101,
         deterministic_result_sha256: digest("result"),
@@ -93,10 +111,10 @@ fn provenance(closure: &str) -> EvidenceProvenance {
             disk_bytes: 1_000,
             memory_bytes: 1_000,
         },
-        actual_cost: ResourceMeasure {
+        actual_cost: ActualCostReceipt {
             time_ms: 1,
             disk_bytes: 1,
-            memory_bytes: 1,
+            memory_bytes: Some(1),
         },
     };
     value.cache_key = domain_hash(
@@ -108,10 +126,7 @@ fn provenance(closure: &str) -> EvidenceProvenance {
 
 fn hash_evidence(record: EvidenceReceipt) -> HashedRecord<EvidenceReceipt> {
     HashedRecord {
-        sha256: domain_hash(
-            EVIDENCE_SCHEMA_BINDING_PREVIEW,
-            &canonical_json(&record).unwrap(),
-        ),
+        sha256: domain_hash(EVIDENCE_SCHEMA_V2, &canonical_json(&record).unwrap()),
         record,
     }
 }
@@ -146,7 +161,7 @@ fn base_release() -> CompiledRelease {
         mutual_theorem_groups: Vec::new(),
     };
     let test = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: "unit:test".into(),
         node_id: "test:t".into(),
         kind: EvidenceKind::ExampleTest,
@@ -174,6 +189,7 @@ fn base_release() -> CompiledRelease {
         node_id: "claim:c".into(),
         title: "Synthetic claim".into(),
         statement: "The registered example passes.".into(),
+        public_language: None,
         subject: "subject:s".into(),
         policy: "ledger-ci".into(),
         tier: None,
@@ -187,6 +203,7 @@ fn base_release() -> CompiledRelease {
     };
     let status = ReportedClaimStatus {
         claim_id: "c".into(),
+        public_statement: claim.statement.clone(),
         formal: FormalFacet::Tested,
         linkage: Some(LinkageFacet::ModelOnly),
         assumption: AssumptionFacet::None,
@@ -195,7 +212,7 @@ fn base_release() -> CompiledRelease {
         policy_admitted: true,
     };
     CompiledRelease {
-        schema: COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: COMPILED_RELEASE_SCHEMA_V2.into(),
         project: "synthetic".into(),
         project_revision: "rev-1".into(),
         project_tier: Tier::Ledger,
@@ -234,7 +251,7 @@ fn theorem_release() -> CompiledRelease {
     };
     let statement_wire = plain_statement("Synthetic.statement");
     let theorem = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: "unit:theorem".into(),
         node_id: "theorem:t".into(),
         kind: EvidenceKind::Theorem,
@@ -301,9 +318,10 @@ fn bounded_release() -> CompiledRelease {
         solver: "kani 1.0".into(),
         harnesses: BTreeSet::from(["check_all".into()]),
         unwind_bounds: BTreeMap::from([("check_all".into(), 1)]),
+        assumptions: Vec::new(),
     });
     release.evidence[0].sha256 = domain_hash(
-        EVIDENCE_SCHEMA_BINDING_PREVIEW,
+        EVIDENCE_SCHEMA_V2,
         &canonical_json(&release.evidence[0].record).unwrap(),
     );
     release.claims[0].cited_evidence.remove(&old);
@@ -312,6 +330,13 @@ fn bounded_release() -> CompiledRelease {
         .insert(release.evidence[0].sha256.clone());
     release.claims[0].registered_domain_language =
         Some("For every input in the registered two-bit domain".into());
+    release.reported_statuses[0].public_statement = bounded_public_statement_for_test(
+        &release.claims[0].statement,
+        release.claims[0]
+            .registered_domain_language
+            .as_deref()
+            .unwrap(),
+    );
     release.claims[0].policy = "bounded".into();
     release.policies[0].id = "bounded".into();
     release.policies[0].components = BTreeSet::from([BuiltInProfile::Bounded]);
@@ -323,7 +348,7 @@ fn bounded_release() -> CompiledRelease {
 fn rehash_first_evidence(release: &mut CompiledRelease) {
     let old = release.evidence[0].sha256.clone();
     let replacement = domain_hash(
-        EVIDENCE_SCHEMA_BINDING_PREVIEW,
+        EVIDENCE_SCHEMA_V2,
         &canonical_json(&release.evidence[0].record).unwrap(),
     );
     release.evidence[0].sha256.clone_from(&replacement);
@@ -507,6 +532,7 @@ fn standalone_cli_honors_release_and_exit_contract() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("claim c: TESTED · MODEL_ONLY · NONE"));
+    assert!(stdout.contains("  The registered example passes."));
     assert!(stdout.contains("not proved / out of scope [c]"));
     assert!(stdout.contains("open obligations:"));
 
@@ -582,7 +608,7 @@ fn bounded_and_exhaustive_precedence_is_recomputed() {
         domain,
     });
     exhaustive.evidence[0].sha256 = domain_hash(
-        EVIDENCE_SCHEMA_BINDING_PREVIEW,
+        EVIDENCE_SCHEMA_V2,
         &canonical_json(&exhaustive.evidence[0].record).unwrap(),
     );
     exhaustive.claims[0].cited_evidence.remove(&old);
@@ -593,10 +619,18 @@ fn bounded_and_exhaustive_precedence_is_recomputed() {
     exhaustive.policies[0].id = "finite-ci".into();
     exhaustive.policies[0].components.clear();
     exhaustive.reported_statuses[0].formal = FormalFacet::Tested;
+    exhaustive.reported_statuses[0].public_statement = exhaustive.claims[0].statement.clone();
     verify_compiled_release(&exhaustive).unwrap();
 
     exhaustive.policies[0].admit_exhaustive_as_proved = true;
     exhaustive.reported_statuses[0].formal = FormalFacet::Proved;
+    exhaustive.reported_statuses[0].public_statement = bounded_public_statement_for_test(
+        &exhaustive.claims[0].statement,
+        exhaustive.claims[0]
+            .registered_domain_language
+            .as_deref()
+            .unwrap(),
+    );
     verify_compiled_release(&exhaustive).unwrap();
 }
 
@@ -682,9 +716,9 @@ fn strict_parser_rejects_unknown_enums() {
     let payload = canonical_json(&value).unwrap();
     fs::write(directory.path().join("compiled-receipt.json"), &payload).unwrap();
     let envelope = ReleaseEnvelope {
-        schema: RELEASE_ENVELOPE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: RELEASE_ENVELOPE_SCHEMA_V2.into(),
         payload: "compiled-receipt.json".into(),
-        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW, &payload),
+        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V2, &payload),
     };
     fs::write(
         directory.path().join("release.json"),
@@ -706,7 +740,7 @@ fn invalid_digest_and_drifted_evidence_are_rejected() {
     let old = drifted.evidence[0].sha256.clone();
     drifted.evidence[0].record.outcome = EvidenceOutcome::Drifted;
     drifted.evidence[0].sha256 = domain_hash(
-        EVIDENCE_SCHEMA_BINDING_PREVIEW,
+        EVIDENCE_SCHEMA_V2,
         &canonical_json(&drifted.evidence[0].record).unwrap(),
     );
     drifted.claims[0].cited_evidence.remove(&old);
@@ -734,7 +768,7 @@ fn unresolved_assumption_cannot_be_omitted_from_output() {
         },
     ]);
     let review = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: "unit:review".into(),
         node_id: "review:a".into(),
         kind: EvidenceKind::Review,
@@ -962,7 +996,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         &canonical_json(&artifact_provenance.cache_material()).unwrap(),
     );
     let artifact = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: "unit:artifact".into(),
         node_id: "artifact:a".into(),
         kind: EvidenceKind::ArtifactSoundness,
@@ -988,7 +1022,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         provenance: artifact_provenance,
     });
     let transcription = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: "unit:transcription".into(),
         node_id: "artifact:a".into(),
         kind: EvidenceKind::TrustedTranscription,
@@ -1040,7 +1074,7 @@ fn artifact_bound_release() -> CompiledRelease {
 fn rehash_evidence_at(release: &mut CompiledRelease, index: usize) {
     let old = release.evidence[index].sha256.clone();
     let replacement = domain_hash(
-        EVIDENCE_SCHEMA_BINDING_PREVIEW,
+        EVIDENCE_SCHEMA_V2,
         &canonical_json(&release.evidence[index].record).unwrap(),
     );
     release.evidence[index].sha256.clone_from(&replacement);
@@ -1229,6 +1263,251 @@ fn artifact_provenance_inventories_are_sorted_with_unique_logical_names() {
 }
 
 #[test]
+fn unknown_peak_memory_is_distinct_from_measured_zero_and_is_required() {
+    let mut unknown = base_release();
+    unknown.evidence[0]
+        .record
+        .provenance
+        .actual_cost
+        .memory_bytes = None;
+    rehash_first_evidence(&mut unknown);
+    verify_compiled_release(&unknown).unwrap();
+
+    let mut measured_zero = unknown.clone();
+    measured_zero.evidence[0]
+        .record
+        .provenance
+        .actual_cost
+        .memory_bytes = Some(0);
+    rehash_first_evidence(&mut measured_zero);
+    verify_compiled_release(&measured_zero).unwrap();
+    assert_ne!(unknown.evidence[0].sha256, measured_zero.evidence[0].sha256);
+
+    let mut missing = serde_json::to_value(&unknown.evidence[0].record.provenance).unwrap();
+    missing["actual_cost"]
+        .as_object_mut()
+        .unwrap()
+        .remove("memory_bytes");
+    assert!(serde_json::from_value::<EvidenceProvenance>(missing).is_err());
+}
+
+#[test]
+fn command_run_order_coverage_completion_and_output_are_fail_closed() {
+    let mut complete = base_release();
+    complete.evidence[0]
+        .record
+        .provenance
+        .commands
+        .push(CommandReceipt {
+            program: "synthetic-runner".into(),
+            args: vec!["cross-check".into()],
+            environment_allowlist: Vec::new(),
+        });
+    complete.evidence[0]
+        .record
+        .provenance
+        .runs
+        .push(ExecutionRunReceipt {
+            command_index: 1,
+            exit_code: Some(0),
+            stdout_sha256: digest("second stdout"),
+            stderr_sha256: digest("second stderr"),
+            normalized_output_sha256: digest("second normalized output"),
+            output_truncated: false,
+            duration_ms: 2,
+        });
+    rehash_first_evidence(&mut complete);
+    verify_compiled_release(&complete).unwrap();
+
+    let mut reordered = complete.clone();
+    reordered.evidence[0].record.provenance.runs.swap(0, 1);
+    rehash_first_evidence(&mut reordered);
+    let error = verify_compiled_release(&reordered).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("exact command order"))
+    );
+
+    let mut omitted = complete.clone();
+    omitted.evidence[0].record.provenance.runs.pop();
+    rehash_first_evidence(&mut omitted);
+    let error = verify_compiled_release(&omitted).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("without omission"))
+    );
+
+    let mut truncated = complete.clone();
+    truncated.evidence[0].record.provenance.runs[0].output_truncated = true;
+    rehash_first_evidence(&mut truncated);
+    let error = verify_compiled_release(&truncated).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("truncated output"))
+    );
+
+    let mut incomplete = complete;
+    incomplete.evidence[0].record.provenance.runs[0].exit_code = None;
+    rehash_first_evidence(&mut incomplete);
+    let error = verify_compiled_release(&incomplete).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("incomplete execution run"))
+    );
+}
+
+#[test]
+fn compiler_internal_provenance_cannot_fabricate_process_execution() {
+    let mut internal = base_release();
+    internal.evidence[0].record.provenance.execution_kind = ExecutionKind::CompilerInternal;
+    internal.evidence[0].record.provenance.commands.clear();
+    internal.evidence[0].record.provenance.runs.clear();
+    rehash_first_evidence(&mut internal);
+    verify_compiled_release(&internal).unwrap();
+
+    let mut fabricated = internal.clone();
+    fabricated.evidence[0].record.provenance.commands = vec![CommandReceipt {
+        program: "invented-review-process".into(),
+        args: vec!["check".into()],
+        environment_allowlist: Vec::new(),
+    }];
+    fabricated.evidence[0].record.provenance.runs = vec![ExecutionRunReceipt {
+        command_index: 0,
+        exit_code: Some(0),
+        stdout_sha256: digest("invented stdout"),
+        stderr_sha256: digest("invented stderr"),
+        normalized_output_sha256: digest("invented output"),
+        output_truncated: false,
+        duration_ms: 0,
+    }];
+    rehash_first_evidence(&mut fabricated);
+    let error = verify_compiled_release(&fabricated).unwrap_err();
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("compiler-internal provenance must not fabricate")
+    }));
+
+    let mut missing = internal;
+    missing.evidence[0].record.provenance.execution_kind = ExecutionKind::ObservedProcesses;
+    rehash_first_evidence(&mut missing);
+    let error = verify_compiled_release(&missing).unwrap_err();
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("observed-process provenance must retain")
+    }));
+}
+
+#[test]
+fn command_environment_names_are_unique_per_command() {
+    let mut release = base_release();
+    let environment = EnvironmentReceipt {
+        name: "PROOFBOUND_MODE".into(),
+        value_sha256: Some(digest("strict")),
+        secret: false,
+    };
+    release.evidence[0].record.provenance.commands[0].environment_allowlist =
+        vec![environment.clone(), environment];
+    rehash_first_evidence(&mut release);
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("repeats name 'PROOFBOUND_MODE'"))
+    );
+}
+
+#[test]
+fn internal_and_public_claim_language_survive_independently() {
+    let mut release = base_release();
+    release.claims[0].statement = "Internal theorem property P.".into();
+    release.claims[0].public_language = Some("Reader-facing property P.".into());
+    release.reported_statuses[0].public_statement = "Reader-facing property P.".into();
+    verify_compiled_release(&release).unwrap();
+
+    let mut substituted = release.clone();
+    substituted.reported_statuses[0].public_statement = substituted.claims[0].statement.clone();
+    let error = verify_compiled_release(&substituted).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+
+    let mut bounded = bounded_release();
+    bounded.claims[0].statement = "Internal bounded property P.".into();
+    bounded.claims[0].public_language = Some("Reader-facing bounded property P.".into());
+    bounded.reported_statuses[0].public_statement = bounded_public_statement_for_test(
+        bounded.claims[0].public_language.as_deref().unwrap(),
+        bounded.claims[0]
+            .registered_domain_language
+            .as_deref()
+            .unwrap(),
+    );
+    verify_compiled_release(&bounded).unwrap();
+    assert!(
+        bounded.reported_statuses[0]
+            .public_statement
+            .starts_with("Reader-facing bounded property P.")
+    );
+    assert!(
+        !bounded.reported_statuses[0]
+            .public_statement
+            .contains("Internal bounded property P.")
+    );
+}
+
+#[test]
+fn bounded_model_assumptions_are_retained_and_strict() {
+    let mut valid = bounded_release();
+    valid.evidence[0]
+        .record
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .assumptions = vec!["--object-bits=8".into()];
+    rehash_first_evidence(&mut valid);
+    verify_compiled_release(&valid).unwrap();
+
+    for assumptions in [
+        vec!["".into()],
+        vec!["--object-bits=8".into(), "--object-bits=8".into()],
+        vec!["x".repeat(4097)],
+        (0..4097)
+            .map(|index| format!("assumption-{index}"))
+            .collect(),
+    ] {
+        let mut malformed = bounded_release();
+        malformed.evidence[0]
+            .record
+            .bounded_check
+            .as_mut()
+            .unwrap()
+            .assumptions = assumptions;
+        rehash_first_evidence(&mut malformed);
+        let error = verify_compiled_release(&malformed).unwrap_err();
+        assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    }
+
+    let mut missing = serde_json::to_value(
+        bounded_release().evidence[0]
+            .record
+            .bounded_check
+            .clone()
+            .unwrap(),
+    )
+    .unwrap();
+    missing.as_object_mut().unwrap().remove("assumptions");
+    assert!(serde_json::from_value::<BoundedCheckReceipt>(missing).is_err());
+}
+
+#[test]
 fn nested_artifact_marker_cannot_confer_binding() {
     let mut release = artifact_bound_release();
     let exact_root = release.evidence[0]
@@ -1390,9 +1669,9 @@ fn write_payload_at(directory: &Path, release: &CompiledRelease) {
     let payload = canonical_json(release).unwrap();
     fs::write(directory.join("compiled-receipt.json"), &payload).unwrap();
     let envelope = ReleaseEnvelope {
-        schema: RELEASE_ENVELOPE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: RELEASE_ENVELOPE_SCHEMA_V2.into(),
         payload: "compiled-receipt.json".into(),
-        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW, &payload),
+        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V2, &payload),
     };
     fs::write(
         directory.join("release.json"),
@@ -1542,7 +1821,7 @@ fn empty_raw_record(
     node_id: String,
 ) -> EvidenceReceipt {
     EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: format!("unit:{}", raw.id),
         node_id,
         kind,
@@ -1640,6 +1919,7 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                     solver: "corpus-solver 1".into(),
                     harnesses: BTreeSet::from(["check_all".into()]),
                     unwind_bounds: BTreeMap::from([("check_all".into(), 1)]),
+                    assumptions: Vec::new(),
                 });
                 (record, NodeKind::ModelCheckUnit)
             }
@@ -1861,15 +2141,35 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
         });
     }
     release.graph_sha256 = graph_hash(&release.graph);
-    release.reported_statuses = vec![raw_reported_status(
-        case.asserted.as_ref().unwrap_or(&case.expected),
-    )];
+    let mut reported = raw_reported_status(case.asserted.as_ref().unwrap_or(&case.expected));
+    if case.expected.formal == "BOUNDED_CHECKED"
+        || (case.expected.formal == "PROVED"
+            && case.policy.admit_exhaustive_as_proved
+            && case
+                .evidence
+                .iter()
+                .any(|evidence| evidence.kind == "exhaustive-check"))
+    {
+        reported.public_statement = bounded_public_statement_for_test(
+            &release.claims[0].statement,
+            release.claims[0]
+                .registered_domain_language
+                .as_deref()
+                .expect("bounded corpus case registers a domain"),
+        );
+    }
+    release.reported_statuses = vec![reported];
     release
+}
+
+fn bounded_public_statement_for_test(property: &str, domain: &str) -> String {
+    format!("{property} Registered finite domain: {domain}")
 }
 
 fn raw_reported_status(status: &RawStatus) -> ReportedClaimStatus {
     ReportedClaimStatus {
         claim_id: "c".into(),
+        public_statement: "The registered example passes.".into(),
         formal: match status.formal.as_str() {
             "PROVED" => FormalFacet::Proved,
             "BOUNDED_CHECKED" => FormalFacet::BoundedChecked,

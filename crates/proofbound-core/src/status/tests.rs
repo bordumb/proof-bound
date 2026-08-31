@@ -5,10 +5,11 @@ use crate::{
     ASSUMPTION_SCHEMA_V1, AdapterStrength, ArtifactBindingEvidence, ArtifactIdentity,
     ArtifactLogicalName, AssumptionStatus, BindingMode, BoundedCheckEvidence, BuiltInProfile,
     CacheOrigin, CommandSpec, EnvironmentId, EnvironmentVariable, EnvironmentVariableName,
-    EvidenceProvenance, ExhaustiveCheckEvidence, GRAPH_SCHEMA_V1, GraphEdge, GraphNode,
-    IndependenceMode, MutationWitnessEvidence, NativePremiseRule, POLICY_SCHEMA_V1, PolicyId,
-    ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence, TheoremEvidence,
-    ToolIdentity, TreeState, TrustedTranscriptionEvidence, UnitId,
+    EvidenceProvenance, ExecutionKind, ExecutionRun, ExhaustiveCheckEvidence, GRAPH_SCHEMA_V1,
+    GraphEdge, GraphNode, IndependenceMode, MutationWitnessEvidence, NativePremiseRule,
+    POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage, Sha256Digest,
+    SourceRefinementEvidence, TheoremEvidence, ToolIdentity, TreeState,
+    TrustedTranscriptionEvidence, UnitId,
 };
 
 fn claim_id() -> ClaimId {
@@ -77,7 +78,18 @@ fn provenance(label: &str) -> EvidenceProvenance {
             version: "1.0.0".into(),
             identity_sha256: digest("adapter"),
         },
-        command: command.clone(),
+        execution_kind: ExecutionKind::ObservedProcesses,
+        commands: vec![command.clone()],
+        runs: vec![ExecutionRun {
+            command_index: 0,
+            exit_code: Some(0),
+            stdout_sha256: digest(&format!("stdout:{label}")),
+            stderr_sha256: digest(&format!("stderr:{label}")),
+            normalized_output_sha256: digest(&format!("normalized:{label}")),
+            output_truncated: false,
+            duration_ms: 10,
+        }],
+        normalization: "proofbound-output/1".into(),
         reproduction_command: command,
         started_unix_ms: 10,
         completed_unix_ms: 20,
@@ -109,6 +121,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
             node_id: claim_node.clone(),
             title: "A precise claim".into(),
             statement: "The registered subject has property P.".into(),
+            public_language: None,
             subject: subject_node.clone(),
             policy: policy.id.clone(),
             tier: None,
@@ -151,7 +164,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
 
 fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
     EvidenceRecord {
-        schema: crate::EVIDENCE_SCHEMA_BINDING_PREVIEW.into(),
+        schema: crate::EVIDENCE_SCHEMA_V2.into(),
         id: EvidenceId::new(id).unwrap(),
         node_id: NodeId::new(node_id).unwrap(),
         unit_id: UnitId::new(format!("unit:{id}")).unwrap(),
@@ -262,6 +275,7 @@ fn bounded_record(id: &str) -> EvidenceRecord {
         solver: "cadical 2".into(),
         harnesses: BTreeSet::from(["check_all".into()]),
         unwind_bounds: BTreeMap::from([("check_all".into(), 256)]),
+        assumptions: vec![],
     });
     record
 }
@@ -444,6 +458,34 @@ fn bounded_public_statement_retains_property_and_registered_domain() {
 }
 
 #[test]
+fn public_language_is_reader_facing_without_replacing_the_internal_statement() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
+    input.claim.statement = "Internal.Predicate subject".into();
+    input.claim.public_language = Some("Every registered byte has property P.".into());
+    input.claim.registered_domain_language = Some("Inputs are exactly the u8 domain.".into());
+    add_record(
+        &mut input,
+        bounded_record("kani"),
+        NodeKind::ModelCheckUnit,
+        true,
+    );
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::BoundedChecked);
+    assert_eq!(
+        status.public_statement,
+        "Every registered byte has property P. Registered finite domain: Inputs are exactly the u8 domain."
+    );
+    assert_eq!(input.claim.statement, "Internal.Predicate subject");
+    let encoded = serde_json::to_value(&input.claim).unwrap();
+    assert_eq!(encoded["statement"], "Internal.Predicate subject");
+    assert_eq!(
+        encoded["public_language"],
+        "Every registered byte has property P."
+    );
+}
+
+#[test]
 fn bounded_check_requires_exact_nonzero_unwind_inventory() {
     let mut extra = bounded_record("kani");
     extra
@@ -475,6 +517,122 @@ fn bounded_check_requires_exact_nonzero_unwind_inventory() {
         add_record(&mut input, record, NodeKind::ModelCheckUnit, true);
         assert_eq!(derive_claim_status(&input).formal, FormalFacet::Invalid);
     }
+}
+
+#[test]
+fn bounded_check_assumptions_are_nonblank_and_unique() {
+    let mut valid = bounded_record("kani");
+    valid.bounded_check.as_mut().unwrap().assumptions = vec![
+        "pointer width is 64 bits".into(),
+        "allocator succeeds".into(),
+    ];
+    assert!(valid.validate(&claim_id()).is_ok());
+
+    let mut blank = valid.clone();
+    blank
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .assumptions
+        .push("  ".into());
+    assert!(blank.validate(&claim_id()).is_err());
+
+    let mut duplicate = valid;
+    duplicate.bounded_check.as_mut().unwrap().assumptions =
+        vec!["allocator succeeds".into(), "allocator succeeds".into()];
+    assert!(duplicate.validate(&claim_id()).is_err());
+
+    let mut oversized_entry = bounded_record("kani");
+    oversized_entry.bounded_check.as_mut().unwrap().assumptions = vec!["x".repeat(4097)];
+    assert!(oversized_entry.validate(&claim_id()).is_err());
+
+    let mut oversized_inventory = bounded_record("kani");
+    oversized_inventory
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .assumptions = (0..4097)
+        .map(|index| format!("assumption {index}"))
+        .collect();
+    assert!(oversized_inventory.validate(&claim_id()).is_err());
+}
+
+#[test]
+fn unknown_peak_memory_is_distinct_from_measured_zero() {
+    let mut provenance = provenance("memory");
+    provenance.resource_budget.memory_bytes = 0;
+    provenance.resource_usage.peak_memory_bytes = None;
+    assert!(!provenance.exceeded_budget());
+    assert_eq!(
+        serde_json::to_value(&provenance.resource_usage).unwrap()["peak_memory_bytes"],
+        serde_json::Value::Null
+    );
+
+    provenance.resource_usage.peak_memory_bytes = Some(0);
+    assert!(!provenance.exceeded_budget());
+    assert_eq!(
+        serde_json::to_value(&provenance.resource_usage).unwrap()["peak_memory_bytes"],
+        0
+    );
+
+    provenance.resource_usage.peak_memory_bytes = Some(1);
+    assert!(provenance.exceeded_budget());
+}
+
+#[test]
+fn multi_command_provenance_rejects_index_drift_truncation_and_incomplete_passes() {
+    let mut valid = example_record("multi");
+    let second_command = CommandSpec {
+        program: "proof-tool".into(),
+        args: vec!["--second".into()],
+        environment_allowlist: vec![],
+    };
+    valid.provenance.commands.push(second_command);
+    valid.provenance.runs.push(ExecutionRun {
+        command_index: 1,
+        exit_code: Some(0),
+        stdout_sha256: digest("stdout:second"),
+        stderr_sha256: digest("stderr:second"),
+        normalized_output_sha256: digest("normalized:second"),
+        output_truncated: false,
+        duration_ms: 2,
+    });
+    assert!(valid.validate(&claim_id()).is_ok());
+
+    let mut wrong_index = valid.clone();
+    wrong_index.provenance.runs[1].command_index = 0;
+    assert!(wrong_index.validate(&claim_id()).is_err());
+
+    let mut truncated = valid.clone();
+    truncated.provenance.runs[1].output_truncated = true;
+    assert!(truncated.validate(&claim_id()).is_err());
+
+    let mut incomplete = valid.clone();
+    incomplete.provenance.runs[1].exit_code = None;
+    assert!(incomplete.validate(&claim_id()).is_err());
+
+    let mut missing_run = valid.clone();
+    missing_run.provenance.runs.pop();
+    assert!(missing_run.validate(&claim_id()).is_err());
+
+    let mut blank_normalization = valid.clone();
+    blank_normalization.provenance.normalization = "  ".into();
+    assert!(blank_normalization.validate(&claim_id()).is_err());
+
+    let mut oversized_normalization = valid.clone();
+    oversized_normalization.provenance.normalization = "x".repeat(1025);
+    assert!(oversized_normalization.validate(&claim_id()).is_err());
+
+    let mut shell = valid.clone();
+    shell.provenance.commands[0].program = "/bin/sh".into();
+    assert!(shell.validate(&claim_id()).is_err());
+
+    let mut duplicate_environment = valid;
+    let duplicate = duplicate_environment.provenance.commands[0].environment_allowlist[0].clone();
+    duplicate_environment.provenance.commands[0]
+        .environment_allowlist
+        .push(duplicate);
+    assert!(duplicate_environment.validate(&claim_id()).is_err());
 }
 
 #[test]

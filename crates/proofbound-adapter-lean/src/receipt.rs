@@ -7,8 +7,8 @@ use std::{
 
 use proofbound_core::{
     ArtifactIdentity, ArtifactLogicalName, AssumptionId, CacheOrigin, ClaimId, CommandSpec,
-    EVIDENCE_SCHEMA_BINDING_PREVIEW, EvaluationMode, EvidenceId, EvidenceKind, EvidenceProvenance,
-    EvidenceRecord, EvidenceStatus, NodeId, PremiseId, ResourceBudget, Sha256Digest,
+    EVIDENCE_SCHEMA_V2, EvaluationMode, EvidenceId, EvidenceKind, EvidenceProvenance,
+    EvidenceRecord, EvidenceStatus, ExecutionKind, NodeId, PremiseId, ResourceBudget, Sha256Digest,
     TheoremEvidence, TreeState, UnitId,
 };
 use proofbound_evidence::{
@@ -84,7 +84,10 @@ pub fn build_theorem_evidence(
         .ok_or_else(|| AdapterError::new(RESOURCE, "time budget overflows milliseconds"))?;
     if execution.resource_usage.time_ms > budget_ms
         || execution.resource_usage.peak_disk_bytes > evidence_unit.resource_budget.disk_bytes
-        || execution.resource_usage.peak_memory_bytes > evidence_unit.resource_budget.memory_bytes
+        || execution
+            .resource_usage
+            .peak_memory_bytes
+            .is_some_and(|actual| actual > evidence_unit.resource_budget.memory_bytes)
     {
         return Err(AdapterError::new(
             RESOURCE,
@@ -178,7 +181,7 @@ pub fn build_theorem_evidence(
         .map_err(|error| AdapterError::new(CONFIGURATION, format!("invalid node ID: {error}")))?;
 
     let record = EvidenceRecord {
-        schema: EVIDENCE_SCHEMA_BINDING_PREVIEW.to_owned(),
+        schema: EVIDENCE_SCHEMA_V2.to_owned(),
         id: evidence_id,
         node_id,
         unit_id,
@@ -219,11 +222,14 @@ pub fn build_theorem_evidence(
             generated_artifacts,
             tool: execution.tool.clone(),
             adapter: adapter_identity()?,
-            command: execution.command.clone(),
+            execution_kind: ExecutionKind::ObservedProcesses,
+            commands: execution.commands.clone(),
+            runs: execution.runs.clone(),
+            normalization: execution.normalization.clone(),
             reproduction_command: CommandSpec {
                 program: "proofbound".to_owned(),
                 args: vec!["reproduce".to_owned(), evidence_unit.id.clone()],
-                environment_allowlist: execution.command.environment_allowlist.clone(),
+                environment_allowlist: Vec::new(),
             },
             started_unix_ms: execution.started_unix_ms,
             completed_unix_ms: execution.completed_unix_ms,

@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "node_id", "unit_id", "kind", "status", "claims", "inventoried_targets", "assumptions", "premises", "provenance"],
   "properties": {
-    "schema": { "const": "proofbound-evidence/2-binding-preview" },
+    "schema": { "const": "proofbound-evidence/2" },
     "id": { "$ref": "#/$defs/id" },
     "node_id": { "$ref": "#/$defs/id" },
     "unit_id": { "$ref": "#/$defs/id" },
@@ -81,11 +81,24 @@
     },
     "command": {
       "type": "object", "additionalProperties": false,
-      "required": ["program"],
+      "required": ["program", "args", "environment_allowlist"],
       "properties": {
         "program": { "type": "string", "minLength": 1, "maxLength": 4096 },
         "args": { "type": "array", "items": { "type": "string", "maxLength": 4096 }, "maxItems": 4096 },
         "environment_allowlist": { "type": "array", "items": { "$ref": "#/$defs/environment" }, "maxItems": 256 }
+      }
+    },
+    "run": {
+      "type": "object", "additionalProperties": false,
+      "required": ["command_index", "exit_code", "stdout_sha256", "stderr_sha256", "normalized_output_sha256", "output_truncated", "duration_ms"],
+      "properties": {
+        "command_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "exit_code": { "type": ["integer", "null"], "minimum": -2147483648, "maximum": 2147483647 },
+        "stdout_sha256": { "$ref": "#/$defs/digest" },
+        "stderr_sha256": { "$ref": "#/$defs/digest" },
+        "normalized_output_sha256": { "$ref": "#/$defs/digest" },
+        "output_truncated": { "type": "boolean" },
+        "duration_ms": { "type": "integer", "minimum": 0 }
       }
     },
     "budget": {
@@ -103,12 +116,12 @@
       "properties": {
         "time_ms": { "type": "integer", "minimum": 0 },
         "peak_disk_bytes": { "type": "integer", "minimum": 0 },
-        "peak_memory_bytes": { "type": "integer", "minimum": 0 }
+        "peak_memory_bytes": { "type": ["integer", "null"], "minimum": 0 }
       }
     },
     "provenance": {
       "type": "object", "additionalProperties": false,
-      "required": ["project_revision", "tree_state", "semantic_source_closure", "additional_closures", "input_artifacts", "generated_artifacts", "tool", "adapter", "command", "reproduction_command", "started_unix_ms", "completed_unix_ms", "deterministic_result_identity", "unit_configuration_sha256", "resource_budget", "resource_usage", "cache_origin"],
+      "required": ["project_revision", "tree_state", "semantic_source_closure", "additional_closures", "input_artifacts", "generated_artifacts", "tool", "adapter", "execution_kind", "commands", "runs", "normalization", "reproduction_command", "started_unix_ms", "completed_unix_ms", "deterministic_result_identity", "unit_configuration_sha256", "resource_budget", "resource_usage", "cache_origin"],
       "properties": {
         "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
         "tree_state": { "enum": ["clean", "dirty"] },
@@ -118,7 +131,10 @@
         "generated_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "maxItems": 100000 },
         "tool": { "$ref": "#/$defs/tool" },
         "adapter": { "$ref": "#/$defs/tool" },
-        "command": { "$ref": "#/$defs/command" },
+        "execution_kind": { "enum": ["observed-processes", "compiler-internal"] },
+        "commands": { "type": "array", "items": { "$ref": "#/$defs/command" }, "maxItems": 4096 },
+        "runs": { "type": "array", "items": { "$ref": "#/$defs/run" }, "maxItems": 4096 },
+        "normalization": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" },
         "reproduction_command": { "$ref": "#/$defs/command" },
         "started_unix_ms": { "type": "integer", "minimum": 0 },
         "completed_unix_ms": { "type": "integer", "minimum": 0 },
@@ -128,7 +144,17 @@
         "resource_usage": { "$ref": "#/$defs/usage" },
         "cache_origin": { "enum": ["executed", "reused"] },
         "prior_receipt_sha256": { "$ref": "#/$defs/digest" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "execution_kind": { "const": "observed-processes" } }, "required": ["execution_kind"] },
+          "then": { "properties": { "commands": { "minItems": 1 }, "runs": { "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "execution_kind": { "const": "compiler-internal" } }, "required": ["execution_kind"] },
+          "then": { "properties": { "commands": { "maxItems": 0 }, "runs": { "maxItems": 0 } } }
+        }
+      ]
     },
     "theorem": {
       "type": "object", "additionalProperties": false,
@@ -188,12 +214,13 @@
     },
     "boundedCheck": {
       "type": "object", "additionalProperties": false,
-      "required": ["domain", "solver", "harnesses", "unwind_bounds"],
+      "required": ["domain", "solver", "harnesses", "unwind_bounds", "assumptions"],
       "properties": {
         "domain": { "$ref": "#/$defs/domain" },
         "solver": { "type": "string", "minLength": 1, "maxLength": 512 },
         "harnesses": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "minItems": 1, "maxItems": 100000 },
-        "unwind_bounds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "minProperties": 1, "maxProperties": 100000 }
+        "unwind_bounds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "minProperties": 1, "maxProperties": 100000 },
+        "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" }, "uniqueItems": true, "maxItems": 4096 }
       }
     },
     "exhaustiveCheck": {

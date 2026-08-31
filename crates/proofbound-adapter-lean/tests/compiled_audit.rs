@@ -7,7 +7,8 @@ use proofbound_adapter_lean::{
     },
     runtime::execute_audit,
 };
-use proofbound_core::EnvironmentId;
+use proofbound_core::{EnvironmentId, Sha256Digest};
+use proofbound_evidence::canonical_json;
 use proofbound_manifest::{
     AdapterKind, AdapterOperation, EvaluationMode, EvidenceKind, EvidenceUnitManifest,
     OperationKind, ResourceBudget,
@@ -112,6 +113,28 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
 fn executes_the_compiled_attribute_and_axiom_audit() {
     let unit = compiled_demo_unit();
     let run = execute_audit(root(), &unit).unwrap();
+    assert_eq!(run.execution.commands.len(), 2);
+    assert_eq!(run.execution.runs.len(), 2);
+    assert_eq!(
+        run.execution.commands[0].args[0..2],
+        ["exe", "proofbound_lean_audit"]
+    );
+    assert_eq!(run.execution.commands[1].args, ["--version"]);
+    assert_eq!(run.execution.runs[0].command_index, 0);
+    assert_eq!(run.execution.runs[1].command_index, 1);
+    assert!(run.execution.completed_unix_ms >= run.execution.started_unix_ms);
+    assert!(
+        run.execution.resource_usage.time_ms
+            >= run.execution.runs.iter().map(|item| item.duration_ms).sum()
+    );
+    assert_eq!(
+        run.execution.runs[0].normalized_output_sha256,
+        Sha256Digest::of_bytes(canonical_json(&run.output).unwrap())
+    );
+    assert_eq!(
+        run.execution.runs[1].normalized_output_sha256,
+        Sha256Digest::of_bytes(run.execution.tool.version.as_bytes())
+    );
     let verified = verify_audit(&unit, &run.output, false).unwrap();
     assert_eq!(
         verified.inventory,

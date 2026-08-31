@@ -187,6 +187,19 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
             "register exact human and formal claim language",
         ));
     }
+    if input
+        .claim
+        .public_language
+        .as_ref()
+        .is_some_and(|language| language.trim().is_empty())
+    {
+        errors.push(claim_error(
+            claim_id,
+            ErrorCode::PbCoreInvalidEvidence,
+            "claim public language must be nonblank when present",
+            "remove public_language or register a nonblank reader-facing statement",
+        ));
+    }
     if input.claim.policy != input.policy.id {
         errors.push(
             claim_error(
@@ -973,19 +986,19 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         &discharge_evidence,
     );
 
+    let reader_statement = input
+        .claim
+        .public_language
+        .as_ref()
+        .unwrap_or(&input.claim.statement);
     let public_statement =
         if matches!(formal, FormalFacet::BoundedChecked) || used_exhaustive_as_proof {
             input.claim.registered_domain_language.as_ref().map_or_else(
-                || input.claim.statement.clone(),
-                |domain| {
-                    format!(
-                        "{} Registered finite domain: {}",
-                        input.claim.statement, domain
-                    )
-                },
+                || reader_statement.clone(),
+                |domain| format!("{} Registered finite domain: {}", reader_statement, domain),
             )
         } else {
-            input.claim.statement.clone()
+            reader_statement.clone()
         };
 
     let exclusions = input.claim.out_of_scope.iter().cloned().collect::<Vec<_>>();

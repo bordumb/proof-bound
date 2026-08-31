@@ -14,10 +14,27 @@ separator.
 identity. Pretty-printer output is diagnostic only and is never hashed.
 
 `adapter-protocol.schema.json` defines the canonical subprocess envelope.
-Successful adapters return either a complete `proofbound-evidence/2-binding-preview` record or
+Successful adapters return either a complete `proofbound-evidence/2` record or
 the strict, tool-neutral `proofbound-adapter-observation/1` object defined by
 `adapter-observation.schema.json`; the compiler validates and converts the
 latter without trusting adapter-supplied claim status.
+
+Version-2 evidence preserves the exact registered bounded-assumption strings,
+requires nullable `peak_memory_bytes` (`null` means unmeasured; numeric zero is
+a measurement), and requires `execution_kind`. `observed-processes` records
+the full nonempty ordered `commands` and aligned `runs`; `compiler-internal`
+requires both arrays to be empty and cannot fabricate process provenance. Both
+kinds retain their nonblank normalization identifier plus a separate typed
+`reproduction_command`. The generic observation always uses the ordered
+observed-process shape; the compiler adds model registration, claim, closure,
+and reproduction provenance that an adapter does not own. JSON Schema enforces
+the closed field shapes, while the implementations enforce cross-field
+equality, command/run alignment, and exact registration matches.
+
+The version-2 compiled release retains required internal claim `statement`,
+optional reader-facing `public_language`, and required derived status
+`public_statement` as distinct values. The final field is recomputed, never
+accepted as a replacement for the first.
 
 `mutation-registry.schema.json` and
 `translation-toolchain-lock.schema.json` are the closed public contracts for

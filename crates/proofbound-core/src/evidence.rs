@@ -20,8 +20,16 @@ use crate::{
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 /// Superseded evidence schema retained so migrations can identify old records.
 pub const EVIDENCE_SCHEMA_V1: &str = "proofbound-evidence/1";
-pub const EVIDENCE_SCHEMA_BINDING_PREVIEW: &str = "proofbound-evidence/2-binding-preview";
+pub const EVIDENCE_SCHEMA_V2: &str = "proofbound-evidence/2";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
+
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
 
 /// Why a machine-matched name inside an evidence record was rejected.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
@@ -279,6 +287,20 @@ pub struct CommandSpec {
     pub environment_allowlist: Vec<EnvironmentVariable>,
 }
 
+/// One observed execution of a typed command in a deterministic evidence run.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionRun {
+    pub command_index: usize,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub exit_code: Option<i32>,
+    pub stdout_sha256: Sha256Digest,
+    pub stderr_sha256: Sha256Digest,
+    pub normalized_output_sha256: Sha256Digest,
+    pub output_truncated: bool,
+    pub duration_ms: u64,
+}
+
 /// Declared upper resource limits.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -294,7 +316,53 @@ pub struct ResourceBudget {
 pub struct ResourceUsage {
     pub time_ms: u64,
     pub peak_disk_bytes: u64,
-    pub peak_memory_bytes: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub peak_memory_bytes: Option<u64>,
+}
+
+/// Whether provenance records external processes or an in-process compiler derivation.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecutionKind {
+    ObservedProcesses,
+    CompilerInternal,
+}
+
+#[cfg(test)]
+mod required_nullable_tests {
+    use super::*;
+
+    #[test]
+    fn execution_exit_code_is_required_but_nullable() {
+        let run = ExecutionRun {
+            command_index: 0,
+            exit_code: None,
+            stdout_sha256: Sha256Digest::of_bytes(b"stdout"),
+            stderr_sha256: Sha256Digest::of_bytes(b"stderr"),
+            normalized_output_sha256: Sha256Digest::of_bytes(b"normalized"),
+            output_truncated: false,
+            duration_ms: 1,
+        };
+        let mut encoded = serde_json::to_value(&run).unwrap();
+        assert!(encoded["exit_code"].is_null());
+        assert!(serde_json::from_value::<ExecutionRun>(encoded.clone()).is_ok());
+        encoded.as_object_mut().unwrap().remove("exit_code");
+        assert!(serde_json::from_value::<ExecutionRun>(encoded).is_err());
+    }
+
+    #[test]
+    fn peak_memory_is_required_but_nullable() {
+        let usage = ResourceUsage {
+            time_ms: 1,
+            peak_disk_bytes: 2,
+            peak_memory_bytes: None,
+        };
+        let mut encoded = serde_json::to_value(&usage).unwrap();
+        assert!(encoded["peak_memory_bytes"].is_null());
+        assert!(serde_json::from_value::<ResourceUsage>(encoded.clone()).is_ok());
+        encoded.as_object_mut().unwrap().remove("peak_memory_bytes");
+        assert!(serde_json::from_value::<ResourceUsage>(encoded).is_err());
+    }
 }
 
 /// Provenance every evidence record must bind.
@@ -312,7 +380,10 @@ pub struct EvidenceProvenance {
     pub generated_artifacts: Vec<ArtifactIdentity>,
     pub tool: ToolIdentity,
     pub adapter: ToolIdentity,
-    pub command: CommandSpec,
+    pub execution_kind: ExecutionKind,
+    pub commands: Vec<CommandSpec>,
+    pub runs: Vec<ExecutionRun>,
+    pub normalization: String,
     pub reproduction_command: CommandSpec,
     pub started_unix_ms: u64,
     pub completed_unix_ms: u64,
@@ -326,7 +397,12 @@ pub struct EvidenceProvenance {
 }
 
 impl EvidenceProvenance {
-    fn validate(&self, claim_id: &ClaimId, unit_id: &UnitId) -> Vec<StructuredError> {
+    fn validate(
+        &self,
+        claim_id: &ClaimId,
+        unit_id: &UnitId,
+        status: EvidenceStatus,
+    ) -> Vec<StructuredError> {
         let mut errors = Vec::new();
         let contextual =
             |error: StructuredError| error.for_claim(claim_id.clone()).for_unit(unit_id.clone());
@@ -348,14 +424,77 @@ impl EvidenceProvenance {
                 "record the complete tool and adapter identities",
             )));
         }
-        if self.command.program.trim().is_empty()
-            || self.reproduction_command.program.trim().is_empty()
-        {
+        match self.execution_kind {
+            ExecutionKind::ObservedProcesses
+                if self.commands.is_empty()
+                    || self.commands.len() > 4096
+                    || self.runs.is_empty()
+                    || self.runs.len() > 4096
+                    || self.commands.len() != self.runs.len() =>
+            {
+                errors.push(contextual(StructuredError::new(
+                    ErrorCode::PbCoreInvalidEvidence,
+                    "observed-process provenance requires one to 4096 commands and one matching run per command",
+                    "record every typed process command and its corresponding execution observation in order",
+                )));
+            }
+            ExecutionKind::CompilerInternal
+                if !self.commands.is_empty() || !self.runs.is_empty() =>
+            {
+                errors.push(contextual(StructuredError::new(
+                    ErrorCode::PbCoreInvalidEvidence,
+                    "compiler-internal provenance must not fabricate process commands or runs",
+                    "leave commands and runs empty for an in-process compiler derivation",
+                )));
+            }
+            _ => {}
+        }
+        if self.normalization.trim().is_empty() || self.normalization.chars().count() > 1024 {
             errors.push(contextual(StructuredError::new(
                 ErrorCode::PbCoreInvalidEvidence,
-                "typed command records require a program",
-                "record argv as a program and argument vector rather than a shell string",
+                "evidence provenance normalization must contain 1 through 1024 characters",
+                "name the bounded exact normalization applied before deterministic output hashing",
             )));
+        }
+        for (index, command) in self.commands.iter().enumerate() {
+            validate_command(
+                command,
+                &format!("command {index}"),
+                &contextual,
+                &mut errors,
+            );
+        }
+        validate_command(
+            &self.reproduction_command,
+            "reproduction command",
+            &contextual,
+            &mut errors,
+        );
+        for (index, run) in self.runs.iter().enumerate() {
+            if run.command_index != index {
+                errors.push(contextual(StructuredError::new(
+                    ErrorCode::PbCoreInvalidEvidence,
+                    format!(
+                        "execution run {index} names command index {} instead of {index}",
+                        run.command_index
+                    ),
+                    "record execution runs in command order with exact positional indices",
+                )));
+            }
+            if run.output_truncated {
+                errors.push(contextual(StructuredError::new(
+                    ErrorCode::PbCoreInvalidEvidence,
+                    format!("execution run {index} used truncated output"),
+                    "capture and hash the complete stdout, stderr, and normalized output",
+                )));
+            }
+            if status == EvidenceStatus::Passed && run.exit_code.is_none() {
+                errors.push(contextual(StructuredError::new(
+                    ErrorCode::PbCoreInvalidEvidence,
+                    format!("passing evidence run {index} has no completed exit status"),
+                    "record the process exit status for every completed passing evidence run",
+                )));
+            }
         }
         if self.completed_unix_ms < self.started_unix_ms {
             errors.push(contextual(StructuredError::new(
@@ -377,26 +516,6 @@ impl EvidenceProvenance {
             ))),
             _ => {}
         }
-        let mut names = BTreeSet::new();
-        for variable in self
-            .command
-            .environment_allowlist
-            .iter()
-            .chain(&self.reproduction_command.environment_allowlist)
-        {
-            if variable.name.as_str().trim().is_empty() || variable.name.as_str().contains('=') {
-                errors.push(contextual(StructuredError::new(
-                    ErrorCode::PbCoreInvalidEvidence,
-                    "environment allowlist contains an invalid variable name",
-                    "record only an environment variable name and an optional value digest",
-                )));
-            }
-            if variable.secret && variable.value_sha256.is_none() {
-                // A secret may intentionally be omitted completely. Its name is sufficient.
-                continue;
-            }
-            names.insert(variable.name.as_str());
-        }
         errors
     }
 
@@ -405,7 +524,63 @@ impl EvidenceProvenance {
     pub const fn exceeded_budget(&self) -> bool {
         self.resource_usage.time_ms > self.resource_budget.time_ms
             || self.resource_usage.peak_disk_bytes > self.resource_budget.disk_bytes
-            || self.resource_usage.peak_memory_bytes > self.resource_budget.memory_bytes
+            || match self.resource_usage.peak_memory_bytes {
+                Some(actual) => actual > self.resource_budget.memory_bytes,
+                None => false,
+            }
+    }
+}
+
+fn validate_command<F>(
+    command: &CommandSpec,
+    label: &str,
+    contextual: &F,
+    errors: &mut Vec<StructuredError>,
+) where
+    F: Fn(StructuredError) -> StructuredError,
+{
+    let program = command.program.trim();
+    let executable = program
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(program)
+        .to_ascii_lowercase();
+    let is_shell = matches!(
+        executable.as_str(),
+        "sh" | "bash" | "dash" | "zsh" | "fish" | "cmd" | "cmd.exe" | "powershell" | "pwsh"
+    );
+    if program.is_empty()
+        || command.program.chars().count() > 4096
+        || command.program.contains('\0')
+        || is_shell
+        || command.args.len() > 4096
+        || command
+            .args
+            .iter()
+            .any(|argument| argument.chars().count() > 4096 || argument.contains('\0'))
+    {
+        errors.push(contextual(StructuredError::new(
+            ErrorCode::PbCoreInvalidEvidence,
+            format!("{label} is not a bounded typed non-shell command"),
+            "record a direct program and bounded argument vector without a shell interpreter",
+        )));
+    }
+    if command.environment_allowlist.len() > 256 {
+        errors.push(contextual(StructuredError::new(
+            ErrorCode::PbCoreInvalidEvidence,
+            format!("{label} has more than 256 environment entries"),
+            "record only the bounded environment allowlist required by the command",
+        )));
+    }
+    let mut names = BTreeSet::new();
+    for variable in &command.environment_allowlist {
+        if !names.insert(variable.name.as_str()) {
+            errors.push(contextual(StructuredError::new(
+                ErrorCode::PbCoreInvalidEvidence,
+                format!("{label} repeats environment variable '{}'", variable.name),
+                "record each environment variable at most once per command",
+            )));
+        }
     }
 }
 
@@ -478,6 +653,7 @@ pub struct BoundedCheckEvidence {
     pub harnesses: BTreeSet<String>,
     #[serde(default)]
     pub unwind_bounds: BTreeMap<String, u64>,
+    pub assumptions: Vec<String>,
 }
 
 /// Exhaustive enumeration facts.
@@ -644,23 +820,25 @@ pub struct EvidenceRecord {
 impl EvidenceRecord {
     /// Validates conditional evidence-kind invariants and complete provenance.
     pub fn validate(&self, claim_id: &ClaimId) -> Result<(), ValidationErrors> {
-        let mut errors = self.provenance.validate(claim_id, &self.unit_id);
+        let mut errors = self
+            .provenance
+            .validate(claim_id, &self.unit_id, self.status);
         let error = |message: String, remediation: &'static str| {
             StructuredError::new(ErrorCode::PbCoreInvalidEvidence, message, remediation)
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
         };
 
-        if self.schema != EVIDENCE_SCHEMA_BINDING_PREVIEW {
+        if self.schema != EVIDENCE_SCHEMA_V2 {
             errors.push(
                 StructuredError::new(
                     ErrorCode::PbCoreUnsupportedSchema,
                     format!("unsupported evidence schema '{}'", self.schema),
-                    "migrate the evidence record to proofbound-evidence/2-binding-preview",
+                    "migrate the evidence record to proofbound-evidence/2",
                 )
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
-                .identities(EVIDENCE_SCHEMA_BINDING_PREVIEW, &self.schema),
+                .identities(EVIDENCE_SCHEMA_V2, &self.schema),
             );
         }
         if !self.claims.contains(claim_id) {
@@ -764,10 +942,20 @@ impl EvidenceRecord {
                         && !check.solver.trim().is_empty()
                         && !check.harnesses.is_empty()
                         && check.unwind_bounds.keys().eq(check.harnesses.iter())
-                        && check.unwind_bounds.values().all(|bound| *bound > 0) => {}
+                        && check.unwind_bounds.values().all(|bound| *bound > 0)
+                        && check.assumptions.len() <= 4096
+                        && check
+                            .assumptions
+                            .iter()
+                            .all(|assumption| {
+                                !assumption.trim().is_empty()
+                                    && assumption.chars().count() <= 4096
+                            })
+                        && check.assumptions.iter().collect::<BTreeSet<_>>().len()
+                            == check.assumptions.len() => {}
                 _ => errors.push(error(
-                    "bounded evidence lacks an explicit finite domain, solver, or exact nonzero per-harness unwind bounds".into(),
-                    "register the finite domain, every bounded harness, and its unwind bound",
+                    "bounded evidence lacks an explicit finite domain, solver, exact nonzero per-harness unwind bounds, or a valid assumption inventory".into(),
+                    "register the finite domain, every bounded harness and its unwind bound, and at most 4096 unique nonblank model-check assumptions of at most 4096 characters each",
                 )),
             },
             EvidenceKind::ExhaustiveCheck => match &self.exhaustive_check {
@@ -973,6 +1161,8 @@ pub struct ClaimDefinition {
     pub node_id: NodeId,
     pub title: String,
     pub statement: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_language: Option<String>,
     pub subject: NodeId,
     pub policy: PolicyId,
     /// Optional per-claim ceiling. When absent, the project tier is the
@@ -1039,7 +1229,7 @@ mod tests {
     #[test]
     fn strict_evidence_rejects_unknown_fields() {
         let value = serde_json::json!({
-            "schema": EVIDENCE_SCHEMA_BINDING_PREVIEW,
+            "schema": EVIDENCE_SCHEMA_V2,
             "id": "test:e",
             "node_id": "node:e",
             "unit_id": "unit:e",

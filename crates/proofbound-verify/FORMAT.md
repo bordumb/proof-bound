@@ -18,7 +18,7 @@ does not run external tools.
 `release.json` has exactly this shape:
 
 ```json
-{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/2-binding-preview"}
+{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/2"}
 ```
 
 `payload` is a normalized relative path. Absolute paths, `.`/`..`, duplicate
@@ -41,9 +41,9 @@ The domains are fixed:
 
 | Value | Domain |
 |---|---|
-| compiled payload | `proofbound-compiled-release/2-binding-preview` |
+| compiled payload | `proofbound-compiled-release/2` |
 | graph | `proofbound-graph/1` |
-| evidence record | `proofbound-evidence/2-binding-preview` |
+| evidence record | `proofbound-evidence/2` |
 | source-closure record | `proofbound-source-closure/1` |
 | evidence cache material | `proofbound-cache-key/1` |
 
@@ -52,7 +52,7 @@ the exact file bytes, still rendered as `sha256:<64 lowercase hex>`.
 
 ## Compiled payload
 
-The payload schema is `proofbound-compiled-release/2-binding-preview` and contains exactly:
+The payload schema is `proofbound-compiled-release/2` and contains exactly:
 
 | Field | Meaning |
 |---|---|
@@ -60,7 +60,7 @@ The payload schema is `proofbound-compiled-release/2-binding-preview` and contai
 | `project_tier` | integer `0`, `1`, `2`, or `3` |
 | `tree_state` | `clean` for a portable release |
 | `graph`, `graph_sha256` | complete typed graph and its domain hash |
-| `claims` | `proofbound-claim/1` raw language, optional claim-tier ceiling, citations, assumptions, bounds, and primary linkage choice |
+| `claims` | `proofbound-claim/1` internal `statement`, separately optional reader-facing `public_language`, optional claim-tier ceiling, citations, assumptions, bounds, and primary linkage choice |
 | `evidence` | content-addressed raw evidence and provenance records |
 | `assumptions`, `premises` | `proofbound-assumption/1` records and first-class premises used in transitive closure |
 | `policies` | complete effective policy definitions, not just policy names |
@@ -92,21 +92,46 @@ declared proof environment.
 Each evidence record includes a closed evidence kind, outcome, kind-specific
 detail block, and full provenance. Provenance binds the clean project revision,
 semantic closure, input/generated artifacts, tool and adapter identities,
-commands, timing, deterministic result, configuration, cache key, reuse link,
+an explicit execution kind, its permitted command/run shape, normalization
+identity, timing, deterministic result, configuration, cache key, reuse link,
 budget, and actual cost. The verifier recomputes both the evidence wrapper hash
-and cache key. Input and generated artifact inventories are arrays of complete
+and cache key.
+Input and generated artifact inventories are arrays of complete
 `{logical_name, sha256, size_bytes}` identities, strictly sorted by that tuple,
 with each logical name occurring once. The cache material retains the complete
 input identities; it does not discard artifact sizes.
+
+`provenance.execution_kind` is required. `observed-processes` requires nonempty
+`provenance.commands` and `provenance.runs` arrays with identical length. Run
+position `i` must carry `command_index: i`; no representative command,
+reordered run, omitted run, or truncated output is accepted. Passing evidence
+requires every run to have a non-null exit status; `exit_code` is always
+present and nullable so an incomplete non-passing process is still represented
+explicitly. Each command keeps its own bounded, uniquely named environment
+allowlist. Every environment entry has a required nullable `value_sha256`,
+never a raw value.
+
+`compiler-internal` means the evidence was derived without a subprocess and
+requires both command and run arrays to be empty. A compiler-internal record
+cannot fabricate process provenance. For both execution kinds, the separately
+typed `reproduction_command` remains required and `normalization` is a required
+nonblank identifier.
+
+The declared `resource_budget.memory_bytes` is always numeric. In contrast,
+`actual_cost.memory_bytes` is required but nullable: an integer, including
+zero, is an observed peak; `null` means that peak memory was not measured.
+Omitting the field is invalid and a budget is never substituted for an unknown
+measurement.
 
 Kind-specific requirements include compiled theorem identity and axiom audit,
 the complete `lean-expr-cbor/1` statement wire, theorem-derived artifact
 binding, explicit transcription TCB and round trip,
 deterministic source refinement with registered premises, explicit bounded
 domains/harnesses, the registered solver, exact nonzero per-harness unwind
-bounds, exact exhaustive cardinality, independently inventoried checks, and
-mutation identities. Detail blocks or mode qualifiers on the wrong kind are
-invalid.
+bounds, the exact ordered unique nonblank bounded-solver assumptions (including
+the required empty-array case), exact exhaustive cardinality, independently
+inventoried checks, and mutation identities. Detail blocks or mode qualifiers
+on the wrong kind are invalid.
 
 An `artifact-bound` policy admits a binding only when all of the following
 hold: the referenced theorem is admitted under the policy's theorem-evaluation
@@ -171,9 +196,14 @@ Admission is orthogonal to evidence availability: for example, an independent
 check can support a Ledger claim as `TESTED`, but that evidence kind still
 requires effective Tier 1.
 
-Every field in `reported_statuses` must equal the recomputed value. The
-verifier deliberately rejects both upgrades and unexplained downgrades so a
-receipt has one deterministic representation.
+Every field in `reported_statuses` must equal the recomputed value. Its required
+`public_statement` is independently derived from `public_language` when
+present, otherwise from the internal `statement`; `BOUNDED_CHECKED` and
+policy-admitted exhaustive `PROVED` output append
+` Registered finite domain: <registered_domain_language>`. The verifier
+deliberately rejects substitution of the internal and reader-facing languages,
+status drift, upgrades, and unexplained downgrades so a receipt has one
+deterministic representation.
 
 Every successful verification report also contains a mandatory
 `not_proved_out_of_scope` entry for every claim, including its open

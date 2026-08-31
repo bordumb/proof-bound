@@ -65,6 +65,113 @@ def sample_claim_status() -> dict[str, object]:
     }
 
 
+def sample_bounded_evidence() -> dict[str, object]:
+    digest = f"sha256:{'01' * 32}"
+    command = {
+        "program": "kani",
+        "args": ["--harness", "check_registered_case"],
+        "environment_allowlist": [],
+    }
+    return {
+        "schema": "proofbound-evidence/2",
+        "id": "kani:registered-case",
+        "node_id": "evidence:kani:registered-case",
+        "unit_id": "unit:registered-case",
+        "kind": "bounded-check",
+        "status": "passed",
+        "claims": ["DEMO-CLAIM-001"],
+        "inventoried_targets": ["check_registered_case"],
+        "assumptions": [],
+        "premises": [],
+        "bounded_check": {
+            "domain": {
+                "id": "registered-domain",
+                "description": "The registered finite inputs.",
+                "registration_sha256": digest,
+                "constraints": [],
+            },
+            "solver": "cadical",
+            "harnesses": ["check_registered_case"],
+            "unwind_bounds": {"check_registered_case": 6},
+            "assumptions": ["Allocator calls do not fail."],
+        },
+        "provenance": {
+            "project_revision": "90a117e",
+            "tree_state": "clean",
+            "semantic_source_closure": digest,
+            "additional_closures": [],
+            "input_artifacts": [],
+            "generated_artifacts": [],
+            "tool": {
+                "name": "kani",
+                "version": "1.0.0",
+                "identity_sha256": digest,
+            },
+            "adapter": {
+                "name": "proofbound-adapter-kani",
+                "version": "0.7.0",
+                "identity_sha256": digest,
+            },
+            "execution_kind": "observed-processes",
+            "commands": [command],
+            "runs": [
+                {
+                    "command_index": 0,
+                    "exit_code": 0,
+                    "stdout_sha256": digest,
+                    "stderr_sha256": digest,
+                    "normalized_output_sha256": digest,
+                    "output_truncated": False,
+                    "duration_ms": 12,
+                }
+            ],
+            "normalization": "stable-tool-output/1",
+            "reproduction_command": command,
+            "started_unix_ms": 1,
+            "completed_unix_ms": 13,
+            "deterministic_result_identity": digest,
+            "unit_configuration_sha256": digest,
+            "resource_budget": {
+                "time_ms": 1000,
+                "disk_bytes": 1024,
+                "memory_bytes": 2048,
+            },
+            "resource_usage": {
+                "time_ms": 12,
+                "peak_disk_bytes": 512,
+                "peak_memory_bytes": None,
+            },
+            "cache_origin": "executed",
+        },
+    }
+
+
+def sample_adapter_observation() -> dict[str, object]:
+    evidence = sample_bounded_evidence()
+    provenance = evidence["provenance"]
+    assert isinstance(provenance, dict)
+    return {
+        "schema": "proofbound-adapter-observation/1",
+        "unit_id": "registered-case",
+        "evidence_kind": "bounded-check",
+        "outcome": "passed",
+        "input_artifacts": [],
+        "generated_artifacts": [],
+        "tool": provenance["tool"],
+        "adapter": provenance["adapter"],
+        "commands": provenance["commands"],
+        "runs": provenance["runs"],
+        "started_unix_ms": provenance["started_unix_ms"],
+        "completed_unix_ms": provenance["completed_unix_ms"],
+        "deterministic_result_sha256": provenance["deterministic_result_identity"],
+        "unit_configuration_sha256": provenance["unit_configuration_sha256"],
+        "resource_budget": provenance["resource_budget"],
+        "resource_usage": provenance["resource_usage"],
+        "inventory": ["check_registered_case"],
+        "normalization": provenance["normalization"],
+    }
+
+
 def test_every_public_schema_is_valid_draft_2020_12() -> None:
     schemas, _ = schema_registry()
     assert schemas
@@ -72,7 +179,11 @@ def test_every_public_schema_is_valid_draft_2020_12() -> None:
 
 def test_actual_runtime_closure_records_match_public_schema() -> None:
     configured_target = Path(os.environ.get("CARGO_TARGET_DIR", "target"))
-    target = configured_target if configured_target.is_absolute() else ROOT / configured_target
+    target = (
+        configured_target
+        if configured_target.is_absolute()
+        else ROOT / configured_target
+    )
     producer_fixture = target / "proofbound-schema-fixtures" / "closure-record.json"
     if not producer_fixture.is_file():
         subprocess.run(
@@ -104,6 +215,25 @@ def test_standalone_verifier_release_fixture_matches_shipped_receipt_schema() ->
     compiled = load_json(release / "compiled-receipt.json")
     validate.validate(compiled)
     validator("graph.schema.json").validate(compiled["graph"])
+
+    observed_without_processes = json.loads(json.dumps(compiled))
+    provenance = observed_without_processes["evidence"][0]["record"]["provenance"]
+    provenance["execution_kind"] = "observed-processes"
+    provenance["commands"] = []
+    provenance["runs"] = []
+    assert list(validate.iter_errors(observed_without_processes))
+
+    internal_with_processes = json.loads(json.dumps(compiled))
+    provenance = internal_with_processes["evidence"][0]["record"]["provenance"]
+    provenance["execution_kind"] = "compiler-internal"
+    assert list(validate.iter_errors(internal_with_processes))
+
+    compiler_internal = json.loads(json.dumps(compiled))
+    provenance = compiler_internal["evidence"][0]["record"]["provenance"]
+    provenance["execution_kind"] = "compiler-internal"
+    provenance["commands"] = []
+    provenance["runs"] = []
+    validate.validate(compiler_internal)
 
 
 def test_runtime_report_and_graph_export_shapes_match_public_schemas() -> None:
@@ -172,11 +302,65 @@ def test_adapter_schema_forbids_evidence_on_failure() -> None:
         "request_id": "0123456789abcdef0123456789abcdef",
         "adapter": "lean",
         "success": False,
-        "evidence": {"schema": "proofbound-evidence/2-binding-preview"},
+        "evidence": {"schema": "proofbound-evidence/2"},
         "inventory": [],
         "diagnostics": [],
     }
     assert list(validator("adapter-protocol.schema.json").iter_errors(response))
+
+
+def test_version_2_evidence_schema_preserves_receipt_fidelity() -> None:
+    validate = validator("evidence.schema.json")
+    evidence = sample_bounded_evidence()
+    validate.validate(evidence)
+
+    evidence["provenance"]["resource_usage"]["peak_memory_bytes"] = 0
+    validate.validate(evidence)
+
+    del evidence["bounded_check"]["assumptions"]
+    assert list(validate.iter_errors(evidence))
+    evidence["bounded_check"]["assumptions"] = ["   "]
+    assert list(validate.iter_errors(evidence))
+    evidence["bounded_check"]["assumptions"] = ["same", "same"]
+    assert list(validate.iter_errors(evidence))
+
+    evidence = sample_bounded_evidence()
+    del evidence["provenance"]["resource_usage"]["peak_memory_bytes"]
+    assert list(validate.iter_errors(evidence))
+
+    evidence = sample_bounded_evidence()
+    evidence["provenance"]["command"] = evidence["provenance"].pop("commands")[0]
+    assert list(validate.iter_errors(evidence))
+
+    evidence = sample_bounded_evidence()
+    del evidence["provenance"]["execution_kind"]
+    assert list(validate.iter_errors(evidence))
+
+    evidence = sample_bounded_evidence()
+    evidence["provenance"]["commands"] = []
+    evidence["provenance"]["runs"] = []
+    assert list(validate.iter_errors(evidence))
+
+    evidence = sample_bounded_evidence()
+    evidence["provenance"]["execution_kind"] = "compiler-internal"
+    assert list(validate.iter_errors(evidence))
+
+    evidence["provenance"]["commands"] = []
+    evidence["provenance"]["runs"] = []
+    validate.validate(evidence)
+
+
+def test_adapter_observation_schema_keeps_ordered_execution_facts() -> None:
+    validate = validator("adapter-observation.schema.json")
+    observation = sample_adapter_observation()
+    validate.validate(observation)
+
+    observation["normalization"] = "   "
+    assert list(validate.iter_errors(observation))
+
+    observation = sample_adapter_observation()
+    del observation["runs"][0]["exit_code"]
+    assert list(validate.iter_errors(observation))
 
 
 def test_auxiliary_adapter_manifests_match_strict_public_schemas() -> None:
@@ -202,7 +386,9 @@ def test_auxiliary_adapter_manifests_match_strict_public_schemas() -> None:
     translation_lock["unexpected"] = True
     assert list(validator("mutation-registry.schema.json").iter_errors(mutation))
     assert list(
-        validator("translation-toolchain-lock.schema.json").iter_errors(translation_lock)
+        validator("translation-toolchain-lock.schema.json").iter_errors(
+            translation_lock
+        )
     )
 
 
@@ -224,9 +410,7 @@ def test_every_shipped_template_manifest_matches_its_public_schema() -> None:
         path.as_posix()
         for path in (ROOT / "templates").rglob("*.toml")
         if path.name != "Cargo.toml"
-    } == {
-        (ROOT / relative).as_posix() for relative in template_contracts
-    }
+    } == {(ROOT / relative).as_posix() for relative in template_contracts}
     for relative, schema in template_contracts.items():
         with (ROOT / relative).open("rb") as source:
             validator(schema).validate(tomllib.load(source))

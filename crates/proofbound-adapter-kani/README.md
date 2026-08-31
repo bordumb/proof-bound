@@ -27,10 +27,16 @@ domain-separated value hashes are recorded. `peak_memory_bytes: null` means
 the portable adapter process could not measure process-tree RSS and does not
 fabricate a zero.
 
+`commands` and `runs` are complete ordered arrays of equal length; run `i`
+has `command_index = i`. The compiler preserves the sequence and required
+normalization identifier in version-2 evidence provenance and separately adds
+the typed reproduction command. For bounded evidence it also copies the exact
+ordered assumption strings from the registered model-check unit; those facts
+are compiler-owned rather than adapter-authored.
+
 The observation is deliberately not a full
 `proofbound_core::EvidenceRecord`: a raw adapter unit does not contain the
 compiled graph node, whole semantic closure, cache chain, or all claim
 premises. The orchestrator validates this observation and adds that provenance
 when it constructs the receipt. Failures and unavailable tools return
 `success: false`, `evidence: null`, and a stable fail-closed diagnostic.
-

@@ -44,7 +44,7 @@ admitted but unrelated theorem and must derive `INVALID`, never
 ## Canonical release fixture
 
 `release-valid/` is a fully materialized, canonical
-`proofbound-compiled-release/2-binding-preview` directory. CI must verify these committed bytes
+`proofbound-compiled-release/2` directory. CI must verify these committed bytes
 in place; it must not generate or update the fixture first.
 
 From the repository root:

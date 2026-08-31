@@ -23,7 +23,7 @@
     "resource_budget": { "$ref": "#/$defs/budget" },
     "resource_usage": { "$ref": "#/$defs/usage" },
     "inventory": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 100000 },
-    "normalization": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "normalization": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" },
     "artifact_binding": { "$ref": "#/$defs/artifact_binding" }
   },
   "$defs": {
@@ -69,8 +69,8 @@
       "type": "object", "additionalProperties": false,
       "required": ["command_index", "exit_code", "stdout_sha256", "stderr_sha256", "normalized_output_sha256", "output_truncated", "duration_ms"],
       "properties": {
-        "command_index": { "type": "integer", "minimum": 0 },
-        "exit_code": { "type": ["integer", "null"] },
+        "command_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "exit_code": { "type": ["integer", "null"], "minimum": -2147483648, "maximum": 2147483647 },
         "stdout_sha256": { "$ref": "#/$defs/digest" },
         "stderr_sha256": { "$ref": "#/$defs/digest" },
         "normalized_output_sha256": { "$ref": "#/$defs/digest" },

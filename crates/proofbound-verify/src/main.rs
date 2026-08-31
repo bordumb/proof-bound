@@ -45,6 +45,7 @@ fn main() -> ExitCode {
                         linkage_name(claim.linkage),
                         assumption_name(claim.assumption)
                     );
+                    println!("  {}", claim.public_statement);
                     let gaps = report
                         .not_proved_out_of_scope
                         .iter()

@@ -13,11 +13,11 @@ use proofbound_core::{
     BoundedCheckEvidence, BoundedDomain, BuiltInProfile, CacheOrigin, ClaimDefinition,
     ClaimEvaluationInput, ClaimId, ClosureIdentity, CommandSpec, EdgeKind, EnvironmentVariable,
     EnvironmentVariableName, EvidenceId, EvidenceKind, EvidenceProvenance, EvidenceRecord,
-    EvidenceStatus, FlowScope, GraphEdge, GraphNode, IndependenceMode, LinkageFacet,
-    MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind, ObligationId, OpenObligation,
-    OutOfScope, PolicyDefinition, PolicyId, PremiseId, PremiseRecord, ResourceBudget,
-    ResourceUsage, Sha256Digest, SourceRefinementEvidence, Tier, ToolIdentity, TreeState, UnitId,
-    derive_claim_status,
+    EvidenceStatus, ExecutionKind, ExecutionRun, FlowScope, GraphEdge, GraphNode, IndependenceMode,
+    LinkageFacet, MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind, ObligationId,
+    OpenObligation, OutOfScope, PolicyDefinition, PolicyId, PremiseId, PremiseRecord,
+    ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence, Tier, ToolIdentity,
+    TreeState, UnitId, derive_claim_status,
 };
 use proofbound_evidence::{
     ClosureMember, ClosureRecord, ContentAddressedStore, canonical_json, domain_hash, git_identity,
@@ -33,8 +33,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{adapter, closures, model::CompiledProject, model::UnitRun, safe_component};
 
-const COMPILED_SCHEMA: &str = "proofbound-compiled-project/1";
-const EVIDENCE_DOMAIN: &str = "proofbound-evidence/2-binding-preview";
+const COMPILED_SCHEMA: &str = "proofbound-compiled-project/2";
+const CLAIM_INPUT_DOMAIN: &str = "proofbound-claim-input/2";
+const EVIDENCE_DOMAIN: &str = "proofbound-evidence/2";
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOptions {
@@ -229,7 +230,7 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
         let input = compile_claim(&bundle, &claim_id, tier, &records, &closure_by_claim)?;
         let status = derive_claim_status(&input);
         let input_bytes = canonical_json(&input)?;
-        let input_identity = domain_hash("proofbound-claim-input/1", &input_bytes);
+        let input_identity = domain_hash(CLAIM_INPUT_DOMAIN, &input_bytes);
         let input_path = state_root
             .join("compiled/claims")
             .join(format!("{}.json", safe_component(&claim_id)));
@@ -300,7 +301,7 @@ pub fn load_compiled(root: &Path) -> Result<CompiledProject> {
             );
         }
         let bytes = canonical_json(input)?;
-        let actual = domain_hash("proofbound-claim-input/1", &bytes);
+        let actual = domain_hash(CLAIM_INPUT_DOMAIN, &bytes);
         if compiled.claim_input_identities.get(input.claim.id.as_str()) != Some(&actual) {
             bail!(
                 "PB-RECEIPT-0006: claim input identity drift for {}",
@@ -382,14 +383,11 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     let payload = compiled_release_value(&compiled, bundle.project.tier, graph, sealed_files)?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&destination.join("compiled-receipt.json"), &payload_bytes)?;
-    let payload_sha256 = domain_hash(
-        "proofbound-compiled-release/2-binding-preview",
-        &payload_bytes,
-    );
+    let payload_sha256 = domain_hash("proofbound-compiled-release/2", &payload_bytes);
     write_canonical(
         &destination.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/2-binding-preview",
+            "schema": "proofbound-release-envelope/2",
             "payload": "compiled-receipt.json",
             "payload_sha256": payload_sha256,
         }),
@@ -413,7 +411,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     )?;
     let semantic_closure = Sha256Digest::of_bytes(b"proofbound-release-smoke-semantic-v1");
     let evidence = EvidenceRecord {
-        schema: "proofbound-evidence/2-binding-preview".into(),
+        schema: "proofbound-evidence/2".into(),
         id: EvidenceId::new("review:release-smoke")?,
         node_id: NodeId::new("review:release-smoke")?,
         unit_id: UnitId::new("unit:release-smoke")?,
@@ -451,11 +449,10 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
                 version: env!("CARGO_PKG_VERSION").into(),
                 identity_sha256: Sha256Digest::of_bytes(b"proofbound-release-smoke-adapter-v1"),
             },
-            command: CommandSpec {
-                program: "proofbound".into(),
-                args: vec!["release-smoke".into()],
-                environment_allowlist: Vec::new(),
-            },
+            execution_kind: ExecutionKind::CompilerInternal,
+            commands: Vec::new(),
+            runs: Vec::new(),
+            normalization: "proofbound-release-smoke/1".into(),
             reproduction_command: CommandSpec {
                 program: "proofbound".into(),
                 args: vec!["release-smoke".into()],
@@ -496,6 +493,9 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         node_id: NodeId::new(format!("claim:{claim_id}"))?,
         title: "Deterministic release construction smoke claim".into(),
         statement: "The release serializer preserves a Tier-0 assurance ledger.".into(),
+        public_language: Some(
+            "The portable release smoke remains an open Tier-0 ledger entry.".into(),
+        ),
         subject: NodeId::new("subject:release-smoke")?,
         policy: policy.id.clone(),
         tier: Some(Tier::Ledger),
@@ -549,9 +549,9 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     write_canonical(
         &output.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/2-binding-preview",
+            "schema": "proofbound-release-envelope/2",
             "payload": "compiled-receipt.json",
-            "payload_sha256": domain_hash("proofbound-compiled-release/2-binding-preview", &payload_bytes),
+            "payload_sha256": domain_hash("proofbound-compiled-release/2", &payload_bytes),
         }),
     )?;
     Ok(output.to_owned())
@@ -1090,6 +1090,11 @@ fn bounded_check_from_registered_model(
     model: &ModelCheckUnitManifest,
     observed_inventory: &[String],
 ) -> Result<BoundedCheckEvidence> {
+    let registered_assumptions = model
+        .assumptions
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
     if model.schema != "proofbound-model-check-unit/1"
         || model.adapter != "kani"
         || model.id != unit.id
@@ -1101,6 +1106,12 @@ fn bounded_check_from_registered_model(
         || unit.resource_budget != model.resource_budget
         || model.solver.trim().is_empty()
         || model.unwind == 0
+        || model.assumptions.len() > 4096
+        || registered_assumptions.len() != model.assumptions.len()
+        || model
+            .assumptions
+            .iter()
+            .any(|assumption| assumption.trim().is_empty() || assumption.chars().count() > 4096)
     {
         bail!("PB-ADAPTER-0017: Kani evidence and registered model-check semantics disagree");
     }
@@ -1129,6 +1140,7 @@ fn bounded_check_from_registered_model(
                 .collect(),
         },
         solver: model.solver.clone(),
+        assumptions: model.assumptions.clone(),
         harnesses: harnesses.clone(),
         unwind_bounds: harnesses
             .into_iter()
@@ -1278,7 +1290,7 @@ fn reusable_cached_record(
         }
         None => None,
     };
-    if record.schema != "proofbound-evidence/2-binding-preview"
+    if record.schema != "proofbound-evidence/2"
         || record.id != expected_id
         || record.node_id != expected_node
         || record.unit_id != expected_unit
@@ -1290,6 +1302,7 @@ fn reusable_cached_record(
         || record.evaluation_mode != expected_evaluation
         || record.binding_mode != expected_binding
         || record.bounded_check.as_ref() != expected_bounded_check.as_ref()
+        || !has_observed_adapter_execution(&record)
         || (!unit.expected_inventory.is_empty() && record.inventoried_targets != expected_inventory)
         || record.provenance.semantic_source_closure != parse_digest(semantic_closure).ok()?
         || record.provenance.additional_closures != additional_closures
@@ -1419,6 +1432,9 @@ fn bind_record_to_execution(
     {
         bail!("PB-ADAPTER-0023: fresh adapter evidence claims a cache origin");
     }
+    if !has_observed_adapter_execution(record) {
+        bail!("PB-ADAPTER-0026: adapter evidence must use observed-processes provenance");
+    }
 
     let identity = git_identity(root)?;
     let expected_tree_state = match identity.tree_state.as_str() {
@@ -1481,6 +1497,20 @@ fn bind_record_to_execution(
     Ok(())
 }
 
+fn has_observed_adapter_execution(record: &EvidenceRecord) -> bool {
+    record.provenance.execution_kind == ExecutionKind::ObservedProcesses
+}
+
+fn deserialize_required_option<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AdapterObservation {
@@ -1513,7 +1543,7 @@ struct ArtifactBindingObservation {
     artifact_sha256: String,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 enum ObservationOutcome {
     Passed,
@@ -1548,6 +1578,7 @@ struct CommandObservation {
 #[serde(deny_unknown_fields)]
 struct EnvironmentObservation {
     name: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
     value_sha256: Option<String>,
     secret: bool,
 }
@@ -1556,6 +1587,7 @@ struct EnvironmentObservation {
 #[serde(deny_unknown_fields)]
 struct RunObservation {
     command_index: usize,
+    #[serde(deserialize_with = "deserialize_required_option")]
     exit_code: Option<i32>,
     stdout_sha256: String,
     stderr_sha256: String,
@@ -1577,6 +1609,7 @@ struct BudgetObservation {
 struct UsageObservation {
     time_ms: u64,
     peak_disk_bytes: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
     peak_memory_bytes: Option<u64>,
 }
 
@@ -1598,16 +1631,23 @@ fn observation_to_record(
     {
         bail!("PB-ADAPTER-0013: observation identity does not match the configured unit");
     }
-    if observation.commands.is_empty() || observation.normalization.trim().is_empty() {
+    if observation.commands.is_empty()
+        || observation.normalization.trim().is_empty()
+        || observation.normalization.chars().count() > 1024
+    {
         bail!("PB-ADAPTER-0014: observation omitted its typed command or normalization");
     }
-    if observation.runs.iter().any(|run| {
-        run.command_index >= observation.commands.len()
-            || run.output_truncated
-            || parse_digest(&run.stdout_sha256).is_err()
-            || parse_digest(&run.stderr_sha256).is_err()
-            || parse_digest(&run.normalized_output_sha256).is_err()
-    }) {
+    let passed = observation.outcome == ObservationOutcome::Passed;
+    if observation.runs.len() != observation.commands.len()
+        || observation.runs.iter().enumerate().any(|(index, run)| {
+            run.command_index != index
+                || run.output_truncated
+                || (passed && run.exit_code.is_none())
+                || parse_digest(&run.stdout_sha256).is_err()
+                || parse_digest(&run.stderr_sha256).is_err()
+                || parse_digest(&run.normalized_output_sha256).is_err()
+        })
+    {
         bail!("PB-ADAPTER-0015: observation run metadata is incomplete or truncated");
     }
     if !unit.expected_inventory.is_empty() {
@@ -1709,13 +1749,21 @@ fn observation_to_record(
     } else {
         None
     };
-    let command = core_command(&observation.commands[0])?;
-    let reproduction_command = core_command(
-        observation
-            .commands
-            .get(1)
-            .unwrap_or(&observation.commands[0]),
-    )?;
+    let commands = observation
+        .commands
+        .iter()
+        .map(core_command)
+        .collect::<Result<Vec<_>>>()?;
+    let runs = observation
+        .runs
+        .iter()
+        .map(core_run)
+        .collect::<Result<Vec<_>>>()?;
+    let reproduction_command = CommandSpec {
+        program: "proofbound".into(),
+        args: vec!["reproduce".into(), unit.id.clone()],
+        environment_allowlist: Vec::new(),
+    };
     let additional_closures = closure_ids
         .iter()
         .map(|digest| {
@@ -1750,7 +1798,10 @@ fn observation_to_record(
             .collect::<Result<_>>()?,
         tool: core_tool(observation.tool)?,
         adapter: core_tool(observation.adapter)?,
-        command,
+        execution_kind: ExecutionKind::ObservedProcesses,
+        commands,
+        runs,
+        normalization: observation.normalization,
         reproduction_command,
         started_unix_ms: observation.started_unix_ms,
         completed_unix_ms: observation.completed_unix_ms,
@@ -1764,24 +1815,13 @@ fn observation_to_record(
         resource_usage: ResourceUsage {
             time_ms: observation.resource_usage.time_ms,
             peak_disk_bytes: observation.resource_usage.peak_disk_bytes,
-            peak_memory_bytes: observation.resource_usage.peak_memory_bytes.unwrap_or(0),
+            peak_memory_bytes: observation.resource_usage.peak_memory_bytes,
         },
         cache_origin: CacheOrigin::Executed,
         prior_receipt_sha256: None,
     };
-    let _total_run_time = observation
-        .runs
-        .iter()
-        .map(|run| run.duration_ms)
-        .sum::<u64>();
-    let _exit_codes = observation
-        .runs
-        .iter()
-        .map(|run| run.exit_code)
-        .collect::<Vec<_>>();
-
     Ok(EvidenceRecord {
-        schema: "proofbound-evidence/2-binding-preview".into(),
+        schema: "proofbound-evidence/2".into(),
         id: evidence_id.clone(),
         node_id: NodeId::new(format!("evidence:{evidence_id}"))?,
         unit_id: UnitId::new(format!("unit:{}", unit.id))?,
@@ -1847,6 +1887,18 @@ fn core_command(value: &CommandObservation) -> Result<CommandSpec> {
                 })
             })
             .collect::<Result<_>>()?,
+    })
+}
+
+fn core_run(value: &RunObservation) -> Result<ExecutionRun> {
+    Ok(ExecutionRun {
+        command_index: value.command_index,
+        exit_code: value.exit_code,
+        stdout_sha256: parse_digest(&value.stdout_sha256)?,
+        stderr_sha256: parse_digest(&value.stderr_sha256)?,
+        normalized_output_sha256: parse_digest(&value.normalized_output_sha256)?,
+        output_truncated: value.output_truncated,
+        duration_ms: value.duration_ms,
     })
 }
 
@@ -2002,10 +2054,8 @@ fn compile_claim(
         id: claim_id_typed,
         node_id: NodeId::new(format!("claim:{claim_id}"))?,
         title: manifest.title.clone(),
-        statement: manifest
-            .public_language
-            .clone()
-            .unwrap_or_else(|| manifest.statement.clone()),
+        statement: manifest.statement.clone(),
+        public_language: manifest.public_language.clone(),
         subject,
         policy: policy.id.clone(),
         tier: claim_tier,
@@ -2597,7 +2647,7 @@ fn synthesize_review_records(
         let artifacts = validated_review_artifacts(root, &item.id, &item.review_evidence)?;
         let result = Sha256Digest::of_bytes(canonical_json(&item.review_evidence)?);
         records.push(EvidenceRecord {
-            schema: "proofbound-evidence/2-binding-preview".into(),
+            schema: "proofbound-evidence/2".into(),
             id: id.clone(),
             node_id: NodeId::new(format!("review:{}", item.id))?,
             unit_id: UnitId::new(format!("assumption-review:{}", item.id))?,
@@ -2631,11 +2681,10 @@ fn synthesize_review_records(
                 generated_artifacts: Vec::new(),
                 tool: identity_for("human-review", "manifest-citation/1"),
                 adapter: identity_for("proofbound-cli", env!("CARGO_PKG_VERSION")),
-                command: CommandSpec {
-                    program: "review-manifest".into(),
-                    args: vec![item.id.clone()],
-                    environment_allowlist: Vec::new(),
-                },
+                execution_kind: ExecutionKind::CompilerInternal,
+                commands: Vec::new(),
+                runs: Vec::new(),
+                normalization: "proofbound-reviewed-citations/1".into(),
                 reproduction_command: CommandSpec {
                     program: "proofbound".into(),
                     args: vec![
@@ -3354,10 +3403,7 @@ fn compiled_release_value(
                 &release_closure_by_internal_id,
                 &evidence_ids,
             )?;
-            let sha = domain_hash(
-                "proofbound-evidence/2-binding-preview",
-                &canonical_json(&record)?,
-            );
+            let sha = domain_hash("proofbound-evidence/2", &canonical_json(&record)?);
             evidence_ids.insert(evidence.id.to_string(), sha.clone());
             evidence_values.push(serde_json::json!({"sha256": sha, "record": record}));
         }
@@ -3375,6 +3421,7 @@ fn compiled_release_value(
             "node_id": input.claim.node_id,
             "title": input.claim.title,
             "statement": input.claim.statement,
+            "public_language": input.claim.public_language,
             "subject": input.claim.subject,
             "policy": input.claim.policy,
             "tier": input.claim.tier,
@@ -3459,6 +3506,7 @@ fn compiled_release_value(
         .map(|status| {
             serde_json::json!({
                 "claim_id": status.claim_id,
+                "public_statement": status.public_statement,
                 "formal": status.formal,
                 "linkage": status.linkage,
                 "assumption": status.assumption.standing,
@@ -3471,7 +3519,7 @@ fn compiled_release_value(
         })
         .collect::<Vec<_>>();
     let mut payload = serde_json::json!({
-        "schema": "proofbound-compiled-release/2-binding-preview",
+        "schema": "proofbound-compiled-release/2",
         "project": compiled.project,
         "project_revision": compiled.project_revision,
         "project_tier": project_tier,
@@ -3554,32 +3602,29 @@ fn release_evidence_record(
     });
     omit_empty_array_field(&mut cache_material, "additional_closures");
     let cache_key = domain_hash("proofbound-cache-key/1", &canonical_json(&cache_material)?);
-    let command = std::iter::once(evidence.provenance.command.program.clone())
-        .chain(evidence.provenance.command.args.iter().cloned())
-        .collect::<Vec<_>>();
-    let reproduction = std::iter::once(evidence.provenance.reproduction_command.program.clone())
-        .chain(
-            evidence
-                .provenance
-                .reproduction_command
-                .args
-                .iter()
-                .cloned(),
-        )
-        .collect::<Vec<_>>();
-    let environment = evidence
+    let commands = evidence
         .provenance
-        .command
-        .environment_allowlist
+        .commands
         .iter()
-        .chain(
-            &evidence
-                .provenance
-                .reproduction_command
-                .environment_allowlist,
-        )
-        .map(|item| item.name.clone())
-        .collect::<BTreeSet<_>>();
+        .map(release_command)
+        .collect::<Vec<_>>();
+    let runs = evidence
+        .provenance
+        .runs
+        .iter()
+        .map(|run| {
+            serde_json::json!({
+                "command_index": run.command_index,
+                "exit_code": run.exit_code,
+                "stdout_sha256": format!("sha256:{}", run.stdout_sha256),
+                "stderr_sha256": format!("sha256:{}", run.stderr_sha256),
+                "normalized_output_sha256": format!("sha256:{}", run.normalized_output_sha256),
+                "output_truncated": run.output_truncated,
+                "duration_ms": run.duration_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    let reproduction = release_command(&evidence.provenance.reproduction_command);
     let theorem = evidence.theorem.as_ref().map(|item| {
         serde_json::json!({
             "declaration": item.declaration,
@@ -3640,6 +3685,7 @@ fn release_evidence_record(
                 "cardinality": item.domain.cardinality,
             },
             "solver": item.solver,
+            "assumptions": item.assumptions,
             "harnesses": item.harnesses,
             "unwind_bounds": item.unwind_bounds,
         })
@@ -3670,7 +3716,7 @@ fn release_evidence_record(
         })
     });
     let mut record = serde_json::json!({
-        "schema": "proofbound-evidence/2-binding-preview",
+        "schema": "proofbound-evidence/2",
         "unit_id": evidence.unit_id,
         "node_id": evidence.node_id,
         "kind": evidence.kind,
@@ -3699,9 +3745,11 @@ fn release_evidence_record(
             "generated_artifacts": generated_artifacts,
             "tool": tool,
             "adapter": adapter,
-            "command": command,
+            "execution_kind": evidence.provenance.execution_kind,
+            "commands": commands,
+            "runs": runs,
+            "normalization": evidence.provenance.normalization,
             "reproduction_command": reproduction,
-            "environment_allowlist": environment,
             "started_unix_ms": evidence.provenance.started_unix_ms,
             "completed_unix_ms": evidence.provenance.completed_unix_ms,
             "deterministic_result_sha256": format!("sha256:{}", evidence.provenance.deterministic_result_identity),
@@ -3743,7 +3791,13 @@ fn omit_empty_array_field(value: &mut serde_json::Value, field: &str) {
 fn omit_null_object_fields(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(object) => {
-            object.retain(|_, child| !child.is_null());
+            // These version-2 fields are required nullable observations. A
+            // null measurement, environment identity, or exit status must
+            // not be confused with omission by the optional-field cleanup.
+            object.retain(|key, child| {
+                matches!(key.as_str(), "memory_bytes" | "value_sha256" | "exit_code")
+                    || !child.is_null()
+            });
             for child in object.values_mut() {
                 omit_null_object_fields(child);
             }
@@ -3755,6 +3809,20 @@ fn omit_null_object_fields(value: &mut serde_json::Value) {
         }
         _ => {}
     }
+}
+
+fn release_command(command: &CommandSpec) -> serde_json::Value {
+    serde_json::json!({
+        "program": command.program,
+        "args": command.args,
+        "environment_allowlist": command.environment_allowlist.iter().map(|variable| {
+            serde_json::json!({
+                "name": variable.name,
+                "value_sha256": variable.value_sha256.map(|digest| format!("sha256:{digest}")),
+                "secret": variable.secret,
+            })
+        }).collect::<Vec<_>>(),
+    })
 }
 
 fn artifact_records(values: &[ArtifactIdentity]) -> Result<Vec<serde_json::Value>> {
@@ -4362,7 +4430,7 @@ mod tests {
             },
             "solver": "cadical",
             "unwind": 7,
-            "assumptions": [],
+            "assumptions": ["Each seed is an unsigned two-bit value."],
             "resource_budget": {
                 "time_seconds": 30,
                 "disk_bytes": 1024,
@@ -4378,6 +4446,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(receipt.solver, "cadical");
+        assert_eq!(receipt.assumptions, model.assumptions);
         assert_eq!(
             receipt.unwind_bounds,
             BTreeMap::from([("proofs::first".into(), 7), ("proofs::second".into(), 7)])
@@ -4404,11 +4473,223 @@ mod tests {
                 .is_err()
         );
 
+        let mut duplicate_assumptions = model.clone();
+        duplicate_assumptions.assumptions = vec!["same".into(), "same".into()];
+        assert!(
+            bounded_check_from_registered_model(
+                &unit,
+                &duplicate_assumptions,
+                &unit.expected_inventory
+            )
+            .is_err()
+        );
+
+        let mut oversized_assumption = model.clone();
+        oversized_assumption.assumptions = vec!["x".repeat(4097)];
+        assert!(
+            bounded_check_from_registered_model(
+                &unit,
+                &oversized_assumption,
+                &unit.expected_inventory
+            )
+            .is_err()
+        );
+
+        let mut too_many_assumptions = model.clone();
+        too_many_assumptions.assumptions = (0..4097)
+            .map(|index| format!("assumption {index}"))
+            .collect();
+        assert!(
+            bounded_check_from_registered_model(
+                &unit,
+                &too_many_assumptions,
+                &unit.expected_inventory
+            )
+            .is_err()
+        );
+
         let mut empty_solver = model;
         empty_solver.solver.clear();
         assert!(
             bounded_check_from_registered_model(&unit, &empty_solver, &unit.expected_inventory)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn adapter_observation_preserves_complete_execution_and_unknown_memory() {
+        let unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/1",
+            "id": "multi-command",
+            "adapter": "rust-test",
+            "kind": "example-test",
+            "claims": ["CLAIM-ONE"],
+            "tier": 0,
+            "operation": {
+                "type": "cargo-test",
+                "package": "subject",
+                "targets": ["subject::works"]
+            },
+            "expected_inventory": ["subject::works"],
+            "inputs": [],
+            "outputs": [],
+            "environment_allowlist": [],
+            "resource_budget": {"time_seconds": 10, "disk_bytes": 100, "memory_bytes": 100}
+        }))
+        .unwrap();
+        let digest = |label: &str| format!("sha256:{}", Sha256Digest::of_bytes(label.as_bytes()));
+        let command = |argument: &str| {
+            json!({
+                "program": "cargo",
+                "args": [argument],
+                "environment_allowlist": [{
+                    "name": "LANG",
+                    "value_sha256": null,
+                    "secret": false
+                }]
+            })
+        };
+        let run = |index: usize, label: &str| {
+            json!({
+                "command_index": index,
+                "exit_code": 0,
+                "stdout_sha256": digest(&format!("stdout:{label}")),
+                "stderr_sha256": digest(&format!("stderr:{label}")),
+                "normalized_output_sha256": digest(&format!("normalized:{label}")),
+                "output_truncated": false,
+                "duration_ms": index + 1
+            })
+        };
+        let observation = json!({
+            "schema": "proofbound-adapter-observation/1",
+            "unit_id": "multi-command",
+            "evidence_kind": "example-test",
+            "outcome": "passed",
+            "input_artifacts": [],
+            "generated_artifacts": [],
+            "tool": {"name":"cargo","version":"1","identity_sha256":digest("tool")},
+            "adapter": {"name":"adapter","version":"1","identity_sha256":digest("adapter")},
+            "commands": [command("--version"), command("test"), command("--list")],
+            "runs": [run(0, "version"), run(1, "test"), run(2, "list")],
+            "started_unix_ms": 1,
+            "completed_unix_ms": 7,
+            "deterministic_result_sha256": digest("result"),
+            "unit_configuration_sha256": digest("configuration"),
+            "resource_budget": {"time_ms":10000,"disk_bytes":100,"memory_bytes":100},
+            "resource_usage": {"time_ms":6,"peak_disk_bytes":10,"peak_memory_bytes":null},
+            "inventory": ["subject::works"],
+            "normalization": "cargo-test-output/1"
+        });
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap();
+        let record =
+            observation_to_record(root, &unit, None, &[digest("closure")], &observation).unwrap();
+        assert_eq!(record.provenance.commands.len(), 3);
+        assert_eq!(record.provenance.runs.len(), 3);
+        assert_eq!(record.provenance.runs[2].command_index, 2);
+        assert_eq!(record.provenance.normalization, "cargo-test-output/1");
+        assert_eq!(record.provenance.resource_usage.peak_memory_bytes, None);
+        assert_eq!(
+            record.provenance.execution_kind,
+            ExecutionKind::ObservedProcesses
+        );
+        assert_eq!(
+            record.provenance.commands[0].environment_allowlist[0].value_sha256,
+            None
+        );
+        assert_eq!(
+            record.provenance.reproduction_command.args,
+            ["reproduce", "multi-command"]
+        );
+        let closure = digest("closure");
+        let released = release_evidence_record(
+            &record,
+            &closure,
+            &BTreeMap::from([(closure.clone(), closure.clone())]),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(
+            released["provenance"]["commands"][0]["environment_allowlist"][0]["value_sha256"]
+                .is_null()
+        );
+
+        let mut forged_internal = record.clone();
+        forged_internal.provenance.execution_kind = ExecutionKind::CompilerInternal;
+        forged_internal.provenance.commands.clear();
+        forged_internal.provenance.runs.clear();
+        assert!(!has_observed_adapter_execution(&forged_internal));
+        let error = bind_record_to_execution(
+            root,
+            &unit,
+            std::slice::from_ref(&closure),
+            &[],
+            &mut forged_internal,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("PB-ADAPTER-0026"));
+
+        let mut failed_with_incomplete_run = observation.clone();
+        failed_with_incomplete_run["outcome"] = json!("failed");
+        failed_with_incomplete_run["runs"][0]["exit_code"] = serde_json::Value::Null;
+        let failed_record = observation_to_record(
+            root,
+            &unit,
+            None,
+            std::slice::from_ref(&closure),
+            &failed_with_incomplete_run,
+        )
+        .unwrap();
+        assert_eq!(failed_record.status, EvidenceStatus::Failed);
+
+        let mut missing_memory = observation.clone();
+        missing_memory["resource_usage"]
+            .as_object_mut()
+            .unwrap()
+            .remove("peak_memory_bytes");
+        assert!(
+            observation_to_record(root, &unit, None, &[digest("closure")], &missing_memory)
+                .is_err()
+        );
+
+        let mut missing_exit = observation.clone();
+        missing_exit["runs"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("exit_code");
+        assert!(
+            observation_to_record(root, &unit, None, &[digest("closure")], &missing_exit).is_err()
+        );
+
+        let mut missing_environment_identity = observation.clone();
+        missing_environment_identity["commands"][0]["environment_allowlist"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("value_sha256");
+        assert!(
+            observation_to_record(
+                root,
+                &unit,
+                None,
+                &[digest("closure")],
+                &missing_environment_identity
+            )
+            .is_err()
+        );
+
+        let mut oversized_normalization = observation;
+        oversized_normalization["normalization"] = json!("x".repeat(1025));
+        assert!(
+            observation_to_record(
+                root,
+                &unit,
+                None,
+                &[digest("closure")],
+                &oversized_normalization
+            )
+            .is_err()
         );
     }
 
@@ -4423,6 +4704,22 @@ mod tests {
                 .unwrap();
         let provenance = &payload["evidence"][0]["record"]["provenance"];
         assert!(provenance.get("additional_closures").is_none());
+        assert_eq!(provenance["execution_kind"], "compiler-internal");
+        assert!(provenance["commands"].as_array().unwrap().is_empty());
+        assert!(provenance["runs"].as_array().unwrap().is_empty());
+        assert!(provenance["actual_cost"]["memory_bytes"].is_null());
+        assert_eq!(
+            payload["claims"][0]["statement"],
+            "The release serializer preserves a Tier-0 assurance ledger."
+        );
+        assert_eq!(
+            payload["claims"][0]["public_language"],
+            "The portable release smoke remains an open Tier-0 ledger entry."
+        );
+        assert_eq!(
+            payload["reported_statuses"][0]["public_statement"],
+            "The portable release smoke remains an open Tier-0 ledger entry."
+        );
 
         let cache_material = json!({
             "semantic_closure": provenance["semantic_closure"],
@@ -4444,7 +4741,7 @@ mod tests {
     fn artifact_adapter_cannot_bypass_checked_observation_with_core_record() {
         let digest = format!("sha256:{}", "00".repeat(32));
         let forged = json!({
-            "schema": "proofbound-evidence/2-binding-preview",
+            "schema": "proofbound-evidence/2",
             "id": "artifact:forged",
             "node_id": "evidence:artifact:forged",
             "unit_id": "unit:forged",
@@ -4455,12 +4752,11 @@ mod tests {
             "binding_mode": "digest-theorem",
             "artifact_binding": {
                 "theorem": "theorem:exact",
-                "canonical_payload": true,
-                "schema_bound": true,
-                "literal_claim_bound": true,
-                "digest_bound": true,
-                "reencoding_passed": true,
-                "trailing_bytes_rejected": true
+                "artifact": {
+                    "logical_name": "artifact.bin",
+                    "sha256": digest,
+                    "size_bytes": 1
+                }
             },
             "inventoried_targets": ["published-artifact"],
             "assumptions": [],
@@ -4470,11 +4766,26 @@ mod tests {
                 "tree_state": "dirty",
                 "semantic_source_closure": digest,
                 "additional_closures": [],
-                "input_artifacts": [],
+                "input_artifacts": [{
+                    "logical_name": "artifact.bin",
+                    "sha256": digest,
+                    "size_bytes": 1
+                }],
                 "generated_artifacts": [],
                 "tool": {"name":"checker","version":"1","identity_sha256":digest},
                 "adapter": {"name":"adapter","version":"1","identity_sha256":digest},
-                "command": {"program":"checker","args":[],"environment_allowlist":[]},
+                "execution_kind": "observed-processes",
+                "commands": [{"program":"checker","args":[],"environment_allowlist":[]}],
+                "runs": [{
+                    "command_index": 0,
+                    "exit_code": 0,
+                    "stdout_sha256": digest,
+                    "stderr_sha256": digest,
+                    "normalized_output_sha256": digest,
+                    "output_truncated": false,
+                    "duration_ms": 1
+                }],
+                "normalization": "checker-output/1",
                 "reproduction_command": {"program":"checker","args":[],"environment_allowlist":[]},
                 "started_unix_ms": 1,
                 "completed_unix_ms": 2,
@@ -4485,7 +4796,7 @@ mod tests {
                 "cache_origin": "executed"
             }
         });
-        assert!(serde_json::from_value::<EvidenceRecord>(forged.clone()).is_err());
+        assert!(serde_json::from_value::<EvidenceRecord>(forged.clone()).is_ok());
         let unit: EvidenceUnitManifest = serde_json::from_value(json!({
             "schema": "proofbound-evidence-unit/1",
             "id": "forged",
@@ -4532,7 +4843,7 @@ mod tests {
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: "lean".into(),
             success: false,
-            evidence: Some(json!({"schema": "proofbound-evidence/2-binding-preview"})),
+            evidence: Some(json!({"schema": "proofbound-evidence/2"})),
             inventory: Vec::new(),
             diagnostics: Vec::new(),
         };
@@ -4566,6 +4877,16 @@ mod tests {
             unit_runs: Vec::new(),
             claim_input_identities: BTreeMap::new(),
         };
+        let mut stale_v1 = compiled.clone();
+        stale_v1.schema = "proofbound-compiled-project/1".into();
+        write_canonical(
+            &temporary.path().join(".proofbound/compiled/project.json"),
+            &stale_v1,
+        )
+        .unwrap();
+        let error = load_compiled(temporary.path()).unwrap_err().to_string();
+        assert!(error.contains("PB-RECEIPT-0002"));
+
         write_canonical(
             &temporary.path().join(".proofbound/compiled/project.json"),
             &compiled,
