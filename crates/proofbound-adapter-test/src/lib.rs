@@ -62,16 +62,8 @@ pub struct AdapterObservation {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactBindingObservation {
-    pub theorem: String,
-    pub claims: Vec<String>,
     pub artifact_logical_name: String,
     pub artifact_sha256: String,
-    pub canonical_payload: bool,
-    pub schema_bound: bool,
-    pub literal_claim_bound: bool,
-    pub digest_bound: bool,
-    pub reencoding_passed: bool,
-    pub trailing_bytes_rejected: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -79,17 +71,9 @@ pub struct ArtifactBindingObservation {
 struct ArtifactCheckerReport {
     schema: String,
     accepted: bool,
-    theorem: String,
-    claims: Vec<String>,
     artifact_logical_name: String,
     artifact_sha256: String,
     inventory: Vec<String>,
-    canonical_payload: bool,
-    schema_bound: bool,
-    literal_claim_bound: bool,
-    digest_bound: bool,
-    reencoding_passed: bool,
-    trailing_bytes_rejected: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1549,19 +1533,9 @@ fn validate_artifact_checker_report(
         ));
     }
 
-    let expected_theorem = unit.theorem.as_deref().ok_or_else(|| {
-        AdapterError::Unit("artifact-soundness unit must name its audited theorem".to_owned())
-    })?;
-    if report.theorem != expected_theorem {
-        return Err(AdapterError::Inventory(
-            "canonical checker theorem does not match unit.theorem".to_owned(),
-        ));
-    }
-    let expected_claims = sorted_unique(unit.claims.clone(), "artifact unit claims")?;
-    let reported_claims = sorted_unique(report.claims.clone(), "artifact checker claims")?;
-    if reported_claims != expected_claims {
-        return Err(AdapterError::Inventory(
-            "canonical checker claim inventory does not match the unit".to_owned(),
+    if unit.theorem.as_deref().is_none_or(str::is_empty) {
+        return Err(AdapterError::Unit(
+            "artifact-soundness unit must name its audited theorem".to_owned(),
         ));
     }
     let expected_inventory = sorted_unique(
@@ -1600,30 +1574,10 @@ fn validate_artifact_checker_report(
             "canonical checker artifact digest does not match the checked input bytes".to_owned(),
         ));
     }
-    if !report.canonical_payload
-        || !report.schema_bound
-        || !report.literal_claim_bound
-        || !report.digest_bound
-        || !report.reencoding_passed
-        || !report.trailing_bytes_rejected
-    {
-        return Err(AdapterError::Inventory(
-            "canonical checker omitted or failed a required artifact-binding fact".to_owned(),
-        ));
-    }
-
     Ok((
         ArtifactBindingObservation {
-            theorem: report.theorem,
-            claims: reported_claims,
             artifact_logical_name: report.artifact_logical_name,
             artifact_sha256: actual_sha256,
-            canonical_payload: report.canonical_payload,
-            schema_bound: report.schema_bound,
-            literal_claim_bound: report.literal_claim_bound,
-            digest_bound: report.digest_bound,
-            reencoding_passed: report.reencoding_passed,
-            trailing_bytes_rejected: report.trailing_bytes_rejected,
         },
         reported_inventory,
     ))
@@ -2812,17 +2766,9 @@ affected_claims = ["CLAIM-ONE"]
             stdout: canonical_json(&json!({
                 "schema": "proofbound-artifact-check-result/1",
                 "accepted": true,
-                "theorem": "Example.Claims.publishedMeaning",
-                "claims": ["CLAIM-ONE"],
                 "artifact_logical_name": "artifact.bin",
                 "artifact_sha256": sha256_bytes(b"artifact"),
-                "inventory": ["published-artifact"],
-                "canonical_payload": true,
-                "schema_bound": true,
-                "literal_claim_bound": true,
-                "digest_bound": true,
-                "reencoding_passed": true,
-                "trailing_bytes_rejected": true
+                "inventory": ["published-artifact"]
             }))
             .unwrap(),
             stderr: vec![],
@@ -2841,10 +2787,9 @@ affected_claims = ["CLAIM-ONE"]
         assert_eq!(observation.inventory, inventory);
         assert_eq!(observation.generated_artifacts, []);
         assert_eq!(observation.input_artifacts.len(), 2);
-        assert_eq!(
-            observation.artifact_binding.unwrap().theorem,
-            "Example.Claims.publishedMeaning"
-        );
+        let binding = observation.artifact_binding.unwrap();
+        assert_eq!(binding.artifact_logical_name, "artifact.bin");
+        assert_eq!(binding.artifact_sha256, sha256_bytes(b"artifact"));
         assert_eq!(observation.commands.len(), 2);
         assert_eq!(observation.runs.len(), 2);
         assert_eq!(fake.seen.len(), 2);
@@ -2857,7 +2802,7 @@ affected_claims = ["CLAIM-ONE"]
     }
 
     #[test]
-    fn canonical_checker_report_fails_closed_on_fabricated_or_ambiguous_facts() {
+    fn canonical_checker_report_rejects_linkage_assertions_and_digest_drift() {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join("artifact.bin"), b"artifact").unwrap();
         let canonical_root = root.path().canonicalize().unwrap();
@@ -2865,17 +2810,9 @@ affected_claims = ["CLAIM-ONE"]
         let valid = json!({
             "schema": "proofbound-artifact-check-result/1",
             "accepted": true,
-            "theorem": "Example.Claims.publishedMeaning",
-            "claims": ["CLAIM-ONE"],
             "artifact_logical_name": "artifact.bin",
             "artifact_sha256": sha256_bytes(b"artifact"),
-            "inventory": ["published-artifact"],
-            "canonical_payload": true,
-            "schema_bound": true,
-            "literal_claim_bound": true,
-            "digest_bound": true,
-            "reencoding_passed": true,
-            "trailing_bytes_rejected": true
+            "inventory": ["published-artifact"]
         });
         assert!(
             validate_artifact_checker_report(
@@ -2886,31 +2823,20 @@ affected_claims = ["CLAIM-ONE"]
             .is_ok()
         );
 
-        for (field, replacement) in [
-            ("canonical_payload", json!(false)),
-            ("schema_bound", json!(false)),
-            ("literal_claim_bound", json!(false)),
-            ("digest_bound", json!(false)),
-            ("reencoding_passed", json!(false)),
-            ("trailing_bytes_rejected", json!(false)),
-            ("theorem", json!("Example.Claims.someOtherTheorem")),
-            ("artifact_sha256", json!(sha256_bytes(b"different"))),
-        ] {
-            let mut malicious = valid.clone();
-            malicious[field] = replacement;
-            assert!(
-                validate_artifact_checker_report(
-                    &canonical_json(&malicious).unwrap(),
-                    &unit,
-                    &canonical_root
-                )
-                .is_err(),
-                "field {field} must fail closed"
-            );
-        }
+        let mut wrong_digest = valid.clone();
+        wrong_digest["artifact_sha256"] = json!(sha256_bytes(b"different"));
+        assert!(
+            validate_artifact_checker_report(
+                &canonical_json(&wrong_digest).unwrap(),
+                &unit,
+                &canonical_root
+            )
+            .is_err(),
+            "a checker-authored digest must match the adapter-recomputed input digest"
+        );
 
         let mut missing = valid.clone();
-        missing.as_object_mut().unwrap().remove("digest_bound");
+        missing.as_object_mut().unwrap().remove("artifact_sha256");
         assert!(
             validate_artifact_checker_report(
                 &canonical_json(&missing).unwrap(),
@@ -2919,6 +2845,29 @@ affected_claims = ["CLAIM-ONE"]
             )
             .is_err()
         );
+
+        for forbidden in [
+            "theorem",
+            "claims",
+            "canonical_payload",
+            "schema_bound",
+            "literal_claim_bound",
+            "digest_bound",
+            "reencoding_passed",
+            "trailing_bytes_rejected",
+        ] {
+            let mut smuggled = valid.clone();
+            smuggled[forbidden] = json!(true);
+            assert!(
+                validate_artifact_checker_report(
+                    &canonical_json(&smuggled).unwrap(),
+                    &unit,
+                    &canonical_root
+                )
+                .is_err(),
+                "checker-authored linkage field {forbidden} must be rejected"
+            );
+        }
 
         let mut noncanonical = canonical_json(&valid).unwrap();
         noncanonical.push(b'\n');

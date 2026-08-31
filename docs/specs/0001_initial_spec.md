@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.6.0
+**Version:** 0.7.0
 
 **Date:** 2026-08-31
 
@@ -12,6 +12,14 @@
 
 ### Revision history
 
+- **0.7.0** — artifact-binding security boundary: derives
+  `ARTIFACT_BOUND` only from the exact elaborated root proposition carried by
+  an admitted theorem, removes checker-authored linkage booleans, makes the
+  complete canonical theorem statement available to the independent verifier,
+  and introduces an explicitly provisional `2-binding-preview` envelope
+  family so this security change stands alone without assigning an incomplete
+  meaning to the final version-2 receipt (§5, §7.1, §9.4, §10.2, §10.4;
+  ADR 0012).
 - **0.6.0** — bounded-evidence fidelity: requires the bounded receipt's solver
   and per-harness unwind bounds to equal the registered model-check unit, with
   exact harness/unwind key coverage and nonzero bounds (§9.7); and requires
@@ -283,7 +291,7 @@ kinds simultaneously.
 | Evidence kind | Meaning |
 |---|---|
 | `theorem` | A proof assistant kernel accepted the named theorem. |
-| `artifact-soundness` | A theorem links acceptance of exact canonical bytes, or a digest checked inside the theorem boundary, to a formal meaning. |
+| `artifact-soundness` | A checked artifact identity matches the literal identity derived independently from an admitted theorem's exact elaborated binding proposition. |
 | `trusted-transcription` | Typed values are transcribed outside the theorem boundary and byte identity is enforced by an external round-trip; the transcriber and re-encoder are trusted components. |
 | `source-refinement` | Translated or otherwise linked production code refines formal semantics under stated representation premises. |
 | `bounded-check` | A bounded model checker established the property over the registered finite domain. |
@@ -308,6 +316,16 @@ Two qualifiers keep the strong kinds honest:
   MUST state binding mode `external-round-trip` (Section 7.1.1). These evidence
   kinds and binding modes are not interchangeable, and the graph never
   conflates them.
+- **Binding derivation.** A checker outcome, theorem name, or Boolean assertion
+  is never a binding. Version 0.7 admits `digest-theorem` only when the exact
+  outermost elaborated statement is
+  `Proofbound.Artifact.DigestBindingV1 claimId artifactSchema logicalName
+  expectedSha256 bytes meaning`, the first four arguments are direct canonical
+  string literals, and the proposition establishes both the SHA-256 identity
+  and `meaning bytes`. The complete `lean-expr-cbor/1` statement is carried in
+  theorem evidence so both status engines recompute its identity and parse it
+  independently. `bytes-in-theorem` remains reserved but fails closed until an
+  equally exact typed proposition and portable byte comparison are specified.
 
 The status vocabulary MUST NOT compress these into a single scalar such as
 `verified`. Summary status is the three-facet composition defined in
@@ -437,7 +455,7 @@ Linkage facet, from the subject-binding evidence:
 | Binding evidence | Linkage facet |
 |---|---|
 | `source-refinement` with a named refinement theorem and registered representation premises | `REFINED` |
-| `artifact-soundness` with binding `bytes-in-theorem` or `digest-theorem` | `ARTIFACT_BOUND` |
+| `artifact-soundness` whose admitted theorem has the exact typed `DigestBindingV1` root and matching checked artifact identity (§5, §9.4) | `ARTIFACT_BOUND` |
 | `trusted-transcription` with binding `external-round-trip` (§7.1.1) | `TRANSCRIBED` |
 | no subject binding | `MODEL_ONLY` |
 
@@ -524,7 +542,7 @@ Untrusted producer (Python/Rust/other)
             |                     |
             +--- cross-check -----+
                                   v
-                   acceptance-implies-meaning theorem
+             typed digest-and-meaning public theorem
                                   |
                                   v
                          artifact-bound claim
@@ -535,9 +553,9 @@ Requirements:
 - canonical, bounded, versioned bytes;
 - rejection of trailing, oversized, ambiguous, or non-canonical inputs;
 - an independently implemented Lean decoder inside the theorem boundary;
-- a theorem connecting decoder/checker acceptance to domain meaning;
-- a digest theorem connecting the published bytes to the claim — digest
-  binding is the **default**, not an optional refinement;
+- one attributed public theorem whose exact elaborated root is the versioned
+  Proofbound digest-binding proposition and whose proposition connects the
+  same bytes to both their domain meaning and literal SHA-256 identity;
 - an independent diagnostic checker where feasible; and
 - explicit separation between search/production and trusted checking.
 
@@ -545,6 +563,12 @@ Full byte binding has real cost: embedding published bytes in the theorem
 generally requires native evaluation (which enlarges the TCB, §9.6) and grows
 generated modules. That cost is recorded in the TCB ledger and the evidence
 evaluation mode; it is not a reason to silently weaken the binding.
+
+The checker report contains only its outcome, exact discovered inventory, and
+the adapter-recomputed artifact identity. It cannot author the claim ID,
+theorem link, binding mode, or binding-validity booleans. The compiler joins
+that identity to the typed theorem statement; the independent verifier repeats
+the join from the portable expression wire.
 
 The framework MAY generate envelope grammar, bounded parser scaffolding, error
 codes, and module boilerplate. It MUST NOT generate both independent semantic
@@ -795,11 +819,23 @@ The initial built-in profiles are:
 
 ### 9.4 `artifact-bound`
 
-- Satisfies `kernel` or `kernel-with-assumptions`.
-- The theorem binds canonical payload bytes, schema, literal claim, and digest.
-- Binding mode is `bytes-in-theorem` or `digest-theorem`;
-  `trusted-transcription` evidence does not qualify (§7.1.1).
-- Re-encoding and trailing-byte checks pass.
+- Satisfies `kernel` or `kernel-with-assumptions`; a composition with
+  `native-evaluated` must record its exact native premise and TCB.
+- The admitted theorem receipt carries the complete canonical elaborated
+  statement and its recomputed statement identity.
+- For `digest-theorem`, that statement is exactly the outermost
+  `Proofbound.Artifact.DigestBindingV1` application defined in Section 5; the
+  literal claim ID, schema, logical name, and SHA-256 identity are derived from
+  theorem content rather than checker output.
+- The derived artifact logical name and digest equal exactly one checked input
+  artifact in the separate artifact-soundness record. Version-2 provenance
+  carries that artifact's complete logical-name, digest, and byte-size identity;
+  both status engines require an exact match, including `size_bytes`.
+- `bytes-in-theorem` is not admitted in 0.7; `trusted-transcription` evidence
+  remains `TRANSCRIBED`, never `ARTIFACT_BOUND` (§7.1.1).
+- Canonical parsing, re-encoding, and trailing-byte rejection are required work
+  of the registered checker, but checker-authored booleans have no
+  status-bearing representation.
 
 ### 9.5 `source-refined`
 
@@ -913,7 +949,7 @@ metadata, not source-text scanning (§17).
 Adapters communicate with the orchestrator over a versioned JSON subprocess
 protocol: requests and responses are schema-validated canonical JSON on
 stdin/stdout (`schemas/adapter-protocol.schema.json`), and evidence is
-returned either as a complete `proofbound-evidence/1` record or as a strict
+returned either as a complete `proofbound-evidence/2-binding-preview` record or as a strict
 `proofbound-adapter-observation/1` execution receipt that the assurance
 compiler deterministically enriches with graph and source-closure identities.
 The latter prevents a tool adapter from fabricating project provenance it does
@@ -945,6 +981,12 @@ third-party reviewers.
 - recomputes the claim graph and status facets from the receipts; and
 - rejects unsupported evidence kinds, unknown schemas, and any status
   stronger than its recomputation derives.
+
+For artifact linkage it additionally re-encodes the portable
+`lean-expr-cbor/1` statement, checks the theorem statement identity, recognizes
+only the exact typed binding at the expression root, and joins its literal
+claim/path/digest to the checked artifact identity. It does not accept an
+adapter projection or Boolean substitute for this derivation.
 
 Its trust boundary is stated, not implied: `proofbound-verify` certifies that
 the reported statuses are **receipt-consistent** — that the graph and facets

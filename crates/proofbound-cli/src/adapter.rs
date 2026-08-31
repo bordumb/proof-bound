@@ -178,7 +178,7 @@ fn validate_response_schema(response: &AdapterResponse) -> Result<()> {
             .and_then(serde_json::Value::as_str);
         if !matches!(
             schema,
-            Some("proofbound-evidence/1" | "proofbound-adapter-observation/1")
+            Some("proofbound-evidence/2-binding-preview" | "proofbound-adapter-observation/1")
         ) {
             bail!("PB-ADAPTER-0008: adapter evidence has an unsupported schema");
         }
@@ -364,7 +364,10 @@ mod tests {
 
     #[test]
     fn response_boundary_requires_canonical_json() {
-        let value = protocol_value(true, serde_json::json!({"schema": "proofbound-evidence/1"}));
+        let value = protocol_value(
+            true,
+            serde_json::json!({"schema": "proofbound-evidence/2-binding-preview"}),
+        );
         let mut noncanonical = serde_json::to_vec_pretty(&value).unwrap();
         noncanonical.push(b'\n');
         assert!(
@@ -383,7 +386,7 @@ mod tests {
     fn failed_response_cannot_smuggle_evidence() {
         let value = protocol_value(
             false,
-            serde_json::json!({"schema": "proofbound-evidence/1"}),
+            serde_json::json!({"schema": "proofbound-evidence/2-binding-preview"}),
         );
         let bytes = canonical_json(&value).unwrap();
         assert!(

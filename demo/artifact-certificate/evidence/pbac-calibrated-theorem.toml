@@ -4,12 +4,14 @@ adapter = "lean"
 kind = "theorem"
 claims = ["PBAC-CALIBRATED-001"]
 tier = 2
-evaluation_mode = "kernel"
-theorem = "ProofboundArtifactDemo.Claims.publishedCalibratedTotal"
-assumptions = ["PBAC-CALIBRATION-AX-001"]
+evaluation_mode = "native"
+theorem = "ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness"
+assumptions = ["PBAC-CALIBRATION-AX-001", "PBAC-NATIVE-SHA256-001"]
 inputs = [
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Certificate.lean",
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean",
+  "lean/Proofbound/Artifact.lean",
+  "lean/Proofbound/Sha256.lean",
 ]
 outputs = []
 environment_allowlist = ["LEAN_PATH", "PATH"]
@@ -20,6 +22,8 @@ targets = ["ProofboundArtifactDemo.Claims"]
 paths = [
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Certificate.lean",
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean",
+  "lean/Proofbound/Artifact.lean",
+  "lean/Proofbound/Sha256.lean",
 ]
 
 [resource_budget]

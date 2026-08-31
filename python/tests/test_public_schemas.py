@@ -172,7 +172,7 @@ def test_adapter_schema_forbids_evidence_on_failure() -> None:
         "request_id": "0123456789abcdef0123456789abcdef",
         "adapter": "lean",
         "success": False,
-        "evidence": {"schema": "proofbound-evidence/1"},
+        "evidence": {"schema": "proofbound-evidence/2-binding-preview"},
         "inventory": [],
         "diagnostics": [],
     }

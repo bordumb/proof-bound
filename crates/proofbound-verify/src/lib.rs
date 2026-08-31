@@ -6,10 +6,12 @@
 
 mod canonical;
 mod format;
+mod statement_wire;
 mod verifier;
 
 pub use canonical::{canonical_json, domain_hash, raw_sha256};
 pub use format::*;
+pub use statement_wire::statement_digest as lean_statement_wire_digest;
 pub use verifier::{
     NotProvedOutOfScopeReport, VerificationErrors, VerificationIssue, VerificationIssueCode,
     VerificationReport, verify_compiled_release, verify_release_dir,

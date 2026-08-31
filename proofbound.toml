@@ -6,7 +6,7 @@ assumption_manifests = ["demo/allowance/proofbound/assumptions/*.toml", "demo/ar
 evidence_units = ["proofbound/evidence/*.toml", "demo/allowance/proofbound/evidence/*.toml", "demo/artifact-certificate/evidence/*.toml"]
 translation_units = ["demo/allowance/proofbound/translations/*.toml"]
 model_check_units = ["demo/allowance/proofbound/model-checks/*.toml"]
-policy_manifests = []
+policy_manifests = ["demo/artifact-certificate/policies/*.toml"]
 review_manifests = []
 demo_registry = "proofbound/demos.toml"
 
@@ -23,6 +23,7 @@ semantic = [
   "demo/*/claims/**",
   "demo/*/assumptions/**",
   "demo/*/evidence/**",
+  "demo/*/policies/**",
 ]
 runner = [".cargo/**", ".github/workflows/**", "Cargo.lock", "justfile", "rust-toolchain.toml", "lean-toolchain", "lakefile.toml", "pyproject.toml", "uv.lock", "python/**", "demo/*/python/**"]
 presentation = ["README.md", "docs/**", "demo/*/README.md", "demo/*/FORMAT.md"]

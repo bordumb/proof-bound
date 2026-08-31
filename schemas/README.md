@@ -14,7 +14,7 @@ separator.
 identity. Pretty-printer output is diagnostic only and is never hashed.
 
 `adapter-protocol.schema.json` defines the canonical subprocess envelope.
-Successful adapters return either a complete `proofbound-evidence/1` record or
+Successful adapters return either a complete `proofbound-evidence/2-binding-preview` record or
 the strict, tool-neutral `proofbound-adapter-observation/1` object defined by
 `adapter-observation.schema.json`; the compiler validates and converts the
 latter without trusting adapter-supplied claim status.

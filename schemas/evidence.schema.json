@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "node_id", "unit_id", "kind", "status", "claims", "inventoried_targets", "assumptions", "premises", "provenance"],
   "properties": {
-    "schema": { "const": "proofbound-evidence/1" },
+    "schema": { "const": "proofbound-evidence/2-binding-preview" },
     "id": { "$ref": "#/$defs/id" },
     "node_id": { "$ref": "#/$defs/id" },
     "unit_id": { "$ref": "#/$defs/id" },
@@ -132,10 +132,11 @@
     },
     "theorem": {
       "type": "object", "additionalProperties": false,
-      "required": ["declaration", "statement_encoding", "statement_sha256", "attributed_claim", "environment", "axiom_audit_passed", "contains_sorry_ax", "foundational_axioms", "project_axioms"],
+      "required": ["declaration", "statement_encoding", "statement_wire", "statement_sha256", "attributed_claim", "environment", "axiom_audit_passed", "contains_sorry_ax", "foundational_axioms", "project_axioms"],
       "properties": {
         "declaration": { "type": "string", "minLength": 1, "maxLength": 1024 },
         "statement_encoding": { "const": "lean-expr-cbor/1" },
+        "statement_wire": { "type": "array", "minItems": 2, "maxItems": 2 },
         "statement_sha256": { "$ref": "#/$defs/digest" },
         "attributed_claim": { "$ref": "#/$defs/id" },
         "environment": { "$ref": "#/$defs/id" },
@@ -147,15 +148,10 @@
     },
     "artifactBinding": {
       "type": "object", "additionalProperties": false,
-      "required": ["theorem", "canonical_payload", "schema_bound", "literal_claim_bound", "digest_bound", "reencoding_passed", "trailing_bytes_rejected"],
+      "required": ["theorem", "artifact"],
       "properties": {
         "theorem": { "$ref": "#/$defs/id" },
-        "canonical_payload": { "type": "boolean" },
-        "schema_bound": { "type": "boolean" },
-        "literal_claim_bound": { "type": "boolean" },
-        "digest_bound": { "type": "boolean" },
-        "reencoding_passed": { "type": "boolean" },
-        "trailing_bytes_rejected": { "type": "boolean" }
+        "artifact": { "$ref": "#/$defs/artifact" }
       }
     },
     "trustedTranscription": {

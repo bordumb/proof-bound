@@ -155,6 +155,19 @@
       "expected": {"formal": "PROVED", "linkage": "ARTIFACT_BOUND", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
     },
     {
+      "id": "artifact-checker-smuggling-unrelated-theorem",
+      "tier": 3,
+      "policy": {"components": ["artifact-bound"]},
+      "evidence": [
+        {"id": "proof", "kind": "theorem", "evaluation": "kernel", "typed_binding": false},
+        {"id": "artifact", "kind": "artifact-soundness", "evaluation": "kernel", "theorem_ref": "proof"}
+      ],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
       "id": "artifact-bound-native-digest-binding",
       "tier": 3,
       "policy": {"components": ["artifact-bound"]},

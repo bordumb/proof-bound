@@ -98,18 +98,10 @@
     },
     "artifact_binding": {
       "type": "object", "additionalProperties": false,
-      "required": ["theorem", "claims", "artifact_logical_name", "artifact_sha256", "canonical_payload", "schema_bound", "literal_claim_bound", "digest_bound", "reencoding_passed", "trailing_bytes_rejected"],
+      "required": ["artifact_logical_name", "artifact_sha256"],
       "properties": {
-        "theorem": { "type": "string", "minLength": 1, "maxLength": 4096 },
-        "claims": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 128 }, "minItems": 1, "uniqueItems": true, "maxItems": 100000 },
         "artifact_logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 },
-        "artifact_sha256": { "$ref": "#/$defs/digest" },
-        "canonical_payload": { "const": true },
-        "schema_bound": { "const": true },
-        "literal_claim_bound": { "const": true },
-        "digest_bound": { "const": true },
-        "reencoding_passed": { "const": true },
-        "trailing_bytes_rejected": { "const": true }
+        "artifact_sha256": { "$ref": "#/$defs/digest" }
       }
     }
   }

@@ -4,11 +4,16 @@ title = "The published PBAC entries sum to the stated total"
 statement = "The exact published canonical certificate decodes and its entry values sum to 1021."
 public_language = "The exact PBAC artifact with SHA-256 dd7cf87ba3535aad431c473b71286fb6806fcc785fc3b39290c4a99d561dfe2d has entries whose sum is 1021."
 subject = "artifact:demo/artifact-certificate/fixtures/valid-basic.pbac#sha256:dd7cf87ba3535aad431c473b71286fb6806fcc785fc3b39290c4a99d561dfe2d"
-formal_declaration = "ProofboundArtifactDemo.Claims.publishedTotal"
+formal_declaration = "ProofboundArtifactDemo.Claims.publishedArtifactSoundness"
 statement_encoding = "lean-expr-cbor/1"
-statement_sha256 = "sha256:7c7d06c813f957c0ae05c44ca3dfcab0ed69fb389806b58a0b2a1d8a4b219f6e"
-foundational_axioms = []
-profile = "artifact-bound"
+statement_sha256 = "sha256:c74825fbea395050913506eac02140d2f1f78d6543881ab17e36a5c36ece14c0"
+foundational_axioms = [
+  "Classical.choice",
+  "ProofboundArtifactDemo.Claims.publishedArtifactSoundness._native.native_decide.ax_1_1",
+  "Quot.sound",
+  "propext",
+]
+profile = "pbac-artifact-native"
 tier = 3
 primary_linkage = "artifact-bound"
 evidence = [
@@ -17,12 +22,14 @@ evidence = [
   "independent:pbac-independent-diagnostic",
   "test:pbac-fixture-generation",
 ]
-assumptions = []
+assumptions = ["PBAC-NATIVE-SHA256-001"]
 premises = []
 open_obligations = []
 out_of_scope = ["How an untrusted producer discovers a certificate."]
 source_roots = [
+  "demo/artifact-certificate/fixtures/valid-basic.pbac",
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Certificate.lean",
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean",
-  "demo/artifact-certificate/fixtures/valid-basic.pbac",
+  "lean/Proofbound/Artifact.lean",
+  "lean/Proofbound/Sha256.lean",
 ]

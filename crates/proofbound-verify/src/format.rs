@@ -1,14 +1,16 @@
-//! Closed `proofbound-compiled-release/1` receipt format.
+//! Closed `proofbound-compiled-release/2-binding-preview` receipt format.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-pub const RELEASE_ENVELOPE_SCHEMA_V1: &str = "proofbound-release-envelope/1";
-pub const COMPILED_RELEASE_SCHEMA_V1: &str = "proofbound-compiled-release/1";
+pub const RELEASE_ENVELOPE_SCHEMA_BINDING_PREVIEW: &str =
+    "proofbound-release-envelope/2-binding-preview";
+pub const COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW: &str =
+    "proofbound-compiled-release/2-binding-preview";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
-pub const EVIDENCE_SCHEMA_V1: &str = "proofbound-evidence/1";
+pub const EVIDENCE_SCHEMA_BINDING_PREVIEW: &str = "proofbound-evidence/2-binding-preview";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const CLOSURE_SCHEMA_V1: &str = "proofbound-source-closure/1";
 pub const POLICY_SCHEMA_V1: &str = "proofbound-policy/1";
@@ -300,6 +302,7 @@ pub enum BindingMode {
 pub struct TheoremReceipt {
     pub declaration: String,
     pub statement_encoding: String,
+    pub statement_wire: serde_json::Value,
     pub statement_sha256: String,
     pub attributed_claim: String,
     pub proof_environment: String,
@@ -311,16 +314,20 @@ pub struct TheoremReceipt {
     pub project_axioms: BTreeSet<String>,
 }
 
+/// Exact identity of an artifact checked by a binding evidence unit.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactIdentityReceipt {
+    pub logical_name: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactBindingReceipt {
     pub theorem_evidence: String,
-    pub canonical_payload: bool,
-    pub schema_bound: bool,
-    pub literal_claim_bound: bool,
-    pub digest_bound: bool,
-    pub reencoding_passed: bool,
-    pub trailing_bytes_rejected: bool,
+    pub artifact: ArtifactIdentityReceipt,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -413,7 +420,7 @@ pub struct CacheKeyMaterial {
     pub semantic_closure: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_closures: Vec<ClosureReference>,
-    pub input_artifacts: BTreeMap<String, String>,
+    pub input_artifacts: Vec<ArtifactIdentityReceipt>,
     pub tool: ToolIdentity,
     pub adapter: ToolIdentity,
     pub unit_configuration_sha256: String,
@@ -428,9 +435,9 @@ pub struct EvidenceProvenance {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_closures: Vec<ClosureReference>,
     #[serde(default)]
-    pub input_artifacts: BTreeMap<String, String>,
+    pub input_artifacts: Vec<ArtifactIdentityReceipt>,
     #[serde(default)]
-    pub generated_artifacts: BTreeMap<String, String>,
+    pub generated_artifacts: Vec<ArtifactIdentityReceipt>,
     pub tool: ToolIdentity,
     pub adapter: ToolIdentity,
     pub command: Vec<String>,

@@ -9,7 +9,7 @@ use crate::{
     AssuranceGraph, BoundedDomain, CLAIM_SCHEMA_V1, ClaimDefinition, ClaimId, EdgeKind, ErrorCode,
     EvidenceId, EvidenceKind, EvidenceRecord, EvidenceStatus, FlowScope, FormalFacet, LinkageFacet,
     NodeId, NodeKind, OpenObligation, OutOfScope, PolicyDefinition, PremiseId, PremiseRecord,
-    StructuredError, TheoremAdmission, Tier,
+    StructuredError, TheoremAdmission, Tier, parse_artifact_digest_binding,
 };
 
 pub const CLAIM_STATUS_SCHEMA_V1: &str = "proofbound-claim-status/1";
@@ -836,8 +836,60 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
                         && admitted_theorems.contains(&binding.theorem)
                         && input.policy.artifact_evaluation_admitted(record)
                     {
-                        linkage_candidates.insert(LinkageFacet::ArtifactBound);
-                        linkage_evidence.insert(record.id.clone());
+                        let parsed = evidence_catalog
+                            .get(&binding.theorem)
+                            .and_then(|theorem_record| theorem_record.theorem.as_ref())
+                            .ok_or_else(|| {
+                                format!(
+                                    "artifact binding '{}' references evidence '{}' without a compiled theorem statement",
+                                    record.id, binding.theorem
+                                )
+                            })
+                            .and_then(|theorem| {
+                                parse_artifact_digest_binding(
+                                    &theorem.statement_wire,
+                                    theorem.statement_sha256,
+                                    claim_id,
+                                )
+                                .map_err(|error| {
+                                    format!(
+                                        "artifact binding '{}' is not derived from the exact audited theorem root: {error}",
+                                        record.id
+                                    )
+                                })
+                            });
+                        match parsed {
+                            Ok(parsed)
+                                if record.binding_mode == Some(parsed.mode)
+                                    && parsed.artifact_logical_name
+                                        == binding.artifact.logical_name
+                                    && parsed.artifact_sha256 == binding.artifact.sha256 =>
+                            {
+                                linkage_candidates.insert(LinkageFacet::ArtifactBound);
+                                linkage_evidence.insert(record.id.clone());
+                            }
+                            Ok(_) => errors.push(
+                                claim_error(
+                                    claim_id,
+                                    ErrorCode::PbCoreInvalidEvidence,
+                                    format!(
+                                        "artifact binding '{}' disagrees with its audited theorem marker",
+                                        record.id
+                                    ),
+                                    "make binding mode, logical name, and digest equal the exact elaborated theorem marker",
+                                )
+                                .for_unit(record.unit_id.clone()),
+                            ),
+                            Err(message) => errors.push(
+                                claim_error(
+                                    claim_id,
+                                    ErrorCode::PbCoreInvalidEvidence,
+                                    message,
+                                    "use an exact Proofbound.Artifact.DigestBindingV1 theorem root with literal audited identity fields",
+                                )
+                                .for_unit(record.unit_id.clone()),
+                            ),
+                        }
                     }
                 }
             }

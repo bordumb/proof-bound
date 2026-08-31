@@ -10,6 +10,7 @@ use proofbound_manifest::{AdapterKind, EvidenceKind, OperationKind};
 use sha2::{Digest as _, Sha256};
 
 use crate::{
+    artifact::validate_digest_binding_v1,
     error::{
         AUDIT_OUTPUT, AXIOM, AdapterError, CONFIGURATION, DECLARATION, EXPR_WIRE, INVENTORY,
         STATEMENT_DRIFT,
@@ -199,14 +200,26 @@ fn verify_audit_with_policy(
             })
         })
         .collect::<Result<_, _>>()?;
-    if configured_assumptions != project_axioms {
+    let native_evaluation = matches!(
+        unit.evidence_unit.evaluation_mode,
+        Some(proofbound_manifest::EvaluationMode::Native)
+    );
+    let non_project_assumptions = configured_assumptions
+        .difference(&project_axioms)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if !project_axioms.is_subset(&configured_assumptions)
+        || (!native_evaluation && !non_project_assumptions.is_empty())
+        || (native_evaluation && non_project_assumptions.is_empty())
+    {
         return Err(AdapterError::new(
             AXIOM,
             format!(
-                "unit assumptions do not exactly classify target project axioms; configured={configured_assumptions:?}, audited={project_axioms:?}"
+                "unit assumptions do not classify the audited project axioms and native-evaluation boundary exactly; configured={configured_assumptions:?}, audited_project_axioms={project_axioms:?}, evaluation_mode={:?}",
+                unit.evidence_unit.evaluation_mode
             ),
         )
-        .remediate("map every project axiom to its registered assumption and remove unused assumptions"));
+        .remediate("map every project axiom to a registered assumption; kernel units permit no extras, while native units require at least one explicit non-project native-evaluation premise"));
     }
 
     let inventory = output
@@ -657,6 +670,7 @@ fn verify_claim(
             format!("invalid ExprWire for '{}': {error}", actual.declaration),
         )
     })?;
+    validate_digest_binding_v1(&actual.expr_wire, &actual.claim_id)?;
     Ok((
         digest,
         expected.foundational_axioms.iter().cloned().collect(),
@@ -896,6 +910,34 @@ mod tests {
         axiom.claims[0].axioms = vec!["Demo.axiom".to_owned()];
         assert_eq!(
             verify_audit(&unit(None), &axiom, false).unwrap_err().code,
+            AXIOM
+        );
+    }
+
+    #[test]
+    fn native_evaluation_requires_an_explicit_non_project_premise() {
+        let mut native = unit(None);
+        native.evidence_unit.evaluation_mode = Some(EvaluationMode::Native);
+        assert_eq!(
+            verify_audit(&native, &output(), false).unwrap_err().code,
+            AXIOM
+        );
+
+        native
+            .evidence_unit
+            .assumptions
+            .push("DEMO-NATIVE-EVALUATION-001".to_owned());
+        verify_audit(&native, &output(), false).unwrap();
+
+        let mut kernel_with_unused_assumption = unit(None);
+        kernel_with_unused_assumption
+            .evidence_unit
+            .assumptions
+            .push("DEMO-NATIVE-EVALUATION-001".to_owned());
+        assert_eq!(
+            verify_audit(&kernel_with_unused_assumption, &output(), false)
+                .unwrap_err()
+                .code,
             AXIOM
         );
     }

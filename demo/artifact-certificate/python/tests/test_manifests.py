@@ -44,8 +44,8 @@ def test_omitted_assumption_cannot_upgrade_axiomatized_claim(tmp_path: Path) -> 
     source = path.read_text()
     path.write_text(
         source.replace(
-            'assumptions = ["PBAC-CALIBRATION-AX-001"]',
-            "assumptions = []",
+            'assumptions = ["PBAC-CALIBRATION-AX-001", "PBAC-NATIVE-SHA256-001"]',
+            'assumptions = ["PBAC-NATIVE-SHA256-001"]',
         )
     )
     with pytest.raises(ManifestError, match="PBAC_M_ASSUMPTION_DRIFT"):

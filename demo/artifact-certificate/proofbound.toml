@@ -4,6 +4,7 @@ tier = 3
 claim_manifests = ["demo/artifact-certificate/claims/*.toml"]
 assumption_manifests = ["demo/artifact-certificate/assumptions/*.toml"]
 evidence_units = ["demo/artifact-certificate/evidence/*.toml"]
+policy_manifests = ["demo/artifact-certificate/policies/*.toml"]
 translation_units = []
 model_check_units = []
 

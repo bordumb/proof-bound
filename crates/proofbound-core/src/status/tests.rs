@@ -2,13 +2,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
 use crate::{
-    ASSUMPTION_SCHEMA_V1, AdapterStrength, ArtifactBindingEvidence, AssumptionStatus, BindingMode,
-    BoundedCheckEvidence, BuiltInProfile, CacheOrigin, CommandSpec, EnvironmentId,
-    EnvironmentVariable, EnvironmentVariableName, EvidenceProvenance, ExhaustiveCheckEvidence,
-    GRAPH_SCHEMA_V1, GraphEdge, GraphNode, IndependenceMode, MutationWitnessEvidence,
-    NativePremiseRule, POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage, Sha256Digest,
-    SourceRefinementEvidence, TheoremEvidence, ToolIdentity, TreeState,
-    TrustedTranscriptionEvidence, UnitId,
+    ASSUMPTION_SCHEMA_V1, AdapterStrength, ArtifactBindingEvidence, ArtifactIdentity,
+    ArtifactLogicalName, AssumptionStatus, BindingMode, BoundedCheckEvidence, BuiltInProfile,
+    CacheOrigin, CommandSpec, EnvironmentId, EnvironmentVariable, EnvironmentVariableName,
+    EvidenceProvenance, ExhaustiveCheckEvidence, GRAPH_SCHEMA_V1, GraphEdge, GraphNode,
+    IndependenceMode, MutationWitnessEvidence, NativePremiseRule, POLICY_SCHEMA_V1, PolicyId,
+    ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence, TheoremEvidence,
+    ToolIdentity, TreeState, TrustedTranscriptionEvidence, UnitId,
 };
 
 fn claim_id() -> ClaimId {
@@ -17,6 +17,37 @@ fn claim_id() -> ClaimId {
 
 fn digest(label: &str) -> Sha256Digest {
     Sha256Digest::of_bytes(label)
+}
+
+fn bound_artifact() -> ArtifactIdentity {
+    ArtifactIdentity {
+        logical_name: ArtifactLogicalName::new("artifact.bin").unwrap(),
+        sha256: digest("artifact"),
+        size_bytes: 8,
+    }
+}
+
+fn lean_string(value: &str) -> serde_json::Value {
+    serde_json::json!([7, [1, value]])
+}
+
+fn lean_app(function: serde_json::Value, argument: serde_json::Value) -> serde_json::Value {
+    serde_json::json!([3, function, argument])
+}
+
+fn binding_statement(claim: &ClaimId, artifact: &ArtifactIdentity) -> serde_json::Value {
+    let mut root = serde_json::json!([2, crate::ARTIFACT_DIGEST_BINDING_MARKER_V1, []]);
+    for argument in [
+        lean_string(claim.as_str()),
+        lean_string("example-artifact/1"),
+        lean_string(artifact.logical_name.as_str()),
+        lean_string(&format!("sha256:{}", artifact.sha256)),
+        serde_json::json!([2, "Demo.bytes", []]),
+        serde_json::json!([2, "Demo.meaning", []]),
+    ] {
+        root = lean_app(root, argument);
+    }
+    serde_json::json!([crate::LEAN_STATEMENT_ENCODING_V1, root])
 }
 
 fn provenance(label: &str) -> EvidenceProvenance {
@@ -120,7 +151,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
 
 fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
     EvidenceRecord {
-        schema: crate::EVIDENCE_SCHEMA_V1.into(),
+        schema: crate::EVIDENCE_SCHEMA_BINDING_PREVIEW.into(),
         id: EvidenceId::new(id).unwrap(),
         node_id: NodeId::new(node_id).unwrap(),
         unit_id: UnitId::new(format!("unit:{id}")).unwrap(),
@@ -198,10 +229,12 @@ fn example_record(id: &str) -> EvidenceRecord {
 fn theorem_record(id: &str, mode: crate::EvaluationMode) -> EvidenceRecord {
     let mut record = basic_record(id, EvidenceKind::Theorem, &format!("theorem:{id}"));
     record.evaluation_mode = Some(mode);
+    let statement_wire = binding_statement(&claim_id(), &bound_artifact());
     record.theorem = Some(TheoremEvidence {
         declaration: format!("Proofbound.Tests.{id}"),
         statement_encoding: "lean-expr-cbor/1".into(),
-        statement_sha256: digest(&format!("statement:{id}")),
+        statement_sha256: crate::lean_statement_wire_digest(&statement_wire).unwrap(),
+        statement_wire,
         attributed_claim: claim_id(),
         environment: EnvironmentId::new("lean:main").unwrap(),
         axiom_audit_passed: true,
@@ -912,20 +945,149 @@ fn strong_artifact_binding_produces_artifact_bound_linkage() {
     );
     artifact.evaluation_mode = Some(crate::EvaluationMode::Kernel);
     artifact.binding_mode = Some(BindingMode::DigestTheorem);
+    let artifact_identity = bound_artifact();
+    artifact
+        .provenance
+        .input_artifacts
+        .push(artifact_identity.clone());
     artifact.artifact_binding = Some(ArtifactBindingEvidence {
         theorem: theorem_id,
-        canonical_payload: true,
-        schema_bound: true,
-        literal_claim_bound: true,
-        digest_bound: true,
-        reencoding_passed: true,
-        trailing_bytes_rejected: true,
+        artifact: artifact_identity,
     });
     add_record(&mut input, artifact, NodeKind::Artifact, true);
     let status = derive_claim_status(&input);
     assert_eq!(status.formal, FormalFacet::Proved);
     assert_eq!(status.linkage, Some(LinkageFacet::ArtifactBound));
     assert!(status.policy.admitted);
+}
+
+fn add_artifact_binding(
+    input: &mut ClaimEvaluationInput,
+    theorem: EvidenceId,
+    artifact: ArtifactIdentity,
+    id: &str,
+) {
+    let mut record = basic_record(
+        id,
+        EvidenceKind::ArtifactSoundness,
+        &format!("artifact:{id}"),
+    );
+    record.evaluation_mode = Some(crate::EvaluationMode::Kernel);
+    record.binding_mode = Some(BindingMode::DigestTheorem);
+    record.provenance.input_artifacts.push(artifact.clone());
+    record.artifact_binding = Some(ArtifactBindingEvidence { theorem, artifact });
+    add_record(input, record, NodeKind::Artifact, true);
+}
+
+#[test]
+fn unrelated_theorem_cannot_smuggle_a_nested_binding_marker() {
+    let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+    let mut theorem = theorem_record("smuggled", crate::EvaluationMode::Kernel);
+    let exact_binding = theorem
+        .theorem
+        .as_ref()
+        .unwrap()
+        .statement_wire
+        .as_array()
+        .unwrap()[1]
+        .clone();
+    let wrapped = serde_json::json!([
+        crate::LEAN_STATEMENT_ENCODING_V1,
+        [3, [2, "Demo.Unrelated", []], exact_binding]
+    ]);
+    let theorem_detail = theorem.theorem.as_mut().unwrap();
+    theorem_detail.statement_sha256 = crate::lean_statement_wire_digest(&wrapped).unwrap();
+    theorem_detail.statement_wire = wrapped;
+    let theorem_id = theorem.id.clone();
+    add_record(&mut input, theorem, NodeKind::Theorem, true);
+    add_artifact_binding(
+        &mut input,
+        theorem_id,
+        bound_artifact(),
+        "smuggled-artifact",
+    );
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert_eq!(status.linkage, None);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("not derived from the exact audited theorem root")
+    }));
+}
+
+#[test]
+fn artifact_path_digest_and_claim_mismatches_fail_closed() {
+    for mismatch in ["path", "digest", "claim"] {
+        let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+        let mut theorem = theorem_record(mismatch, crate::EvaluationMode::Kernel);
+        let mut artifact = bound_artifact();
+        match mismatch {
+            "path" => {
+                artifact.logical_name = ArtifactLogicalName::new("other.bin").unwrap();
+            }
+            "digest" => artifact.sha256 = digest("different artifact"),
+            "claim" => {
+                let wire =
+                    binding_statement(&ClaimId::new("OTHER-CLAIM").unwrap(), &bound_artifact());
+                let detail = theorem.theorem.as_mut().unwrap();
+                detail.statement_sha256 = crate::lean_statement_wire_digest(&wire).unwrap();
+                detail.statement_wire = wire;
+            }
+            _ => unreachable!(),
+        }
+        let theorem_id = theorem.id.clone();
+        add_record(&mut input, theorem, NodeKind::Theorem, true);
+        add_artifact_binding(
+            &mut input,
+            theorem_id,
+            artifact,
+            &format!("artifact-{mismatch}"),
+        );
+
+        let status = derive_claim_status(&input);
+        assert_eq!(status.formal, FormalFacet::Invalid, "{mismatch}");
+        assert_eq!(status.linkage, None, "{mismatch}");
+    }
+}
+
+#[test]
+fn wire_hash_mismatch_and_ambiguous_provenance_fail_locally() {
+    let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+    let mut theorem = theorem_record("wrong-hash", crate::EvaluationMode::Kernel);
+    theorem.theorem.as_mut().unwrap().statement_sha256 = digest("not the statement");
+    let theorem_id = theorem.id.clone();
+    add_record(&mut input, theorem, NodeKind::Theorem, true);
+
+    let artifact = bound_artifact();
+    let mut record = basic_record(
+        "duplicate-input",
+        EvidenceKind::ArtifactSoundness,
+        "artifact:duplicate-input",
+    );
+    record.evaluation_mode = Some(crate::EvaluationMode::Kernel);
+    record.binding_mode = Some(BindingMode::DigestTheorem);
+    record.provenance.input_artifacts = vec![artifact.clone(), artifact.clone()];
+    record.artifact_binding = Some(ArtifactBindingEvidence {
+        theorem: theorem_id,
+        artifact,
+    });
+    add_record(&mut input, record, NodeKind::Artifact, true);
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert_eq!(status.linkage, None);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("statement wire, or axiom audit is invalid")
+    }));
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("does not match exactly one provenance input")
+    }));
 }
 
 #[test]
@@ -941,14 +1103,14 @@ fn multiple_linkages_are_invalid_without_an_explicit_primary() {
     );
     artifact.evaluation_mode = Some(crate::EvaluationMode::Kernel);
     artifact.binding_mode = Some(BindingMode::DigestTheorem);
+    let artifact_identity = bound_artifact();
+    artifact
+        .provenance
+        .input_artifacts
+        .push(artifact_identity.clone());
     artifact.artifact_binding = Some(ArtifactBindingEvidence {
         theorem: theorem_id,
-        canonical_payload: true,
-        schema_bound: true,
-        literal_claim_bound: true,
-        digest_bound: true,
-        reencoding_passed: true,
-        trailing_bytes_rejected: true,
+        artifact: artifact_identity,
     });
     add_record(&mut input, artifact, NodeKind::Artifact, true);
     let mut transcription = basic_record(
@@ -1194,6 +1356,8 @@ struct CorpusEvidence {
     present: bool,
     #[serde(default = "corpus_true")]
     cited: bool,
+    #[serde(default = "corpus_true")]
+    typed_binding: bool,
     #[serde(default)]
     evaluation: Option<String>,
     #[serde(default)]
@@ -1342,10 +1506,20 @@ fn build_core_corpus_case(case: &CorpusCase) -> ClaimEvaluationInput {
                     .insert(format!("independent::{}", raw.id));
                 (record, NodeKind::TestSuite)
             }
-            "theorem" => (
-                theorem_record(&raw.id, corpus_evaluation(raw.evaluation.as_deref())),
-                NodeKind::Theorem,
-            ),
+            "theorem" => {
+                let mut record =
+                    theorem_record(&raw.id, corpus_evaluation(raw.evaluation.as_deref()));
+                if !raw.typed_binding {
+                    let wire = serde_json::json!([
+                        crate::LEAN_STATEMENT_ENCODING_V1,
+                        [2, "Demo.Unrelated", []]
+                    ]);
+                    let detail = record.theorem.as_mut().unwrap();
+                    detail.statement_sha256 = crate::lean_statement_wire_digest(&wire).unwrap();
+                    detail.statement_wire = wire;
+                }
+                (record, NodeKind::Theorem)
+            }
             "artifact-soundness" => {
                 let theorem = EvidenceId::new(raw.theorem_ref.as_deref().unwrap()).unwrap();
                 let mut record = basic_record(
@@ -1355,15 +1529,9 @@ fn build_core_corpus_case(case: &CorpusCase) -> ClaimEvaluationInput {
                 );
                 record.evaluation_mode = Some(corpus_evaluation(raw.evaluation.as_deref()));
                 record.binding_mode = Some(BindingMode::DigestTheorem);
-                record.artifact_binding = Some(ArtifactBindingEvidence {
-                    theorem,
-                    canonical_payload: true,
-                    schema_bound: true,
-                    literal_claim_bound: true,
-                    digest_bound: true,
-                    reencoding_passed: true,
-                    trailing_bytes_rejected: true,
-                });
+                let artifact = bound_artifact();
+                record.provenance.input_artifacts.push(artifact.clone());
+                record.artifact_binding = Some(ArtifactBindingEvidence { theorem, artifact });
                 (record, NodeKind::Artifact)
             }
             "trusted-transcription" => {

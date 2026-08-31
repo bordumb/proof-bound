@@ -9,13 +9,22 @@
   "$defs": {
     "id": { "type": "string", "minLength": 1, "maxLength": 512 },
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["logical_name", "sha256", "size_bytes"],
+      "properties": {
+        "logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "sha256": { "$ref": "#/$defs/digest" },
+        "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
     "ids": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true, "maxItems": 100000 },
     "releaseEnvelope": {
       "type": "object",
       "additionalProperties": false,
       "required": ["schema", "payload", "payload_sha256"],
       "properties": {
-        "schema": { "const": "proofbound-release-envelope/1" },
+        "schema": { "const": "proofbound-release-envelope/2-binding-preview" },
         "payload": { "const": "compiled-receipt.json" },
         "payload_sha256": { "$ref": "#/$defs/digest" }
       }
@@ -25,7 +34,7 @@
       "additionalProperties": false,
       "required": ["schema", "project", "project_revision", "project_tier", "tree_state", "graph", "graph_sha256", "claims", "evidence", "assumptions", "premises", "policies", "closures", "sealed_files", "reported_statuses"],
       "properties": {
-        "schema": { "const": "proofbound-compiled-release/1" },
+        "schema": { "const": "proofbound-compiled-release/2-binding-preview" },
         "project": { "type": "string", "minLength": 1, "maxLength": 128 },
         "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
         "project_tier": { "type": "integer", "minimum": 0, "maximum": 3 },
@@ -78,7 +87,7 @@
       "additionalProperties": false,
       "required": ["schema", "unit_id", "node_id", "kind", "claim_ids", "outcome", "inventoried_targets", "assumptions", "premises", "provenance"],
       "properties": {
-        "schema": { "const": "proofbound-evidence/1" },
+        "schema": { "const": "proofbound-evidence/2-binding-preview" },
         "unit_id": { "$ref": "#/$defs/id" },
         "node_id": { "$ref": "#/$defs/id" },
         "kind": { "$ref": "#/$defs/evidenceKind" },
@@ -113,16 +122,16 @@
     },
     "theoremReceipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["declaration", "statement_encoding", "statement_sha256", "attributed_claim", "proof_environment", "axiom_audit_passed", "contains_sorry_ax", "foundational_axioms", "project_axioms"],
+      "required": ["declaration", "statement_encoding", "statement_wire", "statement_sha256", "attributed_claim", "proof_environment", "axiom_audit_passed", "contains_sorry_ax", "foundational_axioms", "project_axioms"],
       "properties": {
-        "declaration": { "type": "string" }, "statement_encoding": { "const": "lean-expr-cbor/1" }, "statement_sha256": { "$ref": "#/$defs/digest" }, "attributed_claim": { "$ref": "#/$defs/id" }, "proof_environment": { "$ref": "#/$defs/id" }, "axiom_audit_passed": { "type": "boolean" }, "contains_sorry_ax": { "type": "boolean" }, "foundational_axioms": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "project_axioms": { "$ref": "#/$defs/ids" }
+        "declaration": { "type": "string" }, "statement_encoding": { "const": "lean-expr-cbor/1" }, "statement_wire": { "type": "array", "minItems": 2, "maxItems": 2 }, "statement_sha256": { "$ref": "#/$defs/digest" }, "attributed_claim": { "$ref": "#/$defs/id" }, "proof_environment": { "$ref": "#/$defs/id" }, "axiom_audit_passed": { "type": "boolean" }, "contains_sorry_ax": { "type": "boolean" }, "foundational_axioms": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "project_axioms": { "$ref": "#/$defs/ids" }
       }
     },
     "artifactBindingReceipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["theorem_evidence", "canonical_payload", "schema_bound", "literal_claim_bound", "digest_bound", "reencoding_passed", "trailing_bytes_rejected"],
+      "required": ["theorem_evidence", "artifact"],
       "properties": {
-        "theorem_evidence": { "$ref": "#/$defs/digest" }, "canonical_payload": { "type": "boolean" }, "schema_bound": { "type": "boolean" }, "literal_claim_bound": { "type": "boolean" }, "digest_bound": { "type": "boolean" }, "reencoding_passed": { "type": "boolean" }, "trailing_bytes_rejected": { "type": "boolean" }
+        "theorem_evidence": { "$ref": "#/$defs/digest" }, "artifact": { "$ref": "#/$defs/artifact" }
       }
     },
     "trustedTranscriptionReceipt": {
@@ -159,7 +168,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["project_revision", "tree_state", "semantic_closure", "input_artifacts", "generated_artifacts", "tool", "adapter", "command", "reproduction_command", "environment_allowlist", "started_unix_ms", "completed_unix_ms", "deterministic_result_sha256", "unit_configuration_sha256", "cache_key", "resource_budget", "actual_cost"],
       "properties": {
-        "project_revision": { "type": "string", "minLength": 1 }, "tree_state": { "enum": ["clean", "dirty"] }, "semantic_closure": { "$ref": "#/$defs/digest" }, "additional_closures": { "type": "array", "items": { "$ref": "#/$defs/closureReference" }, "uniqueItems": true, "maxItems": 4096 }, "input_artifacts": { "$ref": "#/$defs/artifactMap" }, "generated_artifacts": { "$ref": "#/$defs/artifactMap" }, "tool": { "$ref": "#/$defs/tool" }, "adapter": { "$ref": "#/$defs/tool" }, "command": { "$ref": "#/$defs/command" }, "reproduction_command": { "$ref": "#/$defs/command" }, "environment_allowlist": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "started_unix_ms": { "type": "integer", "minimum": 0 }, "completed_unix_ms": { "type": "integer", "minimum": 0 }, "deterministic_result_sha256": { "$ref": "#/$defs/digest" }, "unit_configuration_sha256": { "$ref": "#/$defs/digest" }, "cache_key": { "$ref": "#/$defs/digest" }, "reused_from": { "$ref": "#/$defs/digest" }, "resource_budget": { "$ref": "#/$defs/resource" }, "actual_cost": { "$ref": "#/$defs/resource" }
+        "project_revision": { "type": "string", "minLength": 1 }, "tree_state": { "enum": ["clean", "dirty"] }, "semantic_closure": { "$ref": "#/$defs/digest" }, "additional_closures": { "type": "array", "items": { "$ref": "#/$defs/closureReference" }, "uniqueItems": true, "maxItems": 4096 }, "input_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "uniqueItems": true, "maxItems": 100000 }, "generated_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "uniqueItems": true, "maxItems": 100000 }, "tool": { "$ref": "#/$defs/tool" }, "adapter": { "$ref": "#/$defs/tool" }, "command": { "$ref": "#/$defs/command" }, "reproduction_command": { "$ref": "#/$defs/command" }, "environment_allowlist": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "started_unix_ms": { "type": "integer", "minimum": 0 }, "completed_unix_ms": { "type": "integer", "minimum": 0 }, "deterministic_result_sha256": { "$ref": "#/$defs/digest" }, "unit_configuration_sha256": { "$ref": "#/$defs/digest" }, "cache_key": { "$ref": "#/$defs/digest" }, "reused_from": { "$ref": "#/$defs/digest" }, "resource_budget": { "$ref": "#/$defs/resource" }, "actual_cost": { "$ref": "#/$defs/resource" }
       }
     },
     "closureReference": {

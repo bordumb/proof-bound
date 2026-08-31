@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use crate::{adapter, closures, model::CompiledProject, model::UnitRun, safe_component};
 
 const COMPILED_SCHEMA: &str = "proofbound-compiled-project/1";
-const EVIDENCE_DOMAIN: &str = "proofbound-evidence/1";
+const EVIDENCE_DOMAIN: &str = "proofbound-evidence/2-binding-preview";
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOptions {
@@ -382,11 +382,14 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     let payload = compiled_release_value(&compiled, bundle.project.tier, graph, sealed_files)?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&destination.join("compiled-receipt.json"), &payload_bytes)?;
-    let payload_sha256 = domain_hash("proofbound-compiled-release/1", &payload_bytes);
+    let payload_sha256 = domain_hash(
+        "proofbound-compiled-release/2-binding-preview",
+        &payload_bytes,
+    );
     write_canonical(
         &destination.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/1",
+            "schema": "proofbound-release-envelope/2-binding-preview",
             "payload": "compiled-receipt.json",
             "payload_sha256": payload_sha256,
         }),
@@ -410,7 +413,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     )?;
     let semantic_closure = Sha256Digest::of_bytes(b"proofbound-release-smoke-semantic-v1");
     let evidence = EvidenceRecord {
-        schema: "proofbound-evidence/1".into(),
+        schema: "proofbound-evidence/2-binding-preview".into(),
         id: EvidenceId::new("review:release-smoke")?,
         node_id: NodeId::new("review:release-smoke")?,
         unit_id: UnitId::new("unit:release-smoke")?,
@@ -546,9 +549,9 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     write_canonical(
         &output.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/1",
+            "schema": "proofbound-release-envelope/2-binding-preview",
             "payload": "compiled-receipt.json",
-            "payload_sha256": domain_hash("proofbound-compiled-release/1", &payload_bytes),
+            "payload_sha256": domain_hash("proofbound-compiled-release/2-binding-preview", &payload_bytes),
         }),
     )?;
     Ok(output.to_owned())
@@ -1275,7 +1278,7 @@ fn reusable_cached_record(
         }
         None => None,
     };
-    if record.schema != "proofbound-evidence/1"
+    if record.schema != "proofbound-evidence/2-binding-preview"
         || record.id != expected_id
         || record.node_id != expected_node
         || record.unit_id != expected_unit
@@ -1332,10 +1335,10 @@ fn response_to_record(
         .evidence
         .clone()
         .context("PB-ADAPTER-0011: successful response omitted evidence")?;
-    // Artifact binding facts must come through the checker-observation
-    // protocol.  Accepting an adapter-authored core record here would let a
-    // checker assert the six strong-binding booleans without exposing the
-    // checked theorem, claims, artifact identity, and byte-level results.
+    // Artifact identity must come through the checker-observation protocol.
+    // Accepting an adapter-authored core record here would let a checker
+    // manufacture a theorem link instead of joining independently checked
+    // bytes to the audited theorem statement.
     let mut record = if unit.kind == ManifestEvidenceKind::ArtifactSoundness
         || unit.adapter == AdapterKind::Kani
     {
@@ -1506,16 +1509,8 @@ struct AdapterObservation {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArtifactBindingObservation {
-    theorem: String,
-    claims: Vec<String>,
     artifact_logical_name: String,
     artifact_sha256: String,
-    canonical_payload: bool,
-    schema_bound: bool,
-    literal_claim_bound: bool,
-    digest_bound: bool,
-    reencoding_passed: bool,
-    trailing_bytes_rejected: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -1650,45 +1645,28 @@ fn observation_to_record(
 
     let artifact_binding = match (kind, observation.artifact_binding.as_ref()) {
         (EvidenceKind::ArtifactSoundness, Some(binding)) => {
-            let configured_theorem = unit.theorem.as_deref().context(
+            unit.theorem.as_deref().context(
                 "PB-ADAPTER-0018: artifact unit omitted its exact audited theorem declaration",
             )?;
-            if binding.theorem != configured_theorem {
-                bail!("PB-ADAPTER-0018: artifact observation theorem does not match unit.theorem");
-            }
-            let observed_claims = binding.claims.iter().cloned().collect::<BTreeSet<_>>();
-            let configured_claims = unit.claims.iter().cloned().collect::<BTreeSet<_>>();
-            if observed_claims.len() != binding.claims.len()
-                || configured_claims.len() != unit.claims.len()
-                || observed_claims != configured_claims
-            {
-                bail!("PB-ADAPTER-0018: artifact observation claim inventory mismatch");
-            }
-            if !observation.input_artifacts.iter().any(|artifact| {
+            let mut matching_artifacts = observation.input_artifacts.iter().filter(|artifact| {
                 artifact.logical_name.as_str() == binding.artifact_logical_name
                     && artifact.sha256 == binding.artifact_sha256
-            }) {
+            });
+            let artifact = matching_artifacts
+                .next()
+                .context("PB-ADAPTER-0018: artifact observation is not present in bound inputs")?;
+            if matching_artifacts.next().is_some() {
                 bail!(
-                    "PB-ADAPTER-0018: artifact observation digest is not present in bound inputs"
+                    "PB-ADAPTER-0018: artifact observation must identify exactly one bound input"
                 );
-            }
-            if !binding.canonical_payload
-                || !binding.schema_bound
-                || !binding.literal_claim_bound
-                || !binding.digest_bound
-                || !binding.reencoding_passed
-                || !binding.trailing_bytes_rejected
-            {
-                bail!("PB-ADAPTER-0018: artifact observation has a failed binding fact");
             }
             Some(ArtifactBindingEvidence {
                 theorem: exact_audited_theorem(root, unit)?,
-                canonical_payload: binding.canonical_payload,
-                schema_bound: binding.schema_bound,
-                literal_claim_bound: binding.literal_claim_bound,
-                digest_bound: binding.digest_bound,
-                reencoding_passed: binding.reencoding_passed,
-                trailing_bytes_rejected: binding.trailing_bytes_rejected,
+                artifact: ArtifactIdentity {
+                    logical_name: ArtifactLogicalName::new(artifact.logical_name.clone())?,
+                    sha256: parse_digest(&artifact.sha256)?,
+                    size_bytes: artifact.size_bytes,
+                },
             })
         }
         (EvidenceKind::ArtifactSoundness, None) => {
@@ -1803,7 +1781,7 @@ fn observation_to_record(
         .collect::<Vec<_>>();
 
     Ok(EvidenceRecord {
-        schema: "proofbound-evidence/1".into(),
+        schema: "proofbound-evidence/2-binding-preview".into(),
         id: evidence_id.clone(),
         node_id: NodeId::new(format!("evidence:{evidence_id}"))?,
         unit_id: UnitId::new(format!("unit:{}", unit.id))?,
@@ -2619,7 +2597,7 @@ fn synthesize_review_records(
         let artifacts = validated_review_artifacts(root, &item.id, &item.review_evidence)?;
         let result = Sha256Digest::of_bytes(canonical_json(&item.review_evidence)?);
         records.push(EvidenceRecord {
-            schema: "proofbound-evidence/1".into(),
+            schema: "proofbound-evidence/2-binding-preview".into(),
             id: id.clone(),
             node_id: NodeId::new(format!("review:{}", item.id))?,
             unit_id: UnitId::new(format!("assumption-review:{}", item.id))?,
@@ -3376,7 +3354,10 @@ fn compiled_release_value(
                 &release_closure_by_internal_id,
                 &evidence_ids,
             )?;
-            let sha = domain_hash("proofbound-evidence/1", &canonical_json(&record)?);
+            let sha = domain_hash(
+                "proofbound-evidence/2-binding-preview",
+                &canonical_json(&record)?,
+            );
             evidence_ids.insert(evidence.id.to_string(), sha.clone());
             evidence_values.push(serde_json::json!({"sha256": sha, "record": record}));
         }
@@ -3490,7 +3471,7 @@ fn compiled_release_value(
         })
         .collect::<Vec<_>>();
     let mut payload = serde_json::json!({
-        "schema": "proofbound-compiled-release/1",
+        "schema": "proofbound-compiled-release/2-binding-preview",
         "project": compiled.project,
         "project_revision": compiled.project_revision,
         "project_tier": project_tier,
@@ -3532,8 +3513,8 @@ fn release_evidence_record(
     closure_ids: &BTreeMap<String, String>,
     evidence_ids: &BTreeMap<String, String>,
 ) -> Result<serde_json::Value> {
-    let input_artifacts = artifact_map(&evidence.provenance.input_artifacts)?;
-    let generated_artifacts = artifact_map(&evidence.provenance.generated_artifacts)?;
+    let input_artifacts = artifact_records(&evidence.provenance.input_artifacts)?;
+    let generated_artifacts = artifact_records(&evidence.provenance.generated_artifacts)?;
     let tool = serde_json::json!({
         "name": evidence.provenance.tool.name,
         "version": evidence.provenance.tool.version,
@@ -3603,6 +3584,7 @@ fn release_evidence_record(
         serde_json::json!({
             "declaration": item.declaration,
             "statement_encoding": item.statement_encoding,
+            "statement_wire": item.statement_wire,
             "statement_sha256": format!("sha256:{}", item.statement_sha256),
             "attributed_claim": item.attributed_claim,
             "proof_environment": item.environment,
@@ -3619,12 +3601,11 @@ fn release_evidence_record(
             Ok::<serde_json::Value, anyhow::Error>(serde_json::json!({
                 "theorem_evidence": evidence_ids.get(item.theorem.as_str())
                     .with_context(|| format!("PB-RELEASE-0013: artifact theorem {} is missing", item.theorem))?,
-                "canonical_payload": item.canonical_payload,
-                "schema_bound": item.schema_bound,
-                "literal_claim_bound": item.literal_claim_bound,
-                "digest_bound": item.digest_bound,
-                "reencoding_passed": item.reencoding_passed,
-                "trailing_bytes_rejected": item.trailing_bytes_rejected,
+                "artifact": {
+                    "logical_name": item.artifact.logical_name,
+                    "sha256": format!("sha256:{}", item.artifact.sha256),
+                    "size_bytes": item.artifact.size_bytes,
+                },
             }))
         })
         .transpose()?;
@@ -3689,7 +3670,7 @@ fn release_evidence_record(
         })
     });
     let mut record = serde_json::json!({
-        "schema": "proofbound-evidence/1",
+        "schema": "proofbound-evidence/2-binding-preview",
         "unit_id": evidence.unit_id,
         "node_id": evidence.node_id,
         "kind": evidence.kind,
@@ -3776,23 +3757,37 @@ fn omit_null_object_fields(value: &mut serde_json::Value) {
     }
 }
 
-fn artifact_map(values: &[ArtifactIdentity]) -> Result<BTreeMap<String, String>> {
-    let mut output = BTreeMap::new();
-    for value in values {
-        if output
-            .insert(
-                value.logical_name.as_str().to_owned(),
-                format!("sha256:{}", value.sha256),
-            )
-            .is_some()
-        {
-            bail!(
-                "PB-RELEASE-0015: duplicate artifact logical name {}",
-                value.logical_name
-            );
-        }
+fn artifact_records(values: &[ArtifactIdentity]) -> Result<Vec<serde_json::Value>> {
+    let mut sorted = values.iter().collect::<Vec<_>>();
+    sorted.sort_by(|left, right| {
+        left.logical_name
+            .cmp(&right.logical_name)
+            .then_with(|| left.sha256.cmp(&right.sha256))
+            .then_with(|| left.size_bytes.cmp(&right.size_bytes))
+    });
+    if sorted
+        .windows(2)
+        .any(|pair| pair[0].logical_name == pair[1].logical_name)
+    {
+        let duplicate = sorted
+            .windows(2)
+            .find(|pair| pair[0].logical_name == pair[1].logical_name)
+            .expect("duplicate was detected")[0];
+        bail!(
+            "PB-RELEASE-0015: duplicate artifact logical name {}",
+            duplicate.logical_name
+        );
     }
-    Ok(output)
+    Ok(sorted
+        .into_iter()
+        .map(|value| {
+            serde_json::json!({
+                "logical_name": value.logical_name,
+                "sha256": format!("sha256:{}", value.sha256),
+                "size_bytes": value.size_bytes,
+            })
+        })
+        .collect())
 }
 
 fn map_evidence_set(
@@ -4449,7 +4444,7 @@ mod tests {
     fn artifact_adapter_cannot_bypass_checked_observation_with_core_record() {
         let digest = format!("sha256:{}", "00".repeat(32));
         let forged = json!({
-            "schema": "proofbound-evidence/1",
+            "schema": "proofbound-evidence/2-binding-preview",
             "id": "artifact:forged",
             "node_id": "evidence:artifact:forged",
             "unit_id": "unit:forged",
@@ -4490,7 +4485,7 @@ mod tests {
                 "cache_origin": "executed"
             }
         });
-        assert!(serde_json::from_value::<EvidenceRecord>(forged.clone()).is_ok());
+        assert!(serde_json::from_value::<EvidenceRecord>(forged.clone()).is_err());
         let unit: EvidenceUnitManifest = serde_json::from_value(json!({
             "schema": "proofbound-evidence-unit/1",
             "id": "forged",
@@ -4537,7 +4532,7 @@ mod tests {
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: "lean".into(),
             success: false,
-            evidence: Some(json!({"schema": "proofbound-evidence/1"})),
+            evidence: Some(json!({"schema": "proofbound-evidence/2-binding-preview"})),
             inventory: Vec::new(),
             diagnostics: Vec::new(),
         };

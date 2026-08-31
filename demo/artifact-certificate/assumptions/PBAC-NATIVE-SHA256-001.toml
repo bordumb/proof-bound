@@ -1,0 +1,12 @@
+schema = "proofbound-assumption/1"
+id = "PBAC-NATIVE-SHA256-001"
+statement = "Lean native evaluation of Proofbound.sha256Hex returns the same digest as the reviewed SHA-256 implementation semantics."
+category = "native-evaluation"
+owner = "artifact-certificate demo operator"
+rationale = "The typed public binding theorem computes the exact artifact digest with native_decide because the general imperative SHA-256 evaluator does not reduce reliably in the kernel."
+scope = "Only the digest fields of PBAC-SUM-001 and PBAC-CALIBRATED-001 for valid-basic.pbac."
+affected_claims = ["PBAC-CALIBRATED-001", "PBAC-SUM-001"]
+review_evidence = ["demo/artifact-certificate/README.md#claims-and-trust"]
+discharge_plan = "Replace native_decide with a kernel-reducible SHA-256 theorem whose statement and implementation are separately reviewed."
+source_citation = "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean#publishedArtifactSoundness"
+status = "active"

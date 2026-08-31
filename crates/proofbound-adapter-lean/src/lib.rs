@@ -5,6 +5,7 @@
 //! complete compiled attribute inventory, and hashes the elaborated ExprWire
 //! statement using the normative canonical CBOR encoding.
 
+mod artifact;
 pub mod audit;
 pub mod error;
 pub mod model;

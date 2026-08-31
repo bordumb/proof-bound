@@ -12,12 +12,14 @@ use thiserror::Error;
 use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, AssumptionCategory, AssumptionFacet,
     AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode, BuiltInProfile,
-    CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V1, ClaimReceipt, ClosureKind,
-    CompiledRelease, EVIDENCE_SCHEMA_V1, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
-    EvidenceReceipt, Exclusion, FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphNode, HashedRecord,
-    IndependenceMode, LinkageFacet, NodeKind, OpenObligation, POLICY_SCHEMA_V1, PolicyReceipt,
-    PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V1, ReleaseEnvelope, ReportedClaimStatus,
+    CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW, ClaimReceipt,
+    ClosureKind, CompiledRelease, EVIDENCE_SCHEMA_BINDING_PREVIEW, EdgeKind, EvaluationMode,
+    EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, FlowScope, FormalFacet,
+    GRAPH_SCHEMA_V1, GraphNode, HashedRecord, IndependenceMode, LinkageFacet, NodeKind,
+    OpenObligation, POLICY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
+    RELEASE_ENVELOPE_SCHEMA_BINDING_PREVIEW, ReleaseEnvelope, ReportedClaimStatus,
     SourceClosureReceipt, Tier, TreeState, canonical_json, domain_hash, raw_sha256,
+    statement_wire::{LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding, statement_digest},
 };
 
 const MAX_ENVELOPE_BYTES: u64 = 1 << 20;
@@ -194,7 +196,7 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
 
     let envelope_path = root.join("release.json");
     let (envelope, _) = read_canonical::<ReleaseEnvelope>(&envelope_path, MAX_ENVELOPE_BYTES)?;
-    if envelope.schema != RELEASE_ENVELOPE_SCHEMA_V1 {
+    if envelope.schema != RELEASE_ENVELOPE_SCHEMA_BINDING_PREVIEW {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
                 VerificationIssueCode::PbvSchema,
@@ -216,7 +218,7 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
     }
     let (release, payload_bytes) =
         read_canonical::<CompiledRelease>(&payload_path, MAX_PAYLOAD_BYTES)?;
-    let actual_payload = domain_hash(COMPILED_RELEASE_SCHEMA_V1, &payload_bytes);
+    let actual_payload = domain_hash(COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW, &payload_bytes);
     if actual_payload != envelope.payload_sha256 {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
@@ -248,7 +250,7 @@ fn verify_compiled_release_internal(
     release_root: Option<&Path>,
 ) -> Result<VerificationReport, VerificationErrors> {
     let mut issues = Vec::new();
-    if release.schema != COMPILED_RELEASE_SCHEMA_V1 {
+    if release.schema != COMPILED_RELEASE_SCHEMA_BINDING_PREVIEW {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
             format!("unsupported compiled release schema '{}'", release.schema),
@@ -1065,7 +1067,7 @@ fn validate_evidence_records(
             ));
         }
         if let Ok(bytes) = canonical_json(evidence) {
-            let actual = domain_hash(EVIDENCE_SCHEMA_V1, &bytes);
+            let actual = domain_hash(EVIDENCE_SCHEMA_BINDING_PREVIEW, &bytes);
             if actual != wrapper.sha256 {
                 evidence_issue(
                     issues,
@@ -1074,7 +1076,7 @@ fn validate_evidence_records(
                 );
             }
         }
-        if evidence.schema != EVIDENCE_SCHEMA_V1 {
+        if evidence.schema != EVIDENCE_SCHEMA_BINDING_PREVIEW {
             evidence_issue(
                 issues,
                 &wrapper.sha256,
@@ -1160,14 +1162,14 @@ fn validate_provenance(id: &str, evidence: &EvidenceReceipt, issues: &mut Vec<Ve
     .chain(
         provenance
             .input_artifacts
-            .values()
-            .map(|digest| ("input artifact", digest.as_str())),
+            .iter()
+            .map(|artifact| ("input artifact", artifact.sha256.as_str())),
     )
     .chain(
         provenance
             .generated_artifacts
-            .values()
-            .map(|digest| ("generated artifact", digest.as_str())),
+            .iter()
+            .map(|artifact| ("generated artifact", artifact.sha256.as_str())),
     ) {
         if !valid_digest(digest) {
             evidence_issue(issues, id, format!("{label} digest is invalid: '{digest}'"));
@@ -1195,18 +1197,11 @@ fn validate_provenance(id: &str, evidence: &EvidenceReceipt, issues: &mut Vec<Ve
         .environment_allowlist
         .iter()
         .any(|name| name.trim().is_empty())
-        || provenance
-            .input_artifacts
-            .keys()
-            .chain(provenance.generated_artifacts.keys())
-            .any(|name| name.trim().is_empty())
     {
-        evidence_issue(
-            issues,
-            id,
-            "environment and artifact logical names must be non-empty",
-        );
+        evidence_issue(issues, id, "environment names must be non-empty");
     }
+    validate_artifact_inventory(id, "input", &provenance.input_artifacts, issues);
+    validate_artifact_inventory(id, "generated", &provenance.generated_artifacts, issues);
     if provenance.started_unix_ms > provenance.completed_unix_ms {
         evidence_issue(issues, id, "evidence completion precedes its start");
     }
@@ -1227,6 +1222,41 @@ fn validate_provenance(id: &str, evidence: &EvidenceReceipt, issues: &mut Vec<Ve
             }
         }
         Err(error) => evidence_issue(issues, id, format!("cache material is invalid: {error}")),
+    }
+}
+
+fn validate_artifact_inventory(
+    evidence_id: &str,
+    label: &str,
+    artifacts: &[crate::ArtifactIdentityReceipt],
+    issues: &mut Vec<VerificationIssue>,
+) {
+    let mut logical_names = BTreeSet::new();
+    for artifact in artifacts {
+        if artifact.logical_name.is_empty() || artifact.logical_name.chars().count() > 4096 {
+            evidence_issue(
+                issues,
+                evidence_id,
+                format!("{label} artifact logical name is empty or oversized"),
+            );
+        }
+        if !logical_names.insert(artifact.logical_name.as_str()) {
+            evidence_issue(
+                issues,
+                evidence_id,
+                format!(
+                    "{label} artifact inventory repeats logical name '{}'",
+                    artifact.logical_name
+                ),
+            );
+        }
+    }
+    if artifacts.windows(2).any(|pair| pair[0] >= pair[1]) {
+        evidence_issue(
+            issues,
+            evidence_id,
+            format!("{label} artifact inventory must be strictly sorted and unique"),
+        );
     }
 }
 
@@ -1303,23 +1333,28 @@ fn validate_evidence_shape(
                     "theorem requires evaluation mode and no binding mode",
                 );
             }
-            if let Some(theorem) = &evidence.theorem
-                && (theorem.declaration.trim().is_empty()
-                    || theorem.statement_encoding != "lean-expr-cbor/1"
-                    || !valid_digest(&theorem.statement_sha256)
+            if let Some(theorem) = &evidence.theorem {
+                let statement_identity_valid = theorem.statement_encoding
+                    == LEAN_STATEMENT_ENCODING_V1
+                    && valid_digest(&theorem.statement_sha256)
+                    && statement_digest(&theorem.statement_wire)
+                        .is_ok_and(|digest| digest == theorem.statement_sha256);
+                if theorem.declaration.trim().is_empty()
+                    || !statement_identity_valid
                     || theorem.attributed_claim.trim().is_empty()
                     || !evidence.claim_ids.contains(&theorem.attributed_claim)
                     || !theorem.axiom_audit_passed
                     || theorem.contains_sorry_ax
                     || theorem.proof_environment.trim().is_empty()
                     || node.and_then(|node| node.proof_environment.as_deref())
-                        != Some(theorem.proof_environment.as_str()))
-            {
-                evidence_issue(
-                    issues,
-                    id,
-                    "theorem identity or compiled axiom audit is invalid",
-                );
+                        != Some(theorem.proof_environment.as_str())
+                {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "theorem identity, canonical statement wire, or compiled axiom audit is invalid",
+                    );
+                }
             }
         }
         EvidenceKind::ArtifactSoundness => {
@@ -1331,7 +1366,7 @@ fn validate_evidence_shape(
                 || !evidence
                     .artifact_binding
                     .as_ref()
-                    .is_some_and(strong_binding)
+                    .is_some_and(|binding| artifact_binding_shape(binding, evidence))
             {
                 evidence_issue(
                     issues,
@@ -1481,14 +1516,18 @@ fn validate_evidence_shape(
     }
 }
 
-fn strong_binding(binding: &ArtifactBindingReceipt) -> bool {
+fn artifact_binding_shape(binding: &ArtifactBindingReceipt, evidence: &EvidenceReceipt) -> bool {
     !binding.theorem_evidence.is_empty()
-        && binding.canonical_payload
-        && binding.schema_bound
-        && binding.literal_claim_bound
-        && binding.digest_bound
-        && binding.reencoding_passed
-        && binding.trailing_bytes_rejected
+        && !binding.artifact.logical_name.is_empty()
+        && binding.artifact.logical_name.chars().count() <= 4096
+        && valid_digest(&binding.artifact.sha256)
+        && evidence
+            .provenance
+            .input_artifacts
+            .iter()
+            .filter(|artifact| *artifact == &binding.artifact)
+            .count()
+            == 1
 }
 
 fn validate_sealed_files(
@@ -2720,7 +2759,46 @@ fn derive_claim(
                         && admitted_theorems.contains(&binding.theorem_evidence)
                         && artifact_evaluation_admitted(policy, record.evaluation_mode)
                     {
-                        linkages.insert(LinkageFacet::ArtifactBound);
+                        let parsed = evidence
+                            .get(&binding.theorem_evidence)
+                            .and_then(|theorem_record| theorem_record.theorem.as_ref())
+                            .ok_or_else(|| {
+                                format!(
+                                    "artifact binding '{id}' references evidence '{}' without a compiled theorem statement",
+                                    binding.theorem_evidence
+                                )
+                            })
+                            .and_then(|theorem| {
+                                parse_artifact_digest_binding(
+                                    &theorem.statement_wire,
+                                    &theorem.statement_sha256,
+                                    &claim.id,
+                                )
+                                .map_err(|error| {
+                                    format!(
+                                        "artifact binding '{id}' is not derived from the exact audited theorem root: {error}"
+                                    )
+                                })
+                            });
+                        match parsed {
+                            Ok(parsed)
+                                if record.binding_mode == Some(BindingMode::DigestTheorem)
+                                    && parsed.logical_name == binding.artifact.logical_name
+                                    && parsed.sha256 == binding.artifact.sha256
+                                    && artifact_binding_shape(binding, record) =>
+                            {
+                                linkages.insert(LinkageFacet::ArtifactBound);
+                            }
+                            Ok(_) => claim_issue!(
+                                VerificationIssueCode::PbvInvalidEvidence,
+                                format!(
+                                    "artifact binding '{id}' disagrees with its audited theorem marker or checked provenance input"
+                                ),
+                            ),
+                            Err(message) => {
+                                claim_issue!(VerificationIssueCode::PbvInvalidEvidence, message,)
+                            }
+                        }
                     }
                 }
             }

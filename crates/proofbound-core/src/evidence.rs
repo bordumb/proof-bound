@@ -14,10 +14,13 @@ use crate::{
     ClaimId, ClosureKind, EnvironmentId, ErrorCode, EvaluationMode, EvidenceId, EvidenceKind,
     EvidenceStatus, IndependenceMode, LinkageFacet, NodeId, ObligationId, PolicyId, PremiseId,
     Sha256Digest, StructuredError, Tier, TreeState, UnitId, ValidationErrors,
+    lean_statement_wire_digest,
 };
 
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
+/// Superseded evidence schema retained so migrations can identify old records.
 pub const EVIDENCE_SCHEMA_V1: &str = "proofbound-evidence/1";
+pub const EVIDENCE_SCHEMA_BINDING_PREVIEW: &str = "proofbound-evidence/2-binding-preview";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 
 /// Why a machine-matched name inside an evidence record was rejected.
@@ -412,6 +415,7 @@ impl EvidenceProvenance {
 pub struct TheoremEvidence {
     pub declaration: String,
     pub statement_encoding: String,
+    pub statement_wire: serde_json::Value,
     pub statement_sha256: Sha256Digest,
     pub attributed_claim: ClaimId,
     pub environment: EnvironmentId,
@@ -428,12 +432,7 @@ pub struct TheoremEvidence {
 #[serde(deny_unknown_fields)]
 pub struct ArtifactBindingEvidence {
     pub theorem: EvidenceId,
-    pub canonical_payload: bool,
-    pub schema_bound: bool,
-    pub literal_claim_bound: bool,
-    pub digest_bound: bool,
-    pub reencoding_passed: bool,
-    pub trailing_bytes_rejected: bool,
+    pub artifact: ArtifactIdentity,
 }
 
 /// Trusted components and round-trip check for the degraded transcription form.
@@ -652,16 +651,16 @@ impl EvidenceRecord {
                 .for_unit(self.unit_id.clone())
         };
 
-        if self.schema != EVIDENCE_SCHEMA_V1 {
+        if self.schema != EVIDENCE_SCHEMA_BINDING_PREVIEW {
             errors.push(
                 StructuredError::new(
                     ErrorCode::PbCoreUnsupportedSchema,
                     format!("unsupported evidence schema '{}'", self.schema),
-                    "migrate the evidence record to proofbound-evidence/1",
+                    "migrate the evidence record to proofbound-evidence/2-binding-preview",
                 )
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
-                .identities(EVIDENCE_SCHEMA_V1, &self.schema),
+                .identities(EVIDENCE_SCHEMA_BINDING_PREVIEW, &self.schema),
             );
         }
         if !self.claims.contains(claim_id) {
@@ -685,17 +684,22 @@ impl EvidenceRecord {
                         "move the binding to a separate artifact-soundness evidence record",
                     ));
                 }
-                if let Some(theorem) = &self.theorem
-                    && (theorem.attributed_claim != *claim_id
+                if let Some(theorem) = &self.theorem {
+                    let wire_identity_valid = theorem.statement_encoding == "lean-expr-cbor/1"
+                        && lean_statement_wire_digest(&theorem.statement_wire)
+                            .is_ok_and(|digest| digest == theorem.statement_sha256);
+                    if theorem.attributed_claim != *claim_id
                         || theorem.declaration.trim().is_empty()
-                        || theorem.statement_encoding != "lean-expr-cbor/1"
+                        || !wire_identity_valid
                         || !theorem.axiom_audit_passed
-                        || theorem.contains_sorry_ax)
-                {
-                    errors.push(error(
-                        "the compiled theorem identity or axiom audit is invalid".into(),
-                        "regenerate the compiled attribute inventory and axiom audit",
-                    ));
+                        || theorem.contains_sorry_ax
+                    {
+                        errors.push(error(
+                            "the compiled theorem identity, statement wire, or axiom audit is invalid"
+                                .into(),
+                            "regenerate the compiled attribute inventory, canonical statement wire, and axiom audit",
+                        ));
+                    }
                 }
             }
             EvidenceKind::ArtifactSoundness => {
@@ -712,15 +716,20 @@ impl EvidenceRecord {
                 }
                 match &self.artifact_binding {
                     Some(binding)
-                        if binding.canonical_payload
-                            && binding.schema_bound
-                            && binding.literal_claim_bound
-                            && binding.digest_bound
-                            && binding.reencoding_passed
-                            && binding.trailing_bytes_rejected => {}
-                    _ => errors.push(error(
-                        "artifact-soundness is missing a required canonical binding check".into(),
-                        "bind payload, schema, claim, and digest and pass re-encoding/trailing-byte checks",
+                        if self
+                            .provenance
+                            .input_artifacts
+                            .iter()
+                            .filter(|artifact| *artifact == &binding.artifact)
+                            .count()
+                            == 1 => {}
+                    Some(_) => errors.push(error(
+                        "artifact-soundness identity does not match exactly one provenance input artifact".into(),
+                        "record the checked artifact exactly once in provenance and bind that exact identity",
+                    )),
+                    None => errors.push(error(
+                        "artifact-soundness is missing its checked artifact identity".into(),
+                        "record the referenced theorem and exact checked artifact identity",
                     )),
                 }
             }
@@ -1030,7 +1039,7 @@ mod tests {
     #[test]
     fn strict_evidence_rejects_unknown_fields() {
         let value = serde_json::json!({
-            "schema": EVIDENCE_SCHEMA_V1,
+            "schema": EVIDENCE_SCHEMA_BINDING_PREVIEW,
             "id": "test:e",
             "node_id": "node:e",
             "unit_id": "unit:e",

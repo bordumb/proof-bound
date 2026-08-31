@@ -454,7 +454,7 @@ mod tests {
         assert_eq!(
             module_from_target(
                 "ProofboundArtifactDemo.Claims",
-                "ProofboundArtifactDemo.Claims.publishedTotal"
+                "ProofboundArtifactDemo.Claims.publishedArtifactSoundness"
             )
             .unwrap(),
             "ProofboundArtifactDemo.Claims"

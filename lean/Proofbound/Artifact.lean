@@ -8,6 +8,23 @@ namespace Proofbound.Artifact
 def DigestBound (bytes : ByteArray) (expectedHex : String) : Prop :=
   Proofbound.sha256Hex bytes = expectedHex
 
+/--
+The audited, versioned statement form for an artifact-bound public claim.
+
+The first four arguments are deliberately explicit string literals.  The Lean
+audit preserves the elaborated application in ExprWire, so independent
+consumers can recover the exact claim, artifact schema, logical name, and
+digest without trusting a checker-authored flag.  Adapters require
+`expectedSha256` to use canonical `sha256:` plus 64 lowercase hexadecimal
+digits.
+-/
+structure DigestBindingV1
+    (claimId artifactSchema artifactLogicalName expectedSha256 : String)
+    (bytes : ByteArray)
+    (meaning : ByteArray → Prop) : Prop where
+  digest : "sha256:" ++ Proofbound.sha256Hex bytes = expectedSha256
+  meaning_holds : meaning bytes
+
 theorem accepted_and_digest_implies_meaning
     (bytes : ByteArray)
     (expectedHex : String)
@@ -30,4 +47,3 @@ theorem no_digest_substitution
   hashInjectiveAtExpected candidate published candidateBound publishedBound
 
 end Proofbound.Artifact
-

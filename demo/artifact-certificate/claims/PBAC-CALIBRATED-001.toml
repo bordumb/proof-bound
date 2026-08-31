@@ -4,11 +4,16 @@ title = "The published PBAC total describes calibrated measurements"
 statement = "The exact published canonical certificate sums to 1021 and the external provider's measurements are accurate."
 public_language = "Subject to PBAC-CALIBRATION-AX-001, the exact PBAC artifact with SHA-256 dd7cf87ba3535aad431c473b71286fb6806fcc785fc3b39290c4a99d561dfe2d describes calibrated measurements totaling 1021."
 subject = "artifact:demo/artifact-certificate/fixtures/valid-basic.pbac#sha256:dd7cf87ba3535aad431c473b71286fb6806fcc785fc3b39290c4a99d561dfe2d"
-formal_declaration = "ProofboundArtifactDemo.Claims.publishedCalibratedTotal"
+formal_declaration = "ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness"
 statement_encoding = "lean-expr-cbor/1"
-statement_sha256 = "sha256:a9506047fe0ed273a40f0fbc06fc2ffae26a00651253feb7412d752df58ae56b"
-foundational_axioms = []
-profile = "artifact-bound"
+statement_sha256 = "sha256:f58d2b835186823b59490d7030f4b4a45328c23a460b2dc6731b62432681cadc"
+foundational_axioms = [
+  "Classical.choice",
+  "ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness._native.native_decide.ax_1_1",
+  "Quot.sound",
+  "propext",
+]
+profile = "pbac-calibrated-artifact-native"
 tier = 3
 primary_linkage = "artifact-bound"
 evidence = [
@@ -17,12 +22,14 @@ evidence = [
   "independent:pbac-independent-diagnostic",
   "test:pbac-fixture-generation",
 ]
-assumptions = ["PBAC-CALIBRATION-AX-001"]
+assumptions = ["PBAC-CALIBRATION-AX-001", "PBAC-NATIVE-SHA256-001"]
 premises = []
 open_obligations = []
 out_of_scope = ["Independent authentication of the external measurement provider."]
 source_roots = [
+  "demo/artifact-certificate/fixtures/valid-basic.pbac",
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Certificate.lean",
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean",
-  "demo/artifact-certificate/fixtures/valid-basic.pbac",
+  "lean/Proofbound/Artifact.lean",
+  "lean/Proofbound/Sha256.lean",
 ]

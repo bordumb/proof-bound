@@ -1,4 +1,4 @@
-# Proofbound compiled release receipt v1
+# Proofbound compiled release receipt v2
 
 This document is the handoff contract between a release producer and the
 standalone `proofbound-verify` binary. The authoritative field types are the
@@ -18,7 +18,7 @@ does not run external tools.
 `release.json` has exactly this shape:
 
 ```json
-{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/1"}
+{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/2-binding-preview"}
 ```
 
 `payload` is a normalized relative path. Absolute paths, `.`/`..`, duplicate
@@ -41,9 +41,9 @@ The domains are fixed:
 
 | Value | Domain |
 |---|---|
-| compiled payload | `proofbound-compiled-release/1` |
+| compiled payload | `proofbound-compiled-release/2-binding-preview` |
 | graph | `proofbound-graph/1` |
-| evidence record | `proofbound-evidence/1` |
+| evidence record | `proofbound-evidence/2-binding-preview` |
 | source-closure record | `proofbound-source-closure/1` |
 | evidence cache material | `proofbound-cache-key/1` |
 
@@ -52,7 +52,7 @@ the exact file bytes, still rendered as `sha256:<64 lowercase hex>`.
 
 ## Compiled payload
 
-The payload schema is `proofbound-compiled-release/1` and contains exactly:
+The payload schema is `proofbound-compiled-release/2-binding-preview` and contains exactly:
 
 | Field | Meaning |
 |---|---|
@@ -94,20 +94,41 @@ detail block, and full provenance. Provenance binds the clean project revision,
 semantic closure, input/generated artifacts, tool and adapter identities,
 commands, timing, deterministic result, configuration, cache key, reuse link,
 budget, and actual cost. The verifier recomputes both the evidence wrapper hash
-and cache key.
+and cache key. Input and generated artifact inventories are arrays of complete
+`{logical_name, sha256, size_bytes}` identities, strictly sorted by that tuple,
+with each logical name occurring once. The cache material retains the complete
+input identities; it does not discard artifact sizes.
 
 Kind-specific requirements include compiled theorem identity and axiom audit,
-strong canonical artifact binding, explicit transcription TCB and round trip,
+the complete `lean-expr-cbor/1` statement wire, theorem-derived artifact
+binding, explicit transcription TCB and round trip,
 deterministic source refinement with registered premises, explicit bounded
 domains/harnesses, the registered solver, exact nonzero per-harness unwind
 bounds, exact exhaustive cardinality, independently inventoried checks, and
 mutation identities. Detail blocks or mode qualifiers on the wrong kind are
 invalid.
 
-An `artifact-bound` policy admits a strong artifact binding checked explicitly
-in either kernel or native mode while its theorem is still admitted under the
-policy's theorem-evaluation mode. Composing `native-evaluated` narrows the
-artifact binding to native mode as well.
+An `artifact-bound` policy admits a binding only when all of the following
+hold: the referenced theorem is admitted under the policy's theorem-evaluation
+mode; the verifier independently reproduces `statement_sha256` from the full
+canonical statement wire; that elaborated statement has the exact outer head
+`Proofbound.Artifact.DigestBindingV1` with exactly six arguments and direct
+string literals for claim ID, artifact schema, logical name, and digest; the
+literal claim ID is the current claim; the literal logical name and digest
+equal `artifact_binding.artifact`; and that complete artifact identity,
+including `size_bytes`, equals exactly one provenance input. A forged size
+therefore fails closed. A checker-authored boolean cannot confer
+`ARTIFACT_BOUND`. Wrappers,
+aliases, nested markers, nonliteral identity fields, and mismatched statement
+hashes fail closed. Composing `native-evaluated` narrows the artifact binding
+to native mode as well.
+
+The v2 `TheoremReceipt` therefore requires `statement_wire` in addition to its
+encoding and digest. The v2 `ArtifactBindingReceipt` is exactly
+`{"theorem_evidence": ..., "artifact": {"logical_name": ..., "sha256": ...,
+"size_bytes": ...}}`; the six v1 checker-authored binding booleans are not
+accepted. Release-envelope, compiled-release, and evidence v1 inputs are
+rejected rather than guessed or migrated by the verifier.
 
 The closed enum spellings are defined by `src/format.rs`: most inputs use
 `kebab-case`; the three output facets use `SCREAMING_SNAKE_CASE`. `FlowScope`
