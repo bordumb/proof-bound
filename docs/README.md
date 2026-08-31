@@ -17,6 +17,10 @@ decision.
 ## Normative design and decisions
 
 - [Specification 0001](specs/0001_initial_spec.md) is the normative design.
+- [Specification 0002](specs/0002_python_support.md) is the draft Python
+  ecosystem-support specification.
+- [Specification 0003](specs/0003_typescript_support.md) is the draft
+  TypeScript ecosystem-support specification.
 - [Architecture decision records](adr/) explain accepted decisions and their
   consequences.
 

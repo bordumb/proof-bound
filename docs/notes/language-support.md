@@ -2,7 +2,9 @@
 
 [Documentation map](../README.md) · [Working notes](README.md)
 
-- **Status:** exploring
+- **Status:** exploring — normative promotion drafted as
+  [Specification 0002](../specs/0002_python_support.md) (Python) and
+  [Specification 0003](../specs/0003_typescript_support.md) (TypeScript)
 - **Created:** 2026-08-31
 - **Last updated:** 2026-09-01
 - **Purpose:** Clarify how Proofbound applies beyond Rust, what a Python repository can use today, and what “works on any codebase” should honestly mean.
