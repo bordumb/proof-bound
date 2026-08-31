@@ -1,12 +1,14 @@
 # Experiment 0004: base64 canonical bytes
 
-- **Status:** planned
+- **Status:** running
 - **Registered:** 2026-08-31
-- **Started / concluded:** — / —
-- **Subject:** the `base64` crate (crates.io); exact version and source
-  digest TBD-at-start
-- **Proofbound:** TBD-at-start (post-bootstrap commit)
-- **Operator:** TBD-at-start
+- **Started / concluded:** 2026-08-31 / —
+- **Subject:** `base64` crate `0.22.1` (crates.io), source archive 81,597
+  bytes, SHA-256
+  `72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6`,
+  vendored locally at `other_repos/base64-0.22.1`
+- **Proofbound:** `f728f6e9da2f210ce51c62cba151590650f7f5c3`
+- **Operator:** Codex (GPT-5)
 
 ## Why this crate
 
@@ -47,6 +49,12 @@ Pattern A on bytes we do not control.
 ## Journal (append-only)
 
 - **2026-08-31** — Pre-registered. Not started.
+- **2026-08-31** — START. Pinned the exact `base64` 0.22.1 crate archive
+  (81,597 bytes; SHA-256
+  `72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6`),
+  local vendor destination, and Proofbound commit
+  `f728f6e9da2f210ce51c62cba151590650f7f5c3`. No subject archive was
+  extracted, read, or built before this running record was committed.
 
 ## Findings
 
