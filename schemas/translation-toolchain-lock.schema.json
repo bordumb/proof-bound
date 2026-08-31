@@ -7,8 +7,8 @@
   "required": ["schema", "charon_revision", "aeneas_revision", "rust_toolchain", "lean_toolchain"],
   "properties": {
     "schema": { "const": "proofbound-translation-toolchain/1" },
-    "charon_revision": { "$ref": "#/$defs/revision", "description": "Exact observable identity printed by `charon version` (currently the Charon package version)." },
-    "aeneas_revision": { "$ref": "#/$defs/revision", "description": "Exact revision token in the one-line `aeneas -version` output `aeneas <revision>`." },
+    "charon_revision": { "$ref": "#/$defs/revision" },
+    "aeneas_revision": { "$ref": "#/$defs/revision" },
     "rust_toolchain": { "$ref": "#/$defs/toolchain" },
     "lean_toolchain": { "$ref": "#/$defs/toolchain" }
   },

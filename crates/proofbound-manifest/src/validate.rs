@@ -28,6 +28,13 @@ const BUILTIN_PROFILES: &[&str] = &[
     "bounded",
 ];
 
+const MAX_REVIEWER_CHARS: usize = 512;
+const MAX_REVIEW_STATEMENT_CHARS: usize = 16_384;
+const MAX_REVIEW_SCOPE_CHARS: usize = 8_192;
+const MAX_REVIEW_SIGNATURE_CHARS: usize = 16_384;
+const MAX_REVIEW_REGRESSIONS: usize = 4_096;
+const MAX_REGRESSION_DETAIL_CHARS: usize = 8_192;
+
 #[derive(Debug, Error)]
 pub enum SemanticError {
     #[error("unknown schema in {path}: expected {expected}, found {actual}")]
@@ -84,6 +91,12 @@ pub enum SemanticError {
     UnsafePath { owner: String, path: String },
     #[error("demo registry contains duplicate demo {0}")]
     DuplicateDemo(String),
+    #[error("review {review} in {path}: {message}")]
+    InvalidReview {
+        review: String,
+        path: PathBuf,
+        message: String,
+    },
 }
 
 pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
@@ -1801,11 +1814,44 @@ fn validate_reviews(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     for (id, (path, review)) in &bundle.reviews {
         schema(path, &review.schema, "proofbound-review/1")?;
         stable_id(id, path)?;
+        review_text(id, path, "reviewer", &review.reviewer, MAX_REVIEWER_CHARS)?;
+        review_text(
+            id,
+            path,
+            "statement",
+            &review.statement,
+            MAX_REVIEW_STATEMENT_CHARS,
+        )?;
+        review_text(id, path, "scope", &review.scope, MAX_REVIEW_SCOPE_CHARS)?;
+        if let Some(signature) = &review.signature {
+            review_text(id, path, "signature", signature, MAX_REVIEW_SIGNATURE_CHARS)?;
+        }
+        if !is_rfc3339_date_time(&review.reviewed_at) {
+            return Err(invalid_review(
+                id,
+                path,
+                "reviewed_at must be an RFC 3339 date-time with an explicit offset",
+            ));
+        }
         digest_sha256(&review.base_revision, path)?;
         digest_sha256(&review.head_revision, path)?;
+        if review.regressions.is_empty() || review.regressions.len() > MAX_REVIEW_REGRESSIONS {
+            return Err(invalid_review(
+                id,
+                path,
+                &format!("regressions must contain between 1 and {MAX_REVIEW_REGRESSIONS} entries"),
+            ));
+        }
         let mut regression_ids = BTreeSet::new();
         for regression in &review.regressions {
             digest_sha256(&regression.id, path)?;
+            review_text(
+                id,
+                path,
+                "regression detail",
+                &regression.detail,
+                MAX_REGRESSION_DETAIL_CHARS,
+            )?;
             if !regression_ids.insert(&regression.id) {
                 return Err(SemanticError::DuplicateId {
                     id: regression.id.clone(),
@@ -1813,16 +1859,133 @@ fn validate_reviews(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                     second: path.clone(),
                 });
             }
-            if !bundle.claims.contains_key(&regression.claim_id) {
-                return Err(SemanticError::MissingReference {
-                    owner: id.clone(),
-                    kind: "claim",
-                    id: regression.claim_id.clone(),
-                });
-            }
+            // Assurance diff scans every claim manifest in the compared
+            // repository, including reusable templates that are not members of
+            // the active root bundle. The diff engine independently requires an
+            // exact regression match; bundle validation therefore enforces the
+            // claim-ID grammar without incorrectly excluding template claims.
+            stable_id(&regression.claim_id, path)?;
         }
     }
     Ok(())
+}
+
+fn review_text(
+    review: &str,
+    path: &Path,
+    field: &str,
+    value: &str,
+    max_chars: usize,
+) -> Result<(), SemanticError> {
+    let chars = value.chars().count();
+    if chars == 0 || chars > max_chars {
+        return Err(invalid_review(
+            review,
+            path,
+            &format!("{field} must contain between 1 and {max_chars} Unicode characters"),
+        ));
+    }
+    Ok(())
+}
+
+fn invalid_review(review: &str, path: &Path, message: &str) -> SemanticError {
+    SemanticError::InvalidReview {
+        review: review.to_owned(),
+        path: path.to_owned(),
+        message: message.to_owned(),
+    }
+}
+
+fn is_rfc3339_date_time(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() < 20
+        || bytes.get(4) != Some(&b'-')
+        || bytes.get(7) != Some(&b'-')
+        || !matches!(bytes.get(10), Some(b'T' | b't'))
+        || bytes.get(13) != Some(&b':')
+        || bytes.get(16) != Some(&b':')
+    {
+        return false;
+    }
+
+    let Some(year) = decimal(&bytes[0..4]) else {
+        return false;
+    };
+    let Some(month) = decimal(&bytes[5..7]) else {
+        return false;
+    };
+    let Some(day) = decimal(&bytes[8..10]) else {
+        return false;
+    };
+    let Some(hour) = decimal(&bytes[11..13]) else {
+        return false;
+    };
+    let Some(minute) = decimal(&bytes[14..16]) else {
+        return false;
+    };
+    let Some(second) = decimal(&bytes[17..19]) else {
+        return false;
+    };
+    if !(1..=12).contains(&month)
+        || day == 0
+        || day > days_in_month(year, month)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return false;
+    }
+
+    let mut offset = 19;
+    if bytes.get(offset) == Some(&b'.') {
+        offset += 1;
+        let fraction_start = offset;
+        while bytes.get(offset).is_some_and(u8::is_ascii_digit) {
+            offset += 1;
+        }
+        if offset == fraction_start {
+            return false;
+        }
+    }
+
+    match bytes.get(offset) {
+        Some(b'Z' | b'z') => offset + 1 == bytes.len(),
+        Some(b'+' | b'-') => {
+            if bytes.len() != offset + 6 || bytes.get(offset + 3) != Some(&b':') {
+                return false;
+            }
+            let Some(offset_hour) = decimal(&bytes[offset + 1..offset + 3]) else {
+                return false;
+            };
+            let Some(offset_minute) = decimal(&bytes[offset + 4..offset + 6]) else {
+                return false;
+            };
+            offset_hour <= 23 && offset_minute <= 59
+        }
+        _ => false,
+    }
+}
+
+fn decimal(bytes: &[u8]) -> Option<u32> {
+    bytes.iter().try_fold(0_u32, |value, byte| {
+        if byte.is_ascii_digit() {
+            Some(value * 10 + u32::from(*byte - b'0'))
+        } else {
+            None
+        }
+    })
+}
+
+const fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year.is_multiple_of(400) || (year.is_multiple_of(4) && !year.is_multiple_of(100)) => {
+            29
+        }
+        2 => 28,
+        _ => 0,
+    }
 }
 
 fn validate_demos(bundle: &ProjectBundle) -> Result<(), SemanticError> {
@@ -2092,6 +2255,201 @@ mod tests {
         let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let root = crate_dir.parent().and_then(|path| path.parent()).unwrap();
         crate::ProjectBundle::load(root).unwrap()
+    }
+
+    fn review() -> crate::ReviewManifest {
+        crate::ReviewManifest {
+            schema: "proofbound-review/1".to_owned(),
+            id: "TEST-REVIEW-001".to_owned(),
+            reviewer: "Security reviewer".to_owned(),
+            statement: "I reviewed and approve the exact registered regression.".to_owned(),
+            scope: "One exact assurance regression.".to_owned(),
+            reviewed_at: "2026-09-01T12:34:56.123+01:00".to_owned(),
+            base_revision: format!("sha256:{}", "11".repeat(32)),
+            head_revision: format!("sha256:{}", "22".repeat(32)),
+            regressions: vec![crate::ApprovedRegression {
+                id: format!("sha256:{}", "33".repeat(32)),
+                claim_id: "PB-SELF-MANIFEST-001".to_owned(),
+                kind: crate::RegressionKind::FormalDowngrade,
+                detail: "An exact registered downgrade.".to_owned(),
+            }],
+            signature: None,
+        }
+    }
+
+    fn bundle_with_review() -> crate::ProjectBundle {
+        let mut bundle = repository_bundle();
+        let review = review();
+        bundle.reviews.insert(
+            review.id.clone(),
+            (bundle.root.join("proofbound/reviews/test.toml"), review),
+        );
+        bundle
+    }
+
+    #[test]
+    fn review_fields_match_their_public_schema_bounds() {
+        let bundle = bundle_with_review();
+        assert!(validate_reviews(&bundle).is_ok());
+
+        let mut boundary = bundle_with_review();
+        let review = &mut boundary.reviews.get_mut("TEST-REVIEW-001").unwrap().1;
+        review.reviewer = "界".repeat(MAX_REVIEWER_CHARS);
+        review.statement = "界".repeat(MAX_REVIEW_STATEMENT_CHARS);
+        review.scope = "界".repeat(MAX_REVIEW_SCOPE_CHARS);
+        assert!(validate_reviews(&boundary).is_ok());
+
+        for (field, value, expected) in [
+            ("reviewer", String::new(), "reviewer must contain"),
+            (
+                "reviewer",
+                "r".repeat(MAX_REVIEWER_CHARS + 1),
+                "reviewer must contain",
+            ),
+            ("statement", String::new(), "statement must contain"),
+            (
+                "statement",
+                "s".repeat(MAX_REVIEW_STATEMENT_CHARS + 1),
+                "statement must contain",
+            ),
+            ("scope", String::new(), "scope must contain"),
+            (
+                "scope",
+                "界".repeat(MAX_REVIEW_SCOPE_CHARS + 1),
+                "scope must contain",
+            ),
+        ] {
+            let mut bundle = bundle_with_review();
+            let review = &mut bundle.reviews.get_mut("TEST-REVIEW-001").unwrap().1;
+            match field {
+                "reviewer" => review.reviewer = value,
+                "statement" => review.statement = value,
+                "scope" => review.scope = value,
+                _ => unreachable!(),
+            }
+            let error = validate_reviews(&bundle).unwrap_err().to_string();
+            assert!(error.contains(expected), "{field}: {error}");
+        }
+    }
+
+    #[test]
+    fn review_requires_a_bounded_nonempty_regression_set() {
+        let mut bundle = bundle_with_review();
+        bundle
+            .reviews
+            .get_mut("TEST-REVIEW-001")
+            .unwrap()
+            .1
+            .regressions
+            .clear();
+        let error = validate_reviews(&bundle).unwrap_err().to_string();
+        assert!(error.contains("regressions must contain between 1 and 4096"));
+
+        let mut bundle = bundle_with_review();
+        let review = &mut bundle.reviews.get_mut("TEST-REVIEW-001").unwrap().1;
+        let regression = review.regressions[0].clone();
+        review
+            .regressions
+            .resize(MAX_REVIEW_REGRESSIONS + 1, regression);
+        let error = validate_reviews(&bundle).unwrap_err().to_string();
+        assert!(error.contains("regressions must contain between 1 and 4096"));
+    }
+
+    #[test]
+    fn review_claim_ids_may_name_valid_template_claims_outside_the_root_bundle() {
+        let mut bundle = bundle_with_review();
+        bundle
+            .reviews
+            .get_mut("TEST-REVIEW-001")
+            .unwrap()
+            .1
+            .regressions[0]
+            .claim_id = "EXAMPLE-KERNEL-001".to_owned();
+        assert!(validate_reviews(&bundle).is_ok());
+
+        bundle
+            .reviews
+            .get_mut("TEST-REVIEW-001")
+            .unwrap()
+            .1
+            .regressions[0]
+            .claim_id = "not-a-stable-claim-id".to_owned();
+        assert!(validate_reviews(&bundle).is_err());
+    }
+
+    #[test]
+    fn review_signature_and_regression_detail_match_public_schema_bounds() {
+        let mut boundary = bundle_with_review();
+        let review = &mut boundary.reviews.get_mut("TEST-REVIEW-001").unwrap().1;
+        review.signature = Some("界".repeat(MAX_REVIEW_SIGNATURE_CHARS));
+        review.regressions[0].detail = "界".repeat(MAX_REGRESSION_DETAIL_CHARS);
+        assert!(validate_reviews(&boundary).is_ok());
+
+        for signature in [String::new(), "s".repeat(MAX_REVIEW_SIGNATURE_CHARS + 1)] {
+            let mut bundle = bundle_with_review();
+            bundle
+                .reviews
+                .get_mut("TEST-REVIEW-001")
+                .unwrap()
+                .1
+                .signature = Some(signature);
+            let error = validate_reviews(&bundle).unwrap_err().to_string();
+            assert!(error.contains("signature must contain"), "{error}");
+        }
+
+        for detail in [String::new(), "d".repeat(MAX_REGRESSION_DETAIL_CHARS + 1)] {
+            let mut bundle = bundle_with_review();
+            bundle
+                .reviews
+                .get_mut("TEST-REVIEW-001")
+                .unwrap()
+                .1
+                .regressions[0]
+                .detail = detail;
+            let error = validate_reviews(&bundle).unwrap_err().to_string();
+            assert!(error.contains("regression detail must contain"), "{error}");
+        }
+    }
+
+    #[test]
+    fn reviewed_at_requires_a_real_rfc3339_date_time() {
+        for valid in [
+            "2026-09-01T00:00:00Z",
+            "2026-09-01t12:34:56.123z",
+            "2000-02-29T23:59:60-00:00",
+            "2026-09-01T12:34:56+23:59",
+        ] {
+            assert!(is_rfc3339_date_time(valid), "should accept {valid}");
+        }
+        for invalid in [
+            "",
+            "/026-09-01T12:34:56Z",
+            "2026-09-01",
+            "2026-09-01 12:34:56Z",
+            "2026-09-01T12:34:56",
+            "2026-02-29T12:34:56Z",
+            "2026-13-01T12:34:56Z",
+            "2026-09-31T12:34:56Z",
+            "2026-09-01T24:00:00Z",
+            "2026-09-01T12:60:00Z",
+            "2026-09-01T12:34:61Z",
+            "2026-09-01T12:34:56.Z",
+            "2026-09-01T12:34:56+24:00",
+            "2026-09-01T12:34:56+01:60",
+            "2026-09-01T12:34:56Ztrailing",
+        ] {
+            assert!(!is_rfc3339_date_time(invalid), "should reject {invalid}");
+        }
+
+        let mut bundle = bundle_with_review();
+        bundle
+            .reviews
+            .get_mut("TEST-REVIEW-001")
+            .unwrap()
+            .1
+            .reviewed_at = "2026-09-01T12:34:56".to_owned();
+        let error = validate_reviews(&bundle).unwrap_err().to_string();
+        assert!(error.contains("reviewed_at must be an RFC 3339 date-time"));
     }
 
     #[test]
@@ -2849,6 +3207,10 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../.github/workflows/ci.yml"
         ));
+        let revision_resolver = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../.github/scripts/resolve-assurance-base.sh"
+        ));
         let xtask = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../xtask/src/main.rs"));
         let justfile = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../justfile"));
         let cargo_config = include_str!(concat!(
@@ -2883,6 +3245,10 @@ mod tests {
         assert!(workflow.contains(
             "--diff \"${{ steps.revisions.outputs.base }}..${{ steps.revisions.outputs.head }}\""
         ));
+        assert!(workflow.contains("resolve-assurance-base.sh"));
+        assert!(revision_resolver.contains("refs/remotes/origin/$default_branch"));
+        assert!(revision_resolver.contains("event_before"));
+        assert!(!revision_resolver.contains("${head}^"));
         assert!(xtask.contains("OsString::from(\"check\"), OsString::from(\"--fresh\")"));
         assert!(xtask.contains("Role::FinalVerifier"));
         assert!(xtask.contains("workspace_binary(root, \"proofbound-verify\")"));

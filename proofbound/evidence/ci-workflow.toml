@@ -6,10 +6,12 @@ claims = ["PB-SELF-CI-009"]
 tier = 0
 inputs = [
   ".cargo/config.toml",
+  ".github/scripts/resolve-assurance-base.sh",
   ".github/workflows/ci.yml",
   "justfile",
   "crates/xtask/src/main.rs",
   "crates/proofbound-manifest/src/validate.rs",
+  "python/tests/test_ci_revision_range.py",
 ]
 outputs = []
 environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]

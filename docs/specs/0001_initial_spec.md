@@ -4,7 +4,7 @@
 
 **Version:** 0.11.0
 
-**Date:** 2026-08-31
+**Date:** 2026-09-01
 
 **Project:** Proofbound
 
@@ -20,7 +20,9 @@
   detection run does not reinterpret the all-zero version-2 contract (§5,
   §10.2, §11.2.2, §11.5; ADR 0017). It also makes translation-tool readiness
   truthful by using each native identity command and exact observable-identity
-  matching instead of a GNU-style flag or substring (§10.2, §12.2; ADR 0018).
+  matching instead of a GNU-style flag or substring (§10.2, §12.2; ADR 0018),
+  and makes exact assurance-regression approval non-circular through a
+  reviewed-subject plus add-only approval-envelope protocol (§18.1; ADR 0019).
 - **0.10.0** — exact executable inventories: fixes the five adapter operation
   response meanings; requires passed observed-process evidence to carry a
   nonempty exact inventory and only successful, untruncated runs; closes the
@@ -2377,11 +2379,36 @@ clean tree by verify-only steps.
 **Assurance regressions require approval, not silence.** CI runs
 `proofbound diff` against the merge base and rejects any change carrying an
 assurance regression (§12.2) unless the change includes an approval record:
-a first-class `review` node bound to the digest of the exact base and head
-revisions and enumerating the specific regressions it approves. The approval
-is itself graph evidence — reviewable, attributable, and invalidated if the
-diff it approved changes. A regression without an approval record fails; an
-approval record without a matching regression is rejected as stale.
+a first-class `review` node bound to the digest of the exact base and reviewed
+subject revisions and enumerating the specific regressions it approves.
+
+The reviewed change and its approval use two phases (ADR 0019). A subject
+commit contains the complete proposed tree and pre-registers the review
+manifest pattern. A later approval-envelope commit adds only registered review
+manifests. When checking the envelope head, `proofbound diff` resolves the
+reviewed subject as an ancestor, requires every subject-to-envelope change to
+be a newly added review manifest, computes regressions over base-to-subject,
+and matches approvals from the envelope by exact ID, claim, kind, and detail.
+Modified, deleted, or renamed reviews and any non-review byte in the envelope
+are invalid. The subject must remain in ancestry; squash or rebase integration
+therefore requires renewed approval.
+
+CI MUST select the same reviewed base independently of event delivery. A pull
+request uses its event base. A non-default-branch push uses the merge base of
+the checked head and the fetched default branch, never the previous feature
+tip. A default-branch push uses its event `before` revision. Scheduled and
+release checks use the fetched default-branch merge base for the checked
+snapshot; a snapshot already at that tip therefore has an empty transition
+diff but still runs every fresh verification stage. Resolution MUST fail if a
+required event revision or default-branch ref is unavailable; it MUST NOT fall
+back to a narrower range that changes the identity bound by an approval.
+
+A registered review pattern MAY match no files before an approval exists.
+This exception applies only to review manifests: zero reviews grant zero
+approvals, so the boundary remains fail closed. The approval is itself graph
+evidence — reviewable, attributable, and invalidated if the diff it approved
+changes. A regression without an approval record fails; an approval record
+without a matching regression is rejected as stale.
 
 ### 18.2 Release contents and verification
 

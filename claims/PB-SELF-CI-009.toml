@@ -11,9 +11,11 @@ open_obligations = ["Hosted CI service execution is externally observable rather
 out_of_scope = ["Availability of third-party CI infrastructure."]
 source_roots = [
   ".cargo/config.toml",
+  ".github/scripts/resolve-assurance-base.sh",
   ".github/workflows/ci.yml",
   "claims/PB-SELF-CI-009.toml",
   "crates/proofbound-manifest/src/validate.rs",
   "crates/xtask/src/main.rs",
   "justfile",
+  "python/tests/test_ci_revision_range.py",
 ]

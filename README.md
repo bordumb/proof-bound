@@ -42,6 +42,8 @@ obligations.
 - `demo/artifact-certificate/` contains the independent byte checker, canonical
   fixtures, and Lean theorems used by the artifact-soundness vertical.
 - `schemas/` contains the canonical public data contracts.
+- [`docs/`](docs/README.md) indexes the product vision, normative design,
+  decisions, guides, experiments, audits, assurance records, and working notes.
 
 Proofbound reports a claim as formal, linkage, and assumption facets such as
 `PROVED · REFINED · ASSUMED`. Every human report also includes a mandatory

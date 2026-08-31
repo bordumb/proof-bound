@@ -46,7 +46,9 @@ pub fn diff_revisions(root: &Path, range: &str, json: bool) -> Result<()> {
         bail!("PB-DIFF-0001: range must contain exactly BASE..HEAD");
     }
     let base_revision = git_text(root, &["rev-parse", "--verify", base])?;
-    let head_revision = git_text(root, &["rev-parse", "--verify", head])?;
+    let requested_head_revision = git_text(root, &["rev-parse", "--verify", head])?;
+    let base_digest = domain_hash("proofbound-revision/1", base_revision.as_bytes());
+    let head_revision = resolve_reviewed_head(root, &base_digest, &requested_head_revision)?;
     let names = git_text(
         root,
         &[
@@ -110,7 +112,6 @@ pub fn diff_revisions(root: &Path, range: &str, json: bool) -> Result<()> {
             }
         }
     }
-    let base_digest = domain_hash("proofbound-revision/1", base_revision.as_bytes());
     let head_digest = domain_hash("proofbound-revision/1", head_revision.as_bytes());
     apply_approvals(root, &base_digest, &head_digest, &mut regressions)?;
     let report = DiffReport {
@@ -150,6 +151,134 @@ pub fn diff_revisions(root: &Path, range: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
+fn resolve_reviewed_head(root: &Path, base_digest: &str, requested_head: &str) -> Result<String> {
+    // Approval records are loaded from the checked-out tree. For an arbitrary
+    // historical range there is no trustworthy relationship between that tree
+    // and the requested head, so only the exact checkout can carry approvals.
+    if git_text(root, &["rev-parse", "HEAD"])? != requested_head {
+        return Ok(requested_head.to_owned());
+    }
+
+    let bundle = ProjectBundle::load(root)?;
+    if bundle.reviews.is_empty() {
+        return Ok(requested_head.to_owned());
+    }
+
+    let mut ancestor_by_identity = BTreeMap::new();
+    for revision in git_text(root, &["rev-list", requested_head])?.lines() {
+        let identity = domain_hash("proofbound-revision/1", revision.as_bytes());
+        if ancestor_by_identity
+            .insert(identity, revision.to_owned())
+            .is_some()
+        {
+            bail!("PB-DIFF-0005: revision identity collision");
+        }
+    }
+
+    let mut candidates = BTreeSet::new();
+    for (_, review) in bundle.reviews.values() {
+        if review.base_revision != base_digest {
+            continue;
+        }
+        if let Some(revision) = ancestor_by_identity.get(&review.head_revision)
+            && revision != requested_head
+        {
+            candidates.insert(revision.clone());
+        }
+    }
+
+    let mut valid = Vec::new();
+    for candidate in candidates {
+        if is_exact_review_envelope(root, &bundle, base_digest, &candidate, requested_head)? {
+            valid.push(candidate);
+        }
+    }
+    match valid.as_slice() {
+        [] => Ok(requested_head.to_owned()),
+        [candidate] => Ok(candidate.clone()),
+        _ => bail!("PB-DIFF-0003: approval envelope has ambiguous reviewed heads"),
+    }
+}
+
+fn is_exact_review_envelope(
+    root: &Path,
+    bundle: &ProjectBundle,
+    base_digest: &str,
+    reviewed_head: &str,
+    envelope_head: &str,
+) -> Result<bool> {
+    let reviewed_identity = domain_hash("proofbound-revision/1", reviewed_head.as_bytes());
+    let reviews_by_path = bundle
+        .reviews
+        .values()
+        .map(|(path, review)| {
+            let relative = path.strip_prefix(&bundle.root).with_context(|| {
+                format!(
+                    "PB-DIFF-0005: review path {} escapes the project",
+                    path.display()
+                )
+            })?;
+            let relative = relative
+                .to_str()
+                .context("PB-DIFF-0005: review path is not valid UTF-8")?;
+            Ok((relative.replace('\\', "/"), review))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let names = git_text(
+        root,
+        &[
+            "diff",
+            "--name-status",
+            "--no-renames",
+            reviewed_head,
+            envelope_head,
+        ],
+    )?;
+    Ok(exact_review_envelope_changes(
+        &names,
+        &reviews_by_path,
+        base_digest,
+        &reviewed_identity,
+    ))
+}
+
+fn exact_review_envelope_changes(
+    names: &str,
+    reviews_by_path: &BTreeMap<String, &ReviewManifest>,
+    base_digest: &str,
+    reviewed_identity: &str,
+) -> bool {
+    let matching_paths = reviews_by_path
+        .iter()
+        .filter_map(|(path, review)| {
+            (review.base_revision == base_digest && review.head_revision == reviewed_identity)
+                .then_some(path.clone())
+        })
+        .collect::<BTreeSet<_>>();
+    if matching_paths.is_empty() || names.is_empty() {
+        return false;
+    }
+    let mut changed_paths = BTreeSet::new();
+    for line in names.lines() {
+        let mut fields = line.splitn(2, '\t');
+        let status = fields.next().unwrap_or_default();
+        let path = fields.next().unwrap_or_default();
+        if status != "A" || path.is_empty() {
+            return false;
+        }
+        let Some(review) = reviews_by_path.get(path) else {
+            return false;
+        };
+        if review.base_revision != base_digest || review.head_revision != reviewed_identity {
+            return false;
+        }
+        if !changed_paths.insert(path.to_owned()) {
+            return false;
+        }
+    }
+    changed_paths == matching_paths
+}
+
 fn compare_manifest_path(
     root: &Path,
     base_revision: &str,
@@ -166,6 +295,7 @@ fn compare_manifest_path(
     let new_text = git_file(root, head_revision, path).ok();
     let old_schema = old_text.as_deref().and_then(manifest_schema);
     let new_schema = new_text.as_deref().and_then(manifest_schema);
+    reject_review_manifest_change(old_schema.as_deref(), new_schema.as_deref(), path)?;
     if old_schema.as_deref().is_some_and(is_translation_schema)
         || new_schema.as_deref().is_some_and(is_translation_schema)
     {
@@ -1297,6 +1427,19 @@ fn manifest_schema(text: &str) -> Option<String> {
     value.get("schema")?.as_str().map(str::to_owned)
 }
 
+fn reject_review_manifest_change(
+    old_schema: Option<&str>,
+    new_schema: Option<&str>,
+    path: &str,
+) -> Result<()> {
+    if old_schema == Some("proofbound-review/1") || new_schema == Some("proofbound-review/1") {
+        bail!(
+            "PB-DIFF-0003: review manifests are immutable and may be added only in an exact approval envelope: {path}"
+        );
+    }
+    Ok(())
+}
+
 fn parse_at_schema<T: serde::de::DeserializeOwned>(
     text: Option<&str>,
     schema: Option<&str>,
@@ -1966,6 +2109,91 @@ claims = ["TEST-CLAIM-001"]
                 "head",
                 &mut duplicate_regressions,
                 &[&review, &second],
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn approval_envelope_allows_only_new_exact_review_records() {
+        let review = ReviewManifest {
+            schema: "proofbound-review/1".into(),
+            id: "TEST-REVIEW-001".into(),
+            reviewer: "Reviewer".into(),
+            statement: "Exact approval".into(),
+            scope: "One reviewed revision".into(),
+            reviewed_at: "2026-09-01T00:00:00Z".into(),
+            base_revision: "base".into(),
+            head_revision: "subject".into(),
+            regressions: Vec::new(),
+            signature: None,
+        };
+        let path = "proofbound/reviews/pr-0001.toml".to_owned();
+        let reviews = BTreeMap::from([(path.clone(), &review)]);
+
+        assert!(exact_review_envelope_changes(
+            &format!("A\t{path}"),
+            &reviews,
+            "base",
+            "subject",
+        ));
+        assert!(!exact_review_envelope_changes(
+            &format!("M\t{path}"),
+            &reviews,
+            "base",
+            "subject",
+        ));
+        assert!(!exact_review_envelope_changes(
+            &format!("A\t{path}\nA\tREADME.md"),
+            &reviews,
+            "base",
+            "subject",
+        ));
+        assert!(!exact_review_envelope_changes(
+            &format!("A\t{path}"),
+            &reviews,
+            "base",
+            "different-subject",
+        ));
+
+        let mut second = review.clone();
+        second.id = "TEST-REVIEW-002".into();
+        let reviews = BTreeMap::from([
+            (path.clone(), &review),
+            ("proofbound/reviews/pr-0002.toml".into(), &second),
+        ]);
+        assert!(!exact_review_envelope_changes(
+            &format!("A\t{path}"),
+            &reviews,
+            "base",
+            "subject",
+        ));
+    }
+
+    #[test]
+    fn review_manifests_cannot_change_outside_an_approval_envelope() {
+        assert!(reject_review_manifest_change(None, None, "ordinary.toml").is_ok());
+        assert!(
+            reject_review_manifest_change(
+                None,
+                Some("proofbound-review/1"),
+                "proofbound/reviews/new.toml",
+            )
+            .is_err()
+        );
+        assert!(
+            reject_review_manifest_change(
+                Some("proofbound-review/1"),
+                Some("proofbound-review/1"),
+                "proofbound/reviews/modified.toml",
+            )
+            .is_err()
+        );
+        assert!(
+            reject_review_manifest_change(
+                Some("proofbound-review/1"),
+                None,
+                "proofbound/reviews/deleted.toml",
             )
             .is_err()
         );
