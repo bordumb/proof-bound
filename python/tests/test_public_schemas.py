@@ -109,7 +109,7 @@ def sample_bounded_evidence() -> dict[str, object]:
             },
             "adapter": {
                 "name": "proofbound-adapter-kani",
-                "version": "0.7.0",
+                "version": "0.8.0",
                 "identity_sha256": digest,
             },
             "execution_kind": "observed-processes",
@@ -390,6 +390,100 @@ def test_auxiliary_adapter_manifests_match_strict_public_schemas() -> None:
             translation_lock
         )
     )
+
+
+def test_translation_unit_v2_schema_closes_invocations_and_outputs() -> None:
+    validate = validator("translation-unit.schema.json")
+    with (
+        ROOT
+        / "demo"
+        / "allowance"
+        / "proofbound"
+        / "translations"
+        / "transfer-kernel.toml"
+    ).open("rb") as source:
+        translation = tomllib.load(source)
+    validate.validate(translation)
+
+    version_1 = json.loads(json.dumps(translation))
+    version_1["schema"] = "proofbound-translation-unit/1"
+    assert list(validate.iter_errors(version_1))
+
+    advisory = json.loads(json.dumps(translation))
+    advisory["adapter"] = "charon-aeneas"
+    assert list(validate.iter_errors(advisory))
+
+    missing_identity = json.loads(json.dumps(translation))
+    del missing_identity["invocations"][0]["cargo_manifest"]
+    assert list(validate.iter_errors(missing_identity))
+
+    selector_injection = json.loads(json.dumps(translation))
+    selector_injection["invocations"][0]["start_from"] = [
+        "allowance_kernel::decide_transfer,--include"
+    ]
+    assert list(validate.iter_errors(selector_injection))
+
+    for invalid_id in ["allowance--kernel", "allowance-kernel-", "Allowance"]:
+        invalid_invocation_id = json.loads(json.dumps(translation))
+        invalid_invocation_id["invocations"][0]["id"] = invalid_id
+        assert list(validate.iter_errors(invalid_invocation_id))
+
+    for invalid_path in [
+        "lean//Generated",
+        "lean/Generated/",
+        "lean\\Generated",
+        "lean/Generated\nControl",
+        "lean/Généré",
+        ".git/Generated",
+        "lean/target/Generated",
+        "a" * 4097,
+    ]:
+        unsafe_path = json.loads(json.dumps(translation))
+        unsafe_path["generated_dir"] = invalid_path
+        assert list(validate.iter_errors(unsafe_path)), invalid_path
+
+    incomplete_outputs = json.loads(json.dumps(translation))
+    incomplete_outputs["invocations"][0]["outputs"] = incomplete_outputs["invocations"][
+        0
+    ]["outputs"][:1]
+    assert list(validate.iter_errors(incomplete_outputs))
+
+    mislabeled_output = json.loads(json.dumps(translation))
+    mislabeled_output["invocations"][0]["outputs"][0]["kind"] = "translation-report"
+    assert list(validate.iter_errors(mislabeled_output))
+
+    for invalid_report in ["report.json", "Transfer/translation.json"]:
+        misplaced_report = json.loads(json.dumps(translation))
+        report = next(
+            output
+            for output in misplaced_report["invocations"][0]["outputs"]
+            if output["kind"] == "translation-report"
+        )
+        report["produced"] = invalid_report
+        assert list(validate.iter_errors(misplaced_report)), invalid_report
+
+    missing_bridge_module = json.loads(json.dumps(translation))
+    del missing_bridge_module["external_bridges"][0]["module"]
+    assert list(validate.iter_errors(missing_bridge_module))
+
+    unsupported_warning = json.loads(json.dumps(translation))
+    unsupported_warning["warning_inventory"] = [
+        {
+            "artifact": unsupported_warning["invocations"][0]["outputs"][0][
+                "destination"
+            ],
+            "line": 1,
+            "kind": "arbitrary-warning",
+        }
+    ]
+    assert list(validate.iter_errors(unsupported_warning))
+
+    reserved_rewrite = json.loads(json.dumps(translation))
+    reserved_rewrite["import_mapping"] = {
+        "mode": "audited-rewrite",
+        "rewrite_digest": f"sha256:{'01' * 32}",
+    }
+    validate.validate(reserved_rewrite)
 
 
 def test_every_shipped_template_manifest_matches_its_public_schema() -> None:

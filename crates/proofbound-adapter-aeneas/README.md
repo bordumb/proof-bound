@@ -6,6 +6,27 @@ The request `unit` is a strict `proofbound-evidence-unit/1` object. Commands
 are typed program/argument vectors; manifest strings are never evaluated by a
 shell.
 
+For Charon/Aeneas translation, the referenced
+`proofbound-translation-unit/2` manifest is the execution plan. Its ordered
+invocations provide every Cargo manifest, package/crate identity, LLBC path,
+symbol list, optional Aeneas subdirectory, and produced-to-destination output
+mapping. The adapter does not discover package or output layout. It rejects
+missing and undeclared generated files, resolves every external bridge module
+through exactly one declared external source root, and compares committed
+Lean and report artifacts as raw bytes. Only the pretty-printed LLBC
+projection is normalized for the two-run determinism check.
+
+Every `produced` path is relative to the invocation's Aeneas `-dest` root.
+When `aeneas_subdir` is set, Lean-source mappings include that prefix while
+the report remains exactly `translation.json` at the destination root. The
+report inventory resolves each `start_from` entry to exactly one supported,
+non-opaque local function or local type; missing, external, opaque,
+unsupported, and ambiguous entries fail closed.
+
+`update` runs inside the orchestrator's sealed checkout, replaces only the
+complete declared generated tree, and returns no evidence. The orchestrator
+alone imports those reviewed output changes into the working tree.
+
 Successful evidence-producing operations return a common observation in the
 response's `evidence` field. All non-Lean adapters use this exact
 `proofbound-adapter-observation/1` shape:

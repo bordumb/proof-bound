@@ -28,6 +28,7 @@ use proofbound_manifest::{
     AssumptionCategory as ManifestAssumptionCategory, AssumptionStatus as ManifestAssumptionStatus,
     ClaimManifest, EvidenceKind as ManifestEvidenceKind, EvidenceUnitManifest,
     ModelCheckUnitManifest, OperationKind, PolicyManifest, PrimaryLinkage, ProjectBundle,
+    TranslationUnitManifest,
 };
 use serde::{Deserialize, Serialize};
 
@@ -177,7 +178,7 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
             closures.push(unit_closure.clone());
         }
         let closure_ids = vec![unit_closure.id.clone()];
-        let cache_key = cache_key(root, unit, &closure_ids, &cache_context)?;
+        let cache_key = cache_key(root, &bundle, unit, &closure_ids, &cache_context)?;
         match execute_or_reuse(
             &execution,
             unit,
@@ -640,17 +641,15 @@ pub fn update_unit(root: &Path, unit_id: &str) -> Result<()> {
     } else {
         None
     };
-    let mut output_boundaries = vec![UpdateBoundaryGroup {
-        paths: unit.outputs.clone(),
-        recursive: unit.operation.kind == OperationKind::Translation,
-    }];
-    if let Some(translation) = translation {
-        output_boundaries.push(UpdateBoundaryGroup {
-            paths: vec![translation.generated_dir.clone()],
-            recursive: true,
-        });
+    let output_boundaries = translation.is_none().then(|| {
+        vec![UpdateBoundaryGroup {
+            paths: unit.outputs.clone(),
+            recursive: false,
+        }]
+    });
+    if let Some(boundaries) = &output_boundaries {
+        validate_output_boundaries(boundaries)?;
     }
-    validate_output_boundaries(&output_boundaries)?;
 
     let request = adapter_unit(root, &bundle, unit)?;
     let shadow = sealed_update_shadow(
@@ -672,17 +671,54 @@ pub fn update_unit(root: &Path, unit_id: &str) -> Result<()> {
                 .join("; ")
         );
     }
-    let changed = changed_update_paths(root, shadow.path(), unit.resource_budget.disk_bytes)?;
-    enforce_update_output_postcondition(unit_id, &changed, &output_boundaries)?;
-    apply_update_changes(root, shadow.path(), &changed)?;
+    let changes = classify_update_changes(root, shadow.path(), unit.resource_budget.disk_bytes)?;
+    let changed = changes.all();
+    let mut owned_replacement = None;
+    if let Some(translation) = translation {
+        let destinations = translation_destinations(translation)?;
+        let observed = response.inventory.iter().cloned().collect::<BTreeSet<_>>();
+        if observed.len() != response.inventory.len() || observed != destinations {
+            bail!(
+                "PB-UPDATE-0005: translation adapter output inventory differs from the manifest; expected={}, observed={}",
+                destinations.iter().cloned().collect::<Vec<_>>().join(", "),
+                observed.into_iter().collect::<Vec<_>>().join(", ")
+            );
+        }
+        validate_translation_update(
+            unit_id,
+            root,
+            shadow.path(),
+            translation,
+            &destinations,
+            &changes,
+            bundle.project.limits.max_files,
+            unit.resource_budget.disk_bytes,
+        )?;
+        owned_replacement = Some(begin_owned_tree_replacement(
+            root,
+            shadow.path(),
+            &translation.generated_dir,
+        )?);
+    } else {
+        let boundaries = output_boundaries
+            .as_ref()
+            .expect("non-translation updates have evidence-owned boundaries");
+        enforce_update_output_postcondition(unit_id, &changed, boundaries)?;
+        apply_update_changes(root, shadow.path(), &changed)?;
+    }
     let reviewed = changed_reviewed_paths(root)?;
-    enforce_update_output_postcondition(unit_id, &reviewed, &output_boundaries)?;
+    if let Some(boundaries) = &output_boundaries {
+        enforce_update_output_postcondition(unit_id, &reviewed, boundaries)?;
+    }
     if reviewed != changed {
         bail!(
             "PB-UPDATE-0005: imported update paths differ from Git's reviewed diff; changed={}, reviewed={}",
             changed.into_iter().collect::<Vec<_>>().join(", "),
             reviewed.into_iter().collect::<Vec<_>>().join(", ")
         );
+    }
+    if let Some(replacement) = owned_replacement {
+        replacement.commit()?;
     }
     println!("updated {} through {}", unit_id, unit.adapter.executable());
     println!("Review the resulting diff, then run the same verify-only gates.");
@@ -740,15 +776,37 @@ fn sealed_update_shadow(root: &Path, byte_limit: u64, file_limit: usize) -> Resu
     })
 }
 
-fn changed_update_paths(root: &Path, shadow: &Path, byte_limit: u64) -> Result<BTreeSet<String>> {
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct UpdateChanges {
+    writes: BTreeSet<String>,
+    deletions: BTreeSet<String>,
+}
+
+impl UpdateChanges {
+    fn all(&self) -> BTreeSet<String> {
+        self.writes.union(&self.deletions).cloned().collect()
+    }
+}
+
+fn classify_update_changes(root: &Path, shadow: &Path, byte_limit: u64) -> Result<UpdateChanges> {
     let original = update_file_inventory(root, byte_limit)?;
     let updated = update_file_inventory(shadow, byte_limit)?;
-    Ok(original
+    let writes = updated
+        .iter()
+        .filter(|(path, digest)| original.get(*path) != Some(*digest))
+        .map(|(path, _)| path.clone())
+        .collect();
+    let deletions = original
         .keys()
-        .chain(updated.keys())
-        .filter(|path| original.get(*path) != updated.get(*path))
+        .filter(|path| !updated.contains_key(*path))
         .cloned()
-        .collect())
+        .collect();
+    Ok(UpdateChanges { writes, deletions })
+}
+
+#[cfg(test)]
+fn changed_update_paths(root: &Path, shadow: &Path, byte_limit: u64) -> Result<BTreeSet<String>> {
+    Ok(classify_update_changes(root, shadow, byte_limit)?.all())
 }
 
 fn update_file_inventory(root: &Path, byte_limit: u64) -> Result<BTreeMap<String, String>> {
@@ -829,6 +887,336 @@ fn validate_update_relative_path(relative: &str) -> Result<()> {
             .any(|component| !matches!(component, Component::Normal(_)))
     {
         bail!("PB-UPDATE-0005: unsafe update path {relative:?}");
+    }
+    Ok(())
+}
+
+fn validate_owned_update_path(relative: &str) -> Result<()> {
+    validate_update_relative_path(relative)?;
+    if excluded_update_path(Path::new(relative)) {
+        bail!(
+            "PB-UPDATE-0005: generated ownership path {relative:?} contains a reserved project-control component"
+        );
+    }
+    Ok(())
+}
+
+fn translation_destinations(translation: &TranslationUnitManifest) -> Result<BTreeSet<String>> {
+    validate_owned_update_path(&translation.generated_dir)?;
+    let destinations = translation
+        .invocations
+        .iter()
+        .flat_map(|invocation| invocation.outputs.iter())
+        .map(|output| output.destination.clone())
+        .collect::<BTreeSet<_>>();
+    let declared_count = translation
+        .invocations
+        .iter()
+        .map(|invocation| invocation.outputs.len())
+        .sum::<usize>();
+    if destinations.len() != declared_count || destinations.is_empty() {
+        bail!(
+            "PB-UPDATE-0005: translation manifest has an empty or duplicate output destination inventory"
+        );
+    }
+    for destination in &destinations {
+        validate_owned_update_path(destination)?;
+        if !path_matches_boundary(destination, &translation.generated_dir, true)
+            || destination == &translation.generated_dir
+        {
+            bail!(
+                "PB-UPDATE-0005: translation destination {destination:?} is not strictly beneath its generated directory"
+            );
+        }
+    }
+    Ok(destinations)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_translation_update(
+    unit_id: &str,
+    root: &Path,
+    shadow: &Path,
+    translation: &TranslationUnitManifest,
+    destinations: &BTreeSet<String>,
+    changes: &UpdateChanges,
+    max_files: usize,
+    max_bytes: u64,
+) -> Result<()> {
+    let generated = owned_tree_inventory(shadow, &translation.generated_dir, max_files, max_bytes)?;
+    let actual = generated.keys().cloned().collect::<BTreeSet<_>>();
+    if &actual != destinations {
+        let missing = destinations
+            .difference(&actual)
+            .cloned()
+            .collect::<Vec<_>>();
+        let extra = actual.difference(destinations).cloned().collect::<Vec<_>>();
+        bail!(
+            "PB-UPDATE-0005: translation {unit_id} shadow tree does not match its exact output map; missing={missing:?}, extra={extra:?}"
+        );
+    }
+    let unauthorized_writes = changes
+        .writes
+        .difference(destinations)
+        .cloned()
+        .collect::<Vec<_>>();
+    let unauthorized_deletions = changes
+        .deletions
+        .iter()
+        .filter(|path| !path_matches_boundary(path, &translation.generated_dir, true))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unauthorized_writes.is_empty() || !unauthorized_deletions.is_empty() {
+        bail!(
+            "PB-UPDATE-0005: translation {unit_id} escaped its ownership boundary; unauthorized writes={unauthorized_writes:?}, unauthorized deletions={unauthorized_deletions:?}"
+        );
+    }
+    // Observe the original owned tree as well. This rejects a pre-existing
+    // symlink or special file before any committed bytes are touched.
+    if root.join(&translation.generated_dir).exists() {
+        owned_tree_inventory(root, &translation.generated_dir, max_files, max_bytes)?;
+    }
+    Ok(())
+}
+
+fn owned_tree_inventory(
+    root: &Path,
+    relative: &str,
+    max_files: usize,
+    max_bytes: u64,
+) -> Result<BTreeMap<String, String>> {
+    validate_owned_update_path(relative)?;
+    let canonical_root = root
+        .canonicalize()
+        .context("PB-UPDATE-0005: project root cannot be resolved")?;
+    let candidate = canonical_root.join(relative);
+    reject_update_target_symlinks(&canonical_root, &candidate)?;
+    let metadata = fs::symlink_metadata(&candidate)
+        .with_context(|| format!("PB-UPDATE-0005: generated directory {relative:?} is missing"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        bail!("PB-UPDATE-0005: generated boundary {relative:?} is not a regular directory");
+    }
+    let mut files = BTreeMap::new();
+    let mut bytes = 0_u64;
+    for entry in walkdir::WalkDir::new(&candidate)
+        .follow_links(false)
+        .sort_by_file_name()
+    {
+        let entry = entry?;
+        if entry.file_type().is_symlink() {
+            bail!(
+                "PB-UPDATE-0005: generated tree contains symlink {}",
+                entry.path().display()
+            );
+        }
+        if entry.file_type().is_dir() {
+            continue;
+        }
+        if !entry.file_type().is_file() {
+            bail!(
+                "PB-UPDATE-0005: generated tree contains special file {}",
+                entry.path().display()
+            );
+        }
+        if files.len() >= max_files {
+            bail!("PB-UPDATE-0005: generated tree exceeds its {max_files}-file limit");
+        }
+        let path = repository_relative(&canonical_root, entry.path()).with_context(|| {
+            format!(
+                "PB-UPDATE-0005: generated path escaped the project: {}",
+                entry.path().display()
+            )
+        })?;
+        let content = fs::read(entry.path())?;
+        bytes = bytes
+            .checked_add(content.len() as u64)
+            .context("PB-UPDATE-0005: generated byte count overflowed")?;
+        if bytes > max_bytes {
+            bail!("PB-UPDATE-0005: generated tree exceeds its {max_bytes}-byte limit");
+        }
+        files.insert(path, sha256_bytes(&content));
+    }
+    Ok(files)
+}
+
+struct OwnedTreeReplacement {
+    target: PathBuf,
+    backup: Option<PathBuf>,
+    rejected: PathBuf,
+    active: bool,
+}
+
+impl OwnedTreeReplacement {
+    fn rollback(&mut self) -> std::io::Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        if self.target.exists() {
+            fs::rename(&self.target, &self.rejected)?;
+        }
+        if let Some(backup) = &self.backup {
+            fs::rename(backup, &self.target)?;
+        }
+        if self.rejected.exists() {
+            fs::remove_dir_all(&self.rejected)?;
+        }
+        self.active = false;
+        Ok(())
+    }
+
+    fn commit(self) -> Result<()> {
+        self.commit_with_cleanup(|path| fs::remove_dir_all(path))
+    }
+
+    fn commit_with_cleanup<F>(mut self, cleanup: F) -> Result<()>
+    where
+        F: FnOnce(&Path) -> std::io::Result<()>,
+    {
+        if let Some(backup) = &self.backup
+            && let Err(cleanup_error) = cleanup(backup)
+        {
+            let target_display = self.target.display().to_string();
+            let backup_display = backup.display().to_string();
+            // remove_dir_all is allowed to make partial progress before it
+            // returns an error. Never try to restore from a backup after its
+            // cleanup has started: the reviewed installed tree is the only
+            // complete copy we can still guarantee.
+            self.active = false;
+            bail!(
+                "PB-UPDATE-0005: generated-tree backup cleanup failed ({cleanup_error}); the installed tree remains at {target_display}, and any residual backup remains at {backup_display}"
+            );
+        }
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for OwnedTreeReplacement {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.rollback();
+        }
+    }
+}
+
+fn begin_owned_tree_replacement(
+    root: &Path,
+    shadow: &Path,
+    relative: &str,
+) -> Result<OwnedTreeReplacement> {
+    validate_owned_update_path(relative)?;
+    let source = shadow.join(relative);
+    let source_metadata = fs::symlink_metadata(&source).with_context(|| {
+        format!("PB-UPDATE-0005: generated shadow tree {relative:?} is missing")
+    })?;
+    if source_metadata.file_type().is_symlink() || !source_metadata.is_dir() {
+        bail!("PB-UPDATE-0005: generated shadow tree {relative:?} is not a directory");
+    }
+    let target = root.join(relative);
+    reject_update_target_symlinks(root, &target)?;
+    let parent = target
+        .parent()
+        .context("PB-UPDATE-0005: generated directory has no parent")?;
+    fs::create_dir_all(parent)?;
+    reject_update_target_symlinks(root, parent)?;
+    let transaction_root = root.join(".proofbound/update-transactions");
+    reject_update_target_symlinks(root, &transaction_root)?;
+    fs::create_dir_all(&transaction_root)?;
+    reject_update_target_symlinks(root, &transaction_root)?;
+
+    let staging = tempfile::Builder::new()
+        .prefix("staging-")
+        .tempdir_in(&transaction_root)?;
+    copy_regular_tree(&source, staging.path())?;
+
+    let target_existed = match fs::symlink_metadata(&target) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            bail!("PB-UPDATE-0005: generated target {relative:?} is not a regular directory");
+        }
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    let backup_path = if target_existed {
+        let reservation = tempfile::Builder::new()
+            .prefix("backup-")
+            .tempdir_in(&transaction_root)?;
+        let path = reservation.keep();
+        fs::remove_dir(&path)?;
+        Some(path)
+    } else {
+        None
+    };
+    let rejected_reservation = tempfile::Builder::new()
+        .prefix("rejected-")
+        .tempdir_in(&transaction_root)?;
+    let rejected = rejected_reservation.keep();
+    fs::remove_dir(&rejected)?;
+    let staging_path = staging.keep();
+
+    if let Some(backup) = &backup_path
+        && let Err(error) = fs::rename(&target, backup)
+    {
+        let _ = fs::remove_dir_all(&staging_path);
+        return Err(error.into());
+    }
+
+    if let Err(install_error) = fs::rename(&staging_path, &target) {
+        let rollback = backup_path
+            .as_ref()
+            .map_or(Ok(()), |backup| fs::rename(backup, &target));
+        let _ = fs::remove_dir_all(&staging_path);
+        if let Err(rollback_error) = rollback {
+            bail!(
+                "PB-UPDATE-0005: atomic generated-tree install failed ({install_error}) and rollback failed ({rollback_error}); backup remains at {}",
+                backup_path.expect("rollback requires a backup").display()
+            );
+        }
+        return Err(install_error.into());
+    }
+    Ok(OwnedTreeReplacement {
+        target,
+        backup: backup_path,
+        rejected,
+        active: true,
+    })
+}
+
+#[cfg(test)]
+fn replace_owned_tree_atomically(root: &Path, shadow: &Path, relative: &str) -> Result<()> {
+    begin_owned_tree_replacement(root, shadow, relative)?.commit()
+}
+
+fn copy_regular_tree(source: &Path, destination: &Path) -> Result<()> {
+    for entry in walkdir::WalkDir::new(source)
+        .follow_links(false)
+        .sort_by_file_name()
+    {
+        let entry = entry?;
+        let relative = entry.path().strip_prefix(source)?;
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        if entry.file_type().is_symlink() {
+            bail!(
+                "PB-UPDATE-0005: generated shadow tree contains symlink {}",
+                entry.path().display()
+            );
+        }
+        let target = destination.join(relative);
+        if entry.file_type().is_dir() {
+            fs::create_dir(&target)?;
+        } else if entry.file_type().is_file() {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(entry.path(), target)?;
+        } else {
+            bail!(
+                "PB-UPDATE-0005: generated shadow tree contains special file {}",
+                entry.path().display()
+            );
+        }
     }
     Ok(())
 }
@@ -2956,21 +3344,12 @@ fn normalize_and_check_records(
 
 fn cache_key(
     root: &Path,
+    bundle: &ProjectBundle,
     unit: &EvidenceUnitManifest,
     closures: &[String],
     cache_context: &[String],
 ) -> Result<String> {
-    let mut inputs = BTreeMap::new();
-    for relative in &unit.inputs {
-        let path = root.join(relative);
-        if path.is_file() {
-            let metadata = fs::symlink_metadata(&path)?;
-            if metadata.file_type().is_symlink() {
-                bail!("PB-CACHE-0001: input is a symlink: {relative}");
-            }
-            inputs.insert(relative.clone(), sha256_bytes(&fs::read(path)?));
-        }
-    }
+    let inputs = cache_input_identities(bundle, unit)?;
     let mut environment = BTreeMap::new();
     for name in &unit.environment_allowlist {
         let secret = ["SECRET", "TOKEN", "PASSWORD", "KEY"]
@@ -2996,6 +3375,208 @@ fn cache_key(
         &environment,
         &tool_identities,
     )
+}
+
+fn cache_input_identities(
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+) -> Result<BTreeMap<String, String>> {
+    let root = &bundle.root;
+    let mut roots = unit.inputs.iter().cloned().collect::<BTreeSet<_>>();
+    if unit.operation.kind == OperationKind::Translation {
+        let manifest = unit.operation.manifest.as_deref().with_context(|| {
+            format!(
+                "PB-CACHE-0001: translation unit {} has no registered manifest",
+                unit.id
+            )
+        })?;
+        let (manifest_path, translation) = bundle
+            .translation_units
+            .values()
+            .find(|(path, _)| repository_relative(root, path).as_deref() == Some(manifest))
+            .with_context(|| {
+                format!(
+                    "PB-CACHE-0001: translation unit {} references unregistered manifest {manifest}",
+                    unit.id
+                )
+            })?;
+        roots.insert(repository_relative(root, manifest_path).with_context(|| {
+            format!(
+                "PB-CACHE-0001: translation manifest {} escaped the project",
+                manifest_path.display()
+            )
+        })?);
+        roots.insert(translation.generated_dir.clone());
+        roots.insert(translation.handwritten_refinement.clone());
+        roots.extend(
+            translation
+                .external_bridges
+                .iter()
+                .map(|bridge| bridge.file.clone()),
+        );
+        roots.extend(translation.import_mapping.source_roots.iter().cloned());
+        roots.extend(
+            translation
+                .invocations
+                .iter()
+                .map(|invocation| invocation.cargo_manifest.clone()),
+        );
+    }
+    collect_cache_path_identities(
+        root,
+        &roots,
+        bundle.project.limits.max_files,
+        bundle.project.limits.max_total_bytes,
+    )
+}
+
+fn collect_cache_path_identities(
+    root: &Path,
+    roots: &BTreeSet<String>,
+    max_files: usize,
+    max_bytes: u64,
+) -> Result<BTreeMap<String, String>> {
+    let canonical_root = root
+        .canonicalize()
+        .context("PB-CACHE-0001: project root cannot be resolved")?;
+    let mut inputs = BTreeMap::new();
+    let mut total_bytes = 0_u64;
+    for relative in roots {
+        validate_cache_relative_path(relative)?;
+        let candidate = canonical_root.join(relative);
+        reject_cache_symlink_components(&canonical_root, &candidate)?;
+        let metadata = fs::symlink_metadata(&candidate)
+            .with_context(|| format!("PB-CACHE-0001: registered input is missing: {relative}"))?;
+        if metadata.file_type().is_symlink() {
+            bail!("PB-CACHE-0001: input is a symlink: {relative}");
+        }
+        if metadata.is_file() {
+            insert_cache_file(
+                &canonical_root,
+                &candidate,
+                &mut inputs,
+                &mut total_bytes,
+                max_files,
+                max_bytes,
+            )?;
+            continue;
+        }
+        if !metadata.is_dir() {
+            bail!("PB-CACHE-0001: input is not a regular file or directory: {relative}");
+        }
+        for entry in walkdir::WalkDir::new(&candidate)
+            .follow_links(false)
+            .sort_by_file_name()
+        {
+            let entry = entry.with_context(|| {
+                format!("PB-CACHE-0001: cannot traverse registered input {relative}")
+            })?;
+            if entry.file_type().is_symlink() {
+                bail!(
+                    "PB-CACHE-0001: input directory contains a symlink: {}",
+                    entry.path().display()
+                );
+            }
+            if entry.file_type().is_dir() {
+                continue;
+            }
+            if !entry.file_type().is_file() {
+                bail!(
+                    "PB-CACHE-0001: input directory contains a special file: {}",
+                    entry.path().display()
+                );
+            }
+            insert_cache_file(
+                &canonical_root,
+                entry.path(),
+                &mut inputs,
+                &mut total_bytes,
+                max_files,
+                max_bytes,
+            )?;
+        }
+    }
+    Ok(inputs)
+}
+
+fn insert_cache_file(
+    root: &Path,
+    path: &Path,
+    inputs: &mut BTreeMap<String, String>,
+    total_bytes: &mut u64,
+    max_files: usize,
+    max_bytes: u64,
+) -> Result<()> {
+    let relative = repository_relative(root, path).with_context(|| {
+        format!(
+            "PB-CACHE-0001: registered input escaped the project: {}",
+            path.display()
+        )
+    })?;
+    if inputs.contains_key(&relative) {
+        return Ok(());
+    }
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        bail!("PB-CACHE-0001: input is not a regular file: {relative}");
+    }
+    if inputs.len() >= max_files {
+        bail!("PB-CACHE-0001: input inventory exceeds its {max_files}-file limit");
+    }
+    *total_bytes = total_bytes
+        .checked_add(metadata.len())
+        .context("PB-CACHE-0001: input byte count overflowed")?;
+    if *total_bytes > max_bytes {
+        bail!("PB-CACHE-0001: input inventory exceeds its {max_bytes}-byte limit");
+    }
+    inputs.insert(relative, sha256_bytes(&fs::read(path)?));
+    Ok(())
+}
+
+fn validate_cache_relative_path(relative: &str) -> Result<()> {
+    let path = Path::new(relative);
+    if relative.is_empty()
+        || relative.contains('\\')
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        bail!("PB-CACHE-0001: unsafe registered input path {relative:?}");
+    }
+    Ok(())
+}
+
+fn reject_cache_symlink_components(root: &Path, candidate: &Path) -> Result<()> {
+    let relative = candidate.strip_prefix(root).with_context(|| {
+        format!(
+            "PB-CACHE-0001: registered input escaped the project: {}",
+            candidate.display()
+        )
+    })?;
+    let mut current = root.to_owned();
+    for component in relative.components() {
+        current.push(component.as_os_str());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                bail!(
+                    "PB-CACHE-0001: registered input traverses symlink {}",
+                    current.display()
+                )
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+fn repository_relative(root: &Path, path: &Path) -> Option<String> {
+    path.strip_prefix(root)
+        .ok()
+        .and_then(Path::to_str)
+        .map(|relative| relative.replace('\\', "/"))
 }
 
 pub(crate) fn cache_key_identity(
@@ -4229,6 +4810,236 @@ mod tests {
         assert!(policy.admit_exhaustive_as_proved);
     }
 
+    fn cache_test_unit() -> EvidenceUnitManifest {
+        serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/1",
+            "id": "translation-cache",
+            "adapter": "charon-aeneas",
+            "kind": "source-refinement",
+            "claims": ["TEST-CLAIM-001"],
+            "tier": 3,
+            "refinement_theorem": "Test.refines",
+            "premises": ["TEST-PREMISE-001"],
+            "inputs": ["inputs"],
+            "outputs": [],
+            "environment_allowlist": [],
+            "operation": {
+                "type": "translation",
+                "manifest": "proofbound/translation.toml",
+                "targets": ["subject::entry"]
+            },
+            "resource_budget": {
+                "time_seconds": 30,
+                "disk_bytes": 1048576,
+                "memory_bytes": 1048576
+            }
+        }))
+        .unwrap()
+    }
+
+    fn cache_test_bundle(root: &Path) -> ProjectBundle {
+        let project = serde_json::from_value(json!({
+            "schema": "proofbound-project/1",
+            "project": "cache-test",
+            "tier": 3,
+            "claim_manifests": [],
+            "assumption_manifests": [],
+            "evidence_units": [],
+            "translation_units": ["proofbound/translation.toml"],
+            "model_check_units": [],
+            "policy_manifests": [],
+            "review_manifests": [],
+            "demo_registry": null,
+            "source": {
+                "semantic": [],
+                "runner": [],
+                "presentation": [],
+                "external_evidence": []
+            },
+            "toolchains": {},
+            "limits": {
+                "max_manifest_bytes": 2097152,
+                "max_files": 100,
+                "max_total_bytes": 1048576
+            }
+        }))
+        .unwrap();
+        let translation = serde_json::from_value(json!({
+            "schema": "proofbound-translation-unit/2",
+            "id": "translation-cache",
+            "pipeline": "charon-aeneas",
+            "generated_dir": "generated/tree",
+            "handwritten_refinement": "lean/Refinement.lean",
+            "determinism_runs": 2,
+            "determinism_normalization": "pretty-printed-llbc/1",
+            "forbid_generated_axioms": true,
+            "claims": ["TEST-CLAIM-001"],
+            "invocations": [{
+                "id": "subject",
+                "cargo_package": "subject",
+                "cargo_manifest": "subject/Cargo.toml",
+                "crate_name": "subject",
+                "llbc_file": "subject.llbc",
+                "start_from": ["subject::entry"],
+                "opaque": [],
+                "include": [],
+                "outputs": [
+                    {
+                        "kind": "lean-source",
+                        "produced": "Funs.lean",
+                        "destination": "generated/tree/Funs.lean"
+                    },
+                    {
+                        "kind": "translation-report",
+                        "produced": "translation.json",
+                        "destination": "generated/tree/translation.json"
+                    }
+                ]
+            }],
+            "external_bridges": [],
+            "template_axioms": [],
+            "warning_inventory": [],
+            "import_mapping": {
+                "mode": "external-source-root",
+                "source_roots": ["lean"]
+            },
+            "resource_budget": {
+                "time_seconds": 30,
+                "disk_bytes": 1048576,
+                "memory_bytes": 1048576
+            }
+        }))
+        .unwrap();
+        ProjectBundle {
+            root: root.to_owned(),
+            project,
+            claims: BTreeMap::new(),
+            assumptions: BTreeMap::new(),
+            evidence_units: BTreeMap::new(),
+            translation_units: BTreeMap::from([(
+                "translation-cache".to_owned(),
+                (root.join("proofbound/translation.toml"), translation),
+            )]),
+            model_check_units: BTreeMap::new(),
+            policies: BTreeMap::new(),
+            reviews: BTreeMap::new(),
+            demos: None,
+        }
+    }
+
+    #[test]
+    fn cache_inputs_recursively_bind_directories_and_reject_missing_inputs() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        fs::create_dir_all(root.join("inputs/nested")).unwrap();
+        fs::write(root.join("inputs/nested/value.txt"), b"first").unwrap();
+        let roots = BTreeSet::from(["inputs".to_owned()]);
+        let first = collect_cache_path_identities(&root, &roots, 10, 1024).unwrap();
+        assert_eq!(first.len(), 1);
+        assert!(first.contains_key("inputs/nested/value.txt"));
+
+        fs::write(root.join("inputs/nested/value.txt"), b"second").unwrap();
+        let changed = collect_cache_path_identities(&root, &roots, 10, 1024).unwrap();
+        assert_ne!(first, changed);
+        fs::write(root.join("inputs/added.txt"), b"added").unwrap();
+        let added = collect_cache_path_identities(&root, &roots, 10, 1024).unwrap();
+        assert_ne!(changed, added);
+        fs::remove_file(root.join("inputs/added.txt")).unwrap();
+        fs::remove_file(root.join("inputs/nested/value.txt")).unwrap();
+        fs::remove_dir_all(root.join("inputs")).unwrap();
+        assert!(collect_cache_path_identities(&root, &roots, 10, 1024).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_inputs_reject_symlinks_at_any_depth() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        fs::create_dir_all(root.join("inputs")).unwrap();
+        fs::write(root.join("outside.txt"), b"outside").unwrap();
+        symlink("../outside.txt", root.join("inputs/link.txt")).unwrap();
+        let error =
+            collect_cache_path_identities(&root, &BTreeSet::from(["inputs".to_owned()]), 10, 1024)
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("symlink"), "{error}");
+    }
+
+    #[test]
+    fn translation_cache_automatically_binds_every_manifest_driven_input_tree() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        for directory in [
+            "inputs",
+            "proofbound",
+            "subject",
+            "generated/tree",
+            "lean/nested",
+        ] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        fs::write(root.join("inputs/source.rs"), b"source").unwrap();
+        fs::write(root.join("proofbound/translation.toml"), b"manifest-v1").unwrap();
+        fs::write(root.join("subject/Cargo.toml"), b"cargo-v1").unwrap();
+        fs::write(root.join("generated/tree/Funs.lean"), b"funs-v1").unwrap();
+        fs::write(root.join("generated/tree/translation.json"), b"report-v1").unwrap();
+        fs::write(root.join("generated/tree/unmapped.txt"), b"stale-v1").unwrap();
+        fs::write(root.join("lean/Refinement.lean"), b"refinement-v1").unwrap();
+        fs::write(root.join("lean/Bridge.lean"), b"bridge-v1").unwrap();
+        fs::write(root.join("lean/nested/Resolution.lean"), b"resolution-v1").unwrap();
+        let unit = cache_test_unit();
+        let mut bundle = cache_test_bundle(&root);
+        bundle
+            .translation_units
+            .get_mut("translation-cache")
+            .unwrap()
+            .1
+            .external_bridges
+            .push(proofbound_manifest::ExternalBridge {
+                file: "lean/Bridge.lean".to_owned(),
+                module: Some("Bridge".to_owned()),
+                reviewed_sha256: format!("sha256:{}", "11".repeat(32)),
+            });
+
+        let first = cache_input_identities(&bundle, &unit).unwrap();
+        for path in [
+            "inputs/source.rs",
+            "proofbound/translation.toml",
+            "subject/Cargo.toml",
+            "generated/tree/Funs.lean",
+            "generated/tree/translation.json",
+            "generated/tree/unmapped.txt",
+            "lean/Refinement.lean",
+            "lean/Bridge.lean",
+            "lean/nested/Resolution.lean",
+        ] {
+            assert!(first.contains_key(path), "missing {path}");
+        }
+
+        fs::write(root.join("proofbound/translation.toml"), b"manifest-v2").unwrap();
+        let manifest_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(first, manifest_changed);
+        fs::write(root.join("subject/Cargo.toml"), b"cargo-v2").unwrap();
+        let cargo_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(manifest_changed, cargo_changed);
+        fs::write(root.join("generated/tree/unmapped.txt"), b"stale-v2").unwrap();
+        let generated_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(cargo_changed, generated_changed);
+        fs::write(root.join("lean/Refinement.lean"), b"refinement-v2").unwrap();
+        let refinement_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(generated_changed, refinement_changed);
+        fs::write(root.join("lean/Bridge.lean"), b"bridge-v2").unwrap();
+        let bridge_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(refinement_changed, bridge_changed);
+        fs::write(root.join("lean/nested/Resolution.lean"), b"resolution-v2").unwrap();
+        let source_root_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(bridge_changed, source_root_changed);
+        fs::remove_dir_all(root.join("generated/tree")).unwrap();
+        assert!(cache_input_identities(&bundle, &unit).is_err());
+    }
+
     #[test]
     fn update_postcondition_uses_component_boundaries_and_their_intersection() {
         let changed = BTreeSet::from(["lean/Generated/Nested/Aux.lean".to_owned()]);
@@ -4349,6 +5160,265 @@ mod tests {
             fs::read(root.join("reviewed/source.txt")).unwrap(),
             b"meaning"
         );
+    }
+
+    #[test]
+    fn translation_update_allows_only_exact_writes_and_owned_stale_deletions() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("root");
+        let shadow = temporary.path().join("shadow");
+        for project in [&root, &shadow] {
+            fs::create_dir_all(project.join("generated/tree")).unwrap();
+            fs::create_dir_all(project.join("reviewed")).unwrap();
+            fs::write(project.join("reviewed/source.txt"), b"meaning").unwrap();
+        }
+        fs::write(root.join("generated/tree/Funs.lean"), b"old").unwrap();
+        fs::write(root.join("generated/tree/translation.json"), b"old report").unwrap();
+        fs::write(root.join("generated/tree/stale.txt"), b"stale").unwrap();
+        fs::write(shadow.join("generated/tree/Funs.lean"), b"new").unwrap();
+        fs::write(
+            shadow.join("generated/tree/translation.json"),
+            b"new report",
+        )
+        .unwrap();
+
+        let bundle = cache_test_bundle(&root);
+        let translation = &bundle.translation_units["translation-cache"].1;
+        let destinations = translation_destinations(translation).unwrap();
+        let changes = classify_update_changes(&root, &shadow, 1 << 20).unwrap();
+        assert!(changes.deletions.contains("generated/tree/stale.txt"));
+        validate_translation_update(
+            "translation-cache",
+            &root,
+            &shadow,
+            translation,
+            &destinations,
+            &changes,
+            100,
+            1 << 20,
+        )
+        .unwrap();
+
+        fs::write(shadow.join("generated/tree/unmapped.txt"), b"smuggled").unwrap();
+        let changes = classify_update_changes(&root, &shadow, 1 << 20).unwrap();
+        assert!(
+            validate_translation_update(
+                "translation-cache",
+                &root,
+                &shadow,
+                translation,
+                &destinations,
+                &changes,
+                100,
+                1 << 20,
+            )
+            .is_err()
+        );
+        fs::remove_file(shadow.join("generated/tree/unmapped.txt")).unwrap();
+        fs::write(shadow.join("reviewed/source.txt"), b"tampered").unwrap();
+        let changes = classify_update_changes(&root, &shadow, 1 << 20).unwrap();
+        assert!(
+            validate_translation_update(
+                "translation-cache",
+                &root,
+                &shadow,
+                translation,
+                &destinations,
+                &changes,
+                100,
+                1 << 20,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn translation_update_rejects_reserved_project_control_paths() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let mut translation = cache_test_bundle(root)
+            .translation_units
+            .remove("translation-cache")
+            .unwrap()
+            .1;
+        translation.generated_dir = ".git/hooks".to_owned();
+        translation.invocations[0].outputs[0].destination = ".git/hooks/Funs.lean".to_owned();
+        translation.invocations[0].outputs[1].destination =
+            ".git/hooks/translation.json".to_owned();
+
+        let error = translation_destinations(&translation)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("reserved project-control"), "{error}");
+        let replacement_error = begin_owned_tree_replacement(root, root, ".git/hooks")
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            replacement_error.contains("reserved project-control"),
+            "{replacement_error}"
+        );
+
+        translation.generated_dir = "generated/tree".to_owned();
+        translation.invocations[0].outputs[0].destination =
+            "generated/tree/target/Funs.lean".to_owned();
+        translation.invocations[0].outputs[1].destination =
+            "generated/tree/translation.json".to_owned();
+        assert!(translation_destinations(&translation).is_err());
+    }
+
+    #[test]
+    fn atomic_translation_tree_replacement_supports_file_directory_shape_flips() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("root");
+        let shadow = temporary.path().join("shadow");
+        fs::create_dir_all(root.join("generated/tree/Shape.lean")).unwrap();
+        fs::write(
+            root.join("generated/tree/Shape.lean/old.lean"),
+            b"old nested",
+        )
+        .unwrap();
+        fs::create_dir_all(shadow.join("generated/tree")).unwrap();
+        fs::write(shadow.join("generated/tree/Shape.lean"), b"new file").unwrap();
+
+        replace_owned_tree_atomically(&root, &shadow, "generated/tree").unwrap();
+        assert_eq!(
+            fs::read(root.join("generated/tree/Shape.lean")).unwrap(),
+            b"new file"
+        );
+
+        fs::remove_dir_all(shadow.join("generated/tree")).unwrap();
+        fs::create_dir_all(shadow.join("generated/tree/Shape.lean")).unwrap();
+        fs::write(
+            shadow.join("generated/tree/Shape.lean/new.lean"),
+            b"new nested",
+        )
+        .unwrap();
+        replace_owned_tree_atomically(&root, &shadow, "generated/tree").unwrap();
+        assert_eq!(
+            fs::read(root.join("generated/tree/Shape.lean/new.lean")).unwrap(),
+            b"new nested"
+        );
+    }
+
+    #[test]
+    fn uncommitted_translation_tree_transaction_rolls_back_on_drop() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("root");
+        let shadow = temporary.path().join("shadow");
+        fs::create_dir_all(root.join("generated/tree")).unwrap();
+        fs::write(root.join("generated/tree/value.lean"), b"original").unwrap();
+        fs::create_dir_all(shadow.join("generated/tree")).unwrap();
+        fs::write(shadow.join("generated/tree/value.lean"), b"replacement").unwrap();
+
+        let transaction = begin_owned_tree_replacement(&root, &shadow, "generated/tree").unwrap();
+        assert_eq!(
+            fs::read(root.join("generated/tree/value.lean")).unwrap(),
+            b"replacement"
+        );
+        drop(transaction);
+        assert_eq!(
+            fs::read(root.join("generated/tree/value.lean")).unwrap(),
+            b"original"
+        );
+        assert_eq!(fs::read_dir(root.join("generated")).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn partial_backup_cleanup_failure_preserves_the_installed_tree() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("root");
+        let shadow = temporary.path().join("shadow");
+        fs::create_dir_all(root.join("generated/tree")).unwrap();
+        fs::write(root.join("generated/tree/value.lean"), b"original").unwrap();
+        fs::create_dir_all(shadow.join("generated/tree")).unwrap();
+        fs::write(shadow.join("generated/tree/value.lean"), b"replacement").unwrap();
+
+        let transaction = begin_owned_tree_replacement(&root, &shadow, "generated/tree").unwrap();
+        let backup = transaction.backup.clone().unwrap();
+        let error = transaction
+            .commit_with_cleanup(|backup| {
+                fs::remove_file(backup.join("value.lean"))?;
+                Err(std::io::Error::other("injected cleanup failure"))
+            })
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("installed tree remains"), "{error}");
+        assert_eq!(
+            fs::read(root.join("generated/tree/value.lean")).unwrap(),
+            b"replacement"
+        );
+        assert!(backup.exists());
+        fs::remove_dir_all(backup).unwrap();
+    }
+
+    #[test]
+    fn active_translation_transaction_exposes_only_the_reviewed_generated_diff() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("project");
+        let shadow = temporary.path().join("shadow");
+        fs::create_dir_all(root.join("generated/tree")).unwrap();
+        fs::write(root.join(".gitignore"), b".proofbound/\n").unwrap();
+        fs::write(root.join("generated/tree/value.lean"), b"original").unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec!["add", "."],
+            vec![
+                "-c",
+                "user.name=Proofbound Test",
+                "-c",
+                "user.email=test@proofbound.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "initial",
+            ],
+        ] {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+        fs::create_dir_all(shadow.join("generated/tree")).unwrap();
+        fs::write(shadow.join("generated/tree/value.lean"), b"replacement").unwrap();
+
+        let transaction = begin_owned_tree_replacement(&root, &shadow, "generated/tree").unwrap();
+        assert_eq!(
+            changed_reviewed_paths(&root).unwrap(),
+            BTreeSet::from(["generated/tree/value.lean".to_owned()])
+        );
+        drop(transaction);
+        assert!(changed_reviewed_paths(&root).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_atomic_translation_copy_leaves_original_tree_untouched() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("root");
+        let shadow = temporary.path().join("shadow");
+        fs::create_dir_all(root.join("generated/tree")).unwrap();
+        fs::write(root.join("generated/tree/original.lean"), b"original").unwrap();
+        fs::create_dir_all(shadow.join("generated/tree")).unwrap();
+        fs::write(shadow.join("outside.lean"), b"outside").unwrap();
+        symlink(
+            "../../outside.lean",
+            shadow.join("generated/tree/link.lean"),
+        )
+        .unwrap();
+
+        assert!(replace_owned_tree_atomically(&root, &shadow, "generated/tree").is_err());
+        assert_eq!(
+            fs::read(root.join("generated/tree/original.lean")).unwrap(),
+            b"original"
+        );
+        assert!(!root.join("generated/tree/link.lean").exists());
     }
 
     #[cfg(unix)]

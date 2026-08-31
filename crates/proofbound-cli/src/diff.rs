@@ -166,6 +166,18 @@ fn compare_manifest_path(
     let new_text = git_file(root, head_revision, path).ok();
     let old_schema = old_text.as_deref().and_then(manifest_schema);
     let new_schema = new_text.as_deref().and_then(manifest_schema);
+    if old_schema.as_deref().is_some_and(is_translation_schema)
+        || new_schema.as_deref().is_some_and(is_translation_schema)
+    {
+        return compare_translation_manifest_change(
+            old_text.as_deref(),
+            old_schema.as_deref(),
+            new_text.as_deref(),
+            new_schema.as_deref(),
+            path,
+            regressions,
+        );
+    }
     let schema = old_schema.as_deref().or(new_schema.as_deref());
     match schema {
         Some("proofbound-claim/1") => compare_claim_manifests(
@@ -210,12 +222,6 @@ fn compare_manifest_path(
                 .collect::<BTreeSet<_>>();
             compare_policy_manifests(old.as_ref(), new.as_ref(), path, &claims, regressions)
         }
-        Some("proofbound-translation-unit/1") => compare_translation_manifests(
-            parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
-            parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
-            path,
-            regressions,
-        ),
         Some("proofbound-project/1") => compare_project_manifests(
             parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
             parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
@@ -229,6 +235,84 @@ fn compare_manifest_path(
         ),
         _ => Ok(()),
     }
+}
+
+fn is_translation_schema(schema: &str) -> bool {
+    matches!(
+        schema,
+        "proofbound-translation-unit/1" | "proofbound-translation-unit/2"
+    )
+}
+
+fn compare_translation_manifest_change(
+    old_text: Option<&str>,
+    old_schema: Option<&str>,
+    new_text: Option<&str>,
+    new_schema: Option<&str>,
+    path: &str,
+    regressions: &mut Vec<Regression>,
+) -> Result<()> {
+    match (old_schema, new_schema) {
+        (Some("proofbound-translation-unit/2"), Some("proofbound-translation-unit/2")) => {
+            compare_translation_manifests(
+                parse_at_schema(old_text, old_schema, path)?,
+                parse_at_schema(new_text, new_schema, path)?,
+                path,
+                regressions,
+            )
+        }
+        (None, Some("proofbound-translation-unit/2")) => compare_translation_manifests(
+            None,
+            parse_at_schema(new_text, new_schema, path)?,
+            path,
+            regressions,
+        ),
+        (Some("proofbound-translation-unit/2"), None) => compare_translation_manifests(
+            parse_at_schema(old_text, old_schema, path)?,
+            None,
+            path,
+            regressions,
+        ),
+        _ => {
+            let old_identity = old_text
+                .map(|text| translation_identity(text, path))
+                .transpose()?;
+            let new_identity = new_text
+                .map(|text| translation_identity(text, path))
+                .transpose()?;
+            let claims = old_identity
+                .iter()
+                .flat_map(|(_, claims)| claims)
+                .chain(new_identity.iter().flat_map(|(_, claims)| claims))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            if old_identity.is_some() {
+                add_for_claims(
+                    regressions,
+                    &claims,
+                    RegressionKind::SourceClosureWeakened,
+                    format!(
+                        "translation manifest at {path} changed schema from {} to {}; its invocation and output closures are not statically comparable",
+                        old_schema.unwrap_or("missing"),
+                        new_schema.unwrap_or("missing")
+                    ),
+                )?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn translation_identity(text: &str, path: &str) -> Result<(String, Vec<String>)> {
+    #[derive(serde::Deserialize)]
+    struct Identity {
+        id: String,
+        claims: Vec<String>,
+    }
+
+    let identity: Identity = toml::from_str(text)
+        .with_context(|| format!("PB-DIFF-0005: changed translation manifest {path} is invalid"))?;
+    Ok((identity.id, identity.claims))
 }
 
 fn compare_claim_manifests(
@@ -790,6 +874,17 @@ fn compare_translation_manifests(
             format!("translation unit {} was removed at {path}", old.id),
         );
     };
+    if old.id != new.id {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::LinkageDowngrade,
+            format!(
+                "translation unit identity changed from {} to {} at {path}",
+                old.id, new.id
+            ),
+        )?;
+    }
     for claim in removed_strings(&old.claims, &new.claims) {
         add_regression(
             regressions,
@@ -802,43 +897,29 @@ fn compare_translation_manifests(
         .union(&string_set(&new.claims))
         .cloned()
         .collect::<BTreeSet<_>>();
-    for symbol in removed_strings(&old.start_from, &new.start_from) {
-        add_for_claims(
-            regressions,
-            &all_claims,
-            RegressionKind::LinkageDowngrade,
-            format!("translation unit {} removed source symbol {symbol}", old.id),
-        )?;
-    }
-    if old.handwritten_refinement != new.handwritten_refinement
+    if old.invocations != new.invocations
+        || old.generated_dir != new.generated_dir
+        || old.handwritten_refinement != new.handwritten_refinement
         || old.import_mapping != new.import_mapping
         || old.determinism_runs != new.determinism_runs
         || old.determinism_normalization != new.determinism_normalization
+        || old.resource_budget != new.resource_budget
     {
         add_for_claims(
             regressions,
             &all_claims,
             RegressionKind::SourceClosureWeakened,
             format!(
-                "translation unit {} changed its refinement or deterministic source binding",
+                "translation unit {} changed its exact invocation, output, refinement, import, budget, or deterministic source binding",
                 old.id
             ),
         )?;
     }
     if (old.forbid_generated_axioms && !new.forbid_generated_axioms)
-        || old.adapter != new.adapter
-        || !old
-            .external_bridges
-            .iter()
-            .all(|item| new.external_bridges.contains(item))
-        || !old
-            .template_axioms
-            .iter()
-            .all(|item| new.template_axioms.contains(item))
-        || !old
-            .warning_inventory
-            .iter()
-            .all(|item| new.warning_inventory.contains(item))
+        || old.pipeline != new.pipeline
+        || old.external_bridges != new.external_bridges
+        || old.template_axioms != new.template_axioms
+        || old.warning_inventory != new.warning_inventory
     {
         add_for_claims(
             regressions,
@@ -1305,6 +1386,57 @@ mod tests {
         .unwrap()
     }
 
+    fn translation() -> TranslationUnitManifest {
+        serde_json::from_value(json!({
+            "schema": "proofbound-translation-unit/2",
+            "id": "kernel-translation",
+            "pipeline": "charon-aeneas",
+            "invocations": [{
+                "id": "kernel",
+                "cargo_package": "kernel",
+                "cargo_manifest": "crates/kernel/Cargo.toml",
+                "crate_name": "kernel",
+                "llbc_file": "proofbound/generated/kernel.llbc",
+                "start_from": ["kernel::decide"],
+                "opaque": [],
+                "include": [],
+                "aeneas_subdir": "Kernel",
+                "outputs": [
+                    {
+                        "kind": "lean-source",
+                        "produced": "Kernel/Funs.lean",
+                        "destination": "lean/Generated/Kernel/Funs.lean"
+                    },
+                    {
+                        "kind": "translation-report",
+                        "produced": "Kernel/translation.json",
+                        "destination": "lean/Generated/Kernel/translation.json"
+                    }
+                ]
+            }],
+            "generated_dir": "lean/Generated",
+            "handwritten_refinement": "lean/KernelRefinement.lean",
+            "determinism_runs": 2,
+            "determinism_normalization": "pretty-printed-llbc/1",
+            "forbid_generated_axioms": true,
+            "external_bridges": [],
+            "template_axioms": [],
+            "warning_inventory": [],
+            "import_mapping": {
+                "mode": "external-source-root",
+                "source_roots": ["lean"],
+                "rewrite_digest": null
+            },
+            "resource_budget": {
+                "time_seconds": 60,
+                "disk_bytes": 1000000,
+                "memory_bytes": 1000000
+            },
+            "claims": ["TEST-CLAIM-001"]
+        }))
+        .unwrap()
+    }
+
     #[test]
     fn exact_set_comparisons_detect_same_count_replacements() {
         let old = claim();
@@ -1321,6 +1453,96 @@ mod tests {
         assert!(kinds.contains(&RegressionKind::UndischargedPremise));
         assert!(kinds.contains(&RegressionKind::MutationCoverageRemoved));
         assert!(kinds.contains(&RegressionKind::SourceClosureWeakened));
+    }
+
+    #[test]
+    fn translation_diff_detects_same_count_invocation_and_tcb_replacements() {
+        let old = translation();
+        let mut new = old.clone();
+        new.invocations[0].outputs[0].produced = "Kernel/Replacement.lean".into();
+        new.external_bridges
+            .push(proofbound_manifest::ExternalBridge {
+                file: "lean/Bridge.lean".into(),
+                module: Some("Bridge".into()),
+                reviewed_sha256: format!("sha256:{}", "11".repeat(32)),
+            });
+        let mut regressions = Vec::new();
+        compare_translation_manifests(
+            Some(old),
+            Some(new),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::SourceClosureWeakened)
+        );
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::EnlargedTcb)
+        );
+    }
+
+    #[test]
+    fn translation_identity_change_does_not_hide_other_regressions() {
+        let old = translation();
+        let mut new = old.clone();
+        new.id = "replacement-translation".to_owned();
+        new.invocations[0].outputs[0].produced = "Kernel/Replacement.lean".to_owned();
+        new.external_bridges
+            .push(proofbound_manifest::ExternalBridge {
+                file: "lean/Bridge.lean".to_owned(),
+                module: Some("Bridge".to_owned()),
+                reviewed_sha256: format!("sha256:{}", "11".repeat(32)),
+            });
+        let mut regressions = Vec::new();
+        compare_translation_manifests(
+            Some(old),
+            Some(new),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        let kinds = regressions
+            .iter()
+            .map(|regression| regression.kind)
+            .collect::<Vec<_>>();
+        assert!(kinds.contains(&RegressionKind::LinkageDowngrade));
+        assert!(kinds.contains(&RegressionKind::SourceClosureWeakened));
+        assert!(kinds.contains(&RegressionKind::EnlargedTcb));
+    }
+
+    #[test]
+    fn translation_v1_to_v2_migration_is_never_silent() {
+        let old = r#"
+schema = "proofbound-translation-unit/1"
+id = "kernel-translation"
+claims = ["TEST-CLAIM-001"]
+"#;
+        let new = r#"
+schema = "proofbound-translation-unit/2"
+id = "kernel-translation"
+claims = ["TEST-CLAIM-001"]
+"#;
+        let mut regressions = Vec::new();
+        compare_translation_manifest_change(
+            Some(old),
+            Some("proofbound-translation-unit/1"),
+            Some(new),
+            Some("proofbound-translation-unit/2"),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert_eq!(regressions.len(), 1);
+        assert_eq!(regressions[0].kind, RegressionKind::SourceClosureWeakened);
+        assert!(regressions[0].detail.contains("changed schema"));
     }
 
     #[test]

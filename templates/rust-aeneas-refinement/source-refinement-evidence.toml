@@ -8,11 +8,12 @@ refinement_theorem = "YourProject.Kernel.withdraw_refines"
 premises = ["EXAMPLE-U64-REP-001"]
 assumptions = []
 inputs = [
+  "templates/rust-aeneas-refinement/rust/Cargo.toml",
   "templates/rust-aeneas-refinement/rust/src/lib.rs",
   "templates/rust-aeneas-refinement/lean/KernelRefinement.lean",
   "templates/rust-aeneas-refinement/translation-unit.toml",
 ]
-outputs = ["templates/rust-aeneas-refinement/lean/Generated"]
+outputs = []
 environment_allowlist = ["PATH", "LEAN_PATH"]
 
 [operation]

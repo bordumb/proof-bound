@@ -115,11 +115,15 @@ kernel.
 
 ## Translation quarantine and integration work
 
-`proofbound/translations/transfer-kernel.toml` is authoritative for package,
-start symbol, generated destination, bridge, import mapping, determinism, axiom
-policy, claims, and resource budget. `lean/Generated/Allowance` is reserved
-exclusively for generator output and intentionally contains no handwritten
-files. The transparent bridge is outside it at
+`proofbound/translations/transfer-kernel.toml` is authoritative for the Cargo
+manifest and package, crate and LLBC names, start symbols, complete
+produced-to-destination output map, bridge, import mapping, determinism, axiom
+policy, claims, and resource budget. `lean/Generated/Allowance` is the declared
+atomic replacement boundary and intentionally contains no handwritten files.
+The illustrative `Funs.lean`, `Types.lean`, and `translation.json` mappings
+match the pinned pilot's output shape but are not observations of this crate:
+the pinned dry run must replace them with its complete exact inventory before
+the example evidence unit is activated. The transparent bridge is outside the generated tree at
 `lean/ProofboundDemo/Bridges/Kernel.lean` and is byte-pinned by the manifest.
 The prospective evidence unit is retained as
 `proofbound/evidence/transfer-refinement.toml.example`; it is deliberately not

@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.7.0
+**Version:** 0.8.0
 
 **Date:** 2026-08-31
 
@@ -12,6 +12,11 @@
 
 ### Revision history
 
+- **0.8.0** — authoritative translation manifests: replaces the flat,
+  partially advisory translation-unit format with ordered typed
+  Charon/Aeneas invocations, exact intermediate and output identities, a
+  closed produced-to-destination map, executable external-source-root
+  resolution, and explicit generated-tree ownership (§11.3; ADR 0014).
 - **0.7.0** — artifact-binding security boundary: derives
   `ARTIFACT_BOUND` only from the exact elaborated root proposition carried by
   an admitted theorem, removes checker-authored linkage booleans, makes the
@@ -1189,23 +1194,21 @@ evidence record: regeneration is not assurance evidence.
 ### 11.3 Translation unit
 
 ```toml
-schema = "proofbound-translation-unit/1"
+schema = "proofbound-translation-unit/2"
 id = "transfer-kernel"
-adapter = "charon-aeneas"
-packages = ["allowance-kernel"]
-start_from = ["allowance_kernel::decide_transfer"]
-opaque = []
-include = []
+pipeline = "charon-aeneas"
 generated_dir = "lean/Generated/Transfer"
 handwritten_refinement = "lean/Allowance/TransferRefinement.lean"
 determinism_runs = 2
 determinism_normalization = "pretty-printed-llbc/1"
 forbid_generated_axioms = true
+claims = ["TRANSFER-001"]
 
 [[external_bridges]]
 # Hand-authored external function/type models. They live outside the
 # generator-owned tree, are declared explicitly, and are byte-pinned.
 file = "lean/Bridges/TransferExternal.lean"
+module = "Bridges.TransferExternal"
 reviewed_sha256 = "…"
 
 [[template_axioms]]
@@ -1219,34 +1222,150 @@ compiled = false
 # a new one fails the build.
 artifact = "lean/Generated/Transfer/Funs.lean"
 line = 118
+# Typed vocabulary: upstream-sorry | upstream-sorry-ax.
 kind = "upstream-sorry"
+
+[[invocations]]
+id = "allowance-kernel"
+cargo_package = "allowance-kernel"
+# This is the exact package manifest and contains the literal
+# `[package].name = "allowance-kernel"`; virtual workspace manifests do not
+# satisfy an invocation.
+cargo_manifest = "rust/kernel/Cargo.toml"
+crate_name = "allowance_kernel"
+# Relative to this invocation's isolated LLBC directory; never committed.
+llbc_file = "allowance_kernel.llbc"
+start_from = ["allowance_kernel::decide_transfer"]
+opaque = []
+include = []
+aeneas_subdir = "Transfer"
+
+[[invocations.outputs]]
+kind = "lean-source"
+# `produced` is relative to the Aeneas `-dest` root. Lean outputs include the
+# declared Aeneas subdirectory.
+produced = "Transfer/Funs.lean"
+destination = "lean/Generated/Transfer/Funs.lean"
+
+[[invocations.outputs]]
+kind = "lean-source"
+produced = "Transfer/Templates.lean"
+destination = "lean/Generated/Transfer/Templates.lean"
+
+[[invocations.outputs]]
+kind = "translation-report"
+# Aeneas emits its report at the `-dest` root, outside `aeneas_subdir`.
+produced = "translation.json"
+destination = "lean/Generated/Transfer/translation.json"
+
+[import_mapping]
+mode = "external-source-root"
+source_roots = ["lean"]
+
+[resource_budget]
+time_seconds = 1800
+disk_bytes = 26843545600
+memory_bytes = 8589934592
 ```
 
-The schema is deliberately wider than a package-and-symbols pair because the
-reference implementation needed every one of these fields in practice:
-start-from, opaque, and included symbol sets drive the extractor invocation;
-hand-reviewed external bridges must be byte-pinned; translator template axioms
-exist and must stay uncompiled with exact per-file counts; raw LLBC is
-nondeterministic and must be normalized before byte comparison; and upstream
-translator warnings must be inventoried so that new ones fail the build instead
-of scrolling past.
+Version 2 is deliberately breaking. A version-1 manifest's global package and
+symbol lists do not say which Cargo manifest, crate identity, LLBC filename,
+Aeneas output directory, or committed destination belongs to each extraction.
+They also permit the adapter to discover outputs and infer paths. Version 2
+rejects that ambiguity rather than guessing a migration.
+
+`pipeline` is the typed `charon-aeneas` pipeline. `invocations` is a non-empty,
+strictly ID-sorted sequence, and its order is execution and receipt order. Each
+invocation declares the exact Cargo package and repository-relative package
+`Cargo.toml`, whose literal `[package].name` MUST equal `cargo_package`, Rust
+crate name, run-workspace-relative `.llbc` file, start,
+opaque, and included symbol inventories, optional Aeneas subdirectory, and
+complete output map. Symbol inventories are strict sorted sets of Rust paths;
+`start_from` may name a supported local function or local type, and the exact
+translation-report inventory MUST confirm every selected entry in its typed
+function-or-type collection. Characters that could become command-line syntax
+are inadmissible. Invocation IDs use the segmented lowercase grammar
+`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`. IDs and LLBC paths are unique, and a
+`start_from` symbol may occur in only one invocation in a unit. No package,
+manifest, crate, LLBC name, symbol, output path, or unit count may be inferred
+from another field or embedded in adapter source.
+
+Every invocation maps at least one `lean-source` and exactly one
+`translation-report`. Both `produced` and `destination` are safe relative
+paths. `produced` is relative to the Aeneas `-dest` root, not to an effective
+subdirectory: when `aeneas_subdir` is present, every `lean-source` produced path
+is strictly beneath that prefix, while the report remains exactly the root-level
+`translation.json`. Mapping rows are in strict `(produced, destination, kind)` order;
+produced paths within an invocation and destinations across all registered
+units are unique and pairwise prefix-disjoint. Destinations are strictly beneath
+`generated_dir` and collectively bounded by both the project's `max_files` and
+the fixed 100,000-output translation ceiling. The adapter MUST reject any
+emitted file not named by `produced`, any missing mapping, and every
+kind/extension mismatch.
+It maps bytes without content normalization: `determinism_normalization` names
+the exact pretty-printed-LLBC normalization used only for comparing the two
+LLBC reproductions. Generated Lean and translation reports are compared and
+committed byte-for-byte.
+
+Every translation path is a portable, slash-normalized sequence of non-empty
+printable-ASCII components. Backslash, control or non-ASCII bytes, absolute
+paths, `.`, `..`, doubled separators, and trailing separators are forbidden,
+as are the project-control components `.git`, `target`, `.lake`, `.proofbound`,
+`.venv`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, and `.ruff_cache`. The
+complete UTF-8 encoding is at most 4096 bytes. Printable ASCII is a deliberate
+cross-platform choice: it makes the JSON Schema character bound and the runtime
+byte bound identical. A unit has at most 4096 invocations, claims, and entries
+in each start/opaque/include list; at most 1024 source roots, external bridges,
+and template-axiom entries; and at most 4096 warning entries.
+An invocation maps at most 100,000 outputs, subject to the smaller aggregate
+limit above. Translation and exact Cargo package TOML files obey the project's
+`max_manifest_bytes`. Generated artifacts, external bridges, and their complete
+inventories are bounded by the declared disk budget and project
+`max_total_bytes`; adapters MUST NOT impose a smaller undocumented per-file
+ceiling.
+
+Hand-reviewed external bridges remain byte-pinned. Translator template axioms
+must stay uncompiled with exact per-file counts, and upstream warnings must be
+inventoried so new warnings fail rather than scroll past. Every template or
+warning artifact MUST itself be a mapped `lean-source` destination; a side
+inventory cannot smuggle an undeclared generated file into the closure.
+Bridge `module` identities are unique within a translation unit. Warning
+`kind` is the closed vocabulary `upstream-sorry` or `upstream-sorry-ax`, exactly
+the two scanners implemented by the reference adapter; accepting an
+unimplemented free-text warning kind would create an unexecutable manifest.
 
 `generated_dir` is exclusively generator-owned. A generated module MAY import
 a declared handwritten external bridge, but the bridge path MUST be outside
-`generated_dir`; translation validation rejects overlap in either direction.
-Regeneration may replace the complete generated directory, so no handwritten
-source may depend on preservation by a generator cleanup routine. External
-bridges remain separately reviewed and content-addressed by the translation
-manifest.
+`generated_dir`. `check` rejects extra, stale, missing, renamed, and changed
+files. For `update`, `generated_dir` is the explicit recursive deletion and
+atomic-replacement boundary, while mapped destinations are the exclusive
+creation/modification allowlist inside the replacement. Thus update may delete
+stale files only inside that validated non-symlink boundary, may install only
+the exact map, and never asks an adapter to write the committed tree. No
+handwritten source or review note may depend on preservation by cleanup.
 
 Out-of-tree bridges need explicit import support, because translators emit
 imports expecting external models inside their own output namespace. The
-adapter MUST provide one of two declared mechanisms: map the bridge's module
-name to its external path in the build configuration (e.g. Lake source
-roots), or apply an audited import-rewrite normalization to generated
-output — the same discipline as `determinism_normalization`, applied
-identically to both reproduction runs so byte comparison still holds. Silent
-hand-editing of generated imports is not an option.
+implemented `external-source-root` mode declares a non-empty, sorted set of
+repository-relative source roots. Every root must exist as a directory in the
+sealed shadow, may be an ancestor but not equal to or beneath `generated_dir`,
+and every bridge's required `module` MUST resolve from exactly one root as
+`<root>/<module components>.lean` to the bridge's declared `file`. These roots
+are a typed import-resolution contract; they are not extractor selectors and
+MUST NOT be passed through an invented Aeneas option. `audited-rewrite` remains
+a reserved spelling but is rejected until a typed rewrite implementation,
+digest domain, and adversarial corpus exist. Silent import rewriting or
+hand-editing generated output is not supported.
+
+A source-refinement evidence unit using this manifest has no committed
+`outputs` and no `expected_inventory`: adapters return observations from a sealed shadow, while only
+`proofbound update` owns committed writes. Its operation manifest, flattened
+ordered start inventory, claims, and resource budget MUST exactly equal the
+registered version-2 translation unit. The manifest and generated tree are
+automatic cache inputs. The handwritten refinement, every external bridge, and
+the existence or absence of every bridge-module candidate under every declared
+source root are automatic cache inputs as well. Omission from a manually
+curated input list cannot make their drift or an ambiguous new module invisible.
 
 **Inversion requirement.** In Auths Proof, the qualification manifest is a
 cross-check of hard-coded orchestration: extractor flags, symbol lists, output
@@ -1259,8 +1378,9 @@ unit counts. Adding a translation unit is a manifest change, not an
 orchestrator change. This inversion is new engineering, not extraction of
 existing machinery, and Section 15.2 grades it accordingly.
 
-Lists of packages, symbols, generated destinations, external bridges, and
-claim mappings MUST live in manifests rather than orchestration source code.
+Lists of invocations, packages, Cargo manifests, crate and LLBC identities,
+symbols, produced files, generated destinations, external bridges, and claim
+mappings MUST live in manifests rather than orchestration source code.
 
 ### 11.4 Closure reuse
 

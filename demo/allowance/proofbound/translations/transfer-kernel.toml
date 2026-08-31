@@ -1,10 +1,6 @@
-schema = "proofbound-translation-unit/1"
+schema = "proofbound-translation-unit/2"
 id = "transfer-kernel"
-adapter = "charon-aeneas"
-packages = ["allowance-kernel"]
-start_from = ["allowance_kernel::decide_transfer"]
-opaque = []
-include = []
+pipeline = "charon-aeneas"
 generated_dir = "demo/allowance/lean/Generated/Allowance"
 handwritten_refinement = "demo/allowance/lean/ProofboundDemo/TransferRefinement.lean"
 determinism_runs = 2
@@ -24,6 +20,31 @@ warning_inventory = []
 file = "demo/allowance/lean/ProofboundDemo/Bridges/Kernel.lean"
 module = "ProofboundDemo.Bridges.Kernel"
 reviewed_sha256 = "sha256:346fd7f34aefb9ebe02669775abadb6dbc5576566ad6e109dac8bcf949dd219d"
+
+[[invocations]]
+id = "allowance-kernel"
+cargo_package = "allowance-kernel"
+cargo_manifest = "demo/allowance/rust/kernel/Cargo.toml"
+crate_name = "allowance_kernel"
+llbc_file = "allowance_kernel.llbc"
+start_from = ["allowance_kernel::decide_transfer"]
+opaque = []
+include = []
+
+[[invocations.outputs]]
+kind = "lean-source"
+produced = "Funs.lean"
+destination = "demo/allowance/lean/Generated/Allowance/Funs.lean"
+
+[[invocations.outputs]]
+kind = "lean-source"
+produced = "Types.lean"
+destination = "demo/allowance/lean/Generated/Allowance/Types.lean"
+
+[[invocations.outputs]]
+kind = "translation-report"
+produced = "translation.json"
+destination = "demo/allowance/lean/Generated/Allowance/translation.json"
 
 [import_mapping]
 mode = "external-source-root"

@@ -1063,7 +1063,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cargo_python_and_lake_versions_match() {
+    fn all_product_versions_match() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .canonicalize()
@@ -1084,6 +1084,22 @@ mod tests {
                 "{relative} is out of sync with the Rust workspace version"
             );
         }
+        let expected = env!("CARGO_PKG_VERSION");
+        let specification = fs::read_to_string(root.join("docs/specs/0001_initial_spec.md"))
+            .expect("read normative specification");
+        assert!(
+            specification
+                .lines()
+                .any(|line| line == format!("**Version:** {expected}")),
+            "normative specification is out of sync with the Rust workspace version"
+        );
+        let uv_lock = fs::read_to_string(root.join("uv.lock")).expect("read uv.lock");
+        assert!(
+            uv_lock.contains(&format!(
+                "name = \"proofbound\"\nversion = \"{expected}\"\nsource = {{ editable = \".\" }}"
+            )),
+            "uv.lock is out of sync with the Rust workspace version"
+        );
     }
 
     #[test]

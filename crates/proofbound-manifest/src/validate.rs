@@ -1,12 +1,18 @@
 use std::{
     collections::BTreeSet,
+    fs,
     path::{Component, Path, PathBuf},
 };
 
 use thiserror::Error;
 
 use crate::{
-    AdapterKind, AssumptionCategory, BindingMode, EvidenceKind, OperationKind, ProjectBundle,
+    AdapterKind, AssumptionCategory, BindingMode, EvidenceKind, ImportMappingMode,
+    MAX_TRANSLATION_CLAIMS, MAX_TRANSLATION_EXTERNAL_BRIDGES, MAX_TRANSLATION_INVOCATIONS,
+    MAX_TRANSLATION_MAPPED_OUTPUTS, MAX_TRANSLATION_PATH_BYTES, MAX_TRANSLATION_SOURCE_ROOTS,
+    MAX_TRANSLATION_SYMBOLS, MAX_TRANSLATION_TEMPLATE_AXIOMS, MAX_TRANSLATION_WARNINGS,
+    OperationKind, ProjectBundle, TRANSLATION_RESERVED_PATH_COMPONENTS, TranslationOutputKind,
+    TranslationPipeline,
 };
 
 const BUILTIN_PROFILES: &[&str] = &[
@@ -457,27 +463,445 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
 }
 
 fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
-    for (id, (path, unit)) in &bundle.translation_units {
-        schema(path, &unit.schema, "proofbound-translation-unit/1")?;
-        local_id(id, path)?;
-        if unit.adapter != "charon-aeneas"
-            || unit.determinism_runs != 2
-            || !unit.forbid_generated_axioms
-        {
-            return Err(SemanticError::Translation { unit: id.clone(), message: "adapter must be charon-aeneas, determinism_runs must be 2, and generated axioms must be forbidden".to_owned() });
-        }
-        relative_path(id, &unit.generated_dir)?;
-        relative_path(id, &unit.handwritten_refinement)?;
-        if overlaps(&unit.generated_dir, &unit.handwritten_refinement) {
+    let mut generated_directories = Vec::<String>::new();
+    for (id, (_, unit)) in &bundle.translation_units {
+        translation_path(id, &unit.generated_dir)?;
+        if Path::new(&unit.generated_dir).components().count() < 2 {
             return Err(SemanticError::Translation {
                 unit: id.clone(),
-                message: "handwritten refinement overlaps generator-owned directory".to_owned(),
+                message: "generated_dir must have at least two path components".to_owned(),
             });
         }
+        if generated_directories
+            .iter()
+            .any(|existing| overlaps(existing, &unit.generated_dir))
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "generated_dir overlaps another translation unit's ownership boundary"
+                    .to_owned(),
+            });
+        }
+        generated_directories.push(unit.generated_dir.clone());
+    }
+    let mut destinations = BTreeSet::<String>::new();
+    let mut llbc_files = BTreeSet::new();
+    for (id, (path, unit)) in &bundle.translation_units {
+        schema(path, &unit.schema, "proofbound-translation-unit/2")?;
+        local_id(id, path)?;
+        if unit.pipeline != TranslationPipeline::CharonAeneas
+            || unit.determinism_runs != 2
+            || unit.determinism_normalization != "pretty-printed-llbc/1"
+            || !unit.forbid_generated_axioms
+            || unit.resource_budget.time_seconds == 0
+            || unit.resource_budget.disk_bytes == 0
+            || unit.resource_budget.memory_bytes == 0
+        {
+            return Err(SemanticError::Translation { unit: id.clone(), message: "pipeline must be charon-aeneas, determinism_runs must be 2, normalization must be pretty-printed-llbc/1, generated axioms must be forbidden, and every budget must be nonzero".to_owned() });
+        }
+        translation_path(id, &unit.handwritten_refinement)?;
+        if generated_directories
+            .iter()
+            .any(|generated| overlaps(generated, &unit.handwritten_refinement))
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "handwritten refinement overlaps a generator-owned directory".to_owned(),
+            });
+        }
+        if unit.invocations.is_empty() || unit.invocations.len() > MAX_TRANSLATION_INVOCATIONS {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!(
+                    "invocations must contain between 1 and {MAX_TRANSLATION_INVOCATIONS} entries"
+                ),
+            });
+        }
+        if !unit
+            .invocations
+            .windows(2)
+            .all(|pair| pair[0].id < pair[1].id)
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "invocations must be in strict lexical id order".to_owned(),
+            });
+        }
+        let generated_dir = Path::new(&unit.generated_dir);
+        let mut lean_destinations = BTreeSet::<String>::new();
+        let mut start_symbols = BTreeSet::<String>::new();
+        for invocation in &unit.invocations {
+            local_id(&invocation.id, path)?;
+            if !valid_cargo_package(&invocation.cargo_package) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!("invocation {} has an invalid cargo_package", invocation.id),
+                });
+            }
+            translation_path(id, &invocation.cargo_manifest)?;
+            if Path::new(&invocation.cargo_manifest)
+                .file_name()
+                .and_then(|value| value.to_str())
+                != Some("Cargo.toml")
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} cargo_manifest must name Cargo.toml",
+                        invocation.id
+                    ),
+                });
+            }
+            if generated_directories
+                .iter()
+                .any(|generated| overlaps(generated, &invocation.cargo_manifest))
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} cargo_manifest overlaps generated_dir",
+                        invocation.id
+                    ),
+                });
+            }
+            validate_exact_package_manifest(
+                &bundle.root,
+                id,
+                &invocation.cargo_manifest,
+                &invocation.cargo_package,
+                bundle.project.limits.max_manifest_bytes,
+            )?;
+            if !valid_rust_identifier(&invocation.crate_name) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} has an invalid Rust crate_name",
+                        invocation.id
+                    ),
+                });
+            }
+            translation_path(id, &invocation.llbc_file)?;
+            if Path::new(&invocation.llbc_file)
+                .extension()
+                .and_then(|value| value.to_str())
+                != Some("llbc")
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} llbc_file must have the .llbc extension",
+                        invocation.id
+                    ),
+                });
+            }
+            if !llbc_files.insert(&invocation.llbc_file) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} repeats llbc_file {}",
+                        invocation.id, invocation.llbc_file
+                    ),
+                });
+            }
+            if let Some(subdir) = &invocation.aeneas_subdir {
+                translation_path(id, subdir)?;
+            }
+            for (name, values, allow_empty) in [
+                ("start_from", &invocation.start_from, false),
+                ("opaque", &invocation.opaque, true),
+                ("include", &invocation.include, true),
+            ] {
+                if (!allow_empty && values.is_empty())
+                    || values.len() > MAX_TRANSLATION_SYMBOLS
+                    || values
+                        .iter()
+                        .any(|value| value.len() > 1024 || !valid_rust_path(value))
+                    || !values.windows(2).all(|pair| pair[0] < pair[1])
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} {name} must be in strict lexical order",
+                            invocation.id
+                        ),
+                    });
+                }
+            }
+            for symbol in &invocation.start_from {
+                if !start_symbols.insert(symbol.clone()) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "start_from symbol {symbol} is repeated across invocations"
+                        ),
+                    });
+                }
+            }
+            let symbol_count =
+                invocation.start_from.len() + invocation.opaque.len() + invocation.include.len();
+            let distinct_symbols = invocation
+                .start_from
+                .iter()
+                .chain(&invocation.opaque)
+                .chain(&invocation.include)
+                .collect::<BTreeSet<_>>()
+                .len();
+            if distinct_symbols != symbol_count {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} repeats a symbol across start_from, opaque, and include",
+                        invocation.id
+                    ),
+                });
+            }
+            if invocation.outputs.is_empty()
+                || invocation.outputs.len() > MAX_TRANSLATION_MAPPED_OUTPUTS
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} outputs must contain between 1 and {MAX_TRANSLATION_MAPPED_OUTPUTS} entries",
+                        invocation.id,
+                    ),
+                });
+            }
+            if !invocation.outputs.windows(2).all(|pair| {
+                (&pair[0].produced, &pair[0].destination, pair[0].kind)
+                    < (&pair[1].produced, &pair[1].destination, pair[1].kind)
+            }) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} outputs must be in strict produced/destination/kind order",
+                        invocation.id
+                    ),
+                });
+            }
+            let mut produced = BTreeSet::<String>::new();
+            let mut lean_sources = 0_usize;
+            let mut translation_reports = 0_usize;
+            for output in &invocation.outputs {
+                translation_path(id, &output.produced)?;
+                translation_path(id, &output.destination)?;
+                if produced
+                    .iter()
+                    .any(|existing| overlaps(existing, &output.produced))
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} has duplicate or prefix-overlapping produced output {}",
+                            invocation.id, output.produced
+                        ),
+                    });
+                }
+                produced.insert(output.produced.clone());
+                if destinations
+                    .iter()
+                    .any(|existing| overlaps(existing, &output.destination))
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "destination {} is duplicate or prefix-overlaps another destination",
+                            output.destination
+                        ),
+                    });
+                }
+                destinations.insert(output.destination.clone());
+                let destination = Path::new(&output.destination);
+                if destination == generated_dir || !destination.starts_with(generated_dir) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "destination {} is not strictly beneath generated_dir",
+                            output.destination
+                        ),
+                    });
+                }
+                let expected_extension = match output.kind {
+                    TranslationOutputKind::LeanSource => {
+                        if let Some(subdir) = invocation.aeneas_subdir.as_deref() {
+                            let produced = Path::new(&output.produced);
+                            let subdir = Path::new(subdir);
+                            if produced == subdir || !produced.starts_with(subdir) {
+                                return Err(SemanticError::Translation {
+                                    unit: id.clone(),
+                                    message: format!(
+                                        "invocation {} lean-source {} must be strictly inside aeneas_subdir {}",
+                                        invocation.id,
+                                        output.produced,
+                                        subdir.display()
+                                    ),
+                                });
+                            }
+                        }
+                        lean_sources += 1;
+                        lean_destinations.insert(output.destination.clone());
+                        "lean"
+                    }
+                    TranslationOutputKind::TranslationReport => {
+                        if output.produced != "translation.json" {
+                            return Err(SemanticError::Translation {
+                                unit: id.clone(),
+                                message: format!(
+                                    "invocation {} translation report must be the root-level Aeneas output translation.json",
+                                    invocation.id
+                                ),
+                            });
+                        }
+                        translation_reports += 1;
+                        "json"
+                    }
+                };
+                if [output.produced.as_str(), output.destination.as_str()]
+                    .into_iter()
+                    .any(|value| {
+                        Path::new(value)
+                            .extension()
+                            .and_then(|extension| extension.to_str())
+                            != Some(expected_extension)
+                    })
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "{} output {} must use the .{expected_extension} extension",
+                            match output.kind {
+                                TranslationOutputKind::LeanSource => "lean-source",
+                                TranslationOutputKind::TranslationReport => "translation-report",
+                            },
+                            output.produced
+                        ),
+                    });
+                }
+            }
+            if lean_sources == 0 || translation_reports != 1 {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} must map at least one lean-source and exactly one translation-report",
+                        invocation.id
+                    ),
+                });
+            }
+        }
+        let mapped_output_limit = bundle
+            .project
+            .limits
+            .max_files
+            .min(MAX_TRANSLATION_MAPPED_OUTPUTS);
+        if destinations.len() > mapped_output_limit {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!(
+                    "{} mapped outputs exceed the effective limit {} (project max_files {}, fixed translation maximum {})",
+                    destinations.len(),
+                    mapped_output_limit,
+                    bundle.project.limits.max_files,
+                    MAX_TRANSLATION_MAPPED_OUTPUTS,
+                ),
+            });
+        }
+        match unit.import_mapping.mode {
+            ImportMappingMode::ExternalSourceRoot => {
+                if unit.import_mapping.source_roots.is_empty()
+                    || unit.import_mapping.source_roots.len() > MAX_TRANSLATION_SOURCE_ROOTS
+                    || !unit
+                        .import_mapping
+                        .source_roots
+                        .windows(2)
+                        .all(|pair| pair[0] < pair[1])
+                    || unit.import_mapping.rewrite_digest.is_some()
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: "external-source-root requires nonempty, strictly sorted source_roots and forbids rewrite_digest".to_owned(),
+                    });
+                }
+                for root in &unit.import_mapping.source_roots {
+                    translation_path(id, root)?;
+                    let root_path = Path::new(root);
+                    if generated_directories.iter().any(|generated| {
+                        root_path == Path::new(generated)
+                            || root_path.starts_with(Path::new(generated))
+                    }) {
+                        return Err(SemanticError::Translation {
+                            unit: id.clone(),
+                            message: format!(
+                                "external source root {root} must not be inside generated_dir"
+                            ),
+                        });
+                    }
+                }
+            }
+            ImportMappingMode::AuditedRewrite => {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: "audited-rewrite is reserved but unsupported until a typed rewrite implementation exists".to_owned(),
+                });
+            }
+        }
+        if unit.claims.is_empty()
+            || unit.claims.len() > MAX_TRANSLATION_CLAIMS
+            || !unit.claims.windows(2).all(|pair| pair[0] < pair[1])
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "claims must be in strict lexical order".to_owned(),
+            });
+        }
+        if unit.external_bridges.len() > MAX_TRANSLATION_EXTERNAL_BRIDGES {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!(
+                    "external_bridges exceeds {MAX_TRANSLATION_EXTERNAL_BRIDGES} entries"
+                ),
+            });
+        }
+        if !unit
+            .external_bridges
+            .windows(2)
+            .all(|pair| pair[0].file < pair[1].file)
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "external_bridges must be in strict file order".to_owned(),
+            });
+        }
+        let mut bridge_modules = BTreeSet::<String>::new();
         for bridge in &unit.external_bridges {
-            relative_path(id, &bridge.file)?;
+            translation_path(id, &bridge.file)?;
             digest_sha256(&bridge.reviewed_sha256, path)?;
-            if overlaps(&unit.generated_dir, &bridge.file) {
+            let Some(module) = bridge.module.as_deref() else {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "external bridge {} requires a valid module for external-source-root resolution",
+                        bridge.file
+                    ),
+                });
+            };
+            if module.len() > 1024 || !valid_lean_module(module) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "external bridge {} requires a valid module for external-source-root resolution",
+                        bridge.file
+                    ),
+                });
+            }
+            if !bridge_modules.insert(module.to_owned()) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!("external bridge module {module} is declared more than once"),
+                });
+            }
+            if generated_directories
+                .iter()
+                .any(|generated| overlaps(generated, &bridge.file))
+            {
                 return Err(SemanticError::Translation {
                     unit: id.clone(),
                     message: format!(
@@ -486,19 +910,111 @@ fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                     ),
                 });
             }
+            let module_path = format!("{}.lean", module.replace('.', "/"));
+            let matching_roots = unit
+                .import_mapping
+                .source_roots
+                .iter()
+                .filter(|root| {
+                    Path::new(root.as_str()).join(&module_path) == Path::new(&bridge.file)
+                })
+                .count();
+            if matching_roots != 1 {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "external bridge {} must resolve from exactly one declared source root",
+                        bridge.file
+                    ),
+                });
+            }
+        }
+        if unit.template_axioms.len() > MAX_TRANSLATION_TEMPLATE_AXIOMS {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!(
+                    "template_axioms exceeds {MAX_TRANSLATION_TEMPLATE_AXIOMS} entries"
+                ),
+            });
+        }
+        if !unit
+            .template_axioms
+            .windows(2)
+            .all(|pair| pair[0].file < pair[1].file)
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "template_axioms must be in strict file order".to_owned(),
+            });
         }
         for template in &unit.template_axioms {
-            relative_path(id, &template.file)?;
+            translation_path(id, &template.file)?;
             if template.compiled {
                 return Err(SemanticError::Translation {
                     unit: id.clone(),
                     message: format!("template {} is marked compiled", template.file),
                 });
             }
-            if !overlaps(&unit.generated_dir, &template.file) {
+            let template_path = Path::new(&template.file);
+            if template_path == generated_dir || !template_path.starts_with(generated_dir) {
                 return Err(SemanticError::Translation {
                     unit: id.clone(),
                     message: format!("template {} is outside generated_dir", template.file),
+                });
+            }
+            if !lean_destinations.contains(&template.file) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "template {} is not a declared lean-source destination",
+                        template.file
+                    ),
+                });
+            }
+        }
+        if unit.warning_inventory.len() > MAX_TRANSLATION_WARNINGS {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!("warning_inventory exceeds {MAX_TRANSLATION_WARNINGS} entries"),
+            });
+        }
+        if !unit.warning_inventory.windows(2).all(|pair| {
+            (&pair[0].artifact, pair[0].line, &pair[0].kind)
+                < (&pair[1].artifact, pair[1].line, &pair[1].kind)
+        }) {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "warning_inventory must be in strict artifact/line/kind order".to_owned(),
+            });
+        }
+        for warning in &unit.warning_inventory {
+            translation_path(id, &warning.artifact)?;
+            if warning.line == 0 {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "warning artifact {} requires a positive line",
+                        warning.artifact
+                    ),
+                });
+            }
+            let warning_path = Path::new(&warning.artifact);
+            if warning_path == generated_dir || !warning_path.starts_with(generated_dir) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "warning artifact {} is outside generated_dir",
+                        warning.artifact
+                    ),
+                });
+            }
+            if !lean_destinations.contains(&warning.artifact) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "warning artifact {} is not a declared lean-source destination",
+                        warning.artifact
+                    ),
                 });
             }
         }
@@ -512,7 +1028,92 @@ fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
             }
         }
     }
+    validate_translation_evidence(bundle)?;
     Ok(())
+}
+
+fn validate_translation_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
+    for (evidence_id, (_, evidence)) in &bundle.evidence_units {
+        if evidence.adapter != AdapterKind::CharonAeneas
+            || evidence.operation.kind != OperationKind::Translation
+        {
+            continue;
+        }
+        let Some(manifest) = evidence.operation.manifest.as_deref() else {
+            return Err(SemanticError::Translation {
+                unit: evidence_id.clone(),
+                message: "translation evidence requires operation.manifest".to_owned(),
+            });
+        };
+        let manifest_path = bundle.root.join(manifest);
+        let Some((_, translation)) = bundle
+            .translation_units
+            .values()
+            .find(|(path, _)| path == &manifest_path)
+        else {
+            return Err(SemanticError::Translation {
+                unit: evidence_id.clone(),
+                message: format!(
+                    "operation.manifest {manifest} is not a registered translation unit"
+                ),
+            });
+        };
+        let targets = translation
+            .invocations
+            .iter()
+            .flat_map(|invocation| invocation.start_from.iter().cloned())
+            .collect::<Vec<_>>();
+        if !evidence.outputs.is_empty()
+            || !evidence.expected_inventory.is_empty()
+            || evidence.operation.targets != targets
+            || evidence.claims != translation.claims
+            || evidence.resource_budget != translation.resource_budget
+            || !evidence.inputs.iter().any(|input| input == manifest)
+        {
+            return Err(SemanticError::Translation {
+                unit: evidence_id.clone(),
+                message: "translation evidence must have no committed outputs or secondary expected_inventory and must exactly match the registered manifest, flattened start inventory, claims, and budget".to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn valid_rust_identifier(value: &str) -> bool {
+    value.len() <= 256
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+        && value
+            .bytes()
+            .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+}
+
+fn valid_rust_path(value: &str) -> bool {
+    value.split("::").all(valid_rust_identifier)
+}
+
+fn valid_lean_module(value: &str) -> bool {
+    value.split('.').all(|part| {
+        part.bytes()
+            .next()
+            .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+            && part
+                .bytes()
+                .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+    })
+}
+
+fn valid_cargo_package(value: &str) -> bool {
+    value.len() <= 256
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+        && value.bytes().all(|byte| {
+            byte == b'_' || byte == b'.' || byte == b'-' || byte.is_ascii_alphanumeric()
+        })
 }
 
 fn validate_model_checks(bundle: &ProjectBundle) -> Result<(), SemanticError> {
@@ -717,10 +1318,13 @@ fn stable_id(id: &str, path: &Path) -> Result<(), SemanticError> {
 fn local_id(id: &str, path: &Path) -> Result<(), SemanticError> {
     let valid = id.len() <= 128
         && !id.is_empty()
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        && id.as_bytes().first().is_some_and(u8::is_ascii_lowercase);
+        && id.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && id.split('-').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        });
     if valid {
         Ok(())
     } else {
@@ -765,6 +1369,95 @@ fn relative_path(owner: &str, value: &str) -> Result<(), SemanticError> {
     }
 }
 
+fn translation_path(owner: &str, value: &str) -> Result<(), SemanticError> {
+    if value.len() > MAX_TRANSLATION_PATH_BYTES
+        || value.contains('\\')
+        || value.chars().any(char::is_control)
+        || value.bytes().any(|byte| !(b' '..=b'~').contains(&byte))
+        || value
+            .split('/')
+            .any(|component| component.is_empty() || matches!(component, "." | ".."))
+        || value
+            .split('/')
+            .any(|component| TRANSLATION_RESERVED_PATH_COMPONENTS.contains(&component))
+    {
+        return Err(SemanticError::UnsafePath {
+            owner: owner.to_owned(),
+            path: value.to_owned(),
+        });
+    }
+    relative_path(owner, value)
+}
+
+fn validate_exact_package_manifest(
+    root: &Path,
+    unit: &str,
+    relative: &str,
+    expected_package: &str,
+    max_bytes: u64,
+) -> Result<(), SemanticError> {
+    let mut candidate = root.to_path_buf();
+    for component in Path::new(relative).components() {
+        let Component::Normal(component) = component else {
+            return Err(SemanticError::UnsafePath {
+                owner: unit.to_owned(),
+                path: relative.to_owned(),
+            });
+        };
+        candidate.push(component);
+        let metadata =
+            fs::symlink_metadata(&candidate).map_err(|error| SemanticError::Translation {
+                unit: unit.to_owned(),
+                message: format!("cannot read package manifest {relative}: {error}"),
+            })?;
+        if metadata.file_type().is_symlink() {
+            return Err(SemanticError::Translation {
+                unit: unit.to_owned(),
+                message: format!("package manifest {relative} crosses a symlink"),
+            });
+        }
+    }
+    let metadata =
+        fs::symlink_metadata(&candidate).map_err(|error| SemanticError::Translation {
+            unit: unit.to_owned(),
+            message: format!("cannot read package manifest {relative}: {error}"),
+        })?;
+    if !metadata.is_file() || metadata.len() > max_bytes {
+        return Err(SemanticError::Translation {
+            unit: unit.to_owned(),
+            message: format!(
+                "package manifest {relative} must be a regular file no larger than project max_manifest_bytes {max_bytes}"
+            ),
+        });
+    }
+    let bytes = fs::read(&candidate).map_err(|error| SemanticError::Translation {
+        unit: unit.to_owned(),
+        message: format!("cannot read package manifest {relative}: {error}"),
+    })?;
+    let text = std::str::from_utf8(&bytes).map_err(|error| SemanticError::Translation {
+        unit: unit.to_owned(),
+        message: format!("package manifest {relative} is not UTF-8: {error}"),
+    })?;
+    let manifest: toml::Value =
+        toml::from_str(text).map_err(|error| SemanticError::Translation {
+            unit: unit.to_owned(),
+            message: format!("package manifest {relative} is invalid TOML: {error}"),
+        })?;
+    let actual = manifest
+        .get("package")
+        .and_then(|package| package.get("name"))
+        .and_then(toml::Value::as_str);
+    if actual != Some(expected_package) {
+        return Err(SemanticError::Translation {
+            unit: unit.to_owned(),
+            message: format!(
+                "package manifest {relative} must contain literal [package].name = {expected_package:?}"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn overlaps(left: &str, right: &str) -> bool {
     let left = Path::new(left);
     let right = Path::new(right);
@@ -783,11 +1476,45 @@ fn weak(policy: &str, base: &str, message: &str) -> SemanticError {
 mod tests {
     use super::*;
 
+    fn repository_bundle() -> crate::ProjectBundle {
+        let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let root = crate_dir.parent().and_then(|path| path.parent()).unwrap();
+        crate::ProjectBundle::load(root).unwrap()
+    }
+
     #[test]
-    fn path_rules_reject_parent_and_absolute() {
-        assert!(relative_path("x", "../secret").is_err());
-        assert!(relative_path("x", "/secret").is_err());
-        assert!(relative_path("x", "claims/*.toml").is_ok());
+    fn path_rules_are_portable_component_normal_and_byte_bounded() {
+        for invalid in [
+            "../secret",
+            "/secret",
+            "./secret",
+            "claims//one.toml",
+            "claims/",
+            "claims\\one.toml",
+            "claims/one\n.toml",
+            "claims/café.toml",
+            ".git/objects",
+            "lean/target/Funs.lean",
+        ] {
+            assert!(
+                translation_path("x", invalid).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
+        assert!(translation_path("x", &"a".repeat(MAX_TRANSLATION_PATH_BYTES + 1)).is_err());
+        assert!(translation_path("x", &"a".repeat(MAX_TRANSLATION_PATH_BYTES)).is_ok());
+        assert!(translation_path("x", "claims/*.toml").is_ok());
+    }
+
+    #[test]
+    fn local_ids_use_the_public_segmented_grammar() {
+        let path = Path::new("translation.toml");
+        for invalid in ["", "A", "a--b", "a-", "a_b", "a.b"] {
+            assert!(local_id(invalid, path).is_err(), "accepted {invalid:?}");
+        }
+        for valid in ["a", "a-b", "a1-b2"] {
+            assert!(local_id(valid, path).is_ok(), "rejected {valid:?}");
+        }
     }
 
     #[test]
@@ -835,6 +1562,304 @@ mod tests {
             .map(|wrapper: LinkageWrapper| wrapper.value)
             .unwrap();
         assert_eq!(value, crate::PrimaryLinkage::ArtifactBound);
+    }
+
+    #[test]
+    fn translation_v2_rejects_reserved_rewrite_and_selector_injection() {
+        let mut bundle = repository_bundle();
+        let (_, translation) = bundle.translation_units.get_mut("transfer-kernel").unwrap();
+        translation.import_mapping.mode = ImportMappingMode::AuditedRewrite;
+        translation.import_mapping.source_roots.clear();
+        translation.import_mapping.rewrite_digest = Some(format!("sha256:{}", "01".repeat(32)));
+        assert!(validate_translations(&bundle).is_err());
+
+        let mut bundle = repository_bundle();
+        bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .start_from = vec!["allowance_kernel::decide_transfer,--include".to_owned()];
+        assert!(validate_translations(&bundle).is_err());
+    }
+
+    #[test]
+    fn translation_v2_rejects_prefix_collisions_and_reused_llbc_paths() {
+        let mut bundle = repository_bundle();
+        let invocation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0];
+        invocation.outputs.insert(
+            1,
+            crate::TranslationOutputMapping {
+                kind: TranslationOutputKind::LeanSource,
+                produced: "Funs.lean/Nested.lean".to_owned(),
+                destination: "demo/allowance/lean/Generated/Allowance/Funs.lean/Nested.lean"
+                    .to_owned(),
+            },
+        );
+        assert!(validate_translations(&bundle).is_err());
+
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let mut duplicate = translation.invocations[0].clone();
+        duplicate.id = "second-kernel".to_owned();
+        translation.invocations.push(duplicate);
+        assert!(validate_translations(&bundle).is_err());
+    }
+
+    #[test]
+    fn translation_v2_rejects_repeated_starts_across_invocations() {
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let mut duplicate = translation.invocations[0].clone();
+        duplicate.id = "second-kernel".to_owned();
+        duplicate.llbc_file = "second_kernel.llbc".to_owned();
+        for output in &mut duplicate.outputs {
+            output.destination = output
+                .destination
+                .replace("Generated/Allowance/", "Generated/Allowance/Second/");
+        }
+        translation.invocations.push(duplicate);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("repeated across invocations"), "{error}");
+    }
+
+    #[test]
+    fn translation_v2_subdir_layout_keeps_lean_below_it_and_report_at_root() {
+        let mut bundle = repository_bundle();
+        let invocation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0];
+        invocation.aeneas_subdir = Some("Transfer".to_owned());
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("strictly inside aeneas_subdir"), "{error}");
+
+        let mut bundle = repository_bundle();
+        let invocation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0];
+        invocation.aeneas_subdir = Some("Transfer".to_owned());
+        for output in &mut invocation.outputs {
+            if output.kind == TranslationOutputKind::LeanSource {
+                output.produced = format!("Transfer/{}", output.produced);
+            }
+        }
+        let _ = invocation;
+        assert!(validate_translations(&bundle).is_ok());
+
+        let report = bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .outputs
+            .iter_mut()
+            .find(|output| output.kind == TranslationOutputKind::TranslationReport)
+            .unwrap();
+        report.produced = "Transfer/translation.json".to_owned();
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("root-level"), "{error}");
+    }
+
+    #[test]
+    fn translation_v2_rejects_duplicate_external_bridge_modules() {
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        translation
+            .import_mapping
+            .source_roots
+            .push("z-external-root".to_owned());
+        let mut duplicate = translation.external_bridges[0].clone();
+        duplicate.file = "z-external-root/ProofboundDemo/Bridges/Kernel.lean".to_owned();
+        translation.external_bridges.push(duplicate);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(
+            error.contains("module") && error.contains("more than once"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn translation_v2_requires_a_literal_matching_package_manifest() {
+        let mut bundle = repository_bundle();
+        bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .cargo_package = "different-package".to_owned();
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("literal [package].name"), "{error}");
+    }
+
+    #[test]
+    fn translation_side_inventories_must_name_mapped_lean_outputs() {
+        let mut bundle = repository_bundle();
+        bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .warning_inventory
+            .push(crate::WarningInventory {
+                artifact: "demo/allowance/lean/Generated/Allowance/Undeclared.lean".to_owned(),
+                line: 1,
+                kind: crate::TranslationWarningKind::UpstreamSorry,
+            });
+        assert!(validate_translations(&bundle).is_err());
+
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        translation.warning_inventory.push(crate::WarningInventory {
+            artifact: translation.invocations[0].outputs[0].destination.clone(),
+            line: 0,
+            kind: crate::TranslationWarningKind::UpstreamSorry,
+        });
+        assert!(validate_translations(&bundle).is_err());
+    }
+
+    #[test]
+    fn translation_roots_and_output_counts_are_fail_closed() {
+        let mut bundle = repository_bundle();
+        bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .import_mapping
+            .source_roots = vec!["demo/allowance/lean/ProofboundDemo".to_owned()];
+        assert!(validate_translations(&bundle).is_err());
+
+        let mut bundle = repository_bundle();
+        bundle.project.limits.max_files = 2;
+        assert!(validate_translations(&bundle).is_err());
+    }
+
+    #[test]
+    fn translation_inventory_ceilings_are_fail_closed() {
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let invocation = translation.invocations[0].clone();
+        translation
+            .invocations
+            .resize(MAX_TRANSLATION_INVOCATIONS + 1, invocation);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("invocations must contain"), "{error}");
+
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let bridge = translation.external_bridges[0].clone();
+        translation
+            .external_bridges
+            .resize(MAX_TRANSLATION_EXTERNAL_BRIDGES + 1, bridge);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("external_bridges exceeds"), "{error}");
+
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let warning = crate::WarningInventory {
+            artifact: translation.invocations[0].outputs[0].destination.clone(),
+            line: 1,
+            kind: crate::TranslationWarningKind::UpstreamSorry,
+        };
+        translation
+            .warning_inventory
+            .resize(MAX_TRANSLATION_WARNINGS + 1, warning);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("warning_inventory exceeds"), "{error}");
+    }
+
+    #[test]
+    fn translation_evidence_is_an_exact_manifest_cross_check() {
+        let mut bundle = repository_bundle();
+        let translation = &bundle.translation_units["transfer-kernel"].1;
+        let manifest = "demo/allowance/proofbound/translations/transfer-kernel.toml";
+        let targets = translation
+            .invocations
+            .iter()
+            .flat_map(|invocation| invocation.start_from.iter().cloned())
+            .collect::<Vec<_>>();
+        let mut evidence = bundle.evidence_units.values().next().unwrap().1.clone();
+        evidence.id = "translation-cross-check".to_owned();
+        evidence.adapter = AdapterKind::CharonAeneas;
+        evidence.operation.kind = OperationKind::Translation;
+        evidence.operation.manifest = Some(manifest.to_owned());
+        evidence.operation.targets = targets;
+        evidence.claims = translation.claims.clone();
+        evidence.resource_budget = translation.resource_budget;
+        evidence.outputs.clear();
+        evidence.inputs.push(manifest.to_owned());
+        bundle.evidence_units.insert(
+            evidence.id.clone(),
+            (bundle.root.join("translation-cross-check.toml"), evidence),
+        );
+        assert!(validate_translation_evidence(&bundle).is_ok());
+
+        bundle
+            .evidence_units
+            .get_mut("translation-cross-check")
+            .unwrap()
+            .1
+            .expected_inventory
+            .push("duplicated-authority".to_owned());
+        assert!(validate_translation_evidence(&bundle).is_err());
+        bundle
+            .evidence_units
+            .get_mut("translation-cross-check")
+            .unwrap()
+            .1
+            .expected_inventory
+            .clear();
+
+        bundle
+            .evidence_units
+            .get_mut("translation-cross-check")
+            .unwrap()
+            .1
+            .outputs
+            .push("demo/allowance/lean/Generated/Allowance".to_owned());
+        assert!(validate_translation_evidence(&bundle).is_err());
     }
 
     #[test]
