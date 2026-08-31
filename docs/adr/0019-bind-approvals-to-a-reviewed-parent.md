@@ -30,10 +30,10 @@ registered review manifests, computes regressions over base-to-subject, and
 loads approvals from the envelope.
 
 The comparison base is stable across CI event types. Pull-request checks use
-the event's base revision. A push to a non-default branch recomputes the merge
-base between that branch head and the fetched default branch; it does not use
-the previous feature-branch tip. A default-branch push uses the event's
-`before` revision. Scheduled and release checks compare their checked snapshot
+the event's base revision. A push to any non-default ref, including a tag,
+recomputes the merge base between that head and the fetched default branch; it
+does not use the previous feature-branch tip. A default-branch push uses the
+event's `before` revision. Scheduled and release checks compare their snapshot
 from the fetched default-branch merge base; when the snapshot is the current
 default tip, that transition diff is empty while the fresh verification stages
 still run. Missing event revisions or a missing default-branch ref fail closed.

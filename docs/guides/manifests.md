@@ -41,8 +41,10 @@ approval, or a subject that is no longer in the checked head's ancestry fails
 closed. Squashing or rebasing the subject invalidates its approval.
 
 For feature branches, both pull-request and push CI compare from the
-default-branch merge base. The previous feature-branch tip is deliberately not
-used: it is a transport cursor, not the base identity reviewed by the approval.
+default-branch merge base. Tag pushes use that merge base too, even when a tag
+has the same short name as the default branch. The previous feature-branch tip
+is deliberately not used: it is a transport cursor, not the base identity
+reviewed by the approval.
 Pushes to the default branch continue to use the event's `before` revision.
 Scheduled runs and releases compare the checked snapshot from the fetched
 default-branch merge base; they still execute all fresh gates even when that

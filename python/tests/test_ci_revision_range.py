@@ -31,7 +31,7 @@ def resolve(
     event: str,
     event_base: str,
     event_before: str,
-    ref_name: str,
+    event_ref: str,
     default_branch: str,
     head: str,
 ) -> subprocess.CompletedProcess[str]:
@@ -42,7 +42,7 @@ def resolve(
             event,
             event_base,
             event_before,
-            ref_name,
+            event_ref,
             default_branch,
             head,
         ],
@@ -76,7 +76,7 @@ def test_pr_and_feature_push_use_the_same_stable_review_base(tmp_path: Path) -> 
         "pull_request",
         reviewed_base,
         "",
-        "1/merge",
+        "refs/pull/1/merge",
         "main",
         envelope_head,
     )
@@ -88,13 +88,25 @@ def test_pr_and_feature_push_use_the_same_stable_review_base(tmp_path: Path) -> 
         "push",
         "",
         previous_feature_tip,
-        "feature",
+        "refs/heads/feature",
         "main",
         envelope_head,
     )
     assert feature_push.returncode == 0, feature_push.stderr
     assert feature_push.stdout.strip() == reviewed_base
     assert feature_push.stdout.strip() != previous_feature_tip
+
+    same_named_tag = resolve(
+        tmp_path,
+        "push",
+        "",
+        previous_feature_tip,
+        "refs/tags/main",
+        "main",
+        envelope_head,
+    )
+    assert same_named_tag.returncode == 0, same_named_tag.stderr
+    assert same_named_tag.stdout.strip() == reviewed_base
 
 
 def test_default_push_uses_before_and_missing_default_ref_fails_closed(
@@ -108,12 +120,27 @@ def test_default_push_uses_before_and_missing_default_ref_fails_closed(
         "push",
         "",
         previous_feature_tip,
-        "main",
+        "refs/heads/main",
         "main",
         envelope_head,
     )
     assert default_push.returncode == 0, default_push.stderr
     assert default_push.stdout.strip() == previous_feature_tip
+
+    git(tmp_path, "switch", "--quiet", "-c", "divergent", reviewed_base)
+    divergent_before = commit(tmp_path, "divergent default tip")
+    forced_default_push = resolve(
+        tmp_path,
+        "push",
+        "",
+        divergent_before,
+        "refs/heads/main",
+        "main",
+        envelope_head,
+    )
+    assert forced_default_push.returncode == 0, forced_default_push.stderr
+    assert forced_default_push.stdout.strip() == divergent_before
+    assert forced_default_push.stdout.strip() != reviewed_base
 
     git(tmp_path, "update-ref", "-d", "refs/remotes/origin/main")
     missing_default = resolve(
@@ -121,7 +148,7 @@ def test_default_push_uses_before_and_missing_default_ref_fails_closed(
         "push",
         "",
         previous_feature_tip,
-        "feature",
+        "refs/heads/feature",
         "main",
         envelope_head,
     )
@@ -141,7 +168,7 @@ def test_schedule_and_release_compare_with_the_fetched_default_branch(
             event,
             "",
             "",
-            "feature",
+            "refs/heads/feature",
             "main",
             envelope_head,
         )
@@ -154,7 +181,7 @@ def test_schedule_and_release_compare_with_the_fetched_default_branch(
         "schedule",
         "",
         "",
-        "main",
+        "refs/heads/main",
         "main",
         envelope_head,
     )
@@ -167,7 +194,7 @@ def test_schedule_and_release_compare_with_the_fetched_default_branch(
         "release",
         "",
         "",
-        "v1.0.0",
+        "refs/tags/v1.0.0",
         "main",
         envelope_head,
     )
@@ -188,7 +215,7 @@ def test_missing_event_revisions_and_disconnected_history_fail_closed(
             "pull_request",
             missing_base,
             "",
-            "1/merge",
+            "refs/pull/1/merge",
             "main",
             envelope_head,
         )
@@ -201,7 +228,7 @@ def test_missing_event_revisions_and_disconnected_history_fail_closed(
             "push",
             "",
             missing_before,
-            "main",
+            "refs/heads/main",
             "main",
             envelope_head,
         )
@@ -213,7 +240,7 @@ def test_missing_event_revisions_and_disconnected_history_fail_closed(
         "workflow_dispatch",
         "",
         "",
-        "feature",
+        "refs/heads/feature",
         "main",
         envelope_head,
     )
@@ -227,7 +254,7 @@ def test_missing_event_revisions_and_disconnected_history_fail_closed(
         "push",
         "",
         previous_feature_tip,
-        "feature",
+        "refs/heads/feature",
         "main",
         disconnected_head,
     )

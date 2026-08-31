@@ -2394,10 +2394,11 @@ are invalid. The subject must remain in ancestry; squash or rebase integration
 therefore requires renewed approval.
 
 CI MUST select the same reviewed base independently of event delivery. A pull
-request uses its event base. A non-default-branch push uses the merge base of
-the checked head and the fetched default branch, never the previous feature
-tip. A default-branch push uses its event `before` revision. Scheduled and
-release checks use the fetched default-branch merge base for the checked
+request uses its event base. A push to any non-default ref, including a tag,
+uses the merge base of the checked head and the fetched default branch, never
+the previous feature tip. A default-branch push uses its event `before`
+revision. Scheduled and release checks use the fetched default-branch merge
+base for the checked
 snapshot; a snapshot already at that tip therefore has an empty transition
 diff but still runs every fresh verification stage. Resolution MUST fail if a
 required event revision or default-branch ref is unavailable; it MUST NOT fall

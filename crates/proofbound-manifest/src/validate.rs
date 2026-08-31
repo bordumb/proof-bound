@@ -3247,6 +3247,7 @@ mod tests {
         ));
         assert!(workflow.contains("resolve-assurance-base.sh"));
         assert!(revision_resolver.contains("refs/remotes/origin/$default_branch"));
+        assert!(revision_resolver.contains("refs/heads/$default_branch"));
         assert!(revision_resolver.contains("event_before"));
         assert!(!revision_resolver.contains("${head}^"));
         assert!(xtask.contains("OsString::from(\"check\"), OsString::from(\"--fresh\")"));

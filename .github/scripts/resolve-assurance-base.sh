@@ -4,7 +4,7 @@ set -euo pipefail
 event_name="${1:-}"
 event_base="${2:-}"
 event_before="${3:-}"
-ref_name="${4:-}"
+event_ref="${4:-}"
 default_branch="${5:-}"
 requested_head="${6:-HEAD}"
 zero_revision="0000000000000000000000000000000000000000"
@@ -28,11 +28,15 @@ case "$event_name" in
     if [[ -z "$default_branch" ]]; then
       fail "repository default branch is missing"
     fi
-    if [[ "$ref_name" == "$default_branch" ]]; then
+    if [[ "$event_ref" == "refs/heads/$default_branch" ]]; then
       candidate="$event_before"
       if [[ -z "$candidate" || "$candidate" == "$zero_revision" ]]; then
         fail "default-branch push base revision is missing"
       fi
+      base="$(git rev-parse --verify "${candidate}^{commit}")" \
+        || fail "default-branch push base is not a commit"
+      printf '%s\n' "$base"
+      exit 0
     else
       candidate="refs/remotes/origin/$default_branch"
       git rev-parse --verify "${candidate}^{commit}" >/dev/null \
