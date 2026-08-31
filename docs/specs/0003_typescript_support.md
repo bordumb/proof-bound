@@ -2,7 +2,7 @@
 
 **Status:** Draft for review
 
-**Version:** 0.1.0
+**Version:** 0.2.0
 
 **Date:** 2026-09-01
 
@@ -11,10 +11,16 @@
 **Process:** Proof-Driven Development (PDD)
 
 **Depends on:** Specification 0001, version 0.11.0 or later;
-Specification 0002 §7.1 (the `static-check` evidence kind)
+Specification 0002 §7.1 (the `static-check` evidence kind) and §7.4
+(analyzer admission criteria)
 
 ### Revision history
 
+- **0.2.0** — tooling governance: vitest identity command and
+  minimum-version floor (§6); the reserved `tsgo` operation spelling as
+  the native-compiler succession path and admission of future analyzers
+  by Specification 0002 §7.4 (§7); Bun and Deno runtimes recorded as
+  deferred typed routes (§13).
 - **0.1.0** — initial draft: the `proofbound-adapter-node` adapter and
   `node-test` adapter kind (§4); sealed dependency installation with
   lifecycle scripts disabled (§5); the exact vitest evidence route (§6);
@@ -222,7 +228,15 @@ Rules:
 - `configuration` is an optional byte-pinned config file present in
   `inputs`; when absent, the adapter passes no config argument and
   vitest's zero-config resolution applies to the sealed shadow only.
-- **Discovery.** The adapter runs exactly:
+- **Version floor.** Before discovery the adapter runs exactly
+  `node_modules/.bin/vitest --version` and requires the reported
+  version to be **2.1.0 or later** — the earliest line carrying
+  `vitest list --json`. An older version is an unsupported capability
+  failure with a stable `PB-NODE-` code naming vitest and the floor,
+  never a generic subprocess error from a command the tool does not
+  understand. The reported version enters the observation's tool
+  identity.
+- **Discovery.** The adapter then runs exactly:
 
   ```text
   node_modules/.bin/vitest list --json=LIST_FILE [--config CONFIGURATION]
@@ -257,6 +271,8 @@ Rules:
 ## 7. TypeScript static-check route
 
 Uses Specification 0002 §7.1's `static-check` evidence kind unchanged.
+Any future analyzer under this specification is admitted only against
+the closed criteria of Specification 0002 §7.4.
 
 ```toml
 [operation]
@@ -297,6 +313,12 @@ configuration = "tsconfig.json"
   (`any`, assertions, `@ts-ignore`) are inside the analyzed source's
   semantics, not repaired by this route; a claim leaning on this
   evidence SHOULD name that limit in its out-of-scope list.
+- The operation spelling `tsgo` is **reserved** for the native
+  TypeScript compiler. When the `tsc` command shape is succeeded
+  upstream, its route enters by a revision of this specification
+  evaluated against Specification 0002 §7.4 — never by silently
+  reinterpreting the `tsc` operation under a new binary. Until then
+  `tsgo` is rejected by name as an unsupported capability.
 
 ## 8. npm package reproduction (`proofbound-evidence-unit/4`)
 
@@ -459,6 +481,11 @@ Recorded so their absence is a decision, not an oversight:
 3. A Node transcription driver ABI (`proofbound-transcription-driver/2`).
 4. Richer fast-check observation (seed registration parallel to
    Specification 0002 §6).
+5. Bun and Deno runtimes — each carries its own test runner, package
+   resolution, and TypeScript execution model, so support means a typed
+   runtime route with its own sealed-installation and identity rules,
+   not a `node` alias. Until such a route exists, a Bun or Deno project
+   is outside this specification.
 
 ## 14. Milestones
 

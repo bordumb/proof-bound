@@ -2,7 +2,7 @@
 
 **Status:** Draft for review
 
-**Version:** 0.1.0
+**Version:** 0.2.0
 
 **Date:** 2026-09-01
 
@@ -14,6 +14,10 @@
 
 ### Revision history
 
+- **0.2.0** — analyzer governance: closed admission criteria for new
+  `static-check` analyzer operations and the reserved operation
+  spellings `ty`, `pyrefly`, and `ruff` (§7.4); offline pyright
+  provisioning with a networkless doctor probe (§7.3, §11.1).
 - **0.1.0** — initial draft, promoted from the working note
   `docs/notes/language-support.md`: normative Python baseline inventory
   (§4); typed pytest plugin registration (§5.2); Hypothesis observation
@@ -327,10 +331,46 @@ pyright --outputjson --project CONFIGURATION
 - The nested record is `{tool: "pyright", tool_version,
   configuration_sha256, targets, diagnostics: 0}` with the same engine
   checks as §7.2.
+- **Offline provisioning.** Common pyright distributions — notably the
+  PyPI wrapper package — download a Node.js runtime on first
+  invocation. Provisioning that runtime is the operator's
+  environment-preparation step, exactly as dependency installation is
+  (§5.1). Every adapter invocation of pyright MUST complete without
+  network access: a pyright execution that attempts retrieval fails the
+  unit closed, and the §11.1 doctor probe MUST succeed without network
+  before any pyright unit is reported runnable.
 
 One unit registers exactly one analyzer. A project MAY register separate
 mypy and pyright units for the same claim; they remain distinct evidence
 records.
+
+### 7.4 Admission criteria and reserved analyzers
+
+A new analyzer earns an operation type under the `static-check` kind
+only when all of the following hold. The criteria are closed; execution
+speed and popularity are not criteria.
+
+1. an authoritative, nonempty analyzed inventory derivable from tool
+   metadata, never from source-text scanning;
+2. an exact tool and environment identity obtainable from a native
+   identity command with exact observable matching;
+3. machine-readable diagnostic output that is a stable, versioned
+   contract — a typed result that cannot be upgraded by an exit code or
+   an analyzer-authored Boolean;
+4. source and configuration bindings appropriate to the claim, with the
+   configuration byte-pinned as an input; and
+5. validation implementable in the producer and, wherever the evidence
+   is portable, independently in the verifier.
+
+The operation spellings `ty`, `pyrefly`, and `ruff` are **reserved** and
+MUST be rejected until a revision of this specification defines their
+routes against these criteria — the Specification 0001 §11.3
+`audited-rewrite` pattern. Rejection is by name, as an unsupported
+capability with a stable code, never a silent fallback to another
+analyzer. `ty` is the intended first addition once its diagnostic
+output stabilizes as a versioned contract; its execution speed
+materially improves the check-cycle cost that Specification 0001 §16.3
+treats as a design constraint.
 
 ## 8. Pytest mutation witnesses
 
@@ -463,7 +503,9 @@ observable matching (0001 §12.2, ADR 0018 pattern):
 - `python3 --version` and the resolved interpreter identity;
 - `python3 -m pytest --version`;
 - `python3 -m mypy --version` when any `mypy` unit is registered;
-- `pyright --version` when any `pyright` unit is registered;
+- `pyright --version` when any `pyright` unit is registered — this
+  probe MUST succeed without network access (§7.3), and a probe that
+  attempts retrieval reports the unit not runnable;
 - `python3 -m build --version` when any `/4` unit is registered;
 - importability of every distinct registered plugin module.
 
