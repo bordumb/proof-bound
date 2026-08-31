@@ -137,151 +137,15 @@ impl Decision {
     }
 }
 
-/// Decide one transfer using explicit guards and checked fixed-width arithmetic.
+mod decision;
+
+/// Decide one transfer using the registered decision implementation.
 ///
-/// Guard order is observable through the stable decision code. Every denial
-/// returns the original balances.
+/// This concrete public entry point is intentionally retained instead of a
+/// re-export so extraction tools select an actual local function definition.
 #[must_use]
 pub fn decide_transfer(request: Request) -> Decision {
-    if !request.authorized {
-        return Decision::denied(request, DecisionCode::DeniedUnauthorized);
-    }
-    if request.amount == 0 {
-        return Decision::denied(request, DecisionCode::DeniedZeroAmount);
-    }
-    if request.amount > request.cap {
-        return Decision::denied(request, DecisionCode::DeniedCapExceeded);
-    }
-
-    let Some(from_balance) = request.from_balance.checked_sub(request.amount) else {
-        return Decision::denied(request, DecisionCode::DeniedInsufficientFunds);
-    };
-    let Some(to_balance) = request.to_balance.checked_add(request.amount) else {
-        return Decision::denied(request, DecisionCode::DeniedDestinationOverflow);
-    };
-
-    Decision {
-        code: DecisionCode::Accepted,
-        from_balance,
-        to_balance,
-    }
-}
-
-/// Deliberately incorrect kernels used only by registered mutation checks.
-#[cfg(any(test, feature = "mutation-testing"))]
-pub mod mutations {
-    use super::{Decision, DecisionCode, Request};
-
-    /// Removes the authorization guard.
-    #[must_use]
-    pub fn without_authorization_guard(request: Request) -> Decision {
-        if request.amount == 0 {
-            return Decision::denied(request, DecisionCode::DeniedZeroAmount);
-        }
-        if request.amount > request.cap {
-            return Decision::denied(request, DecisionCode::DeniedCapExceeded);
-        }
-        let Some(from_balance) = request.from_balance.checked_sub(request.amount) else {
-            return Decision::denied(request, DecisionCode::DeniedInsufficientFunds);
-        };
-        let Some(to_balance) = request.to_balance.checked_add(request.amount) else {
-            return Decision::denied(request, DecisionCode::DeniedDestinationOverflow);
-        };
-        Decision {
-            code: DecisionCode::Accepted,
-            from_balance,
-            to_balance,
-        }
-    }
-
-    /// Removes the positive-amount guard.
-    #[must_use]
-    pub fn without_positive_amount_guard(request: Request) -> Decision {
-        if !request.authorized {
-            return Decision::denied(request, DecisionCode::DeniedUnauthorized);
-        }
-        if request.amount > request.cap {
-            return Decision::denied(request, DecisionCode::DeniedCapExceeded);
-        }
-        let Some(from_balance) = request.from_balance.checked_sub(request.amount) else {
-            return Decision::denied(request, DecisionCode::DeniedInsufficientFunds);
-        };
-        let Some(to_balance) = request.to_balance.checked_add(request.amount) else {
-            return Decision::denied(request, DecisionCode::DeniedDestinationOverflow);
-        };
-        Decision {
-            code: DecisionCode::Accepted,
-            from_balance,
-            to_balance,
-        }
-    }
-
-    /// Removes the configured-cap guard.
-    #[must_use]
-    pub fn without_cap_guard(request: Request) -> Decision {
-        if !request.authorized {
-            return Decision::denied(request, DecisionCode::DeniedUnauthorized);
-        }
-        if request.amount == 0 {
-            return Decision::denied(request, DecisionCode::DeniedZeroAmount);
-        }
-        let Some(from_balance) = request.from_balance.checked_sub(request.amount) else {
-            return Decision::denied(request, DecisionCode::DeniedInsufficientFunds);
-        };
-        let Some(to_balance) = request.to_balance.checked_add(request.amount) else {
-            return Decision::denied(request, DecisionCode::DeniedDestinationOverflow);
-        };
-        Decision {
-            code: DecisionCode::Accepted,
-            from_balance,
-            to_balance,
-        }
-    }
-
-    /// Removes checked subtraction, exposing wrapping underflow.
-    #[must_use]
-    pub fn without_source_balance_guard(request: Request) -> Decision {
-        if !request.authorized {
-            return Decision::denied(request, DecisionCode::DeniedUnauthorized);
-        }
-        if request.amount == 0 {
-            return Decision::denied(request, DecisionCode::DeniedZeroAmount);
-        }
-        if request.amount > request.cap {
-            return Decision::denied(request, DecisionCode::DeniedCapExceeded);
-        }
-        let from_balance = request.from_balance.wrapping_sub(request.amount);
-        let Some(to_balance) = request.to_balance.checked_add(request.amount) else {
-            return Decision::denied(request, DecisionCode::DeniedDestinationOverflow);
-        };
-        Decision {
-            code: DecisionCode::Accepted,
-            from_balance,
-            to_balance,
-        }
-    }
-
-    /// Removes checked addition, exposing wrapping destination overflow.
-    #[must_use]
-    pub fn without_destination_overflow_guard(request: Request) -> Decision {
-        if !request.authorized {
-            return Decision::denied(request, DecisionCode::DeniedUnauthorized);
-        }
-        if request.amount == 0 {
-            return Decision::denied(request, DecisionCode::DeniedZeroAmount);
-        }
-        if request.amount > request.cap {
-            return Decision::denied(request, DecisionCode::DeniedCapExceeded);
-        }
-        let Some(from_balance) = request.from_balance.checked_sub(request.amount) else {
-            return Decision::denied(request, DecisionCode::DeniedInsufficientFunds);
-        };
-        Decision {
-            code: DecisionCode::Accepted,
-            from_balance,
-            to_balance: request.to_balance.wrapping_add(request.amount),
-        }
-    }
+    decision::decide_transfer(request)
 }
 
 #[cfg(kani)]
@@ -351,10 +215,6 @@ mod kani_harnesses {
 
 #[cfg(test)]
 mod tests {
-    use super::mutations::{
-        without_authorization_guard, without_cap_guard, without_destination_overflow_guard,
-        without_positive_amount_guard, without_source_balance_guard,
-    };
     use super::{DecisionCode, Request, decide_transfer, decode_request};
 
     fn accepted_request() -> Request {
@@ -378,83 +238,5 @@ mod tests {
     fn canonical_encoding_round_trips() {
         let request = accepted_request();
         assert_eq!(decode_request(&request.encode()), Ok(request));
-    }
-
-    #[test]
-    fn authorization_mutation_is_detected() {
-        let request = Request {
-            authorized: false,
-            ..accepted_request()
-        };
-        assert_eq!(
-            decide_transfer(request).code,
-            DecisionCode::DeniedUnauthorized
-        );
-        assert_eq!(
-            without_authorization_guard(request).code,
-            DecisionCode::Accepted
-        );
-    }
-
-    #[test]
-    fn positive_amount_mutation_is_detected() {
-        let request = Request {
-            amount: 0,
-            ..accepted_request()
-        };
-        assert_eq!(
-            decide_transfer(request).code,
-            DecisionCode::DeniedZeroAmount
-        );
-        assert_eq!(
-            without_positive_amount_guard(request).code,
-            DecisionCode::Accepted
-        );
-    }
-
-    #[test]
-    fn cap_mutation_is_detected() {
-        let request = Request {
-            amount: 41,
-            ..accepted_request()
-        };
-        assert_eq!(
-            decide_transfer(request).code,
-            DecisionCode::DeniedCapExceeded
-        );
-        assert_eq!(without_cap_guard(request).code, DecisionCode::Accepted);
-    }
-
-    #[test]
-    fn source_balance_mutation_is_detected() {
-        let request = Request {
-            from_balance: 20,
-            ..accepted_request()
-        };
-        assert_eq!(
-            decide_transfer(request).code,
-            DecisionCode::DeniedInsufficientFunds
-        );
-        assert_eq!(
-            without_source_balance_guard(request).code,
-            DecisionCode::Accepted
-        );
-    }
-
-    #[test]
-    fn destination_overflow_mutation_is_detected() {
-        let request = Request {
-            to_balance: u64::MAX - 10,
-            amount: 20,
-            ..accepted_request()
-        };
-        assert_eq!(
-            decide_transfer(request).code,
-            DecisionCode::DeniedDestinationOverflow
-        );
-        assert_eq!(
-            without_destination_overflow_guard(request).code,
-            DecisionCode::Accepted
-        );
     }
 }

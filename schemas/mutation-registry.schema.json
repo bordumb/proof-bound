@@ -4,28 +4,27 @@
   "title": "Proofbound mutation registry",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "subject", "mutations"],
+  "required": ["schema", "subject", "mutation"],
   "properties": {
-    "schema": { "const": "proofbound-mutation-registry/1" },
+    "schema": { "const": "proofbound-mutation-registry/2" },
     "subject": { "type": "string", "minLength": 1, "maxLength": 4096 },
-    "mutations": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/mutation" },
-      "uniqueItems": true,
-      "minItems": 1,
-      "maxItems": 4096
-    }
+    "mutation": { "$ref": "#/$defs/mutation" }
   },
   "$defs": {
     "mutation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "guard", "mutant", "witness", "affected_claims"],
+      "required": ["id", "guard", "target_path", "target_preimage_sha256", "mutant_path", "mutant_sha256", "witness", "witness_path", "witness_sha256", "affected_claims"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9._-]{0,255}$" },
         "guard": { "type": "string", "minLength": 1, "maxLength": 8192 },
-        "mutant": { "$ref": "#/$defs/symbol" },
+        "target_path": { "$ref": "#/$defs/path" },
+        "target_preimage_sha256": { "$ref": "#/$defs/digest" },
+        "mutant_path": { "$ref": "#/$defs/path" },
+        "mutant_sha256": { "$ref": "#/$defs/digest" },
         "witness": { "$ref": "#/$defs/symbol" },
+        "witness_path": { "$ref": "#/$defs/path" },
+        "witness_sha256": { "$ref": "#/$defs/digest" },
         "affected_claims": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$", "maxLength": 160 },
@@ -39,6 +38,16 @@
       "type": "string",
       "pattern": "^[A-Za-z0-9._-]+(?:::[A-Za-z0-9._-]+)*$",
       "maxLength": 1024
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.|\\.git|target|\\.lake|\\.proofbound|\\.venv|__pycache__|\\.pytest_cache|\\.mypy_cache|\\.ruff_cache)(?:/|$))(?!.*[\\\\*?\\[\\]{}])(?!.*//)(?!.*[\\u0000-\\u001f\\u007f-\\uFFFF])[^/]+(?:/[^/]+)*$"
     }
   }
 }

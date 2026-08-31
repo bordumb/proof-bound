@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Component, Path, PathBuf},
+    process::Command,
     str::FromStr,
 };
 
@@ -13,9 +14,9 @@ use proofbound_core::{
     BoundedCheckEvidence, BoundedDomain, BuiltInProfile, CacheOrigin, ClaimDefinition,
     ClaimEvaluationInput, ClaimId, ClosureIdentity, CommandSpec, EdgeKind, EnvironmentVariable,
     EnvironmentVariableName, EvidenceId, EvidenceKind, EvidenceProvenance, EvidenceRecord,
-    EvidenceStatus, ExecutionKind, ExecutionRun, FlowScope, GraphEdge, GraphNode, IndependenceMode,
-    LinkageFacet, MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind, ObligationId,
-    OpenObligation, OutOfScope, PolicyDefinition, PolicyId, PremiseId, PremiseRecord,
+    EvidenceStatus, ExecutionKind, ExecutionRun, ExpectedFailure, FlowScope, GraphEdge, GraphNode,
+    IndependenceMode, LinkageFacet, MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind,
+    ObligationId, OpenObligation, OutOfScope, PolicyDefinition, PolicyId, PremiseId, PremiseRecord,
     ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence,
     TRANSCRIPTION_DRIVER_ABI_V1, Tier, ToolIdentity, TranscriptionRole, TranscriptionTcbRole,
     TreeState, TrustedTranscriptionEvidence, UnitId, derive_claim_status,
@@ -28,17 +29,19 @@ use proofbound_evidence::{
 use proofbound_manifest::{
     AdapterDiagnostic, AdapterKind, AdapterResponse,
     AssumptionCategory as ManifestAssumptionCategory, AssumptionStatus as ManifestAssumptionStatus,
-    ClaimManifest, EvidenceKind as ManifestEvidenceKind, EvidenceUnitManifest,
-    ModelCheckUnitManifest, OperationKind, PolicyManifest, PrimaryLinkage, ProjectBundle,
-    TranslationUnitManifest,
+    ClaimManifest, EvidenceKind as ManifestEvidenceKind, EvidenceUnitManifest, ManifestLimits,
+    ModelCheckUnitManifest, MutationRegistry, OperationKind, PolicyManifest, PrimaryLinkage,
+    ProjectBundle, TranslationUnitManifest, load_toml,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{adapter, closures, model::CompiledProject, model::UnitRun, safe_component};
 
-const COMPILED_SCHEMA: &str = "proofbound-compiled-project/2";
-const CLAIM_INPUT_DOMAIN: &str = "proofbound-claim-input/2";
-const EVIDENCE_DOMAIN: &str = "proofbound-evidence/2";
+const COMPILED_SCHEMA: &str = "proofbound-compiled-project/3";
+const CLAIM_INPUT_DOMAIN: &str = "proofbound-claim-input/3";
+const EVIDENCE_DOMAIN: &str = "proofbound-evidence/3";
+const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
+const MAX_CARGO_METADATA_OUTPUT: usize = 64 << 20;
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOptions {
@@ -184,6 +187,7 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
         match execute_or_reuse(
             &execution,
             unit,
+            &unit_closure,
             &closure_ids,
             &shared_evidence_closures,
             &cache_key,
@@ -386,11 +390,11 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     let payload = compiled_release_value(&compiled, bundle.project.tier, graph, sealed_files)?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&destination.join("compiled-receipt.json"), &payload_bytes)?;
-    let payload_sha256 = domain_hash("proofbound-compiled-release/2", &payload_bytes);
+    let payload_sha256 = domain_hash("proofbound-compiled-release/3", &payload_bytes);
     write_canonical(
         &destination.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/2",
+            "schema": "proofbound-release-envelope/3",
             "payload": "compiled-receipt.json",
             "payload_sha256": payload_sha256,
         }),
@@ -414,7 +418,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     )?;
     let semantic_closure = Sha256Digest::of_bytes(b"proofbound-release-smoke-semantic-v1");
     let evidence = EvidenceRecord {
-        schema: "proofbound-evidence/2".into(),
+        schema: EVIDENCE_DOMAIN.into(),
         id: EvidenceId::new("review:release-smoke")?,
         node_id: NodeId::new("review:release-smoke")?,
         unit_id: UnitId::new("unit:release-smoke")?,
@@ -552,9 +556,9 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     write_canonical(
         &output.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/2",
+            "schema": "proofbound-release-envelope/3",
             "payload": "compiled-receipt.json",
-            "payload_sha256": domain_hash("proofbound-compiled-release/2", &payload_bytes),
+            "payload_sha256": domain_hash("proofbound-compiled-release/3", &payload_bytes),
         }),
     )?;
     Ok(output.to_owned())
@@ -1591,11 +1595,17 @@ fn registered_adapter_inventory(
 fn execute_or_reuse(
     context: &ExecutionContext<'_>,
     unit: &EvidenceUnitManifest,
+    semantic_closure: &ClosureRecord,
     closure_ids: &[String],
     additional_closures: &[ClosureIdentity],
     cache_key: &str,
     fresh: bool,
 ) -> Result<(EvidenceRecord, UnitRun)> {
+    // Mutation evidence is only meaningful when the compiler can join the
+    // registered preimage to the exact source closure under review. Perform
+    // this check before either execution or cache lookup so a stale receipt
+    // cannot bypass a changed registry or closure.
+    registered_mutation(context.root, context.bundle, unit, Some(semantic_closure))?;
     let cache_path = context
         .state_root
         .join("cache")
@@ -1604,6 +1614,7 @@ fn execute_or_reuse(
         && let Some((record, prior_digest)) = reusable_cached_record(
             context,
             unit,
+            semantic_closure,
             closure_ids,
             additional_closures,
             cache_key,
@@ -1676,6 +1687,7 @@ fn execute_or_reuse(
 fn reusable_cached_record(
     context: &ExecutionContext<'_>,
     unit: &EvidenceUnitManifest,
+    semantic_closure: &ClosureRecord,
     closure_ids: &[String],
     additional_closures: &[ClosureIdentity],
     cache_key: &str,
@@ -1689,7 +1701,7 @@ fn reusable_cached_record(
         .store
         .get(EVIDENCE_DOMAIN, &reference.evidence_sha256)
         .ok()?;
-    let [semantic_closure] = closure_ids else {
+    let [semantic_closure_id] = closure_ids else {
         return None;
     };
     let expected_id = EvidenceId::new(canonical_reference(unit.kind, &unit.id)).ok()?;
@@ -1729,7 +1741,7 @@ fn reusable_cached_record(
         }
         None => None,
     };
-    if record.schema != "proofbound-evidence/2"
+    if record.schema != EVIDENCE_DOMAIN
         || record.id != expected_id
         || record.node_id != expected_node
         || record.unit_id != expected_unit
@@ -1742,9 +1754,17 @@ fn reusable_cached_record(
         || record.binding_mode != expected_binding
         || record.bounded_check.as_ref() != expected_bounded_check.as_ref()
         || trusted_transcription_record_matches_unit(unit, &record).is_err()
+        || mutation_record_matches_registration(
+            context.root,
+            context.bundle,
+            unit,
+            semantic_closure,
+            &record,
+        )
+        .is_err()
         || !has_observed_adapter_execution(&record)
         || record.inventoried_targets != expected_inventory
-        || record.provenance.semantic_source_closure != parse_digest(semantic_closure).ok()?
+        || record.provenance.semantic_source_closure != parse_digest(semantic_closure_id).ok()?
         || record.provenance.additional_closures != additional_closures
         || expected_claims
             .iter()
@@ -1818,7 +1838,9 @@ fn response_to_record(
     // bytes to the audited theorem statement.
     let mut record = if matches!(
         unit.kind,
-        ManifestEvidenceKind::ArtifactSoundness | ManifestEvidenceKind::TrustedTranscription
+        ManifestEvidenceKind::ArtifactSoundness
+            | ManifestEvidenceKind::TrustedTranscription
+            | ManifestEvidenceKind::MutationWitness
     ) || unit.adapter == AdapterKind::Kani
     {
         observation_to_record(root, bundle, unit, registered_model, closure_ids, &value)?
@@ -1972,6 +1994,213 @@ fn has_observed_adapter_execution(record: &EvidenceRecord) -> bool {
     record.provenance.execution_kind == ExecutionKind::ObservedProcesses
 }
 
+#[derive(Clone, Debug)]
+struct RegisteredMutationBinding {
+    mutation_id: String,
+    subject: String,
+    guard: String,
+    registry: ArtifactIdentity,
+    target_preimage: ArtifactIdentity,
+    mutant_artifact: ArtifactIdentity,
+    target_postimage: ArtifactIdentity,
+    witness_source: ArtifactIdentity,
+    check_id: String,
+    affected_claims: Vec<String>,
+}
+
+fn registered_mutation(
+    root: &Path,
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+    semantic_closure: Option<&ClosureRecord>,
+) -> Result<Option<RegisteredMutationBinding>> {
+    let is_mutation = unit.kind == ManifestEvidenceKind::MutationWitness;
+    let Some(config) = unit.mutation.as_ref() else {
+        if is_mutation {
+            bail!("PB-MUTATION-0001: mutation-witness unit omitted its replay registration");
+        }
+        return Ok(None);
+    };
+    if !is_mutation {
+        bail!("PB-MUTATION-0001: non-mutation unit declared a replay registration");
+    }
+
+    let registry_artifact = registered_file_artifact(root, bundle, &config.registry)?;
+    let registry_path = root.join(&config.registry);
+    let registry: MutationRegistry = load_toml(
+        &registry_path,
+        ManifestLimits {
+            max_bytes: bundle.project.limits.max_manifest_bytes,
+            max_files: bundle.project.limits.max_files,
+        },
+    )
+    .with_context(|| {
+        format!(
+            "PB-MUTATION-0001: cannot load registered mutation {}",
+            config.registry
+        )
+    })?;
+    let mutation = &registry.mutation;
+    let target_preimage = registered_file_artifact(root, bundle, &mutation.target_path)?;
+    let mutant_artifact = registered_file_artifact(root, bundle, &mutation.mutant_path)?;
+    let witness_source = registered_file_artifact(root, bundle, &mutation.witness_path)?;
+    let target_postimage = ArtifactIdentity {
+        logical_name: target_preimage.logical_name.clone(),
+        sha256: mutant_artifact.sha256,
+        size_bytes: mutant_artifact.size_bytes,
+    };
+
+    if target_preimage.sha256 != parse_digest(&mutation.target_preimage_sha256)?
+        || mutant_artifact.sha256 != parse_digest(&mutation.mutant_sha256)?
+        || witness_source.sha256 != parse_digest(&mutation.witness_sha256)?
+    {
+        bail!(
+            "PB-MUTATION-0002: registered mutation {} does not match its sealed source, mutant, or witness bytes",
+            mutation.id
+        );
+    }
+    let input_paths = unit.inputs.iter().cloned().collect::<BTreeSet<_>>();
+    let expected_inputs = BTreeSet::from([
+        config.registry.clone(),
+        mutation.target_path.clone(),
+        mutation.mutant_path.clone(),
+        mutation.witness_path.clone(),
+    ]);
+    if input_paths.len() != unit.inputs.len() || input_paths != expected_inputs {
+        bail!(
+            "PB-MUTATION-0003: mutation unit {} must register exactly its registry, target, mutant, and witness inputs",
+            unit.id
+        );
+    }
+    let unit_claims = unit.claims.iter().cloned().collect::<BTreeSet<_>>();
+    let affected_claims = mutation
+        .affected_claims
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if unit_claims.len() != unit.claims.len()
+        || affected_claims.len() != mutation.affected_claims.len()
+        || unit_claims != affected_claims
+        || unit.expected_inventory != [mutation.id.clone()]
+    {
+        bail!(
+            "PB-MUTATION-0003: mutation unit {} does not exactly match its singleton registry inventory and affected claims",
+            unit.id
+        );
+    }
+    for claim_id in &mutation.affected_claims {
+        let (_, claim) = bundle.claims.get(claim_id).with_context(|| {
+            format!("PB-MUTATION-0003: mutation references missing claim {claim_id}")
+        })?;
+        if claim.subject != registry.subject {
+            bail!("PB-MUTATION-0003: mutation subject disagrees with affected claim {claim_id}");
+        }
+    }
+    if let Some(closure) = semantic_closure
+        && !closure_binds_artifact(closure, &target_preimage)
+    {
+        bail!(
+            "PB-MUTATION-0004: mutation target {} and its exact preimage bytes are not bound by the reviewed semantic source closure",
+            mutation.target_path
+        );
+    }
+
+    Ok(Some(RegisteredMutationBinding {
+        mutation_id: mutation.id.clone(),
+        subject: registry.subject,
+        guard: mutation.guard.clone(),
+        registry: registry_artifact,
+        target_preimage,
+        mutant_artifact,
+        target_postimage,
+        witness_source,
+        check_id: mutation.witness.clone(),
+        affected_claims: mutation.affected_claims.clone(),
+    }))
+}
+
+fn closure_binds_artifact(closure: &ClosureRecord, artifact: &ArtifactIdentity) -> bool {
+    let mut matches = closure.members.iter().filter(|member| {
+        member.path == artifact.logical_name.as_str()
+            && member.sha256 == format!("sha256:{}", artifact.sha256.to_hex())
+            && member.bytes == artifact.size_bytes
+    });
+    matches.next().is_some() && matches.next().is_none()
+}
+
+fn registered_file_artifact(
+    root: &Path,
+    bundle: &ProjectBundle,
+    relative: &str,
+) -> Result<ArtifactIdentity> {
+    validate_cache_relative_path(relative)?;
+    let canonical_root = root
+        .canonicalize()
+        .context("PB-MUTATION-0002: project root cannot be resolved")?;
+    let candidate = canonical_root.join(relative);
+    reject_cache_symlink_components(&canonical_root, &candidate)?;
+    let metadata = fs::symlink_metadata(&candidate)
+        .with_context(|| format!("PB-MUTATION-0002: registered file is missing: {relative}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        bail!("PB-MUTATION-0002: registered path is not a regular file: {relative}");
+    }
+    if metadata.len() > bundle.project.limits.max_total_bytes {
+        bail!("PB-MUTATION-0002: registered file exceeds the project byte limit: {relative}");
+    }
+    let bytes = fs::read(&candidate)
+        .with_context(|| format!("PB-MUTATION-0002: cannot read registered file: {relative}"))?;
+    Ok(ArtifactIdentity {
+        logical_name: ArtifactLogicalName::new(relative.to_owned())?,
+        sha256: Sha256Digest::of_bytes(&bytes),
+        size_bytes: bytes.len() as u64,
+    })
+}
+
+fn mutation_record_matches_registration(
+    root: &Path,
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+    semantic_closure: &ClosureRecord,
+    record: &EvidenceRecord,
+) -> Result<()> {
+    let registered = registered_mutation(root, bundle, unit, Some(semantic_closure))?;
+    let Some(registered) = registered else {
+        if record.mutation_witness.is_some() {
+            bail!("PB-MUTATION-0005: non-mutation cache record carries mutation facts");
+        }
+        return Ok(());
+    };
+    let witness = record
+        .mutation_witness
+        .as_ref()
+        .context("PB-MUTATION-0005: cached mutation evidence omitted replay facts")?;
+    let expected = MutationWitnessEvidence {
+        schema: "proofbound-mutation-witness/2".into(),
+        mutation_id: registered.mutation_id,
+        subject: registered.subject,
+        guard: registered.guard,
+        mutation_sha256: witness.mutation_sha256,
+        registry: registered.registry,
+        target_preimage: registered.target_preimage,
+        mutant_artifact: registered.mutant_artifact,
+        target_postimage: registered.target_postimage,
+        witness_source: registered.witness_source,
+        check_id: registered.check_id,
+        baseline_run_index: witness.baseline_run_index,
+        expected_failure: ExpectedFailure {
+            run_index: witness.expected_failure.run_index,
+            allowed_exit_codes: BTreeSet::from([101]),
+        },
+        proof_term_theorem: None,
+    };
+    let mut expected = expected;
+    expected.mutation_sha256 = expected.derived_mutation_sha256(&record.claims)?;
+    if witness != &expected {
+        bail!("PB-MUTATION-0005: cached mutation evidence differs from its sealed registration");
+    }
+    Ok(())
+}
+
 fn deserialize_required_option<'de, D, T>(
     deserializer: D,
 ) -> std::result::Result<Option<T>, D::Error>
@@ -2007,6 +2236,8 @@ struct AdapterObservation {
     artifact_binding: Option<ArtifactBindingObservation>,
     #[serde(default)]
     trusted_transcription: Option<TrustedTranscriptionObservation>,
+    #[serde(default)]
+    mutation_replay: Option<MutationReplayObservation>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2032,6 +2263,29 @@ struct TrustedTranscriptionObservation {
     reencoder_role_identity: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MutationReplayObservation {
+    schema: String,
+    mutation_id: String,
+    registry: ArtifactObservation,
+    target_preimage: ArtifactObservation,
+    mutant_artifact: ArtifactObservation,
+    target_postimage: ArtifactObservation,
+    witness_source: ArtifactObservation,
+    check_id: String,
+    affected_claims: Vec<String>,
+    baseline_run_index: usize,
+    expected_failure: ExpectedFailureObservation,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExpectedFailureObservation {
+    run_index: usize,
+    allowed_exit_codes: Vec<i32>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 enum ObservationOutcome {
@@ -2039,7 +2293,7 @@ enum ObservationOutcome {
     Failed,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 struct ArtifactObservation {
     logical_name: String,
@@ -2063,7 +2317,7 @@ struct CommandObservation {
     environment_allowlist: Vec<EnvironmentObservation>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 struct EnvironmentObservation {
     name: String,
@@ -2112,7 +2366,7 @@ fn observation_to_record(
 ) -> Result<EvidenceRecord> {
     let observation: AdapterObservation = serde_json::from_value(value.clone())
         .context("PB-ADAPTER-0012: unsupported evidence observation")?;
-    if observation.schema != "proofbound-adapter-observation/1"
+    if observation.schema != OBSERVATION_SCHEMA
         || observation.unit_id != unit.id
         || observation.evidence_kind
             != serde_json::to_value(unit.kind)?
@@ -2127,12 +2381,23 @@ fn observation_to_record(
     {
         bail!("PB-ADAPTER-0014: observation omitted its typed command or normalization");
     }
+    let kind = manifest_evidence_kind(unit.kind);
     let passed = observation.outcome == ObservationOutcome::Passed;
+    let registered_expected_failure = (kind == EvidenceKind::MutationWitness)
+        .then_some(observation.mutation_replay.as_ref())
+        .flatten()
+        .map(|replay| &replay.expected_failure);
     if observation.runs.len() != observation.commands.len()
         || observation.runs.iter().enumerate().any(|(index, run)| {
+            let expected_nonzero = registered_expected_failure.is_some_and(|expected| {
+                expected.run_index == index
+                    && run
+                        .exit_code
+                        .is_some_and(|code| expected.allowed_exit_codes.contains(&code))
+            });
             run.command_index != index
                 || run.output_truncated
-                || (passed && run.exit_code != Some(0))
+                || (passed && run.exit_code != Some(0) && !expected_nonzero)
                 || parse_digest(&run.stdout_sha256).is_err()
                 || parse_digest(&run.stderr_sha256).is_err()
                 || parse_digest(&run.normalized_output_sha256).is_err()
@@ -2144,7 +2409,6 @@ fn observation_to_record(
     if observation.inventory != expected_inventory {
         bail!("PB-ADAPTER-0016: exact inventory mismatch for {}", unit.id);
     }
-    let kind = manifest_evidence_kind(unit.kind);
     let evidence_id = EvidenceId::new(canonical_reference(unit.kind, &unit.id))?;
     let premises = unit
         .premises
@@ -2220,15 +2484,8 @@ fn observation_to_record(
     } else {
         None
     };
-    let mutation_witness = if kind == EvidenceKind::MutationWitness {
-        Some(MutationWitnessEvidence {
-            mutation_sha256: Sha256Digest::of_bytes(canonical_json(&observation.inventory)?),
-            check_id: unit.id.clone(),
-            proof_term_theorem: None,
-        })
-    } else {
-        None
-    };
+    let mutation_witness =
+        mutation_witness_from_observation(root, bundle, unit, kind, &claims, &observation)?;
     let commands = observation
         .commands
         .iter()
@@ -2301,7 +2558,7 @@ fn observation_to_record(
         prior_receipt_sha256: None,
     };
     Ok(EvidenceRecord {
-        schema: "proofbound-evidence/2".into(),
+        schema: EVIDENCE_DOMAIN.into(),
         id: evidence_id.clone(),
         node_id: NodeId::new(format!("evidence:{evidence_id}"))?,
         unit_id: UnitId::new(format!("unit:{}", unit.id))?,
@@ -2346,6 +2603,131 @@ fn core_artifact_ref(value: &ArtifactObservation) -> Result<ArtifactIdentity> {
         sha256: parse_digest(&value.sha256)?,
         size_bytes: value.size_bytes,
     })
+}
+
+fn mutation_witness_from_observation(
+    root: &Path,
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+    kind: EvidenceKind,
+    claims: &BTreeSet<ClaimId>,
+    observation: &AdapterObservation,
+) -> Result<Option<MutationWitnessEvidence>> {
+    let observed = observation.mutation_replay.as_ref();
+    if kind != EvidenceKind::MutationWitness {
+        if observed.is_some() {
+            bail!("PB-MUTATION-0006: non-mutation observation asserted replay facts");
+        }
+        return Ok(None);
+    }
+    let observed = observed
+        .context("PB-MUTATION-0006: mutation observation omitted its exact replay facts")?;
+    let registered = registered_mutation(root, bundle, unit, None)?
+        .context("PB-MUTATION-0006: mutation unit has no sealed registration")?;
+    let observed_registry = core_artifact_ref(&observed.registry)?;
+    let observed_target_preimage = core_artifact_ref(&observed.target_preimage)?;
+    let observed_mutant = core_artifact_ref(&observed.mutant_artifact)?;
+    let observed_target_postimage = core_artifact_ref(&observed.target_postimage)?;
+    let observed_witness = core_artifact_ref(&observed.witness_source)?;
+    if observation.outcome != ObservationOutcome::Passed
+        || observed.schema != "proofbound-mutation-replay-observation/1"
+        || observed.mutation_id != registered.mutation_id
+        || observed.check_id != registered.check_id
+        || observed.affected_claims != registered.affected_claims
+        || observed_registry != registered.registry
+        || observed_target_preimage != registered.target_preimage
+        || observed_mutant != registered.mutant_artifact
+        || observed_target_postimage != registered.target_postimage
+        || observed_witness != registered.witness_source
+        || observed.expected_failure.allowed_exit_codes != [101]
+        || observed.baseline_run_index >= observed.expected_failure.run_index
+    {
+        bail!(
+            "PB-MUTATION-0006: mutation observation disagrees with its sealed registry or exact expected-failure contract"
+        );
+    }
+    let expected_inputs = [
+        &registered.registry,
+        &registered.target_preimage,
+        &registered.mutant_artifact,
+        &registered.witness_source,
+    ];
+    if observation.input_artifacts.len() != expected_inputs.len()
+        || expected_inputs.iter().any(|expected| {
+            observation
+                .input_artifacts
+                .iter()
+                .filter_map(|artifact| core_artifact_ref(artifact).ok())
+                .filter(|artifact| artifact == *expected)
+                .count()
+                != 1
+        })
+        || observation.generated_artifacts.len() != 1
+        || core_artifact_ref(&observation.generated_artifacts[0])? != registered.target_postimage
+    {
+        bail!(
+            "PB-MUTATION-0007: mutation replay provenance is not the exact four-input, one-postimage boundary"
+        );
+    }
+    let baseline = observation
+        .runs
+        .get(observed.baseline_run_index)
+        .context("PB-MUTATION-0008: mutation baseline run index is out of bounds")?;
+    let mutant = observation
+        .runs
+        .get(observed.expected_failure.run_index)
+        .context("PB-MUTATION-0008: mutation failure run index is out of bounds")?;
+    let baseline_command = observation
+        .commands
+        .get(observed.baseline_run_index)
+        .context("PB-MUTATION-0008: mutation baseline command index is out of bounds")?;
+    let mutant_command = observation
+        .commands
+        .get(observed.expected_failure.run_index)
+        .context("PB-MUTATION-0008: mutation failure command index is out of bounds")?;
+    let selector = registered
+        .check_id
+        .split_once("::")
+        .map_or(registered.check_id.as_str(), |(_, selector)| selector);
+    if baseline.exit_code != Some(0)
+        || mutant.exit_code != Some(101)
+        || observation
+            .runs
+            .iter()
+            .filter(|run| run.exit_code != Some(0))
+            .count()
+            != 1
+        || baseline_command.program == mutant_command.program
+        || baseline_command.args != [selector, "--exact"]
+        || mutant_command.args != [selector, "--exact"]
+        || baseline_command.environment_allowlist != mutant_command.environment_allowlist
+    {
+        bail!(
+            "PB-MUTATION-0008: mutation replay did not run the same exact witness on distinct fresh baseline and mutant executables"
+        );
+    }
+
+    let mut witness = MutationWitnessEvidence {
+        schema: "proofbound-mutation-witness/2".into(),
+        mutation_id: registered.mutation_id,
+        subject: registered.subject,
+        guard: registered.guard,
+        mutation_sha256: Sha256Digest::of_bytes([]),
+        registry: registered.registry,
+        target_preimage: registered.target_preimage,
+        mutant_artifact: registered.mutant_artifact,
+        target_postimage: registered.target_postimage,
+        witness_source: registered.witness_source,
+        check_id: registered.check_id,
+        baseline_run_index: observed.baseline_run_index,
+        expected_failure: ExpectedFailure {
+            run_index: observed.expected_failure.run_index,
+            allowed_exit_codes: BTreeSet::from([101]),
+        },
+        proof_term_theorem: None,
+    };
+    witness.mutation_sha256 = witness.derived_mutation_sha256(claims)?;
+    Ok(Some(witness))
 }
 
 fn trusted_transcription_from_observation(
@@ -3354,7 +3736,7 @@ fn synthesize_review_records(
         let artifacts = validated_review_artifacts(root, &item.id, &item.review_evidence)?;
         let result = Sha256Digest::of_bytes(canonical_json(&item.review_evidence)?);
         records.push(EvidenceRecord {
-            schema: "proofbound-evidence/2".into(),
+            schema: EVIDENCE_DOMAIN.into(),
             id: id.clone(),
             node_id: NodeId::new(format!("review:{}", item.id))?,
             unit_id: UnitId::new(format!("assumption-review:{}", item.id))?,
@@ -3696,12 +4078,40 @@ fn cache_key(
     )
 }
 
+#[derive(Debug, Deserialize)]
+struct CacheCargoMetadata {
+    packages: Vec<CacheCargoPackage>,
+    workspace_members: Vec<String>,
+    workspace_root: PathBuf,
+    resolve: Option<CacheCargoResolve>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CacheCargoPackage {
+    id: String,
+    name: String,
+    manifest_path: PathBuf,
+    source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CacheCargoResolve {
+    nodes: Vec<CacheCargoNode>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CacheCargoNode {
+    id: String,
+    dependencies: Vec<String>,
+}
+
 fn cache_input_identities(
     bundle: &ProjectBundle,
     unit: &EvidenceUnitManifest,
 ) -> Result<BTreeMap<String, String>> {
     let root = &bundle.root;
     let mut roots = unit.inputs.iter().cloned().collect::<BTreeSet<_>>();
+    roots.extend(cargo_execution_input_paths(bundle, unit)?);
     if unit.operation.kind == OperationKind::Translation {
         let manifest = unit.operation.manifest.as_deref().with_context(|| {
             format!(
@@ -3741,12 +4151,262 @@ fn cache_input_identities(
                 .map(|invocation| invocation.cargo_manifest.clone()),
         );
     }
-    collect_cache_path_identities(
+    if let Some(config) = unit.mutation.as_ref() {
+        roots.insert(config.registry.clone());
+        let registry: MutationRegistry = load_toml(
+            &root.join(&config.registry),
+            ManifestLimits {
+                max_bytes: bundle.project.limits.max_manifest_bytes,
+                max_files: bundle.project.limits.max_files,
+            },
+        )
+        .with_context(|| {
+            format!(
+                "PB-CACHE-0001: cannot load registered mutation {}",
+                config.registry
+            )
+        })?;
+        roots.extend([
+            registry.mutation.target_path,
+            registry.mutation.mutant_path,
+            registry.mutation.witness_path,
+        ]);
+    }
+    let mut identities = collect_cache_path_identities(
         root,
         &roots,
         bundle.project.limits.max_files,
         bundle.project.limits.max_total_bytes,
+    )?;
+    if unit.operation.kind == OperationKind::CargoTest {
+        bind_cargo_file_permissions(root, &mut identities)?;
+    }
+    Ok(identities)
+}
+
+/// Return the complete repository-owned input boundary selected by a Cargo
+/// operation.
+///
+/// A mutation unit's four sealed registration inputs are deliberately exact,
+/// but they are not the whole program Cargo executes. In particular, a
+/// workspace `Cargo.toml` can remove or redirect the selected package without
+/// changing those four files. Bind the operation manifest itself and use
+/// locked, offline Cargo metadata to validate the selected workspace package
+/// and its repository-local dependency packages. Rust can nevertheless read
+/// files outside those package directories through `include!`, `#[path]`, or a
+/// build script, so the cache binds the complete reviewed project tree copied
+/// into the adapter shadow. The tree is enumerated through the same
+/// state-excluding, bounded closure builder as semantic source closures, then
+/// fed back into the ordinary bounded cache inventory.
+fn cargo_execution_input_paths(
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+) -> Result<BTreeSet<String>> {
+    if unit.operation.kind != OperationKind::CargoTest {
+        return Ok(BTreeSet::new());
+    }
+
+    let root = &bundle.root;
+    let manifest = unit.operation.manifest.as_deref().with_context(|| {
+        format!(
+            "PB-CACHE-0001: Cargo unit {} has no operation manifest",
+            unit.id
+        )
+    })?;
+    let package = unit.operation.package.as_deref().with_context(|| {
+        format!(
+            "PB-CACHE-0001: Cargo unit {} has no selected package",
+            unit.id
+        )
+    })?;
+    validate_cache_relative_path(manifest)?;
+
+    // Validate the exact manifest boundary before asking Cargo to parse it.
+    // This rejects a missing, directory, symlinked, or oversized manifest
+    // without permitting metadata discovery to normalize the path for us.
+    let canonical_root = root
+        .canonicalize()
+        .context("PB-CACHE-0001: project root cannot be resolved")?;
+    let manifest_path = canonical_root.join(manifest);
+    reject_cache_symlink_components(&canonical_root, &manifest_path)?;
+    let manifest_metadata = fs::symlink_metadata(&manifest_path).with_context(|| {
+        format!("PB-CACHE-0001: Cargo operation manifest is missing: {manifest}")
+    })?;
+    if manifest_metadata.file_type().is_symlink()
+        || !manifest_metadata.is_file()
+        || manifest_metadata.len() > bundle.project.limits.max_manifest_bytes
+    {
+        bail!(
+            "PB-CACHE-0001: Cargo operation manifest {manifest:?} must be a regular file no larger than {} bytes",
+            bundle.project.limits.max_manifest_bytes
+        );
+    }
+
+    let output = Command::new("cargo")
+        .args([
+            "metadata",
+            "--locked",
+            "--offline",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            manifest,
+        ])
+        .current_dir(root)
+        .output()
+        .with_context(|| {
+            format!(
+                "PB-CACHE-0001: Cargo metadata could not close unit {}",
+                unit.id
+            )
+        })?;
+    if !output.status.success() || output.stdout.len() > MAX_CARGO_METADATA_OUTPUT {
+        bail!(
+            "PB-CACHE-0001: locked offline Cargo metadata failed for unit {}: {}",
+            unit.id,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let metadata: CacheCargoMetadata =
+        serde_json::from_slice(&output.stdout).with_context(|| {
+            format!(
+                "PB-CACHE-0001: Cargo metadata for unit {} is malformed",
+                unit.id
+            )
+        })?;
+    let workspace_root = metadata.workspace_root.canonicalize().with_context(|| {
+        format!(
+            "PB-CACHE-0001: Cargo workspace root for unit {} cannot be resolved",
+            unit.id
+        )
+    })?;
+    if !workspace_root.starts_with(&canonical_root) {
+        bail!(
+            "PB-CACHE-0001: Cargo workspace for unit {} escapes the project",
+            unit.id
+        );
+    }
+
+    let workspace_members = metadata
+        .workspace_members
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let selected = metadata
+        .packages
+        .iter()
+        .filter(|candidate| candidate.name == package && workspace_members.contains(&candidate.id))
+        .collect::<Vec<_>>();
+    let [selected] = selected.as_slice() else {
+        bail!(
+            "PB-CACHE-0001: Cargo unit {} must select exactly one workspace package named {package:?}",
+            unit.id
+        );
+    };
+
+    let packages = metadata
+        .packages
+        .iter()
+        .map(|candidate| (candidate.id.as_str(), candidate))
+        .collect::<BTreeMap<_, _>>();
+    let resolve = metadata.resolve.with_context(|| {
+        format!(
+            "PB-CACHE-0001: Cargo metadata for unit {} omitted its dependency graph",
+            unit.id
+        )
+    })?;
+    let dependencies = resolve
+        .nodes
+        .into_iter()
+        .map(|node| (node.id, node.dependencies))
+        .collect::<BTreeMap<_, _>>();
+    let mut pending = vec![selected.id.clone()];
+    let mut closed = BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !closed.insert(id.clone()) {
+            continue;
+        }
+        pending.extend(dependencies.get(&id).into_iter().flatten().cloned());
+    }
+
+    let mut local_package_count = 0_usize;
+    for id in closed {
+        let package = packages.get(id.as_str()).with_context(|| {
+            format!(
+                "PB-CACHE-0001: Cargo dependency {id:?} for unit {} has no package record",
+                unit.id
+            )
+        })?;
+        if package.source.is_some() {
+            continue;
+        }
+        let manifest_path = package.manifest_path.canonicalize().with_context(|| {
+            format!(
+                "PB-CACHE-0001: local Cargo package manifest {} cannot be resolved",
+                package.manifest_path.display()
+            )
+        })?;
+        if !manifest_path.starts_with(&canonical_root) {
+            bail!(
+                "PB-CACHE-0001: local Cargo dependency {} for unit {} escapes the project",
+                package.name,
+                unit.id
+            );
+        }
+        local_package_count += 1;
+    }
+    if local_package_count == 0 {
+        bail!(
+            "PB-CACHE-0001: Cargo unit {} selected no repository-owned package sources",
+            unit.id
+        );
+    }
+
+    // This is intentionally the whole reviewed tree rather than merely the
+    // selected package directories. It exactly tracks what `shadow_project`
+    // makes available to Cargo, including repo-root files reachable via
+    // `include!`, `#[path]`, and build scripts, while excluding only the same
+    // generated/state directories (`.git`, `.proofbound`, `target`, and the
+    // registered language caches).
+    let shadow_input_closure = proofbound_evidence::build_closure(
+        &canonical_root,
+        proofbound_evidence::ClosureKind::Semantic,
+        &["**".to_owned()],
+        None,
+        "build-tool-transitive/1",
+        closures::limits(bundle),
     )
+    .with_context(|| {
+        format!(
+            "PB-CACHE-0001: could not close the reviewed Cargo shadow inputs for unit {}",
+            unit.id
+        )
+    })?;
+
+    let mut paths = shadow_input_closure
+        .members
+        .into_iter()
+        .map(|member| member.path)
+        .collect::<BTreeSet<_>>();
+    // The operation manifest can be a virtual workspace manifest outside all
+    // selected package directories, so it is always an explicit cache input.
+    paths.insert(manifest.to_owned());
+    let workspace_manifest =
+        repository_relative(&canonical_root, &workspace_root.join("Cargo.toml"))
+            .context("PB-CACHE-0001: Cargo workspace manifest escapes the project")?;
+    paths.insert(workspace_manifest);
+    let lockfile = workspace_root.join("Cargo.lock");
+    if lockfile.exists() {
+        paths.insert(
+            repository_relative(&canonical_root, &lockfile)
+                .context("PB-CACHE-0001: Cargo lockfile escapes the project")?,
+        );
+    }
+    for config in [".cargo/config.toml", ".cargo/config"] {
+        if canonical_root.join(config).exists() {
+            paths.insert(config.to_owned());
+        }
+    }
+    Ok(paths)
 }
 
 fn collect_cache_path_identities(
@@ -3850,6 +4510,55 @@ fn insert_cache_file(
     }
     inputs.insert(relative, sha256_bytes(&fs::read(path)?));
     Ok(())
+}
+
+/// Bind the permission model that `fs::copy` preserves in Cargo execution
+/// shadows without changing the cache map's sha256-valued wire shape.
+///
+/// Unix mode bits can change whether a build helper is executable even when
+/// its bytes are identical. Other platforms do not expose Unix modes, so they
+/// use an explicitly tagged readonly model instead of inventing mode bits.
+fn bind_cargo_file_permissions(root: &Path, inputs: &mut BTreeMap<String, String>) -> Result<()> {
+    let canonical_root = root
+        .canonicalize()
+        .context("PB-CACHE-0001: project root cannot be resolved")?;
+    for (relative, identity) in inputs {
+        validate_cache_relative_path(relative)?;
+        let path = canonical_root.join(relative.as_str());
+        reject_cache_symlink_components(&canonical_root, &path)?;
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            bail!("PB-CACHE-0001: Cargo cache input is not a regular file: {relative}");
+        }
+        let material = serde_json::json!({
+            "schema": "proofbound-cache-file-identity/1",
+            "content_sha256": identity.clone(),
+            "permissions": cache_file_permission_model(&metadata),
+        });
+        *identity = domain_hash(
+            "proofbound-cache-file-identity/1",
+            &canonical_json(&material)?,
+        );
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn cache_file_permission_model(metadata: &fs::Metadata) -> serde_json::Value {
+    use std::os::unix::fs::PermissionsExt;
+
+    serde_json::json!({
+        "model": "unix-mode/1",
+        "mode": metadata.permissions().mode() & 0o7777,
+    })
+}
+
+#[cfg(not(unix))]
+fn cache_file_permission_model(metadata: &fs::Metadata) -> serde_json::Value {
+    serde_json::json!({
+        "model": "readonly/1",
+        "readonly": metadata.permissions().readonly(),
+    })
 }
 
 fn validate_cache_relative_path(relative: &str) -> Result<()> {
@@ -4323,7 +5032,7 @@ fn compiled_release_value(
                 &release_closure_by_internal_id,
                 &evidence_ids,
             )?;
-            let sha = domain_hash("proofbound-evidence/2", &canonical_json(&record)?);
+            let sha = domain_hash(EVIDENCE_DOMAIN, &canonical_json(&record)?);
             evidence_ids.insert(evidence.id.to_string(), sha.clone());
             evidence_values.push(serde_json::json!({"sha256": sha, "record": record}));
         }
@@ -4439,7 +5148,7 @@ fn compiled_release_value(
         })
         .collect::<Vec<_>>();
     let mut payload = serde_json::json!({
-        "schema": "proofbound-compiled-release/2",
+        "schema": "proofbound-compiled-release/3",
         "project": compiled.project,
         "project_revision": compiled.project_revision,
         "project_tier": project_tier,
@@ -4634,8 +5343,22 @@ fn release_evidence_record(
     });
     let mutation_witness = evidence.mutation_witness.as_ref().map(|item| {
         serde_json::json!({
+            "schema": item.schema,
+            "mutation_id": item.mutation_id,
+            "subject": item.subject,
+            "guard": item.guard,
             "mutation_sha256": format!("sha256:{}", item.mutation_sha256),
+            "registry": item.registry,
+            "target_preimage": item.target_preimage,
+            "mutant_artifact": item.mutant_artifact,
+            "target_postimage": item.target_postimage,
+            "witness_source": item.witness_source,
             "check_id": item.check_id,
+            "baseline_run_index": item.baseline_run_index,
+            "expected_failure": {
+                "run_index": item.expected_failure.run_index,
+                "allowed_exit_codes": item.expected_failure.allowed_exit_codes,
+            },
             "proof_term_witness": item.proof_term_theorem.is_some(),
         })
     });
@@ -4647,7 +5370,7 @@ fn release_evidence_record(
         })
     });
     let mut record = serde_json::json!({
-        "schema": "proofbound-evidence/2",
+        "schema": EVIDENCE_DOMAIN,
         "unit_id": evidence.unit_id,
         "node_id": evidence.node_id,
         "kind": evidence.kind,
@@ -5402,6 +6125,202 @@ mod tests {
     }
 
     #[test]
+    fn cargo_cache_binds_workspace_manifest_selected_package_and_sources() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        for directory in [
+            "member/src",
+            "target",
+            ".proofbound",
+            "empty-initial/nested",
+        ] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        fs::write(root.join("target/ignored.rs"), b"ephemeral target output\n").unwrap();
+        fs::write(
+            root.join(".proofbound/ignored.rs"),
+            b"ephemeral Proofbound state\n",
+        )
+        .unwrap();
+        fs::write(root.join("registered.txt"), b"unit-owned input\n").unwrap();
+        let workspace = |revision: u8, members: &str| {
+            format!(
+                r#"[workspace]
+members = [{members}]
+resolver = "2"
+
+[workspace.metadata]
+revision = {revision}
+"#
+            )
+        };
+        fs::write(root.join("Cargo.toml"), workspace(1, "\"member\"")).unwrap();
+        fs::write(
+            root.join("Cargo.lock"),
+            r#"# This file is automatically @generated by Cargo.
+# It is not intended for manual editing.
+version = 4
+
+[[package]]
+name = "cache-fixture"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+        let package_manifest = |description: &str| {
+            format!(
+                r#"[package]
+name = "cache-fixture"
+version = "0.1.0"
+edition = "2021"
+description = {description:?}
+"#
+            )
+        };
+        fs::write(root.join("member/Cargo.toml"), package_manifest("first")).unwrap();
+        fs::write(root.join("shared.rs"), b"pub fn value() -> u8 { 1 }\n").unwrap();
+        let build_helper = root.join("build-helper.sh");
+        fs::write(&build_helper, b"#!/bin/sh\nexit 0\n").unwrap();
+        fs::write(
+            root.join("member/build.rs"),
+            b"fn main() { assert!(std::process::Command::new(\"../build-helper.sh\").status().unwrap().success()); }\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            fs::set_permissions(&build_helper, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        fs::write(
+            root.join("member/src/lib.rs"),
+            b"#[path = \"../../shared.rs\"]\nmod shared;\npub use shared::value;\n",
+        )
+        .unwrap();
+
+        let unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/1",
+            "id": "cargo-cache",
+            "adapter": "rust-test",
+            "kind": "property-test",
+            "claims": ["TEST-CLAIM-001"],
+            "tier": 0,
+            "expected_inventory": ["tests::property"],
+            "inputs": ["registered.txt"],
+            "outputs": [],
+            "environment_allowlist": [],
+            "operation": {
+                "type": "cargo-test",
+                "manifest": "Cargo.toml",
+                "package": "cache-fixture"
+            },
+            "resource_budget": {
+                "time_seconds": 30,
+                "disk_bytes": 1048576,
+                "memory_bytes": 1048576
+            }
+        }))
+        .unwrap();
+        let mut bundle = cache_test_bundle(&root);
+        bundle.project.limits.max_files = 100;
+        bundle.project.limits.max_total_bytes = 1 << 20;
+        let mut directory_manifest = unit.clone();
+        directory_manifest.operation.manifest = Some("member".to_owned());
+        let error = cargo_execution_input_paths(&bundle, &directory_manifest)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("regular file"), "{error}");
+        let manifest_limit = bundle.project.limits.max_manifest_bytes;
+        bundle.project.limits.max_manifest_bytes = 8;
+        let error = cargo_execution_input_paths(&bundle, &unit)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no larger than 8 bytes"), "{error}");
+        bundle.project.limits.max_manifest_bytes = manifest_limit;
+        let file_limit = bundle.project.limits.max_files;
+        bundle.project.limits.max_files = 1;
+        let error = cargo_execution_input_paths(&bundle, &unit)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("reviewed Cargo shadow inputs"), "{error}");
+        bundle.project.limits.max_files = file_limit;
+        let key = |inputs: &BTreeMap<String, String>| {
+            cache_key_identity(
+                &unit,
+                &[format!("sha256:{}", "11".repeat(32))],
+                &[format!("sha256:{}", "22".repeat(32))],
+                inputs,
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+            )
+            .unwrap()
+        };
+
+        let initial = cache_input_identities(&bundle, &unit).unwrap();
+        for path in [
+            "Cargo.toml",
+            "Cargo.lock",
+            "build-helper.sh",
+            "member/build.rs",
+            "member/Cargo.toml",
+            "member/src/lib.rs",
+            "registered.txt",
+            "shared.rs",
+        ] {
+            assert!(
+                initial.contains_key(path),
+                "missing Cargo cache input {path}"
+            );
+        }
+        assert!(!initial.contains_key("target/ignored.rs"));
+        assert!(!initial.contains_key(".proofbound/ignored.rs"));
+        let initial_key = key(&initial);
+        fs::create_dir_all(root.join("empty-added-later/nested")).unwrap();
+        let empty_directory_added = cache_input_identities(&bundle, &unit).unwrap();
+        assert_eq!(initial, empty_directory_added);
+
+        fs::write(root.join("Cargo.toml"), workspace(2, "\"member\"")).unwrap();
+        let workspace_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(initial_key, key(&workspace_changed));
+
+        fs::write(root.join("member/Cargo.toml"), package_manifest("second")).unwrap();
+        let package_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(key(&workspace_changed), key(&package_changed));
+
+        fs::write(
+            root.join("member/src/lib.rs"),
+            b"#[path = \"../../shared.rs\"]\nmod shared;\npub use shared::value; // revision 2\n",
+        )
+        .unwrap();
+        let source_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(key(&package_changed), key(&source_changed));
+
+        // `shared.rs` is outside the selected package directory and is not a
+        // declared unit input, but Rust compiles it through `#[path]` from the
+        // exact project tree copied into the adapter shadow.
+        fs::write(root.join("shared.rs"), b"pub fn value() -> u8 { 2 }\n").unwrap();
+        let external_source_changed = cache_input_identities(&bundle, &unit).unwrap();
+        assert_ne!(key(&source_changed), key(&external_source_changed));
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let helper_bytes = fs::read(&build_helper).unwrap();
+            fs::set_permissions(&build_helper, fs::Permissions::from_mode(0o644)).unwrap();
+            assert_eq!(fs::read(&build_helper).unwrap(), helper_bytes);
+            let execute_bit_removed = cache_input_identities(&bundle, &unit).unwrap();
+            assert_ne!(key(&external_source_changed), key(&execute_bit_removed));
+        }
+
+        fs::write(root.join("Cargo.toml"), workspace(3, "")).unwrap();
+        let error = cache_input_identities(&bundle, &unit)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("PB-CACHE-0001"), "{error}");
+    }
+
+    #[test]
     fn update_postcondition_uses_component_boundaries_and_their_intersection() {
         let changed = BTreeSet::from(["lean/Generated/Nested/Aux.lean".to_owned()]);
         let groups = vec![
@@ -5992,7 +6911,7 @@ mod tests {
             })
         };
         let observation = json!({
-            "schema": "proofbound-adapter-observation/1",
+            "schema": "proofbound-adapter-observation/2",
             "unit_id": "multi-command",
             "evidence_kind": "example-test",
             "outcome": "passed",
@@ -6231,7 +7150,7 @@ mod tests {
             ])
         };
         let observation = json!({
-            "schema": "proofbound-adapter-observation/1",
+            "schema": "proofbound-adapter-observation/2",
             "unit_id": "round-trip",
             "evidence_kind": "trusted-transcription",
             "outcome": "passed",
@@ -6436,7 +7355,7 @@ mod tests {
     fn direct_example_record_value(inventory: Vec<&str>) -> serde_json::Value {
         let digest = format!("sha256:{}", "00".repeat(32));
         json!({
-            "schema": "proofbound-evidence/2",
+            "schema": "proofbound-evidence/3",
             "id": "example-test:inventory-protocol",
             "node_id": "evidence:example-test:inventory-protocol",
             "unit_id": "unit:inventory-protocol",
@@ -6569,6 +7488,17 @@ mod tests {
         };
         let cache_key = format!("sha256:{}", "11".repeat(32));
         let closure = format!("sha256:{}", "00".repeat(32));
+        let semantic_closure = ClosureRecord {
+            schema: "proofbound-source-closure/1".into(),
+            id: closure.clone(),
+            kind: proofbound_evidence::ClosureKind::Semantic,
+            root: ".".into(),
+            claim_id: Some("CLAIM-ONE".into()),
+            members: Vec::new(),
+            total_bytes: 0,
+            discovery: "test/1".into(),
+            tool_identity: None,
+        };
         let cache_path = temporary.path().join("cache-reference.json");
 
         let canonical_record: EvidenceRecord =
@@ -6587,6 +7517,7 @@ mod tests {
             reusable_cached_record(
                 &context,
                 &unit,
+                &semantic_closure,
                 std::slice::from_ref(&closure),
                 &[],
                 &cache_key,
@@ -6611,6 +7542,7 @@ mod tests {
                 reusable_cached_record(
                     &context,
                     &unit,
+                    &semantic_closure,
                     std::slice::from_ref(&closure),
                     &[],
                     &cache_key,
@@ -6625,7 +7557,7 @@ mod tests {
     fn artifact_adapter_cannot_bypass_checked_observation_with_core_record() {
         let digest = format!("sha256:{}", "00".repeat(32));
         let forged = json!({
-            "schema": "proofbound-evidence/2",
+            "schema": "proofbound-evidence/3",
             "id": "artifact:forged",
             "node_id": "evidence:artifact:forged",
             "unit_id": "unit:forged",
@@ -6728,7 +7660,7 @@ mod tests {
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: "lean".into(),
             success: false,
-            evidence: Some(json!({"schema": "proofbound-evidence/2"})),
+            evidence: Some(json!({"schema": "proofbound-evidence/3"})),
             inventory: Vec::new(),
             diagnostics: Vec::new(),
         };
@@ -6736,6 +7668,58 @@ mod tests {
         let error = response_to_record(Path::new("."), &bundle, &unit, None, &[], &[], &response)
             .unwrap_err();
         assert!(error.to_string().contains("adapter rejected unit failed"));
+    }
+
+    #[test]
+    fn mutation_target_requires_exact_reviewed_closure_preimage() {
+        let artifact = ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new("src/decision.rs").unwrap(),
+            sha256: Sha256Digest::of_bytes(b"registered target bytes"),
+            size_bytes: 23,
+        };
+        let member = ClosureMember {
+            path: artifact.logical_name.to_string(),
+            sha256: format!("sha256:{}", artifact.sha256.to_hex()),
+            bytes: artifact.size_bytes,
+        };
+        let closure = |members| ClosureRecord {
+            schema: "proofbound-source-closure/1".into(),
+            id: format!("sha256:{}", "00".repeat(32)),
+            kind: proofbound_evidence::ClosureKind::Semantic,
+            root: ".".into(),
+            claim_id: Some("CLAIM-ONE".into()),
+            members,
+            total_bytes: artifact.size_bytes,
+            discovery: "unit-claim-union/1".into(),
+            tool_identity: None,
+        };
+
+        assert!(closure_binds_artifact(
+            &closure(vec![member.clone()]),
+            &artifact
+        ));
+
+        let mut wrong_digest = member.clone();
+        wrong_digest.sha256 = format!(
+            "sha256:{}",
+            Sha256Digest::of_bytes(b"different bytes").to_hex()
+        );
+        assert!(!closure_binds_artifact(
+            &closure(vec![wrong_digest]),
+            &artifact
+        ));
+
+        let mut wrong_size = member.clone();
+        wrong_size.bytes += 1;
+        assert!(!closure_binds_artifact(
+            &closure(vec![wrong_size]),
+            &artifact
+        ));
+
+        assert!(!closure_binds_artifact(
+            &closure(vec![member.clone(), member]),
+            &artifact
+        ));
     }
 
     #[test]

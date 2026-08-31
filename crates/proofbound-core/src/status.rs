@@ -9,7 +9,7 @@ use crate::{
     AssuranceGraph, BoundedDomain, CLAIM_SCHEMA_V1, ClaimDefinition, ClaimId, EdgeKind, ErrorCode,
     EvidenceId, EvidenceKind, EvidenceRecord, EvidenceStatus, FlowScope, FormalFacet, LinkageFacet,
     NodeId, NodeKind, OpenObligation, OutOfScope, PolicyDefinition, PremiseId, PremiseRecord,
-    StructuredError, TheoremAdmission, Tier, parse_artifact_digest_binding,
+    Sha256Digest, StructuredError, TheoremAdmission, Tier, parse_artifact_digest_binding,
 };
 
 pub const CLAIM_STATUS_SCHEMA_V1: &str = "proofbound-claim-status/1";
@@ -475,6 +475,9 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         let mut locally_valid = true;
         if let Err(record_errors) = record.validate(claim_id) {
             errors.extend(record_errors.errors);
+            locally_valid = false;
+        }
+        if !validate_mutation_subject(record, &input.claim, claim_id, &mut errors) {
             locally_valid = false;
         }
         if !effective_tier.admits(record.kind.minimum_tier()) {
@@ -1136,6 +1139,42 @@ fn validate_evidence_graph_node(
         );
     }
     before == errors.len()
+}
+
+fn validate_mutation_subject(
+    record: &EvidenceRecord,
+    claim: &ClaimDefinition,
+    claim_id: &ClaimId,
+    errors: &mut Vec<StructuredError>,
+) -> bool {
+    if record.kind != EvidenceKind::MutationWitness {
+        return true;
+    }
+    let Some(witness) = record.mutation_witness.as_ref() else {
+        return true;
+    };
+    let expected = NodeId::new(format!(
+        "subject:{}",
+        Sha256Digest::of_bytes(witness.subject.as_bytes())
+    ))
+    .expect("a SHA-256-derived subject node is valid");
+    if claim.subject == expected {
+        return true;
+    }
+    errors.push(
+        claim_error(
+            claim_id,
+            ErrorCode::PbCoreInvalidEvidence,
+            format!(
+                "mutation witness '{}' targets a different subject than its affected claim",
+                witness.mutation_id
+            ),
+            "bind the registered mutation subject to the exact subject of every affected claim",
+        )
+        .identities(expected.to_string(), claim.subject.to_string())
+        .for_unit(record.unit_id.clone()),
+    );
+    false
 }
 
 fn require_node_kind(

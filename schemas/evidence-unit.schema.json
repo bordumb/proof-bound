@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "adapter", "kind", "claims", "tier", "operation", "resource_budget"],
   "properties": {
-    "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2"] },
+    "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2", "proofbound-evidence-unit/3"] },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "adapter": { "enum": ["lean", "charon-aeneas", "kani", "rust-test", "python-test", "canonical-artifact", "independent-check", "trusted-transcription"] },
     "kind": { "$ref": "evidence.schema.json#/$defs/kind" },
@@ -47,6 +47,7 @@
     "environment_allowlist": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" }, "uniqueItems": true, "maxItems": 256 },
     "bounded_domain": { "$ref": "claim.schema.json#/$defs/boundedDomain" },
     "transcription": { "$ref": "#/$defs/trustedTranscription" },
+    "mutation": { "$ref": "#/$defs/mutationReplay" },
     "resource_budget": { "type": "object", "additionalProperties": false, "required": ["time_seconds", "disk_bytes", "memory_bytes"], "properties": { "time_seconds": { "type": "integer", "minimum": 1 }, "disk_bytes": { "type": "integer", "minimum": 1 }, "memory_bytes": { "type": "integer", "minimum": 1 } } }
   },
   "allOf": [
@@ -58,8 +59,10 @@
             "not": {
               "anyOf": [
                 { "required": ["transcription"] },
+                { "required": ["mutation"] },
                 { "properties": { "adapter": { "const": "trusted-transcription" } }, "required": ["adapter"] },
                 { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] },
+                { "properties": { "kind": { "const": "mutation-witness" } }, "required": ["kind"] },
                 { "properties": { "operation": { "properties": { "type": { "const": "transcription" } }, "required": ["type"] } }, "required": ["operation"] }
               ]
             }
@@ -93,7 +96,7 @@
               {
                 "properties": {
                   "adapter": { "const": "rust-test" },
-                  "kind": { "enum": ["example-test", "property-test", "mutation-witness"] },
+                  "kind": { "enum": ["example-test", "property-test"] },
                   "operation": { "properties": { "type": { "const": "cargo-test" } }, "required": ["type"] }
                 },
                 "required": ["adapter", "kind", "operation"]
@@ -161,12 +164,47 @@
           "theorem": false,
           "refinement_theorem": false,
           "bounded_domain": false,
+          "mutation": false,
           "premises": { "maxItems": 0 },
           "assumptions": { "maxItems": 0 },
           "outputs": { "maxItems": 0 },
           "environment_allowlist": { "const": ["PATH"] },
           "expected_inventory": { "minItems": 2, "maxItems": 2 },
           "inputs": { "minItems": 3, "maxItems": 3 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-evidence-unit/3" } }, "required": ["schema"] },
+      "then": {
+        "required": ["mutation", "expected_inventory", "inputs", "outputs", "environment_allowlist"],
+        "properties": {
+          "adapter": { "const": "rust-test" },
+          "kind": { "const": "mutation-witness" },
+          "operation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "package", "manifest"],
+            "properties": {
+              "type": { "const": "cargo-test" },
+              "package": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "manifest": { "$ref": "#/$defs/exactPath" },
+              "targets": { "maxItems": 0 },
+              "paths": { "maxItems": 0 },
+              "arguments": { "maxItems": 0 }
+            }
+          },
+          "evaluation_mode": false,
+          "binding_mode": false,
+          "theorem": false,
+          "refinement_theorem": false,
+          "bounded_domain": false,
+          "transcription": false,
+          "premises": { "maxItems": 0 },
+          "assumptions": { "maxItems": 0 },
+          "outputs": { "maxItems": 0 },
+          "expected_inventory": { "minItems": 1, "maxItems": 1 },
+          "inputs": { "minItems": 4, "maxItems": 4 }
         }
       }
     }
@@ -195,6 +233,15 @@
         "source_format": { "$ref": "#/$defs/formatId" },
         "transcribed_format": { "$ref": "#/$defs/formatId" },
         "driver_abi": { "const": "proofbound-transcription-driver/1" }
+      }
+    },
+    "mutationReplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "registry"],
+      "properties": {
+        "schema": { "const": "proofbound-mutation-replay/1" },
+        "registry": { "allOf": [{ "$ref": "#/$defs/exactPath" }, { "pattern": "\\.toml$" }] }
       }
     }
   }

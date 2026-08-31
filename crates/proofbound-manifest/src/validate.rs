@@ -4,6 +4,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
@@ -233,6 +234,7 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     }
 
     validate_evidence(bundle)?;
+    validate_mutation_replays(bundle)?;
     validate_translations(bundle)?;
     validate_model_checks(bundle)?;
     validate_policies(bundle)?;
@@ -356,30 +358,44 @@ fn validate_evidence_schema(
     match unit.schema.as_str() {
         "proofbound-evidence-unit/1"
             if unit.transcription.is_none()
+                && unit.mutation.is_none()
                 && unit.adapter != AdapterKind::TrustedTranscription
                 && unit.kind != EvidenceKind::TrustedTranscription
+                && unit.kind != EvidenceKind::MutationWitness
                 && unit.operation.kind != OperationKind::Transcription =>
         {
             Ok(())
         }
         "proofbound-evidence-unit/2"
             if unit.transcription.is_some()
+                && unit.mutation.is_none()
                 && unit.adapter == AdapterKind::TrustedTranscription
                 && unit.kind == EvidenceKind::TrustedTranscription
                 && unit.operation.kind == OperationKind::Transcription =>
         {
             Ok(())
         }
-        "proofbound-evidence-unit/1" | "proofbound-evidence-unit/2" => {
+        "proofbound-evidence-unit/3"
+            if unit.transcription.is_none()
+                && unit.mutation.is_some()
+                && unit.adapter == AdapterKind::RustTest
+                && unit.kind == EvidenceKind::MutationWitness
+                && unit.operation.kind == OperationKind::CargoTest =>
+        {
+            Ok(())
+        }
+        "proofbound-evidence-unit/1"
+        | "proofbound-evidence-unit/2"
+        | "proofbound-evidence-unit/3" => {
             Err(SemanticError::EvidenceQualifier {
                 unit: unit.id.clone(),
-                message: "evidence-unit/1 excludes trusted transcription; evidence-unit/2 is reserved for the typed trusted-transcription route"
+                message: "evidence-unit/1 excludes trusted transcription and mutation replay; evidence-unit/2 is reserved for typed trusted transcription; evidence-unit/3 is reserved for typed singleton mutation replay"
                     .to_owned(),
             })
         }
         _ => Err(SemanticError::Schema {
             path: path.to_owned(),
-            expected: "proofbound-evidence-unit/1 or proofbound-evidence-unit/2",
+            expected: "proofbound-evidence-unit/1, proofbound-evidence-unit/2, or proofbound-evidence-unit/3",
             actual: unit.schema.clone(),
         }),
     }
@@ -492,6 +508,12 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
         return Err(SemanticError::EvidenceQualifier {
             unit: unit.id.clone(),
             message: "only trusted-transcription evidence may declare [transcription]".to_owned(),
+        });
+    }
+    if unit.kind != EvidenceKind::MutationWitness && unit.mutation.is_some() {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "only mutation-witness evidence may declare [mutation]".to_owned(),
         });
     }
     Ok(())
@@ -674,6 +696,7 @@ fn validate_transcription_qualifiers(
         || !unit.premises.is_empty()
         || !unit.assumptions.is_empty()
         || unit.bounded_domain.is_some()
+        || unit.mutation.is_some()
         || unit.operation.package.is_some()
         || !unit.operation.targets.is_empty()
         || !unit.operation.paths.is_empty()
@@ -714,6 +737,238 @@ fn valid_format_id(value: &str) -> bool {
             .next()
             .is_some_and(|byte| byte.is_ascii_digit() && byte != b'0')
         && version.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn validate_mutation_replays(bundle: &ProjectBundle) -> Result<(), SemanticError> {
+    let mut registries = BTreeSet::new();
+    let mut mutations = BTreeSet::new();
+
+    for (unit_id, (_, unit)) in &bundle.evidence_units {
+        let Some(replay) = unit.mutation.as_ref() else {
+            continue;
+        };
+        let fail = |message: String| SemanticError::EvidenceQualifier {
+            unit: unit_id.clone(),
+            message,
+        };
+
+        if unit.schema != "proofbound-evidence-unit/3"
+            || unit.adapter != AdapterKind::RustTest
+            || unit.operation.kind != OperationKind::CargoTest
+            || unit.kind != EvidenceKind::MutationWitness
+            || unit.evaluation_mode.is_some()
+            || unit.binding_mode.is_some()
+            || unit.theorem.is_some()
+            || unit.refinement_theorem.is_some()
+            || !unit.premises.is_empty()
+            || !unit.assumptions.is_empty()
+            || !unit.outputs.is_empty()
+            || unit.bounded_domain.is_some()
+            || unit.transcription.is_some()
+            || unit.operation.package.as_deref().is_none_or(str::is_empty)
+            || unit.operation.manifest.as_deref().is_none_or(str::is_empty)
+            || !unit.operation.targets.is_empty()
+            || !unit.operation.paths.is_empty()
+            || unit.operation.inventory.is_some()
+            || unit.operation.checker.is_some()
+            || !unit.operation.arguments.is_empty()
+        {
+            return Err(fail(
+                "evidence-unit/3 admits only the typed Rust mutation replay route, exact registration inputs, claims, inventory, environment, and budget"
+                    .to_owned(),
+            ));
+        }
+        mutation_path(unit_id, &replay.registry)?;
+        if Path::new(&replay.registry)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("toml")
+        {
+            return Err(fail("mutation registry must be a .toml file".to_owned()));
+        }
+        if !registries.insert(replay.registry.clone()) {
+            return Err(fail(format!(
+                "mutation registry {} is referenced by more than one evidence unit",
+                replay.registry
+            )));
+        }
+
+        let registry_path = bundle.root.join(&replay.registry);
+        let registry_bytes = read_exact_mutation_file(bundle, unit_id, &replay.registry)?;
+        if registry_bytes.len() as u64 > bundle.project.limits.max_manifest_bytes {
+            return Err(fail(format!(
+                "mutation registry exceeds {} bytes",
+                bundle.project.limits.max_manifest_bytes
+            )));
+        }
+        let registry_text = std::str::from_utf8(&registry_bytes)
+            .map_err(|error| fail(format!("mutation registry is not UTF-8: {error}")))?;
+        let registry: crate::MutationRegistry = toml::from_str(registry_text)
+            .map_err(|error| fail(format!("invalid mutation registry: {error}")))?;
+        let mutation = &registry.mutation;
+
+        if registry.subject.trim().is_empty()
+            || registry.subject.chars().count() > 4096
+            || mutation.guard.trim().is_empty()
+            || mutation.guard.chars().count() > 8192
+        {
+            return Err(fail(
+                "mutation subject and guard must be nonblank and bounded".to_owned(),
+            ));
+        }
+        local_id(&mutation.id, &registry_path)?;
+        if unit.id != mutation.id || !mutations.insert(mutation.id.clone()) {
+            return Err(fail(
+                "each mutation id must equal its globally unique evidence-unit id".to_owned(),
+            ));
+        }
+        if unit.expected_inventory != [mutation.id.as_str()] {
+            return Err(fail(
+                "mutation expected_inventory must be the exact singleton mutation id".to_owned(),
+            ));
+        }
+        if mutation.affected_claims.is_empty()
+            || !mutation
+                .affected_claims
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+            || unit.claims != mutation.affected_claims
+        {
+            return Err(fail(
+                "unit claims and mutation affected_claims must be the same nonempty strict lexical set"
+                    .to_owned(),
+            ));
+        }
+        if mutation.witness.chars().count() > 1024 || !valid_rust_path(&mutation.witness) {
+            return Err(fail(
+                "mutation witness must be one exact bounded Rust test identity".to_owned(),
+            ));
+        }
+
+        let exact_paths = [
+            replay.registry.as_str(),
+            mutation.target_path.as_str(),
+            mutation.mutant_path.as_str(),
+            mutation.witness_path.as_str(),
+        ];
+        for path in exact_paths {
+            mutation_path(unit_id, path)?;
+        }
+        if exact_paths.into_iter().collect::<BTreeSet<_>>().len() != exact_paths.len() {
+            return Err(fail(
+                "registry, target, full-file mutant, and witness paths must be distinct".to_owned(),
+            ));
+        }
+        let mut expected_inputs = exact_paths
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        expected_inputs.sort();
+        if unit.inputs != expected_inputs {
+            return Err(fail(
+                "mutation inputs must be the exact sorted registry, target, mutant, and witness path set"
+                    .to_owned(),
+            ));
+        }
+
+        for (path, expected) in [
+            (
+                mutation.target_path.as_str(),
+                mutation.target_preimage_sha256.as_str(),
+            ),
+            (
+                mutation.mutant_path.as_str(),
+                mutation.mutant_sha256.as_str(),
+            ),
+            (
+                mutation.witness_path.as_str(),
+                mutation.witness_sha256.as_str(),
+            ),
+        ] {
+            digest_sha256(expected, &registry_path)?;
+            let bytes = read_exact_mutation_file(bundle, unit_id, path)?;
+            let actual = format!("sha256:{}", hex::encode(Sha256::digest(&bytes)));
+            if actual != expected {
+                return Err(fail(format!(
+                    "registered identity for {path} is {expected}, found {actual}"
+                )));
+            }
+        }
+
+        for claim_id in &mutation.affected_claims {
+            let Some((_, claim)) = bundle.claims.get(claim_id) else {
+                return Err(SemanticError::MissingReference {
+                    owner: mutation.id.clone(),
+                    kind: "claim",
+                    id: claim_id.clone(),
+                });
+            };
+            if claim.subject != registry.subject {
+                return Err(fail(format!(
+                    "affected claim {claim_id} subject does not equal the mutation subject"
+                )));
+            }
+            if !claim.source_roots.contains(&mutation.target_path) {
+                return Err(fail(format!(
+                    "affected claim {claim_id} does not include the mutation target in source_roots"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn mutation_path(owner: &str, value: &str) -> Result<(), SemanticError> {
+    transcription_path(owner, value)?;
+    if Path::new(value)
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_none()
+    {
+        return Err(SemanticError::UnsafePath {
+            owner: owner.to_owned(),
+            path: value.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn read_exact_mutation_file(
+    bundle: &ProjectBundle,
+    unit_id: &str,
+    relative: &str,
+) -> Result<Vec<u8>, SemanticError> {
+    mutation_path(unit_id, relative)?;
+    let path = bundle.root.join(relative);
+    let mut current = bundle.root.clone();
+    for component in Path::new(relative).components() {
+        current.push(component.as_os_str());
+        let metadata =
+            fs::symlink_metadata(&current).map_err(|error| SemanticError::EvidenceQualifier {
+                unit: unit_id.to_owned(),
+                message: format!("cannot inspect mutation path {relative}: {error}"),
+            })?;
+        if metadata.file_type().is_symlink() {
+            return Err(SemanticError::UnsafePath {
+                owner: unit_id.to_owned(),
+                path: relative.to_owned(),
+            });
+        }
+    }
+    let metadata = fs::metadata(&path).map_err(|error| SemanticError::EvidenceQualifier {
+        unit: unit_id.to_owned(),
+        message: format!("cannot inspect mutation file {relative}: {error}"),
+    })?;
+    if !metadata.is_file() || metadata.len() > bundle.project.limits.max_total_bytes {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit_id.to_owned(),
+            message: format!("mutation path {relative} is not a bounded regular file"),
+        });
+    }
+    fs::read(&path).map_err(|error| SemanticError::EvidenceQualifier {
+        unit: unit_id.to_owned(),
+        message: format!("cannot read mutation file {relative}: {error}"),
+    })
 }
 
 fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
@@ -2080,6 +2335,7 @@ mod tests {
             environment_allowlist: vec![],
             bounded_domain: None,
             transcription: None,
+            mutation: None,
             resource_budget: crate::ResourceBudget {
                 time_seconds: 1,
                 disk_bytes: 1,
@@ -2144,6 +2400,71 @@ mod tests {
     }
 
     #[test]
+    fn mutation_replay_v3_is_singleton_bidirectional_and_byte_pinned() {
+        let mut bundle = repository_bundle();
+        let mutation_units = bundle
+            .evidence_units
+            .values()
+            .filter(|(_, unit)| unit.schema == "proofbound-evidence-unit/3")
+            .map(|(_, unit)| unit.id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(mutation_units.len(), 5);
+        validate_mutation_replays(&bundle).unwrap();
+
+        let unit = bundle.evidence_units.get_mut("remove-cap-guard").unwrap();
+        unit.1.claims = vec!["DEMO-TRANSFER-005".to_owned()];
+        let error = validate_mutation_replays(&bundle).unwrap_err().to_string();
+        assert!(error.contains("affected_claims"), "{error}");
+
+        let unit = bundle.evidence_units.get_mut("remove-cap-guard").unwrap();
+        unit.1.claims = vec![
+            "DEMO-TRANSFER-003".to_owned(),
+            "DEMO-TRANSFER-005".to_owned(),
+        ];
+        unit.1.expected_inventory.push("shared-fate".to_owned());
+        let error = validate_mutation_replays(&bundle).unwrap_err().to_string();
+        assert!(error.contains("exact singleton"), "{error}");
+    }
+
+    #[test]
+    fn mutation_replay_rejects_registry_reuse_and_target_claim_drift() {
+        let mut bundle = repository_bundle();
+        let reused = bundle.evidence_units["remove-cap-guard"]
+            .1
+            .mutation
+            .as_ref()
+            .unwrap()
+            .registry
+            .clone();
+        bundle
+            .evidence_units
+            .get_mut("remove-authorization-guard")
+            .unwrap()
+            .1
+            .mutation
+            .as_mut()
+            .unwrap()
+            .registry = reused;
+        let error = validate_mutation_replays(&bundle).unwrap_err().to_string();
+        assert!(
+            error.contains("referenced by more than one evidence unit")
+                || error.contains("globally unique evidence-unit id"),
+            "{error}"
+        );
+
+        let mut bundle = repository_bundle();
+        bundle
+            .claims
+            .get_mut("DEMO-TRANSFER-003")
+            .unwrap()
+            .1
+            .source_roots
+            .retain(|path| path != "demo/allowance/rust/kernel/src/decision.rs");
+        let error = validate_mutation_replays(&bundle).unwrap_err().to_string();
+        assert!(error.contains("source_roots"), "{error}");
+    }
+
+    #[test]
     fn primary_linkage_names_are_deserializable() {
         let value: crate::PrimaryLinkage = toml::from_str("value = \"artifact-bound\"")
             .map(|wrapper: LinkageWrapper| wrapper.value)
@@ -2179,6 +2500,7 @@ mod tests {
             translation.canonical_translated_closure_inventory(),
             [
                 "function:allowance_kernel::decide_transfer",
+                "function:allowance_kernel::decision::decide_transfer",
                 "function:allowance_kernel::{allowance_kernel::Decision}::denied",
                 "type:allowance_kernel::Decision",
                 "type:allowance_kernel::DecisionCode",

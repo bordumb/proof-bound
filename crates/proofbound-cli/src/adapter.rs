@@ -174,7 +174,7 @@ fn validate_response_schema(response: &AdapterResponse, request_operation: &str)
             .and_then(serde_json::Value::as_str);
         if !matches!(
             schema,
-            Some("proofbound-evidence/2" | "proofbound-adapter-observation/1")
+            Some("proofbound-evidence/3" | "proofbound-adapter-observation/2")
         ) {
             bail!("PB-ADAPTER-0008: adapter evidence has an unsupported schema");
         }
@@ -227,7 +227,7 @@ fn evidence_reports_passed(evidence: &serde_json::Value) -> Result<bool> {
         .as_object()
         .context("PB-ADAPTER-0008: adapter evidence must be an object")?;
     match object.get("schema").and_then(serde_json::Value::as_str) {
-        Some("proofbound-evidence/2") => {
+        Some("proofbound-evidence/3") => {
             let status = object
                 .get("status")
                 .and_then(serde_json::Value::as_str)
@@ -239,7 +239,7 @@ fn evidence_reports_passed(evidence: &serde_json::Value) -> Result<bool> {
                 _ => bail!("PB-ADAPTER-0008: adapter evidence has an invalid typed status"),
             }
         }
-        Some("proofbound-adapter-observation/1") => {
+        Some("proofbound-adapter-observation/2") => {
             match object.get("outcome").and_then(serde_json::Value::as_str) {
                 Some("passed") => Ok(true),
                 Some("failed") => Ok(false),
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn response_boundary_requires_canonical_json() {
-        let value = protocol_value(true, serde_json::json!({"schema": "proofbound-evidence/2"}));
+        let value = protocol_value(true, serde_json::json!({"schema": "proofbound-evidence/3"}));
         let mut noncanonical = serde_json::to_vec_pretty(&value).unwrap();
         noncanonical.push(b'\n');
         assert!(
@@ -449,7 +449,7 @@ mod tests {
     fn failed_response_cannot_smuggle_evidence() {
         let value = protocol_value(
             false,
-            serde_json::json!({"schema": "proofbound-evidence/2"}),
+            serde_json::json!({"schema": "proofbound-evidence/3"}),
         );
         let bytes = canonical_json(&value).unwrap();
         assert!(
@@ -511,7 +511,7 @@ mod tests {
         assert!(parse(&inventory, "inventory").is_ok());
         assert!(
             parse(
-                &protocol_value(true, serde_json::json!({"schema": "proofbound-evidence/2"})),
+                &protocol_value(true, serde_json::json!({"schema": "proofbound-evidence/3"})),
                 "inventory"
             )
             .is_err()
@@ -520,7 +520,7 @@ mod tests {
         let evidence = protocol_value(
             true,
             serde_json::json!({
-                "schema": "proofbound-evidence/2",
+                "schema": "proofbound-evidence/3",
                 "status": "passed"
             }),
         );
@@ -532,7 +532,7 @@ mod tests {
                 &protocol_value(
                     true,
                     serde_json::json!({
-                        "schema": "proofbound-evidence/2",
+                        "schema": "proofbound-evidence/3",
                         "status": "failed"
                     })
                 ),
@@ -546,7 +546,7 @@ mod tests {
                 &protocol_value(
                     true,
                     serde_json::json!({
-                        "schema": "proofbound-evidence/2",
+                        "schema": "proofbound-evidence/3",
                         "status": "passed"
                     })
                 ),
@@ -559,7 +559,7 @@ mod tests {
                 &protocol_value(
                     true,
                     serde_json::json!({
-                        "schema": "proofbound-evidence/2",
+                        "schema": "proofbound-evidence/3",
                         "status": "drifted"
                     })
                 ),
@@ -575,7 +575,7 @@ mod tests {
         let mut value = protocol_value(
             true,
             serde_json::json!({
-                "schema": "proofbound-evidence/2",
+                "schema": "proofbound-evidence/3",
                 "status": "passed"
             }),
         );

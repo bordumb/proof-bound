@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "unit_id", "evidence_kind", "outcome", "input_artifacts", "generated_artifacts", "tool", "adapter", "commands", "runs", "started_unix_ms", "completed_unix_ms", "deterministic_result_sha256", "unit_configuration_sha256", "resource_budget", "resource_usage", "inventory", "normalization"],
   "properties": {
-    "schema": { "const": "proofbound-adapter-observation/1" },
+    "schema": { "const": "proofbound-adapter-observation/2" },
     "unit_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "evidence_kind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "review", "assumption", "open"] },
     "outcome": { "enum": ["passed", "failed"] },
@@ -25,7 +25,8 @@
     "inventory": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 },
     "normalization": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" },
     "artifact_binding": { "$ref": "#/$defs/artifact_binding" },
-    "trusted_transcription": { "$ref": "#/$defs/trusted_transcription" }
+    "trusted_transcription": { "$ref": "#/$defs/trusted_transcription" },
+    "mutation_replay": { "$ref": "#/$defs/mutation_replay" }
   },
   "allOf": [
     {
@@ -36,8 +37,7 @@
           "runs": {
             "items": {
               "properties": {
-                "exit_code": { "const": 0 },
-                "output_truncated": { "const": false }
+                    "output_truncated": { "const": false }
               }
             }
           }
@@ -45,9 +45,35 @@
       }
     },
     {
+      "if": {
+        "required": ["outcome", "evidence_kind"],
+        "properties": {
+          "outcome": { "const": "passed" },
+          "evidence_kind": { "not": { "const": "mutation-witness" } }
+        }
+      },
+      "then": {
+        "properties": {
+          "runs": { "items": { "properties": { "exit_code": { "const": 0 } } } }
+        }
+      }
+    },
+    {
       "if": { "properties": { "evidence_kind": { "const": "trusted-transcription" } }, "required": ["evidence_kind"] },
       "then": { "required": ["trusted_transcription"] },
       "else": { "not": { "required": ["trusted_transcription"] } }
+    },
+    {
+      "if": { "properties": { "evidence_kind": { "const": "mutation-witness" } }, "required": ["evidence_kind"] },
+      "then": {
+        "required": ["mutation_replay"],
+        "properties": {
+          "input_artifacts": { "minItems": 4, "maxItems": 4 },
+          "generated_artifacts": { "minItems": 1, "maxItems": 1 },
+          "inventory": { "minItems": 1, "maxItems": 1 }
+        }
+      },
+      "else": { "not": { "required": ["mutation_replay"] } }
     }
   ],
   "$defs": {
@@ -153,6 +179,33 @@
         "transcribed_format": { "type": "string", "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[-_.+][a-z0-9]+)*/[1-9][0-9]*$" },
         "transcriber_role_identity": { "$ref": "#/$defs/digest" },
         "reencoder_role_identity": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "expected_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_index", "allowed_exit_codes"],
+      "properties": {
+        "run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "allowed_exit_codes": { "const": [101] }
+      }
+    },
+    "mutation_replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "mutation_id", "registry", "target_preimage", "mutant_artifact", "target_postimage", "witness_source", "check_id", "affected_claims", "baseline_run_index", "expected_failure"],
+      "properties": {
+        "schema": { "const": "proofbound-mutation-replay-observation/1" },
+        "mutation_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,255}$" },
+        "registry": { "$ref": "#/$defs/artifact" },
+        "target_preimage": { "$ref": "#/$defs/artifact" },
+        "mutant_artifact": { "$ref": "#/$defs/artifact" },
+        "target_postimage": { "$ref": "#/$defs/artifact" },
+        "witness_source": { "$ref": "#/$defs/artifact" },
+        "check_id": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" },
+        "affected_claims": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 255 }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
+        "baseline_run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "expected_failure": { "$ref": "#/$defs/expected_failure" }
       }
     }
   }

@@ -73,7 +73,7 @@ def sample_bounded_evidence() -> dict[str, object]:
         "environment_allowlist": [],
     }
     return {
-        "schema": "proofbound-evidence/2",
+        "schema": "proofbound-evidence/3",
         "id": "kani:registered-case",
         "node_id": "evidence:kani:registered-case",
         "unit_id": "unit:registered-case",
@@ -109,7 +109,7 @@ def sample_bounded_evidence() -> dict[str, object]:
             },
             "adapter": {
                 "name": "proofbound-adapter-kani",
-                "version": "0.10.0",
+                "version": "0.11.0",
                 "identity_sha256": digest,
             },
             "execution_kind": "observed-processes",
@@ -151,7 +151,7 @@ def sample_adapter_observation() -> dict[str, object]:
     provenance = evidence["provenance"]
     assert isinstance(provenance, dict)
     return {
-        "schema": "proofbound-adapter-observation/1",
+        "schema": "proofbound-adapter-observation/2",
         "unit_id": "registered-case",
         "evidence_kind": "bounded-check",
         "outcome": "passed",
@@ -345,7 +345,7 @@ def test_adapter_schema_forbids_evidence_on_failure() -> None:
         "request_id": "0123456789abcdef0123456789abcdef",
         "adapter": "lean",
         "success": False,
-        "evidence": {"schema": "proofbound-evidence/2"},
+        "evidence": {"schema": "proofbound-evidence/3"},
         "inventory": [],
         "diagnostics": [],
     }
@@ -437,7 +437,7 @@ def test_checker_result_wire_requires_one_canonical_json_value() -> None:
         assert json.dumps(candidate, sort_keys=True, separators=(",", ":")) != framed
 
 
-def test_version_2_evidence_schema_preserves_receipt_fidelity() -> None:
+def test_version_3_evidence_schema_preserves_receipt_fidelity() -> None:
     validate = validator("evidence.schema.json")
     evidence = sample_bounded_evidence()
     validate.validate(evidence)
@@ -528,27 +528,34 @@ def test_adapter_observation_schema_keeps_ordered_execution_facts() -> None:
 
 
 def test_auxiliary_adapter_manifests_match_strict_public_schemas() -> None:
-    mutation = tomllib.loads(
-        (
-            ROOT
-            / "demo"
-            / "allowance"
-            / "proofbound"
-            / "mutations"
-            / "transfer-guards.toml"
-        ).read_text(encoding="utf-8")
+    mutation_paths = sorted(
+        (ROOT / "demo/allowance/proofbound/mutations").glob("remove-*.toml")
     )
+    assert len(mutation_paths) == 5
+    mutations = [
+        tomllib.loads(path.read_text(encoding="utf-8"))
+        for path in mutation_paths
+    ]
     translation_lock = tomllib.loads(
         (ROOT / "proofbound" / "toolchains" / "translation.lock").read_text(
             encoding="utf-8"
         )
     )
-    validator("mutation-registry.schema.json").validate(mutation)
+    mutation_validator = validator("mutation-registry.schema.json")
+    for mutation in mutations:
+        mutation_validator.validate(mutation)
     validator("translation-toolchain-lock.schema.json").validate(translation_lock)
 
+    mutation = json.loads(json.dumps(mutations[0]))
     mutation["unexpected"] = True
     translation_lock["unexpected"] = True
-    assert list(validator("mutation-registry.schema.json").iter_errors(mutation))
+    assert list(mutation_validator.iter_errors(mutation))
+    legacy = {
+        "schema": "proofbound-mutation-registry/1",
+        "subject": "rust:subject",
+        "mutations": [mutations[0]["mutation"], mutations[1]["mutation"]],
+    }
+    assert list(mutation_validator.iter_errors(legacy))
     assert list(
         validator("translation-toolchain-lock.schema.json").iter_errors(
             translation_lock
@@ -705,7 +712,6 @@ def test_evidence_unit_routes_and_registered_inventory_are_closed() -> None:
         ("kani", "kani", "bounded-check"),
         ("rust-test", "cargo-test", "example-test"),
         ("rust-test", "cargo-test", "property-test"),
-        ("rust-test", "cargo-test", "mutation-witness"),
         ("python-test", "pytest", "example-test"),
         ("python-test", "pytest", "property-test"),
         ("python-test", "generator", "example-test"),
@@ -728,6 +734,7 @@ def test_evidence_unit_routes_and_registered_inventory_are_closed() -> None:
         ("charon-aeneas", "translation", "example-test"),
         ("kani", "kani", "example-test"),
         ("rust-test", "cargo-test", "exhaustive-check"),
+        ("rust-test", "cargo-test", "mutation-witness"),
         ("python-test", "pytest", "exhaustive-check"),
         ("python-test", "generator", "property-test"),
         ("canonical-artifact", "artifact-check", "independent-check"),
@@ -775,6 +782,35 @@ def test_evidence_unit_routes_and_registered_inventory_are_closed() -> None:
         missing = json.loads(json.dumps(transcription))
         del missing[required]
         assert list(validate.iter_errors(missing)), required
+
+
+def test_mutation_replay_route_is_versioned_singleton_and_closed() -> None:
+    unit_path = (
+        ROOT
+        / "demo/allowance/proofbound/evidence/remove-authorization-guard.toml"
+    )
+    with unit_path.open("rb") as source:
+        unit = tomllib.load(source)
+    validate = validator("evidence-unit.schema.json")
+    validate.validate(unit)
+
+    for legacy_schema in ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2"]:
+        legacy = json.loads(json.dumps(unit))
+        legacy["schema"] = legacy_schema
+        assert list(validate.iter_errors(legacy)), legacy_schema
+
+    for field in ["mutation", "expected_inventory", "inputs", "outputs"]:
+        missing = json.loads(json.dumps(unit))
+        del missing[field]
+        assert list(validate.iter_errors(missing)), field
+
+    extra_target = json.loads(json.dumps(unit))
+    extra_target["operation"]["targets"] = ["checker-authored-alias"]
+    assert list(validate.iter_errors(extra_target))
+
+    shared_fate = json.loads(json.dumps(unit))
+    shared_fate["expected_inventory"].append("another-mutation")
+    assert list(validate.iter_errors(shared_fate))
 
 
 def test_trusted_transcription_route_is_versioned_and_closed() -> None:

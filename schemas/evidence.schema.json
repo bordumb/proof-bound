@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "node_id", "unit_id", "kind", "status", "claims", "inventoried_targets", "assumptions", "premises", "provenance"],
   "properties": {
-    "schema": { "const": "proofbound-evidence/2" },
+    "schema": { "const": "proofbound-evidence/3" },
     "id": { "$ref": "#/$defs/id" },
     "node_id": { "$ref": "#/$defs/id" },
     "unit_id": { "$ref": "#/$defs/id" },
@@ -49,11 +49,32 @@
               "runs": {
                 "items": {
                   "properties": {
-                    "exit_code": { "const": 0 },
                     "output_truncated": { "const": false }
                   }
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["status", "kind", "provenance"],
+        "properties": {
+          "status": { "const": "passed" },
+          "kind": { "not": { "const": "mutation-witness" } },
+          "provenance": {
+            "required": ["execution_kind"],
+            "properties": { "execution_kind": { "const": "observed-processes" } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "provenance": {
+            "properties": {
+              "runs": { "items": { "properties": { "exit_code": { "const": 0 } } } }
             }
           }
         }
@@ -65,7 +86,22 @@
     { "if": { "properties": { "kind": { "const": "source-refinement" } }, "required": ["kind"] }, "then": { "required": ["source_refinement"] } },
     { "if": { "properties": { "kind": { "const": "bounded-check" } }, "required": ["kind"] }, "then": { "required": ["bounded_check"] } },
     { "if": { "properties": { "kind": { "const": "exhaustive-check" } }, "required": ["kind"] }, "then": { "required": ["exhaustive_check"] } },
-    { "if": { "properties": { "kind": { "const": "mutation-witness" } }, "required": ["kind"] }, "then": { "required": ["mutation_witness"] } },
+    {
+      "if": { "properties": { "kind": { "const": "mutation-witness" } }, "required": ["kind"] },
+      "then": {
+        "required": ["mutation_witness"],
+        "properties": {
+          "inventoried_targets": { "minItems": 1, "maxItems": 1 },
+          "provenance": {
+            "properties": {
+              "input_artifacts": { "minItems": 4, "maxItems": 4 },
+              "generated_artifacts": { "minItems": 1, "maxItems": 1 }
+            }
+          }
+        }
+      },
+      "else": { "not": { "required": ["mutation_witness"] } }
+    },
     { "if": { "properties": { "kind": { "const": "open" } }, "required": ["kind"] }, "then": { "required": ["open_obligation"] } }
   ],
   "$defs": {
@@ -284,11 +320,30 @@
     },
     "mutationWitness": {
       "type": "object", "additionalProperties": false,
-      "required": ["mutation_sha256", "check_id"],
+      "required": ["schema", "mutation_id", "subject", "guard", "mutation_sha256", "registry", "target_preimage", "mutant_artifact", "target_postimage", "witness_source", "check_id", "baseline_run_index", "expected_failure"],
       "properties": {
+        "schema": { "const": "proofbound-mutation-witness/2" },
+        "mutation_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,255}$" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" },
+        "guard": { "type": "string", "minLength": 1, "maxLength": 8192, "pattern": "\\S" },
         "mutation_sha256": { "$ref": "#/$defs/digest" },
-        "check_id": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "registry": { "$ref": "#/$defs/artifact" },
+        "target_preimage": { "$ref": "#/$defs/artifact" },
+        "mutant_artifact": { "$ref": "#/$defs/artifact" },
+        "target_postimage": { "$ref": "#/$defs/artifact" },
+        "witness_source": { "$ref": "#/$defs/artifact" },
+        "check_id": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" },
+        "baseline_run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "expected_failure": { "$ref": "#/$defs/expectedFailure" },
         "proof_term_theorem": { "$ref": "#/$defs/id" }
+      }
+    },
+    "expectedFailure": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_index", "allowed_exit_codes"],
+      "properties": {
+        "run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "allowed_exit_codes": { "const": [101] }
       }
     },
     "openObligation": {

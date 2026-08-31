@@ -37,7 +37,7 @@ alone imports those reviewed output changes into the working tree.
 
 Successful evidence-producing operations return a common observation in the
 response's `evidence` field. All non-Lean adapters use this exact
-`proofbound-adapter-observation/1` shape:
+`proofbound-adapter-observation/2` shape:
 
 - `unit_id`, `evidence_kind`, and `outcome`;
 - `input_artifacts` and `generated_artifacts`, each with logical name,

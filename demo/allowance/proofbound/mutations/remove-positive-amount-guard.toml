@@ -1,0 +1,14 @@
+schema = "proofbound-mutation-registry/2"
+subject = "rust:allowance-kernel::decide_transfer"
+
+[mutation]
+id = "remove-positive-amount-guard"
+guard = "amount must be nonzero"
+target_path = "demo/allowance/rust/kernel/src/decision.rs"
+target_preimage_sha256 = "sha256:5b1b2ad3475ca2df87e429c1715d6e8bc5b434318f5712d0127945c0414336a2"
+mutant_path = "demo/allowance/proofbound/mutations/mutants/remove-positive-amount-guard/decision.rs"
+mutant_sha256 = "sha256:9a6d5df7dfe1f1fddc78ae7894893bc5d8e4fb074c268676d1b1f2e981953f8f"
+witness = "mutation_witnesses::positive_amount_guard_is_enforced"
+witness_path = "demo/allowance/rust/kernel/tests/mutation_witnesses.rs"
+witness_sha256 = "sha256:a30fd502ec67b261e1b174c4a53fe90926d308526b077a66b94e66b3882729a7"
+affected_claims = ["DEMO-TRANSFER-005"]

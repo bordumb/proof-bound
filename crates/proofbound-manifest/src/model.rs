@@ -194,6 +194,8 @@ pub struct EvidenceUnitManifest {
     pub bounded_domain: Option<BoundedDomain>,
     #[serde(default)]
     pub transcription: Option<TrustedTranscriptionConfig>,
+    #[serde(default)]
+    pub mutation: Option<MutationReplayConfig>,
     pub resource_budget: ResourceBudget,
 }
 
@@ -251,6 +253,55 @@ pub enum TrustedTranscriptionSchema {
 pub enum TranscriptionDriverAbi {
     #[serde(rename = "proofbound-transcription-driver/1")]
     Version1,
+}
+
+/// Manifest-owned pointer to the one mutation registration replayed by a
+/// `proofbound-evidence-unit/3` unit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MutationReplayConfig {
+    pub schema: MutationReplaySchema,
+    pub registry: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MutationReplaySchema {
+    #[serde(rename = "proofbound-mutation-replay/1")]
+    Version1,
+}
+
+/// One exact, automatically replayable mutation registration.
+///
+/// Version 2 deliberately has a singular `mutation` field. A registry cannot
+/// make several mutations share one evidence fate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MutationRegistry {
+    pub schema: MutationRegistrySchema,
+    pub subject: String,
+    pub mutation: RegisteredMutation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MutationRegistrySchema {
+    #[serde(rename = "proofbound-mutation-registry/2")]
+    Version2,
+}
+
+/// Exact preimage, full-file mutant, and detecting witness for one replay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegisteredMutation {
+    pub id: String,
+    pub guard: String,
+    pub target_path: String,
+    pub target_preimage_sha256: String,
+    pub mutant_path: String,
+    pub mutant_sha256: String,
+    pub witness: String,
+    pub witness_path: String,
+    pub witness_sha256: String,
+    pub affected_claims: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

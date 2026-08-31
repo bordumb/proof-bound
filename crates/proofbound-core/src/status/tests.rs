@@ -5,9 +5,9 @@ use crate::{
     ASSUMPTION_SCHEMA_V1, AdapterStrength, ArtifactBindingEvidence, ArtifactIdentity,
     ArtifactLogicalName, AssumptionStatus, BindingMode, BoundedCheckEvidence, BuiltInProfile,
     CacheOrigin, CommandSpec, EnvironmentId, EnvironmentVariable, EnvironmentVariableName,
-    EvidenceProvenance, ExecutionKind, ExecutionRun, ExhaustiveCheckEvidence, GRAPH_SCHEMA_V1,
-    GraphEdge, GraphNode, IndependenceMode, MutationWitnessEvidence, NativePremiseRule,
-    POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage, Sha256Digest,
+    EvidenceProvenance, ExecutionKind, ExecutionRun, ExhaustiveCheckEvidence, ExpectedFailure,
+    GRAPH_SCHEMA_V1, GraphEdge, GraphNode, IndependenceMode, MutationWitnessEvidence,
+    NativePremiseRule, POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage, Sha256Digest,
     SourceRefinementEvidence, TRUSTED_TRANSCRIPTION_SCHEMA_V1, TheoremEvidence, ToolIdentity,
     TranscriptionRole, TranscriptionTcbRole, TreeState, TrustedTranscriptionEvidence, UnitId,
     transcription_role_identity,
@@ -19,6 +19,27 @@ fn claim_id() -> ClaimId {
 
 fn digest(label: &str) -> Sha256Digest {
     Sha256Digest::of_bytes(label)
+}
+
+fn subject_node(subject: &str) -> NodeId {
+    NodeId::new(format!(
+        "subject:{}",
+        Sha256Digest::of_bytes(subject.as_bytes())
+    ))
+    .unwrap()
+}
+
+fn bind_claim_to_subject(input: &mut ClaimEvaluationInput, subject: &str) {
+    let prior = input.claim.subject.clone();
+    let replacement = subject_node(subject);
+    input.claim.subject.clone_from(&replacement);
+    input
+        .graph
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == prior)
+        .expect("the claim subject node is registered")
+        .id = replacement;
 }
 
 fn bound_artifact() -> ArtifactIdentity {
@@ -90,6 +111,95 @@ fn attach_trusted_transcription(record: &mut EvidenceRecord, prefix: &str) {
         },
         driver,
     });
+}
+
+fn attach_mutation_witness(
+    record: &mut EvidenceRecord,
+    mutation_id: &str,
+    check_id: &str,
+    proof_term_theorem: Option<EvidenceId>,
+) {
+    record.unit_id = UnitId::new(format!("unit:{mutation_id}")).unwrap();
+    let registry = named_artifact(
+        &format!("mutations/{mutation_id}.toml"),
+        &format!("registry:{mutation_id}"),
+        64,
+    );
+    let target_preimage = named_artifact("src/lib.rs", &format!("preimage:{mutation_id}"), 128);
+    let mutant_artifact = named_artifact(
+        &format!("mutants/{mutation_id}/lib.rs"),
+        &format!("postimage:{mutation_id}"),
+        120,
+    );
+    let target_postimage = named_artifact("src/lib.rs", &format!("postimage:{mutation_id}"), 120);
+    let witness_source = named_artifact(
+        "tests/guard_witnesses.rs",
+        &format!("witness:{mutation_id}"),
+        96,
+    );
+    let selector = check_id.split_once("::").map_or(check_id, |(_, tail)| tail);
+    let baseline_command = CommandSpec {
+        program: "$BASELINE/target/debug/deps/guard_witnesses-a1".into(),
+        args: vec![selector.into(), "--exact".into()],
+        environment_allowlist: Vec::new(),
+    };
+    let mutant_command = CommandSpec {
+        program: "$MUTANT/target/debug/deps/guard_witnesses-b2".into(),
+        ..baseline_command.clone()
+    };
+    record.provenance.commands = vec![baseline_command, mutant_command];
+    record.provenance.runs = vec![
+        ExecutionRun {
+            command_index: 0,
+            exit_code: Some(0),
+            stdout_sha256: digest("baseline-stdout"),
+            stderr_sha256: digest("baseline-stderr"),
+            normalized_output_sha256: digest("baseline-normalized"),
+            output_truncated: false,
+            duration_ms: 1,
+        },
+        ExecutionRun {
+            command_index: 1,
+            exit_code: Some(101),
+            stdout_sha256: digest("mutant-stdout"),
+            stderr_sha256: digest("mutant-stderr"),
+            normalized_output_sha256: digest("mutant-normalized"),
+            output_truncated: false,
+            duration_ms: 1,
+        },
+    ];
+    record.provenance.input_artifacts.extend([
+        registry.clone(),
+        target_preimage.clone(),
+        mutant_artifact.clone(),
+        witness_source.clone(),
+    ]);
+    record
+        .provenance
+        .generated_artifacts
+        .push(target_postimage.clone());
+    record.inventoried_targets = BTreeSet::from([mutation_id.to_owned()]);
+    let mut witness = MutationWitnessEvidence {
+        schema: crate::MUTATION_WITNESS_SCHEMA_V2.into(),
+        mutation_id: mutation_id.into(),
+        subject: "rust:crate::decide".into(),
+        guard: "the registered guard remains enforced".into(),
+        mutation_sha256: digest("placeholder"),
+        registry,
+        target_preimage,
+        mutant_artifact,
+        target_postimage,
+        witness_source,
+        check_id: check_id.into(),
+        baseline_run_index: 0,
+        expected_failure: ExpectedFailure {
+            run_index: 1,
+            allowed_exit_codes: BTreeSet::from([101]),
+        },
+        proof_term_theorem,
+    };
+    witness.mutation_sha256 = witness.derived_mutation_sha256(&record.claims).unwrap();
+    record.mutation_witness = Some(witness);
 }
 
 fn lean_string(value: &str) -> serde_json::Value {
@@ -228,7 +338,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
 
 fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
     EvidenceRecord {
-        schema: crate::EVIDENCE_SCHEMA_V2.into(),
+        schema: crate::EVIDENCE_SCHEMA_V3.into(),
         id: EvidenceId::new(id).unwrap(),
         node_id: NodeId::new(node_id).unwrap(),
         unit_id: UnitId::new(format!("unit:{id}")).unwrap(),
@@ -1615,29 +1725,157 @@ fn qualifiers_from_another_evidence_kind_fail_closed() {
 #[test]
 fn mutation_witness_without_separate_theorem_is_empirical() {
     let mut input = base_input(Tier::Ledger, ledger_policy());
+    bind_claim_to_subject(&mut input, "rust:crate::decide");
     let mut mutation = basic_record("mutation", EvidenceKind::MutationWitness, "tests:mutation");
-    mutation.mutation_witness = Some(MutationWitnessEvidence {
-        mutation_sha256: digest("mutation"),
-        check_id: "tests::guard_removed".into(),
-        proof_term_theorem: None,
-    });
+    attach_mutation_witness(&mut mutation, "remove-guard", "tests::guard_removed", None);
     add_record(&mut input, mutation, NodeKind::TestSuite, true);
     assert_eq!(derive_claim_status(&input).formal, FormalFacet::Tested);
 }
 
 #[test]
+fn rehashed_mutation_witness_cannot_attach_to_another_claim_subject() {
+    let mut input = base_input(Tier::Ledger, ledger_policy());
+    bind_claim_to_subject(&mut input, "rust:crate::decide");
+    let mut mutation = basic_record(
+        "mutation-subject",
+        EvidenceKind::MutationWitness,
+        "tests:mutation-subject",
+    );
+    attach_mutation_witness(&mut mutation, "remove-guard", "tests::guard_removed", None);
+    let claims = mutation.claims.clone();
+    let witness = mutation.mutation_witness.as_mut().unwrap();
+    witness.subject = "rust:crate::unrelated".into();
+    witness.mutation_sha256 = witness.derived_mutation_sha256(&claims).unwrap();
+    assert!(mutation.validate(&claim_id()).is_ok());
+
+    add_record(&mut input, mutation, NodeKind::TestSuite, true);
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error.code == ErrorCode::PbCoreInvalidEvidence
+            && error.message.contains("different subject")
+    }));
+}
+
+#[test]
+fn mutation_witness_replay_is_exact_and_fail_closed() {
+    let mut valid = basic_record(
+        "mutation-exact",
+        EvidenceKind::MutationWitness,
+        "tests:mutation-exact",
+    );
+    attach_mutation_witness(
+        &mut valid,
+        "remove-guard",
+        "guard_witnesses::guard_removed",
+        None,
+    );
+    assert!(valid.validate(&claim_id()).is_ok());
+
+    let mut cases = Vec::new();
+
+    let mut wrong_exit = valid.clone();
+    wrong_exit.provenance.runs[1].exit_code = Some(1);
+    cases.push(("wrong registered exit", wrong_exit));
+
+    let mut extra_failure = valid.clone();
+    extra_failure.provenance.runs[0].exit_code = Some(101);
+    cases.push(("more than one nonzero run", extra_failure));
+
+    let mut broadened_exit = valid.clone();
+    broadened_exit
+        .mutation_witness
+        .as_mut()
+        .unwrap()
+        .expected_failure
+        .allowed_exit_codes
+        .insert(1);
+    cases.push(("broadened failure codes", broadened_exit));
+
+    let mut changed_command = valid.clone();
+    changed_command.provenance.commands[1].args[0] = "another_test".into();
+    cases.push(("different mutant witness", changed_command));
+
+    let mut replayed_baseline_binary = valid.clone();
+    replayed_baseline_binary.provenance.commands[1].program =
+        replayed_baseline_binary.provenance.commands[0]
+            .program
+            .clone();
+    cases.push((
+        "baseline binary replayed as mutant",
+        replayed_baseline_binary,
+    ));
+
+    let mut hidden_input = valid.clone();
+    hidden_input
+        .provenance
+        .input_artifacts
+        .push(named_artifact("hidden/input", "hidden-input", 1));
+    cases.push(("extra provenance input", hidden_input));
+
+    let mut changed_postimage = valid.clone();
+    changed_postimage
+        .mutation_witness
+        .as_mut()
+        .unwrap()
+        .target_postimage
+        .sha256 = digest("different-postimage");
+    cases.push(("unbound mutant postimage", changed_postimage));
+
+    let mut forged_identity = valid.clone();
+    forged_identity
+        .mutation_witness
+        .as_mut()
+        .unwrap()
+        .mutation_sha256 = digest("forged-mutation");
+    cases.push(("forged mutation identity", forged_identity));
+
+    let mut uppercase_id = valid.clone();
+    let witness = uppercase_id.mutation_witness.as_mut().unwrap();
+    witness.mutation_id = "remove-Guard".into();
+    witness.mutation_sha256 = witness
+        .derived_mutation_sha256(&uppercase_id.claims)
+        .unwrap();
+    uppercase_id.inventoried_targets = BTreeSet::from(["remove-Guard".into()]);
+    cases.push(("non-canonical mutation ID", uppercase_id));
+
+    let mut multi_inventory = valid.clone();
+    multi_inventory
+        .inventoried_targets
+        .insert("remove-another-guard".into());
+    cases.push(("multi-mutation unit", multi_inventory));
+
+    let mut mismatched_unit = valid.clone();
+    mismatched_unit.unit_id = UnitId::new("unit:another-mutation").unwrap();
+    cases.push(("unit and mutation identities differ", mismatched_unit));
+
+    for (label, record) in cases {
+        assert!(record.validate(&claim_id()).is_err(), "accepted {label}");
+    }
+}
+
+#[test]
+fn expected_nonzero_exit_is_never_available_to_other_evidence_kinds() {
+    let mut ordinary = example_record("ordinary-nonzero");
+    ordinary.provenance.runs[0].exit_code = Some(101);
+    assert!(ordinary.validate(&claim_id()).is_err());
+}
+
+#[test]
 fn proof_term_mutation_witness_is_supporting_and_cannot_prove_the_claim() {
     let mut input = base_input(Tier::Model, ledger_policy());
+    bind_claim_to_subject(&mut input, "rust:crate::decide");
     let mut mutation = basic_record(
         "proof-mutation",
         EvidenceKind::MutationWitness,
         "tests:proof-mutation",
     );
-    mutation.mutation_witness = Some(MutationWitnessEvidence {
-        mutation_sha256: digest("proof-mutation"),
-        check_id: "Lean.Mutation.guard_violation".into(),
-        proof_term_theorem: Some(EvidenceId::new("theorem:mutation-only").unwrap()),
-    });
+    attach_mutation_witness(
+        &mut mutation,
+        "proof-mutation",
+        "Lean.Mutation.guard_violation",
+        Some(EvidenceId::new("theorem:mutation-only").unwrap()),
+    );
     add_record(&mut input, mutation, NodeKind::TestSuite, true);
     assert_eq!(derive_claim_status(&input).formal, FormalFacet::Open);
 }

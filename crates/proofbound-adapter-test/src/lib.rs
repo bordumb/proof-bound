@@ -21,8 +21,8 @@ use std::{
 use proofbound_evidence::{canonical_json, domain_hash, sha256_bytes};
 use proofbound_manifest::{
     AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, BindingMode, EvidenceKind,
-    EvidenceUnitManifest, OperationKind, TRANSLATION_RESERVED_PATH_COMPONENTS,
-    TranscriptionDriverAbi, TrustedTranscriptionSchema,
+    EvidenceUnitManifest, MutationReplaySchema, OperationKind,
+    TRANSLATION_RESERVED_PATH_COMPONENTS, TranscriptionDriverAbi, TrustedTranscriptionSchema,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,7 +31,7 @@ use thiserror::Error;
 use walkdir::WalkDir;
 
 pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
-pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/1";
+pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TOOL_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INVENTORY: usize = 100_000;
@@ -64,6 +64,38 @@ pub struct AdapterObservation {
     pub artifact_binding: Option<ArtifactBindingObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trusted_transcription: Option<TrustedTranscriptionObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mutation_replay: Option<MutationReplayObservation>,
+}
+
+/// Exact facts observed while replaying one registered source mutation.
+///
+/// The adapter reports byte identities and run positions only. The compiler
+/// independently derives the mutation registration and the expected-failure
+/// policy before admitting these facts into canonical evidence.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MutationReplayObservation {
+    pub schema: String,
+    pub mutation_id: String,
+    pub registry: ArtifactObservation,
+    pub target_preimage: ArtifactObservation,
+    pub mutant_artifact: ArtifactObservation,
+    pub target_postimage: ArtifactObservation,
+    pub witness_source: ArtifactObservation,
+    pub check_id: String,
+    pub affected_claims: Vec<String>,
+    pub baseline_run_index: usize,
+    pub expected_failure: ExpectedFailureObservation,
+}
+
+/// One deliberately non-zero child execution, retained truthfully in the
+/// observation rather than converted into a synthetic success.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpectedFailureObservation {
+    pub run_index: usize,
+    pub allowed_exit_codes: Vec<i32>,
 }
 
 /// Facts reported by a canonical artifact checker and independently validated
@@ -209,6 +241,22 @@ struct ProcessOutput {
 }
 
 type TestRunResult = (Vec<CommandObservation>, Vec<ProcessOutput>, Vec<String>);
+
+struct RustRunResult {
+    commands: Vec<CommandObservation>,
+    outputs: Vec<ProcessOutput>,
+    inventory: Vec<String>,
+    mutation_replay: Option<MutationReplayObservation>,
+}
+
+#[derive(Clone, Copy)]
+struct RustRunContext<'a> {
+    original_root: &'a Path,
+    baseline_root: &'a Path,
+    mutant_root: Option<&'a Path>,
+    environment: &'a BTreeMap<String, String>,
+    deadline: Deadline,
+}
 
 struct TranscriptionRunResult {
     commands: Vec<CommandObservation>,
@@ -547,6 +595,9 @@ fn execute_request<E: Executor>(
     let unit: EvidenceUnitManifest = serde_json::from_value(request.unit.clone())
         .map_err(|error| AdapterError::Unit(error.to_string()))?;
     let flavor = validate_unit(request, &unit)?;
+    let reviewed_tree_before = (unit.kind == EvidenceKind::MutationWitness)
+        .then(|| snapshot_mutation_tree(&root))
+        .transpose()?;
     if request.operation == "update" && flavor != TestFlavor::Generator {
         return Err(AdapterError::Request(
             "this adapter route has no committed generated artifacts; update is unsupported"
@@ -596,6 +647,13 @@ fn execute_request<E: Executor>(
         executor,
     )?;
     if request.operation == "doctor" {
+        if let Some(before) = &reviewed_tree_before {
+            ensure_tree_unchanged(
+                "mutation replay tool probe",
+                before,
+                &snapshot_mutation_tree(&root)?,
+            )?;
+        }
         return Ok((None, Vec::new()));
     }
     let shadow = if request.operation == "update" && flavor == TestFlavor::Generator {
@@ -603,25 +661,38 @@ fn execute_request<E: Executor>(
     } else {
         Some(shadow_project(&root, budget.disk_bytes)?)
     };
+    let mutant_shadow = if unit.kind == EvidenceKind::MutationWitness {
+        Some(shadow_project(&root, budget.disk_bytes)?)
+    } else {
+        None
+    };
     let execution_root = match &shadow {
         Some(shadow) => shadow.path().join("project").canonicalize()?,
         None => root.clone(),
     };
+    let mutant_execution_root = mutant_shadow
+        .as_ref()
+        .map(|shadow| shadow.path().join("project").canonicalize())
+        .transpose()?;
     let deadline = Deadline {
         started,
         budget_ms: budget.time_ms,
     };
     let mut transcription_facts = None;
+    let mut mutation_replay = None;
     let (mut commands, mut outputs, mut inventory) = match flavor {
-        TestFlavor::Rust => run_rust_tests(
-            request,
-            &unit,
-            &root,
-            &execution_root,
-            &environment,
-            executor,
-            deadline,
-        )?,
+        TestFlavor::Rust => {
+            let context = RustRunContext {
+                original_root: &root,
+                baseline_root: &execution_root,
+                mutant_root: mutant_execution_root.as_deref(),
+                environment: &environment,
+                deadline,
+            };
+            let result = run_rust_tests(request, &unit, executor, context)?;
+            mutation_replay = result.mutation_replay;
+            (result.commands, result.outputs, result.inventory)
+        }
         TestFlavor::Python => run_python_tests(
             request,
             &unit,
@@ -685,16 +756,43 @@ fn execute_request<E: Executor>(
     all_commands.append(&mut commands);
     let mut all_outputs = version_runs;
     all_outputs.append(&mut outputs);
-    if all_outputs.iter().any(|output| output.status != Some(0)) {
+    if let Some(replay) = &mut mutation_replay {
+        replay.baseline_run_index = replay
+            .baseline_run_index
+            .checked_add(offset)
+            .ok_or_else(|| AdapterError::Internal("mutation run index overflowed".to_owned()))?;
+        replay.expected_failure.run_index = replay
+            .expected_failure
+            .run_index
+            .checked_add(offset)
+            .ok_or_else(|| {
+            AdapterError::Internal("mutation run index overflowed".to_owned())
+        })?;
+    }
+    let expected_failure = mutation_replay
+        .as_ref()
+        .map(|replay| replay.expected_failure.run_index);
+    if all_outputs.iter().enumerate().any(|(index, output)| {
+        if Some(index) == expected_failure {
+            output.status != Some(101)
+        } else {
+            output.status != Some(0)
+        }
+    }) {
         return Err(AdapterError::Internal(
-            "successful observation contains a non-zero or missing process exit status".to_owned(),
+            "successful observation contains an unregistered process exit status".to_owned(),
         ));
     }
-    let disk_bytes = directory_size(
+    let mut disk_bytes = directory_size(
         shadow
             .as_ref()
             .map_or(execution_root.as_path(), ShadowProject::path),
     )?;
+    if let Some(mutant_shadow) = &mutant_shadow {
+        disk_bytes = disk_bytes
+            .checked_add(directory_size(mutant_shadow.path())?)
+            .ok_or_else(|| AdapterError::Budget("shadow disk use overflowed".to_owned()))?;
+    }
     if disk_bytes > budget.disk_bytes {
         return Err(AdapterError::Budget(format!(
             "shadow execution used {disk_bytes} bytes, limit is {}",
@@ -708,7 +806,8 @@ fn execute_request<E: Executor>(
             budget.time_ms
         )));
     }
-    let runs = observe_runs(&all_outputs, &execution_root, &root);
+    let normalization_roots = mutant_execution_root.into_iter().collect::<Vec<_>>();
+    let runs = observe_runs(&all_outputs, &execution_root, &normalization_roots, &root);
     // `observe_runs` indexes the combined list already; offset is retained as
     // an assertion against accidental command/output skew.
     debug_assert!(offset <= runs.len());
@@ -730,11 +829,21 @@ fn execute_request<E: Executor>(
         None if flavor == TestFlavor::Generator => {
             (collect_exact_outputs(&execution_root, &unit.outputs)?, None)
         }
+        None if mutation_replay.is_some() => (
+            vec![
+                mutation_replay
+                    .as_ref()
+                    .expect("guarded mutation replay")
+                    .target_postimage
+                    .clone(),
+            ],
+            None,
+        ),
         None => (Vec::new(), None),
     };
     let unit_bytes =
         canonical_json(&request.unit).map_err(|error| AdapterError::Internal(error.to_string()))?;
-    let result = serde_json::json!({"inventory":inventory,"artifact_binding":artifact_binding,"trusted_transcription":trusted_transcription,"run_hashes":runs.iter().map(|run| &run.normalized_output_sha256).collect::<Vec<_>>()});
+    let result = serde_json::json!({"inventory":inventory,"artifact_binding":artifact_binding,"trusted_transcription":trusted_transcription,"mutation_replay":mutation_replay,"run_hashes":runs.iter().map(|run| &run.normalized_output_sha256).collect::<Vec<_>>()});
     let completed_unix_ms = unix_ms()?;
     let observation = AdapterObservation {
         schema: OBSERVATION_SCHEMA.to_owned(),
@@ -768,7 +877,15 @@ fn execute_request<E: Executor>(
         },
         artifact_binding,
         trusted_transcription,
+        mutation_replay,
     };
+    if let Some(before) = &reviewed_tree_before {
+        ensure_tree_unchanged(
+            "mutation replay reviewed root",
+            before,
+            &snapshot_mutation_tree(&root)?,
+        )?;
+    }
     let evidence = (request.operation != "inventory").then_some(observation);
     Ok((evidence, inventory))
 }
@@ -808,7 +925,9 @@ fn validate_unit(
             ));
         }
     };
-    let expected_schema = if flavor == TestFlavor::TrustedTranscription {
+    let expected_schema = if unit.kind == EvidenceKind::MutationWitness {
+        "proofbound-evidence-unit/3"
+    } else if flavor == TestFlavor::TrustedTranscription {
         "proofbound-evidence-unit/2"
     } else {
         "proofbound-evidence-unit/1"
@@ -884,8 +1003,26 @@ fn validate_unit(
     }
     validate_checker_configuration(flavor, unit)?;
     validate_transcription_configuration(flavor, unit)?;
+    validate_mutation_configuration(unit)?;
     validate_arguments(flavor, &unit.operation.arguments)?;
     Ok(flavor)
+}
+
+fn validate_mutation_configuration(unit: &EvidenceUnitManifest) -> Result<(), AdapterError> {
+    match (unit.kind, unit.mutation.as_ref()) {
+        (EvidenceKind::MutationWitness, Some(config))
+            if config.schema == MutationReplaySchema::Version1 =>
+        {
+            validate_mutation_path(&config.registry)
+        }
+        (EvidenceKind::MutationWitness, None) => Err(AdapterError::Unit(
+            "direct mutation evidence is unsupported; configure typed automatic replay".to_owned(),
+        )),
+        (_, Some(_)) => Err(AdapterError::Unit(
+            "only mutation-witness evidence may configure mutation replay".to_owned(),
+        )),
+        (_, None) => Ok(()),
+    }
 }
 
 fn validate_checker_configuration(
@@ -1246,17 +1383,14 @@ fn tool_identity<E: Executor>(
 fn run_rust_tests<E: Executor>(
     request: &AdapterRequest,
     unit: &EvidenceUnitManifest,
-    original_root: &Path,
-    shadow_root: &Path,
-    environment: &BTreeMap<String, String>,
     executor: &mut E,
-    deadline: Deadline,
-) -> Result<TestRunResult, AdapterError> {
+    context: RustRunContext<'_>,
+) -> Result<RustRunResult, AdapterError> {
     let manifest =
         unit.operation.manifest.as_deref().ok_or_else(|| {
             AdapterError::Unit("cargo-test requires operation.manifest".to_owned())
         })?;
-    let shadow_manifest = shadow_path(shadow_root, manifest)?;
+    let shadow_manifest = shadow_path(context.baseline_root, manifest)?;
     if shadow_manifest.file_name().and_then(|name| name.to_str()) != Some("Cargo.toml") {
         return Err(AdapterError::Unit(
             "cargo-test manifest must be named Cargo.toml".to_owned(),
@@ -1295,6 +1429,95 @@ fn run_rust_tests<E: Executor>(
             )));
         }
     }
+
+    if unit.kind == EvidenceKind::MutationWitness {
+        let mutant_shadow_root = context.mutant_root.ok_or_else(|| {
+            AdapterError::Internal("mutation replay has no independent mutant shadow".to_owned())
+        })?;
+        return run_registered_mutation(
+            request,
+            unit,
+            mutant_shadow_root,
+            &selectors,
+            &named_targets,
+            executor,
+            context,
+        );
+    }
+    if context.mutant_root.is_some() {
+        return Err(AdapterError::Internal(
+            "non-mutation test unexpectedly received a mutant shadow".to_owned(),
+        ));
+    }
+    if !named_targets.is_empty() {
+        return Err(AdapterError::Unit("named cargo targets are reserved for mutation-witness units; use expected_inventory for exact tests".to_owned()));
+    }
+    let mut collection = collect_rust_tests(
+        unit,
+        context.baseline_root,
+        &selectors,
+        context.environment,
+        executor,
+        context.deadline,
+    )?;
+    let execution_nodes =
+        resolve_expected_rust_tests(&unit.expected_inventory, &collection.discovered)?;
+    let inventory = sorted_unique(unit.expected_inventory.clone(), "expected inventory")?;
+    if execution_nodes.is_empty() {
+        return Err(AdapterError::Inventory(
+            "configured test inventory is empty".to_owned(),
+        ));
+    }
+    if matches!(request.operation.as_str(), "check" | "reproduce") {
+        let environment_observation =
+            observe_environment(context.environment, &unit.environment_allowlist);
+        for node in execution_nodes {
+            let spec = exact_rust_test_spec(&node);
+            let output = executor.run(
+                &spec,
+                context.baseline_root,
+                context.environment,
+                context.deadline.remaining()?,
+            )?;
+            ensure_success(&spec, &output)?;
+            ensure_one_rust_test_ran(&node.libtest_name, &output)?;
+            collection
+                .commands
+                .push(observe_command(&spec, &environment_observation));
+            collection.outputs.push(output);
+        }
+    }
+    Ok(RustRunResult {
+        commands: collection.commands,
+        outputs: collection.outputs,
+        inventory,
+        mutation_replay: None,
+    })
+}
+
+struct RustCollection {
+    commands: Vec<CommandObservation>,
+    outputs: Vec<ProcessOutput>,
+    discovered: BTreeMap<String, RustTestNode>,
+}
+
+fn collect_rust_tests<E: Executor>(
+    unit: &EvidenceUnitManifest,
+    shadow_root: &Path,
+    selectors: &[String],
+    environment: &BTreeMap<String, String>,
+    executor: &mut E,
+    deadline: Deadline,
+) -> Result<RustCollection, AdapterError> {
+    let manifest =
+        unit.operation.manifest.as_deref().ok_or_else(|| {
+            AdapterError::Unit("cargo-test requires operation.manifest".to_owned())
+        })?;
+    let shadow_manifest = shadow_path(shadow_root, manifest)?;
+    let package =
+        unit.operation.package.as_deref().ok_or_else(|| {
+            AdapterError::Unit("cargo-test requires operation.package".to_owned())
+        })?;
     let mut args = vec![
         "test".to_owned(),
         "--no-run".to_owned(),
@@ -1304,7 +1527,7 @@ fn run_rust_tests<E: Executor>(
         "--package".to_owned(),
         package.to_owned(),
     ];
-    args.extend(selectors);
+    args.extend(selectors.iter().cloned());
     args.extend(unit.operation.arguments.clone());
     let compile_spec = ProcessSpec {
         program: "cargo".to_owned(),
@@ -1359,72 +1582,291 @@ fn run_rust_tests<E: Executor>(
         commands.push(observe_command(&spec, &environment_observation));
         outputs.push(output);
     }
-    let execution_nodes: Vec<RustTestNode>;
-    let inventory: Vec<String>;
-    if unit.kind == EvidenceKind::MutationWitness {
-        let registry = load_mutation_registry(original_root, &unit.inputs)?;
-        let ids: Vec<_> = registry
-            .mutations
-            .iter()
-            .map(|mutation| mutation.id.clone())
-            .collect();
-        exact_set("mutation registry", &unit.expected_inventory, &ids)?;
-        let configured_tails: Vec<_> = registry
-            .mutations
-            .iter()
-            .map(|mutation| {
-                mutation
-                    .witness
-                    .rsplit("::")
-                    .next()
-                    .unwrap_or("")
-                    .to_owned()
-            })
-            .collect();
-        exact_set(
-            "mutation witness targets",
-            &named_targets,
-            &configured_tails,
-        )?;
-        execution_nodes = registry
-            .mutations
-            .iter()
-            .map(|mutation| {
-                discovered.get(&mutation.witness).cloned().ok_or_else(|| {
-                    AdapterError::Inventory(format!(
-                        "mutation `{}` witness `{}` was not collected",
-                        mutation.id, mutation.witness
-                    ))
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        inventory = sorted_unique(ids, "mutation ids")?;
-    } else {
-        if !named_targets.is_empty() {
-            return Err(AdapterError::Unit("named cargo targets are reserved for mutation-witness units; use expected_inventory for exact tests".to_owned()));
-        }
-        execution_nodes = resolve_expected_rust_tests(&unit.expected_inventory, &discovered)?;
-        inventory = sorted_unique(unit.expected_inventory.clone(), "expected inventory")?;
+    Ok(RustCollection {
+        commands,
+        outputs,
+        discovered,
+    })
+}
+
+fn exact_rust_test_spec(node: &RustTestNode) -> ProcessSpec {
+    ProcessSpec {
+        program: node.executable.to_string_lossy().into_owned(),
+        args: vec![node.libtest_name.clone(), "--exact".to_owned()],
     }
-    if execution_nodes.is_empty() {
-        return Err(AdapterError::Inventory(
-            "configured test inventory is empty".to_owned(),
+}
+
+fn run_registered_mutation<E: Executor>(
+    request: &AdapterRequest,
+    unit: &EvidenceUnitManifest,
+    mutant_root: &Path,
+    selectors: &[String],
+    named_targets: &[String],
+    executor: &mut E,
+    context: RustRunContext<'_>,
+) -> Result<RustRunResult, AdapterError> {
+    if !matches!(
+        request.operation.as_str(),
+        "inventory" | "check" | "reproduce"
+    ) {
+        return Err(AdapterError::Request(
+            "mutation replay executes only for inventory, check, or reproduce".to_owned(),
         ));
     }
-    if matches!(request.operation.as_str(), "check" | "reproduce") {
-        for node in execution_nodes {
-            let spec = ProcessSpec {
-                program: node.executable.to_string_lossy().into_owned(),
-                args: vec![node.libtest_name.clone(), "--exact".to_owned()],
-            };
-            let output = executor.run(&spec, shadow_root, environment, deadline.remaining()?)?;
-            ensure_success(&spec, &output)?;
-            ensure_one_rust_test_ran(&node.libtest_name, &output)?;
-            commands.push(observe_command(&spec, &environment_observation));
-            outputs.push(output);
-        }
+    let registry_path = &unit
+        .mutation
+        .as_ref()
+        .ok_or_else(|| AdapterError::Unit("mutation replay configuration is missing".to_owned()))?
+        .registry;
+    let loaded = load_mutation_registry(context.original_root, registry_path)?;
+    let mutation = &loaded.registry.mutation;
+    validate_mutation_unit(unit, &loaded, named_targets)?;
+
+    let original_files = observe_mutation_files(context.original_root, &loaded)?;
+    let baseline_files = observe_mutation_files(context.baseline_root, &loaded)?;
+    let mutant_preimage = observe_mutation_files(mutant_root, &loaded)?;
+    if original_files != baseline_files || original_files != mutant_preimage {
+        return Err(AdapterError::ToolFailed(
+            "fresh mutation shadows do not byte-match the registered root inputs".to_owned(),
+        ));
     }
-    Ok((commands, outputs, inventory))
+    let baseline_tree = snapshot_mutation_tree(context.baseline_root)?;
+    let mutant_tree = snapshot_mutation_tree(mutant_root)?;
+    if baseline_tree != mutant_tree {
+        return Err(AdapterError::ToolFailed(
+            "fresh baseline and mutant shadows have different reviewed trees".to_owned(),
+        ));
+    }
+
+    let environment_observation =
+        observe_environment(context.environment, &unit.environment_allowlist);
+    let mut baseline = collect_rust_tests(
+        unit,
+        context.baseline_root,
+        selectors,
+        context.environment,
+        executor,
+        context.deadline,
+    )?;
+    let baseline_inventory = baseline.discovered.keys().cloned().collect::<Vec<_>>();
+    let baseline_node = baseline
+        .discovered
+        .get(&mutation.witness)
+        .cloned()
+        .ok_or_else(|| {
+            AdapterError::Inventory(format!(
+                "mutation `{}` witness `{}` was not collected",
+                mutation.id, mutation.witness
+            ))
+        })?;
+
+    let mut baseline_run_index = None;
+    if matches!(request.operation.as_str(), "check" | "reproduce") {
+        let spec = exact_rust_test_spec(&baseline_node);
+        let output = executor.run(
+            &spec,
+            context.baseline_root,
+            context.environment,
+            context.deadline.remaining()?,
+        )?;
+        ensure_success(&spec, &output)?;
+        ensure_one_rust_test_ran(&baseline_node.libtest_name, &output)?;
+        baseline_run_index = Some(baseline.outputs.len());
+        baseline.commands.push(observe_mutation_command(
+            &spec,
+            &environment_observation,
+            context.baseline_root,
+            "$BASELINE",
+        ));
+        baseline.outputs.push(output);
+    }
+    ensure_tree_unchanged(
+        "baseline mutation witness",
+        &baseline_tree,
+        &snapshot_mutation_tree(context.baseline_root)?,
+    )?;
+
+    let target_postimage = apply_registered_mutant(mutant_root, &loaded)?;
+    ensure_exact_mutant_tree(
+        &mutant_tree,
+        &snapshot_mutation_tree(mutant_root)?,
+        &mutation.target_path,
+        &target_postimage,
+    )?;
+    let mut mutant = collect_rust_tests(
+        unit,
+        mutant_root,
+        selectors,
+        context.environment,
+        executor,
+        context.deadline,
+    )?;
+    let mutant_inventory = mutant.discovered.keys().cloned().collect::<Vec<_>>();
+    if mutant_inventory != baseline_inventory {
+        return Err(AdapterError::Inventory(
+            "mutant changed the exact collected Rust test inventory".to_owned(),
+        ));
+    }
+    let mutant_node = mutant
+        .discovered
+        .get(&mutation.witness)
+        .cloned()
+        .ok_or_else(|| {
+            AdapterError::Inventory(format!(
+                "mutant omitted registered witness `{}`",
+                mutation.witness
+            ))
+        })?;
+
+    let mutant_command_offset = baseline.commands.len();
+    baseline.commands.append(&mut mutant.commands);
+    baseline.outputs.append(&mut mutant.outputs);
+    let mut expected_failure_index = None;
+    if matches!(request.operation.as_str(), "check" | "reproduce") {
+        let spec = exact_rust_test_spec(&mutant_node);
+        let output = executor.run(
+            &spec,
+            mutant_root,
+            context.environment,
+            context.deadline.remaining()?,
+        )?;
+        ensure_one_rust_test_failed(&mutant_node.libtest_name, &output)?;
+        expected_failure_index = Some(baseline.outputs.len());
+        baseline.commands.push(observe_mutation_command(
+            &spec,
+            &environment_observation,
+            mutant_root,
+            "$MUTANT",
+        ));
+        baseline.outputs.push(output);
+    }
+    debug_assert!(mutant_command_offset <= baseline.commands.len());
+
+    if observe_file(mutant_root, &mutation.target_path)? != target_postimage
+        || observe_file(mutant_root, &loaded.path)? != original_files.registry
+        || observe_file(mutant_root, &mutation.mutant_path)? != original_files.mutant_artifact
+        || observe_file(mutant_root, &mutation.witness_path)? != original_files.witness_source
+    {
+        return Err(AdapterError::ToolFailed(
+            "mutant execution changed its registered replay inputs or target postimage".to_owned(),
+        ));
+    }
+    ensure_exact_mutant_tree(
+        &mutant_tree,
+        &snapshot_mutation_tree(mutant_root)?,
+        &mutation.target_path,
+        &target_postimage,
+    )?;
+
+    if observe_mutation_files(context.original_root, &loaded)? != original_files {
+        return Err(AdapterError::ToolFailed(
+            "mutation replay changed a registered file in the reviewed root".to_owned(),
+        ));
+    }
+
+    let mutation_replay = match (baseline_run_index, expected_failure_index) {
+        (Some(baseline_run_index), Some(run_index)) => Some(MutationReplayObservation {
+            schema: "proofbound-mutation-replay-observation/1".to_owned(),
+            mutation_id: mutation.id.clone(),
+            registry: original_files.registry,
+            target_preimage: original_files.target_preimage,
+            mutant_artifact: original_files.mutant_artifact,
+            target_postimage,
+            witness_source: original_files.witness_source,
+            check_id: mutation.witness.clone(),
+            affected_claims: sorted_unique(
+                mutation.affected_claims.clone(),
+                "mutation affected claims",
+            )?,
+            baseline_run_index,
+            expected_failure: ExpectedFailureObservation {
+                run_index,
+                allowed_exit_codes: vec![101],
+            },
+        }),
+        (None, None) => None,
+        _ => {
+            return Err(AdapterError::Internal(
+                "mutation replay has incomplete baseline/failure run binding".to_owned(),
+            ));
+        }
+    };
+    Ok(RustRunResult {
+        commands: baseline.commands,
+        outputs: baseline.outputs,
+        inventory: vec![mutation.id.clone()],
+        mutation_replay,
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MutationFileObservations {
+    registry: ArtifactObservation,
+    target_preimage: ArtifactObservation,
+    mutant_artifact: ArtifactObservation,
+    witness_source: ArtifactObservation,
+}
+
+fn observe_mutation_files(
+    root: &Path,
+    loaded: &LoadedMutationRegistry,
+) -> Result<MutationFileObservations, AdapterError> {
+    let mutation = &loaded.registry.mutation;
+    let observed = MutationFileObservations {
+        registry: observe_file(root, &loaded.path)?,
+        target_preimage: observe_file(root, &mutation.target_path)?,
+        mutant_artifact: observe_file(root, &mutation.mutant_path)?,
+        witness_source: observe_file(root, &mutation.witness_path)?,
+    };
+    if observed.target_preimage.sha256 != mutation.target_preimage_sha256 {
+        return Err(AdapterError::Unit(
+            "mutation target preimage digest does not match its registration".to_owned(),
+        ));
+    }
+    if observed.mutant_artifact.sha256 != mutation.mutant_sha256 {
+        return Err(AdapterError::Unit(
+            "mutant artifact digest does not match its registration".to_owned(),
+        ));
+    }
+    if observed.witness_source.sha256 != mutation.witness_sha256 {
+        return Err(AdapterError::Unit(
+            "mutation witness source digest does not match its registration".to_owned(),
+        ));
+    }
+    if observed.target_preimage.sha256 == observed.mutant_artifact.sha256 {
+        return Err(AdapterError::Unit(
+            "registered mutant is byte-identical to its target preimage".to_owned(),
+        ));
+    }
+    Ok(observed)
+}
+
+fn observe_file(root: &Path, relative: &str) -> Result<ArtifactObservation, AdapterError> {
+    let path = resolve_existing(root, relative)?;
+    if !path.is_file() {
+        return Err(AdapterError::UnsafePath(relative.to_owned()));
+    }
+    hash_artifact(root, &path)
+}
+
+fn apply_registered_mutant(
+    mutant_root: &Path,
+    loaded: &LoadedMutationRegistry,
+) -> Result<ArtifactObservation, AdapterError> {
+    let mutation = &loaded.registry.mutation;
+    let target = resolve_existing(mutant_root, &mutation.target_path)?;
+    let mutant = resolve_existing(mutant_root, &mutation.mutant_path)?;
+    let mutant_bytes = fs::read(&mutant)?;
+    fs::write(&target, &mutant_bytes)?;
+    let postimage = hash_artifact(mutant_root, &target)?;
+    if postimage.sha256 != mutation.mutant_sha256
+        || postimage.size_bytes != mutant_bytes.len().try_into().unwrap_or(u64::MAX)
+    {
+        return Err(AdapterError::Internal(
+            "mutated target postimage does not byte-match the registered mutant".to_owned(),
+        ));
+    }
+    Ok(postimage)
 }
 
 #[derive(Clone, Debug)]
@@ -1589,6 +2031,62 @@ fn ensure_one_rust_test_ran(name: &str, output: &ProcessOutput) -> Result<(), Ad
     {
         return Err(AdapterError::Inventory(format!(
             "Rust test `{name}` did not report exactly one passing test"
+        )));
+    }
+    Ok(())
+}
+
+fn ensure_one_rust_test_failed(name: &str, output: &ProcessOutput) -> Result<(), AdapterError> {
+    if output.truncated {
+        return Err(AdapterError::Inventory(
+            "mutant witness output was truncated".to_owned(),
+        ));
+    }
+    if output.status != Some(101) {
+        return Err(AdapterError::ToolFailed(format!(
+            "mutant witness exited {:?}; exact Rust libtest exit 101 is required",
+            output.status
+        )));
+    }
+    let stdout = std::str::from_utf8(&output.stdout)
+        .map_err(|error| AdapterError::Inventory(format!("non-UTF-8 libtest output: {error}")))?;
+    let stderr = std::str::from_utf8(&output.stderr)
+        .map_err(|error| AdapterError::Inventory(format!("non-UTF-8 libtest output: {error}")))?;
+    let lines = stdout
+        .lines()
+        .chain(stderr.lines())
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    let expected_result = format!("test {name} ... FAILED");
+    let summaries = lines
+        .iter()
+        .filter_map(|line| line.strip_prefix("test result: "))
+        .collect::<Vec<_>>();
+    let exact_summary = summaries.len() == 1
+        && summaries[0]
+            .strip_prefix("FAILED. ")
+            .is_some_and(|summary| {
+                let fields = summary.split(';').map(str::trim).collect::<Vec<_>>();
+                fields.len() >= 4
+                    && fields[0] == "0 passed"
+                    && fields[1] == "1 failed"
+                    && fields[2] == "0 ignored"
+                    && fields[3] == "0 measured"
+            });
+    if lines
+        .iter()
+        .filter(|line| **line == "running 1 test")
+        .count()
+        != 1
+        || lines
+            .iter()
+            .filter(|line| **line == expected_result.as_str())
+            .count()
+            != 1
+        || !exact_summary
+    {
+        return Err(AdapterError::Inventory(format!(
+            "Rust mutant witness `{name}` did not report exactly one failing test"
         )));
     }
     Ok(())
@@ -2113,6 +2611,80 @@ enum TreeSnapshotEntry {
     File { sha256: String, size_bytes: u64 },
 }
 
+/// Snapshot the reviewed portion of a mutation shadow.
+///
+/// Compiler/test output roots are intentionally excluded: they are ephemeral
+/// products of replay, not reviewed source. Every other regular file and
+/// directory is part of the sealed boundary and may not change accidentally.
+fn snapshot_mutation_tree(root: &Path) -> Result<Vec<(PathBuf, TreeSnapshotEntry)>, AdapterError> {
+    let mut snapshot = Vec::new();
+    let walker = WalkDir::new(root)
+        .min_depth(1)
+        .follow_links(false)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|entry| {
+            entry
+                .path()
+                .strip_prefix(root)
+                .ok()
+                .is_none_or(|relative| !should_exclude(relative))
+        });
+    for entry in walker {
+        let entry = entry.map_err(walk_error)?;
+        let relative = entry
+            .path()
+            .strip_prefix(root)
+            .map_err(|_| AdapterError::UnsafePath(entry.path().display().to_string()))?
+            .to_path_buf();
+        let observed = if entry.file_type().is_dir() {
+            TreeSnapshotEntry::Directory
+        } else if entry.file_type().is_file() {
+            let bytes = fs::read(entry.path())?;
+            TreeSnapshotEntry::File {
+                sha256: sha256_bytes(&bytes),
+                size_bytes: bytes.len().try_into().unwrap_or(u64::MAX),
+            }
+        } else {
+            return Err(AdapterError::UnsafePath(entry.path().display().to_string()));
+        };
+        snapshot.push((relative, observed));
+    }
+    Ok(snapshot)
+}
+
+fn ensure_exact_mutant_tree(
+    before: &[(PathBuf, TreeSnapshotEntry)],
+    after: &[(PathBuf, TreeSnapshotEntry)],
+    target_path: &str,
+    target_postimage: &ArtifactObservation,
+) -> Result<(), AdapterError> {
+    if target_postimage.logical_name != target_path {
+        return Err(AdapterError::Internal(
+            "mutation target postimage has the wrong logical path".to_owned(),
+        ));
+    }
+    let target = PathBuf::from(target_path);
+    let mut expected = before.iter().cloned().collect::<BTreeMap<_, _>>();
+    if !matches!(expected.get(&target), Some(TreeSnapshotEntry::File { .. })) {
+        return Err(AdapterError::UnsafePath(target_path.to_owned()));
+    }
+    expected.insert(
+        target,
+        TreeSnapshotEntry::File {
+            sha256: target_postimage.sha256.clone(),
+            size_bytes: target_postimage.size_bytes,
+        },
+    );
+    let observed = after.iter().cloned().collect::<BTreeMap<_, _>>();
+    if observed != expected {
+        return Err(AdapterError::ToolFailed(
+            "mutant replay changed a reviewed path other than its registered target".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 fn snapshot_tree(root: &Path) -> Result<Vec<(PathBuf, TreeSnapshotEntry)>, AdapterError> {
     let mut snapshot = Vec::new();
     for entry in WalkDir::new(root)
@@ -2576,7 +3148,7 @@ fn ensure_one_python_test_ran(name: &str, output: &ProcessOutput) -> Result<(), 
 struct MutationRegistry {
     schema: String,
     subject: String,
-    mutations: Vec<MutationEntry>,
+    mutation: MutationEntry,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2584,65 +3156,174 @@ struct MutationRegistry {
 struct MutationEntry {
     id: String,
     guard: String,
-    mutant: String,
+    target_path: String,
+    target_preimage_sha256: String,
+    mutant_path: String,
+    mutant_sha256: String,
     witness: String,
+    witness_path: String,
+    witness_sha256: String,
     affected_claims: Vec<String>,
+}
+
+struct LoadedMutationRegistry {
+    path: String,
+    registry: MutationRegistry,
 }
 
 fn load_mutation_registry(
     root: &Path,
-    inputs: &[String],
-) -> Result<MutationRegistry, AdapterError> {
-    let mut registries = Vec::new();
-    for input in inputs.iter().filter(|path| path.ends_with(".toml")) {
-        let bytes = read_safe_file(root, input, MAX_REQUEST_BYTES)?;
-        let Ok(value) = toml::from_str::<toml::Value>(
-            std::str::from_utf8(&bytes).map_err(|error| AdapterError::Unit(error.to_string()))?,
-        ) else {
-            continue;
-        };
-        if value.get("schema").and_then(toml::Value::as_str)
-            == Some("proofbound-mutation-registry/1")
-        {
-            registries.push(
-                toml::from_str::<MutationRegistry>(std::str::from_utf8(&bytes).unwrap())
-                    .map_err(|error| AdapterError::Unit(error.to_string()))?,
-            );
-        }
-    }
-    if registries.len() != 1 {
-        return Err(AdapterError::Unit(format!(
-            "mutation-witness unit must supply exactly one mutation registry, found {}",
-            registries.len()
-        )));
-    }
-    let registry = registries.pop().expect("one registry");
-    if registry.schema != "proofbound-mutation-registry/1"
-        || registry.subject.trim().is_empty()
-        || registry.mutations.is_empty()
+    registry_path: &str,
+) -> Result<LoadedMutationRegistry, AdapterError> {
+    validate_mutation_path(registry_path)?;
+    if Path::new(registry_path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("toml")
     {
         return Err(AdapterError::Unit(
-            "mutation registry header is invalid".to_owned(),
+            "mutation registry must be a .toml file".to_owned(),
         ));
     }
-    let mut ids = BTreeSet::new();
-    let mut witnesses = BTreeSet::new();
-    for mutation in &registry.mutations {
-        if !safe_id(&mutation.id)
-            || mutation.guard.trim().is_empty()
-            || !safe_symbol(&mutation.mutant)
-            || !safe_symbol(&mutation.witness)
-            || mutation.affected_claims.is_empty()
-            || !ids.insert(&mutation.id)
-            || !witnesses.insert(&mutation.witness)
-        {
-            return Err(AdapterError::Unit(format!(
-                "invalid or duplicate mutation entry `{}`",
-                mutation.id
-            )));
-        }
+    let bytes = read_safe_file(root, registry_path, MAX_REQUEST_BYTES)?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|error| AdapterError::Unit(format!("mutation registry is not UTF-8: {error}")))?;
+    let value = toml::from_str::<toml::Value>(text)
+        .map_err(|error| AdapterError::Unit(format!("invalid mutation registry: {error}")))?;
+    if value.get("schema").and_then(toml::Value::as_str) != Some("proofbound-mutation-registry/2") {
+        return Err(AdapterError::Unit(
+            "direct/manual mutation evidence is unsupported; use proofbound-mutation-registry/2 replay"
+                .to_owned(),
+        ));
     }
-    Ok(registry)
+    let loaded = LoadedMutationRegistry {
+        path: registry_path.to_owned(),
+        registry: toml::from_str::<MutationRegistry>(text)
+            .map_err(|error| AdapterError::Unit(error.to_string()))?,
+    };
+    if loaded.registry.schema != "proofbound-mutation-registry/2"
+        || loaded.registry.subject.trim().is_empty()
+        || loaded.registry.subject.chars().count() > 4096
+    {
+        return Err(AdapterError::Unit(
+            "mutation registry must contain exactly one typed replay".to_owned(),
+        ));
+    }
+    let mutation = &loaded.registry.mutation;
+    if !safe_id(&mutation.id)
+        || mutation.guard.trim().is_empty()
+        || mutation.guard.chars().count() > 8192
+        || !safe_symbol(&mutation.witness)
+        || mutation.affected_claims.is_empty()
+        || mutation.affected_claims.len() > 4096
+        || mutation
+            .affected_claims
+            .iter()
+            .collect::<BTreeSet<_>>()
+            .len()
+            != mutation.affected_claims.len()
+        || !valid_sha256_text(&mutation.target_preimage_sha256)
+        || !valid_sha256_text(&mutation.mutant_sha256)
+        || !valid_sha256_text(&mutation.witness_sha256)
+    {
+        return Err(AdapterError::Unit(format!(
+            "invalid mutation replay entry `{}`",
+            mutation.id
+        )));
+    }
+    for path in [
+        loaded.path.as_str(),
+        mutation.target_path.as_str(),
+        mutation.mutant_path.as_str(),
+        mutation.witness_path.as_str(),
+    ] {
+        validate_mutation_path(path)?;
+    }
+    if [
+        loaded.path.as_str(),
+        mutation.target_path.as_str(),
+        mutation.mutant_path.as_str(),
+        mutation.witness_path.as_str(),
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>()
+    .len()
+        != 4
+    {
+        return Err(AdapterError::Unit(
+            "mutation registry, target, mutant, and witness paths must be distinct".to_owned(),
+        ));
+    }
+    Ok(loaded)
+}
+
+fn validate_mutation_unit(
+    unit: &EvidenceUnitManifest,
+    loaded: &LoadedMutationRegistry,
+    named_targets: &[String],
+) -> Result<(), AdapterError> {
+    let mutation = &loaded.registry.mutation;
+    if unit.id != mutation.id
+        || unit.expected_inventory != [mutation.id.as_str()]
+        || unit.claims != mutation.affected_claims
+        || !mutation
+            .affected_claims
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+        || !named_targets.is_empty()
+        || !unit.operation.targets.is_empty()
+        || !unit.operation.paths.is_empty()
+        || unit.operation.inventory.is_some()
+        || unit.operation.checker.is_some()
+        || !unit.operation.arguments.is_empty()
+        || !unit.outputs.is_empty()
+        || unit.evaluation_mode.is_some()
+        || unit.binding_mode.is_some()
+        || unit.theorem.is_some()
+        || unit.refinement_theorem.is_some()
+        || !unit.premises.is_empty()
+        || !unit.assumptions.is_empty()
+        || unit.bounded_domain.is_some()
+        || unit.transcription.is_some()
+    {
+        return Err(AdapterError::Unit(
+            "mutation replay unit does not exactly match its singleton registration".to_owned(),
+        ));
+    }
+    let mut exact_inputs = vec![
+        loaded.path.clone(),
+        mutation.target_path.clone(),
+        mutation.mutant_path.clone(),
+        mutation.witness_path.clone(),
+    ];
+    exact_inputs.sort();
+    if unit.inputs != exact_inputs {
+        return Err(AdapterError::Unit(
+            "mutation replay inputs must be the exact sorted registry, target, mutant, and witness paths"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_mutation_path(path: &str) -> Result<(), AdapterError> {
+    validate_transcription_path(path)?;
+    if Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_none()
+    {
+        return Err(AdapterError::UnsafePath(path.to_owned()));
+    }
+    Ok(())
+}
+
+fn valid_sha256_text(value: &str) -> bool {
+    value.len() == "sha256:".len() + 64
+        && value.starts_with("sha256:")
+        && value["sha256:".len()..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn ensure_success(spec: &ProcessSpec, output: &ProcessOutput) -> Result<(), AdapterError> {
@@ -2744,6 +3425,35 @@ fn observe_command(
     }
 }
 
+fn observe_mutation_command(
+    spec: &ProcessSpec,
+    environment: &[EnvironmentObservation],
+    execution_root: &Path,
+    logical_root: &str,
+) -> CommandObservation {
+    let logicalize = |value: &str| {
+        let path = Path::new(value);
+        path.strip_prefix(execution_root).map_or_else(
+            |_| logicalize_temp_path(value),
+            |relative| {
+                if relative.as_os_str().is_empty() {
+                    logical_root.to_owned()
+                } else {
+                    format!(
+                        "{logical_root}/{}",
+                        relative.to_string_lossy().replace('\\', "/")
+                    )
+                }
+            },
+        )
+    };
+    CommandObservation {
+        program: logicalize(&spec.program),
+        args: spec.args.iter().map(|arg| logicalize(arg)).collect(),
+        environment_allowlist: environment.to_vec(),
+    }
+}
+
 fn logicalize_temp_path(value: &str) -> String {
     let Some(marker) = value.find("/proofbound-test-") else {
         return value.to_owned();
@@ -2786,14 +3496,25 @@ fn observe_environment(
 fn observe_runs(
     outputs: &[ProcessOutput],
     shadow_root: &Path,
+    additional_shadow_roots: &[PathBuf],
     project_root: &Path,
 ) -> Vec<RunObservation> {
     outputs
         .iter()
         .enumerate()
         .map(|(command_index, output)| {
-            let normalized =
+            let mut normalized =
                 normalize_output(&output.stdout, &output.stderr, shadow_root, project_root);
+            for additional_root in additional_shadow_roots {
+                normalized = String::from_utf8_lossy(&normalized)
+                    .replace(&additional_root.to_string_lossy().to_string(), "$PROJECT")
+                    .into_bytes();
+                if let Some(workspace) = additional_root.parent() {
+                    normalized = String::from_utf8_lossy(&normalized)
+                        .replace(&workspace.to_string_lossy().to_string(), "$PROOFBOUND_WORK")
+                        .into_bytes();
+                }
+            }
             RunObservation {
                 command_index,
                 exit_code: output.status,
@@ -3093,26 +3814,29 @@ fn shadow_project(source: &Path, disk_budget: u64) -> Result<ShadowProject, Adap
         if entry.file_type().is_symlink() {
             return Err(AdapterError::UnsafePath(relative.display().to_string()));
         }
-        let target = project.join(relative);
         if entry.file_type().is_dir() {
-            fs::create_dir_all(&target)?;
-        } else if entry.file_type().is_file() {
-            let size = entry.metadata().map_err(walk_error)?.len();
-            copied = copied
-                .checked_add(size)
-                .ok_or_else(|| AdapterError::Budget("copy size overflowed".to_owned()))?;
-            if copied > disk_budget {
-                return Err(AdapterError::Budget(format!(
-                    "project shadow exceeds {disk_budget} bytes"
-                )));
-            }
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            fs::copy(entry.path(), target)?;
-        } else {
+            // Directories are execution scaffolding, not reviewed inputs.
+            // Derive only the parents needed by copied files so empty
+            // directory topology cannot affect a fresh shadow.
+            continue;
+        }
+        if !entry.file_type().is_file() {
             return Err(AdapterError::UnsafePath(relative.display().to_string()));
         }
+        let target = project.join(relative);
+        let size = entry.metadata().map_err(walk_error)?.len();
+        copied = copied
+            .checked_add(size)
+            .ok_or_else(|| AdapterError::Budget("copy size overflowed".to_owned()))?;
+        if copied > disk_budget {
+            return Err(AdapterError::Budget(format!(
+                "project shadow exceeds {disk_budget} bytes"
+            )));
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(entry.path(), target)?;
     }
     Ok(ShadowProject {
         _temp: temp,
@@ -3522,6 +4246,21 @@ else:
         eleven.stdout = b"running 11 tests\ntest module::one ... ok\n\ntest result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n".to_vec();
         assert!(ensure_one_rust_test_ran("module::one", &eleven).is_err());
 
+        let failed = ProcessOutput {
+            status: Some(101),
+            stdout: b"running 1 test\ntest module::one ... FAILED\n\nfailures:\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s\n".to_vec(),
+            stderr: Vec::new(),
+            truncated: false,
+            duration_ms: 1,
+        };
+        assert!(ensure_one_rust_test_failed("module::one", &failed).is_ok());
+        let mut wrong_exit = failed.clone();
+        wrong_exit.status = Some(1);
+        assert!(ensure_one_rust_test_failed("module::one", &wrong_exit).is_err());
+        let mut forged_pass = failed;
+        forged_pass.stdout = rust.stdout.clone();
+        assert!(ensure_one_rust_test_failed("module::one", &forged_pass).is_err());
+
         let python = ProcessOutput {
             status: Some(0),
             stdout: b".                                                                        [100%]\n1 passed in 0.01s\n".to_vec(),
@@ -3552,6 +4291,44 @@ else:
         assert!(should_exclude(Path::new(
             ".proofbound/evidence/receipt.json"
         )));
+    }
+
+    #[test]
+    fn shadow_derives_directory_topology_only_from_copied_files() {
+        let source = tempfile::tempdir().unwrap();
+        fs::create_dir_all(source.path().join("empty/nested")).unwrap();
+        fs::create_dir_all(source.path().join("populated/nested")).unwrap();
+        let copied_file = source.path().join("populated/nested/helper.sh");
+        fs::write(&copied_file, b"#!/bin/sh\nexit 0\n").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            fs::set_permissions(&copied_file, fs::Permissions::from_mode(0o751)).unwrap();
+        }
+
+        let shadow = shadow_project(source.path(), 1024).unwrap();
+        let project = shadow.path().join("project");
+        assert!(!project.join("empty").exists());
+        assert_eq!(
+            fs::read(project.join("populated/nested/helper.sh")).unwrap(),
+            b"#!/bin/sh\nexit 0\n"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            assert_eq!(
+                fs::metadata(project.join("populated/nested/helper.sh"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o7777,
+                0o751
+            );
+        }
     }
 
     #[test]
@@ -4101,19 +4878,253 @@ path.write_bytes(b"fixture")
     fn mutation_registry_is_strict_and_binds_witnesses() {
         let registry: MutationRegistry = toml::from_str(
             r#"
-schema = "proofbound-mutation-registry/1"
+schema = "proofbound-mutation-registry/2"
 subject = "rust:crate::f"
-[[mutations]]
+[mutation]
 id = "remove-guard"
 guard = "guard"
-mutant = "crate::mutants::without_guard"
+target_path = "src/lib.rs"
+target_preimage_sha256 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+mutant_path = "mutants/lib.rs"
+mutant_sha256 = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 witness = "crate::tests::detects_guard"
+witness_path = "tests/guard.rs"
+witness_sha256 = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 affected_claims = ["CLAIM-ONE"]
 "#,
         )
         .unwrap();
-        assert_eq!(registry.mutations[0].witness, "crate::tests::detects_guard");
-        assert!(serde_json::from_value::<MutationRegistry>(json!({"schema":"proofbound-mutation-registry/1","subject":"s","mutations":[],"extra":1})).is_err());
+        assert_eq!(registry.mutation.witness, "crate::tests::detects_guard");
+        assert!(serde_json::from_value::<MutationRegistry>(json!({"schema":"proofbound-mutation-registry/2","subject":"s","mutation":{},"extra":1})).is_err());
+    }
+
+    fn mutation_replay_fixture(root: &Path) -> EvidenceUnitManifest {
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("tests")).unwrap();
+        fs::create_dir_all(root.join("mutations/mutants/remove-guard")).unwrap();
+        let target = b"pub fn guarded(value: bool) -> bool {\n    if !value { return false; }\n    true\n}\n";
+        let mutant = b"pub fn guarded(_value: bool) -> bool {\n    true\n}\n";
+        let witness = b"use mutation_fixture::guarded;\n\n#[test]\nfn guard_is_enforced() { assert!(!guarded(false)); }\n";
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"mutation-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Cargo.lock"),
+            "# This file is automatically @generated by Cargo.\n# It is not intended for manual editing.\nversion = 4\n\n[[package]]\nname = \"mutation-fixture\"\nversion = \"0.0.0\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/lib.rs"), target).unwrap();
+        fs::write(
+            root.join("src/unrelated.rs"),
+            b"pub const REVIEWED: bool = true;\n",
+        )
+        .unwrap();
+        fs::write(root.join("mutations/mutants/remove-guard/lib.rs"), mutant).unwrap();
+        fs::write(root.join("tests/witness.rs"), witness).unwrap();
+        let registry = format!(
+            r#"schema = "proofbound-mutation-registry/2"
+subject = "rust:mutation-fixture::guarded"
+
+[mutation]
+id = "remove-guard"
+guard = "false values must be rejected"
+target_path = "src/lib.rs"
+target_preimage_sha256 = "{}"
+mutant_path = "mutations/mutants/remove-guard/lib.rs"
+mutant_sha256 = "{}"
+witness = "witness::guard_is_enforced"
+witness_path = "tests/witness.rs"
+witness_sha256 = "{}"
+affected_claims = ["CLAIM-ONE"]
+"#,
+            sha256_bytes(target),
+            sha256_bytes(mutant),
+            sha256_bytes(witness),
+        );
+        fs::write(root.join("mutations/remove-guard.toml"), registry).unwrap();
+        serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/3",
+            "id": "remove-guard",
+            "adapter": "rust-test",
+            "kind": "mutation-witness",
+            "claims": ["CLAIM-ONE"],
+            "tier": 0,
+            "operation": {
+                "type": "cargo-test",
+                "package": "mutation-fixture",
+                "manifest": "Cargo.toml"
+            },
+            "expected_inventory": ["remove-guard"],
+            "inputs": [
+                "mutations/mutants/remove-guard/lib.rs",
+                "mutations/remove-guard.toml",
+                "src/lib.rs",
+                "tests/witness.rs"
+            ],
+            "outputs": [],
+            "environment_allowlist": ["CARGO_HOME", "PATH", "RUSTUP_HOME"],
+            "mutation": {
+                "schema": "proofbound-mutation-replay/1",
+                "registry": "mutations/remove-guard.toml"
+            },
+            "resource_budget": {
+                "time_seconds": 60,
+                "disk_bytes": 536870912,
+                "memory_bytes": 1073741824
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn registered_mutation_replays_in_two_shadows_and_preserves_root() {
+        let root = tempfile::tempdir().unwrap();
+        let unit = mutation_replay_fixture(root.path());
+        let root_target = fs::read(root.path().join("src/lib.rs")).unwrap();
+        let mutant = fs::read(root.path().join("mutations/mutants/remove-guard/lib.rs")).unwrap();
+
+        let (observation, inventory) = execute_request(
+            &request("rust-test", "check", &unit),
+            root.path(),
+            &mut RealExecutor,
+        )
+        .unwrap();
+        let observation = observation.unwrap();
+        let replay = observation.mutation_replay.as_ref().unwrap();
+        assert_eq!(observation.schema, "proofbound-adapter-observation/2");
+        assert_eq!(inventory, ["remove-guard"]);
+        assert_eq!(replay.mutation_id, "remove-guard");
+        assert_eq!(replay.target_preimage.logical_name, "src/lib.rs");
+        assert_eq!(replay.target_postimage.logical_name, "src/lib.rs");
+        assert_eq!(replay.target_postimage.sha256, sha256_bytes(&mutant));
+        assert_eq!(
+            replay.mutant_artifact.sha256,
+            replay.target_postimage.sha256
+        );
+        assert_eq!(observation.input_artifacts.len(), 4);
+        assert_eq!(
+            observation.generated_artifacts.as_slice(),
+            std::slice::from_ref(&replay.target_postimage)
+        );
+        assert_eq!(replay.expected_failure.allowed_exit_codes, [101]);
+        assert_eq!(
+            observation.runs[replay.baseline_run_index].exit_code,
+            Some(0)
+        );
+        assert_eq!(
+            observation.runs[replay.expected_failure.run_index].exit_code,
+            Some(101)
+        );
+        let baseline_program = &observation.commands[replay.baseline_run_index].program;
+        let mutant_program = &observation.commands[replay.expected_failure.run_index].program;
+        assert_ne!(baseline_program, mutant_program);
+        assert!(baseline_program.starts_with("$BASELINE/target/"));
+        assert!(mutant_program.starts_with("$MUTANT/target/"));
+        assert_eq!(
+            fs::read(root.path().join("src/lib.rs")).unwrap(),
+            root_target
+        );
+    }
+
+    #[test]
+    fn mutation_replay_rejects_legacy_direct_units_and_unsafe_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let mut unit = mutation_replay_fixture(root.path());
+        unit.schema = "proofbound-evidence-unit/1".to_owned();
+        unit.mutation = None;
+        assert!(validate_unit(&request("rust-test", "check", &unit), &unit).is_err());
+        for path in [
+            "../src/lib.rs",
+            "target/mutant.rs",
+            ".proofbound/mutant.rs",
+            "mutations//mutant.rs",
+            "mutations/mutant",
+            "mutations/é.rs",
+        ] {
+            assert!(validate_mutation_path(path).is_err(), "accepted {path:?}");
+        }
+    }
+
+    enum AdversarialMutationLocation {
+        Shadow,
+        ReviewedRoot(PathBuf),
+    }
+
+    struct TreeMutatingExecutor {
+        inner: RealExecutor,
+        location: AdversarialMutationLocation,
+        mutated: bool,
+    }
+
+    impl Executor for TreeMutatingExecutor {
+        fn run(
+            &mut self,
+            spec: &ProcessSpec,
+            cwd: &Path,
+            environment: &BTreeMap<String, String>,
+            timeout: Duration,
+        ) -> Result<ProcessOutput, AdapterError> {
+            let output = self.inner.run(spec, cwd, environment, timeout)?;
+            if !self.mutated && spec.args.last().is_some_and(|arg| arg == "--exact") {
+                let path = match &self.location {
+                    AdversarialMutationLocation::Shadow => cwd.join("src/unrelated.rs"),
+                    AdversarialMutationLocation::ReviewedRoot(root) => {
+                        root.join("src/unrelated.rs")
+                    }
+                };
+                fs::write(path, b"pub const REVIEWED: bool = false;\n")?;
+                self.mutated = true;
+            }
+            Ok(output)
+        }
+    }
+
+    #[test]
+    fn mutation_replay_rejects_unrelated_reviewed_shadow_changes() {
+        let root = tempfile::tempdir().unwrap();
+        let unit = mutation_replay_fixture(root.path());
+        let result = execute_request(
+            &request("rust-test", "check", &unit),
+            root.path(),
+            &mut TreeMutatingExecutor {
+                inner: RealExecutor,
+                location: AdversarialMutationLocation::Shadow,
+                mutated: false,
+            },
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("baseline mutation witness")
+        );
+        assert_eq!(
+            fs::read(root.path().join("src/unrelated.rs")).unwrap(),
+            b"pub const REVIEWED: bool = true;\n"
+        );
+    }
+
+    #[test]
+    fn mutation_replay_rejects_unrelated_reviewed_root_changes() {
+        let root = tempfile::tempdir().unwrap();
+        let unit = mutation_replay_fixture(root.path());
+        let result = execute_request(
+            &request("rust-test", "check", &unit),
+            root.path(),
+            &mut TreeMutatingExecutor {
+                inner: RealExecutor,
+                location: AdversarialMutationLocation::ReviewedRoot(root.path().to_owned()),
+                mutated: false,
+            },
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("mutation replay reviewed root")
+        );
     }
 
     #[test]
@@ -4176,6 +5187,7 @@ affected_claims = ["CLAIM-ONE"]
             normalization: "stable-tool-output/1".to_owned(),
             artifact_binding: None,
             trusted_transcription: None,
+            mutation_replay: None,
         };
         let bytes = canonical_json(&observation).unwrap();
         assert_eq!(

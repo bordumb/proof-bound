@@ -1,0 +1,14 @@
+schema = "proofbound-mutation-registry/2"
+subject = "rust:allowance-kernel::decide_transfer"
+
+[mutation]
+id = "remove-cap-guard"
+guard = "amount must not exceed cap"
+target_path = "demo/allowance/rust/kernel/src/decision.rs"
+target_preimage_sha256 = "sha256:5b1b2ad3475ca2df87e429c1715d6e8bc5b434318f5712d0127945c0414336a2"
+mutant_path = "demo/allowance/proofbound/mutations/mutants/remove-cap-guard/decision.rs"
+mutant_sha256 = "sha256:7a787b5aaa61e3b9768efc9203bc7e247c1a987e64c0810956cb1e90e9b0cc54"
+witness = "mutation_witnesses::cap_guard_is_enforced"
+witness_path = "demo/allowance/rust/kernel/tests/mutation_witnesses.rs"
+witness_sha256 = "sha256:a30fd502ec67b261e1b174c4a53fe90926d308526b077a66b94e66b3882729a7"
+affected_claims = ["DEMO-TRANSFER-003", "DEMO-TRANSFER-005"]

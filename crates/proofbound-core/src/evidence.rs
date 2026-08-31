@@ -20,11 +20,15 @@ use crate::{
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 /// Superseded evidence schema retained so migrations can identify old records.
 pub const EVIDENCE_SCHEMA_V1: &str = "proofbound-evidence/1";
+/// Superseded version-2 evidence schema retained for explicit migration errors.
 pub const EVIDENCE_SCHEMA_V2: &str = "proofbound-evidence/2";
+pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcription/1";
 pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
 pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
+pub const MUTATION_WITNESS_SCHEMA_V2: &str = "proofbound-mutation-witness/2";
+pub const MUTATION_IDENTITY_DOMAIN_V2: &str = "proofbound-mutation/2";
 
 fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
@@ -405,6 +409,7 @@ impl EvidenceProvenance {
         claim_id: &ClaimId,
         unit_id: &UnitId,
         status: EvidenceStatus,
+        expected_failure: Option<&ExpectedFailure>,
     ) -> Vec<StructuredError> {
         let mut errors = Vec::new();
         let contextual =
@@ -491,14 +496,24 @@ impl EvidenceProvenance {
                     "capture and hash the complete stdout, stderr, and normalized output",
                 )));
             }
-            if status == EvidenceStatus::Passed && run.exit_code != Some(0) {
-                errors.push(contextual(StructuredError::new(
-                    ErrorCode::PbCoreInvalidEvidence,
-                    format!(
-                        "passing evidence run {index} did not complete with exit status zero"
-                    ),
-                    "require every process contributing to passed evidence to complete successfully with exit status zero",
-                )));
+            if status == EvidenceStatus::Passed {
+                let accepted = expected_failure.is_some_and(|expected| {
+                    expected.run_index == index
+                        && run
+                            .exit_code
+                            .is_some_and(|code| expected.allowed_exit_codes.contains(&code))
+                }) || (expected_failure
+                    .is_none_or(|expected| expected.run_index != index)
+                    && run.exit_code == Some(0));
+                if !accepted {
+                    errors.push(contextual(StructuredError::new(
+                        ErrorCode::PbCoreInvalidEvidence,
+                        format!(
+                            "passing evidence run {index} did not match its registered exit expectation"
+                        ),
+                        "require ordinary runs to exit zero and preserve the one typed mutation-witness failure exactly",
+                    )));
+                }
             }
         }
         if self.completed_unix_ms < self.started_unix_ms {
@@ -748,10 +763,81 @@ pub struct ExhaustiveCheckEvidence {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MutationWitnessEvidence {
+    pub schema: String,
+    pub mutation_id: String,
+    pub subject: String,
+    pub guard: String,
     pub mutation_sha256: Sha256Digest,
+    pub registry: ArtifactIdentity,
+    pub target_preimage: ArtifactIdentity,
+    pub mutant_artifact: ArtifactIdentity,
+    pub target_postimage: ArtifactIdentity,
+    pub witness_source: ArtifactIdentity,
     pub check_id: String,
+    pub baseline_run_index: usize,
+    pub expected_failure: ExpectedFailure,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proof_term_theorem: Option<EvidenceId>,
+}
+
+/// The one deliberately failing subprocess that constitutes mutation detection.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpectedFailure {
+    pub run_index: usize,
+    pub allowed_exit_codes: BTreeSet<i32>,
+}
+
+impl MutationWitnessEvidence {
+    /// Recomputes the canonical identity of the registered mutation semantics.
+    ///
+    /// Execution indices are deliberately excluded: they bind provenance, not
+    /// the mutation registration. The outer claim set is included so the same
+    /// mutant cannot be replayed under a broader claim attribution.
+    pub fn derived_mutation_sha256(
+        &self,
+        claims: &BTreeSet<ClaimId>,
+    ) -> Result<Sha256Digest, serde_json::Error> {
+        let value = serde_json::json!({
+            "check_id": self.check_id,
+            "claims": claims,
+            "guard": self.guard,
+            "mutant_artifact": self.mutant_artifact,
+            "mutation_id": self.mutation_id,
+            "registry": self.registry,
+            "subject": self.subject,
+            "target_postimage": self.target_postimage,
+            "target_preimage": self.target_preimage,
+            "witness_source": self.witness_source,
+        });
+        let canonical = canonical_json_value(value)?;
+        let mut material =
+            Vec::with_capacity(MUTATION_IDENTITY_DOMAIN_V2.len() + 1 + canonical.len());
+        material.extend_from_slice(MUTATION_IDENTITY_DOMAIN_V2.as_bytes());
+        material.push(0);
+        material.extend_from_slice(&canonical);
+        Ok(Sha256Digest::of_bytes(material))
+    }
+}
+
+fn canonical_json_value(value: serde_json::Value) -> Result<Vec<u8>, serde_json::Error> {
+    fn sort(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Array(values) => {
+                serde_json::Value::Array(values.into_iter().map(sort).collect())
+            }
+            serde_json::Value::Object(values) => {
+                let sorted = values
+                    .into_iter()
+                    .map(|(key, value)| (key, sort(value)))
+                    .collect::<BTreeMap<_, _>>();
+                serde_json::to_value(sorted).expect("JSON values serialize")
+            }
+            scalar => scalar,
+        }
+    }
+
+    serde_json::to_vec(&sort(value))
 }
 
 /// Registered open work, distinct from an adopted assumption.
@@ -900,25 +986,32 @@ pub struct EvidenceRecord {
 impl EvidenceRecord {
     /// Validates conditional evidence-kind invariants and complete provenance.
     pub fn validate(&self, claim_id: &ClaimId) -> Result<(), ValidationErrors> {
-        let mut errors = self
-            .provenance
-            .validate(claim_id, &self.unit_id, self.status);
+        let expected_failure = (self.kind == EvidenceKind::MutationWitness)
+            .then(|| {
+                self.mutation_witness
+                    .as_ref()
+                    .map(|witness| &witness.expected_failure)
+            })
+            .flatten();
+        let mut errors =
+            self.provenance
+                .validate(claim_id, &self.unit_id, self.status, expected_failure);
         let error = |message: String, remediation: &'static str| {
             StructuredError::new(ErrorCode::PbCoreInvalidEvidence, message, remediation)
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
         };
 
-        if self.schema != EVIDENCE_SCHEMA_V2 {
+        if self.schema != EVIDENCE_SCHEMA_V3 {
             errors.push(
                 StructuredError::new(
                     ErrorCode::PbCoreUnsupportedSchema,
                     format!("unsupported evidence schema '{}'", self.schema),
-                    "migrate the evidence record to proofbound-evidence/2",
+                    "migrate the evidence record to proofbound-evidence/3",
                 )
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
-                .identities(EVIDENCE_SCHEMA_V2, &self.schema),
+                .identities(EVIDENCE_SCHEMA_V3, &self.schema),
             );
         }
         if !self.claims.contains(claim_id) {
@@ -1238,11 +1331,16 @@ impl EvidenceRecord {
                 }
             }
             EvidenceKind::MutationWitness => {
-                if self.mutation_witness.is_none() {
-                    errors.push(error(
-                        "mutation-witness evidence lacks mutation and detecting-check identities".into(),
-                        "record the mutation digest and registered check",
-                    ));
+                match &self.mutation_witness {
+                    Some(witness) if mutation_witness_valid(self, witness) => {}
+                    Some(_) => errors.push(error(
+                        "mutation-witness evidence does not bind one exact registered mutant, clean baseline, and truthful expected failing run".into(),
+                        "record the singleton mutation registration and artifact identities, require the exact witness to pass cleanly and fail with exit 101 after sealed replay, and recompute proofbound-mutation/2",
+                    )),
+                    None => errors.push(error(
+                        "mutation-witness evidence lacks the version-2 mutation replay record".into(),
+                        "record the singleton mutation, its exact artifacts, clean baseline, and typed expected failure",
+                    )),
                 }
             }
             EvidenceKind::Open => {
@@ -1404,6 +1502,117 @@ impl EvidenceRecord {
     }
 }
 
+fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvidence) -> bool {
+    let expected_exit_codes = BTreeSet::from([101]);
+    let input_roles = [
+        &witness.registry,
+        &witness.target_preimage,
+        &witness.mutant_artifact,
+        &witness.witness_source,
+    ];
+    let input_role_names = input_roles
+        .iter()
+        .map(|artifact| artifact.logical_name.as_str())
+        .collect::<BTreeSet<_>>();
+    let input_roles_are_exact = record.provenance.input_artifacts.len() == input_roles.len()
+        && input_role_names.len() == input_roles.len()
+        && input_roles.iter().all(|artifact| {
+            record
+                .provenance
+                .input_artifacts
+                .iter()
+                .filter(|observed| *observed == *artifact)
+                .count()
+                == 1
+        });
+    let postimage_is_exact = record.provenance.generated_artifacts.len() == 1
+        && record.provenance.generated_artifacts[0] == witness.target_postimage;
+    let replacement_is_exact = witness.target_preimage.logical_name
+        == witness.target_postimage.logical_name
+        && witness.target_preimage.sha256 != witness.target_postimage.sha256
+        && witness.target_postimage.logical_name != witness.mutant_artifact.logical_name
+        && same_artifact_bytes(&witness.target_postimage, &witness.mutant_artifact);
+    let singleton_inventory =
+        record.inventoried_targets == BTreeSet::from([witness.mutation_id.clone()]);
+    let singleton_unit =
+        record.unit_id.as_str().strip_prefix("unit:") == Some(witness.mutation_id.as_str());
+    let expected_failure_is_exact = witness.expected_failure.allowed_exit_codes
+        == expected_exit_codes
+        && witness.baseline_run_index < witness.expected_failure.run_index;
+    let baseline_run = record.provenance.runs.get(witness.baseline_run_index);
+    let mutant_run = record
+        .provenance
+        .runs
+        .get(witness.expected_failure.run_index);
+    let baseline_command = record.provenance.commands.get(witness.baseline_run_index);
+    let mutant_command = record
+        .provenance
+        .commands
+        .get(witness.expected_failure.run_index);
+    let commands_bind_same_check =
+        baseline_command
+            .zip(mutant_command)
+            .is_some_and(|(baseline, mutant)| {
+                baseline.program != mutant.program
+                    && baseline.environment_allowlist == mutant.environment_allowlist
+                    && command_runs_exact_check(baseline, &witness.check_id)
+                    && command_runs_exact_check(mutant, &witness.check_id)
+            });
+    let passed_run_shape = record.status != EvidenceStatus::Passed
+        || (baseline_run.is_some_and(|run| run.exit_code == Some(0))
+            && mutant_run.is_some_and(|run| run.exit_code == Some(101))
+            && record
+                .provenance
+                .runs
+                .iter()
+                .filter(|run| run.exit_code != Some(0))
+                .count()
+                == 1);
+    let strings_are_valid = witness.schema == MUTATION_WITNESS_SCHEMA_V2
+        && valid_mutation_id(&witness.mutation_id)
+        && bounded_text(&witness.subject, 4096)
+        && bounded_text(&witness.guard, 8192)
+        && bounded_text(&witness.check_id, 4096);
+    let identity_is_exact = witness
+        .derived_mutation_sha256(&record.claims)
+        .is_ok_and(|identity| identity == witness.mutation_sha256);
+
+    strings_are_valid
+        && input_roles_are_exact
+        && postimage_is_exact
+        && replacement_is_exact
+        && singleton_inventory
+        && singleton_unit
+        && expected_failure_is_exact
+        && commands_bind_same_check
+        && passed_run_shape
+        && identity_is_exact
+}
+
+fn command_runs_exact_check(command: &CommandSpec, check_id: &str) -> bool {
+    let selector = check_id
+        .split_once("::")
+        .map_or(check_id, |(_, selector)| selector);
+    command.args == [selector, "--exact"]
+}
+
+fn bounded_text(value: &str, max_chars: usize) -> bool {
+    !value.trim().is_empty()
+        && value.chars().count() <= max_chars
+        && !value.chars().any(char::is_control)
+}
+
+fn valid_mutation_id(value: &str) -> bool {
+    value.len() <= 256
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+        })
+}
+
 /// Claim input consumed by status derivation after manifest resolution.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -1481,7 +1690,7 @@ mod tests {
     #[test]
     fn strict_evidence_rejects_unknown_fields() {
         let value = serde_json::json!({
-            "schema": EVIDENCE_SCHEMA_V2,
+            "schema": EVIDENCE_SCHEMA_V3,
             "id": "test:e",
             "node_id": "node:e",
             "unit_id": "unit:e",

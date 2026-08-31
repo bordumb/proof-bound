@@ -12,14 +12,15 @@ use thiserror::Error;
 use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, AssumptionCategory, AssumptionFacet,
     AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode, BuiltInProfile,
-    CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V2, ClaimReceipt, ClosureKind,
-    CompiledRelease, EVIDENCE_SCHEMA_V2, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
+    CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3, ClaimReceipt, ClosureKind,
+    CompiledRelease, EVIDENCE_SCHEMA_V3, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
     EvidenceReceipt, Exclusion, ExecutionKind, FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphNode,
-    HashedRecord, IndependenceMode, LinkageFacet, NodeKind, OpenObligation, POLICY_SCHEMA_V1,
-    PolicyReceipt, PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V2, ReleaseEnvelope,
-    ReportedClaimStatus, SourceClosureReceipt, TRANSCRIPTION_DRIVER_ABI_V1,
-    TRANSCRIPTION_TCB_ROLE_DOMAIN_V1, TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole,
-    TreeState, canonical_json, domain_hash, raw_sha256,
+    HashedRecord, IndependenceMode, LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2,
+    MUTATION_WITNESS_SCHEMA_V2, NodeKind, OpenObligation, POLICY_SCHEMA_V1, PolicyReceipt,
+    PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V3, ReleaseEnvelope, ReportedClaimStatus,
+    SourceClosureReceipt, TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
+    TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole, TreeState, canonical_json,
+    domain_hash, raw_sha256,
     statement_wire::{LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding, statement_digest},
 };
 
@@ -197,7 +198,7 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
 
     let envelope_path = root.join("release.json");
     let (envelope, _) = read_canonical::<ReleaseEnvelope>(&envelope_path, MAX_ENVELOPE_BYTES)?;
-    if envelope.schema != RELEASE_ENVELOPE_SCHEMA_V2 {
+    if envelope.schema != RELEASE_ENVELOPE_SCHEMA_V3 {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
                 VerificationIssueCode::PbvSchema,
@@ -219,7 +220,7 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
     }
     let (release, payload_bytes) =
         read_canonical::<CompiledRelease>(&payload_path, MAX_PAYLOAD_BYTES)?;
-    let actual_payload = domain_hash(COMPILED_RELEASE_SCHEMA_V2, &payload_bytes);
+    let actual_payload = domain_hash(COMPILED_RELEASE_SCHEMA_V3, &payload_bytes);
     if actual_payload != envelope.payload_sha256 {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
@@ -251,7 +252,7 @@ fn verify_compiled_release_internal(
     release_root: Option<&Path>,
 ) -> Result<VerificationReport, VerificationErrors> {
     let mut issues = Vec::new();
-    if release.schema != COMPILED_RELEASE_SCHEMA_V2 {
+    if release.schema != COMPILED_RELEASE_SCHEMA_V3 {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
             format!("unsupported compiled release schema '{}'", release.schema),
@@ -965,10 +966,10 @@ fn graph_components(graph: &AssuranceGraph) -> Vec<Vec<String>> {
     state.output
 }
 
-fn validate_closures(
-    closures: &[HashedRecord<SourceClosureReceipt>],
+fn validate_closures<'a>(
+    closures: &'a [HashedRecord<SourceClosureReceipt>],
     issues: &mut Vec<VerificationIssue>,
-) -> BTreeMap<String, ClosureKind> {
+) -> BTreeMap<String, &'a SourceClosureReceipt> {
     let mut result = BTreeMap::new();
     for closure in closures {
         if !valid_digest(&closure.sha256) {
@@ -1002,7 +1003,7 @@ fn validate_closures(
             }
         }
         if result
-            .insert(closure.sha256.clone(), closure.record.kind)
+            .insert(closure.sha256.clone(), &closure.record)
             .is_some()
         {
             issues.push(VerificationIssue::new(
@@ -1044,7 +1045,7 @@ fn validate_closures(
 
 fn validate_evidence_records(
     release: &CompiledRelease,
-    closures: &BTreeMap<String, ClosureKind>,
+    closures: &BTreeMap<String, &SourceClosureReceipt>,
     issues: &mut Vec<VerificationIssue>,
 ) -> BTreeSet<String> {
     let graph_nodes = release
@@ -1052,6 +1053,11 @@ fn validate_evidence_records(
         .nodes
         .iter()
         .map(|node| (node.id.as_str(), node))
+        .collect::<BTreeMap<_, _>>();
+    let claims = release
+        .claims
+        .iter()
+        .map(|claim| (claim.id.as_str(), claim))
         .collect::<BTreeMap<_, _>>();
     let mut invalid = BTreeSet::new();
     let mut ids = BTreeSet::new();
@@ -1068,7 +1074,7 @@ fn validate_evidence_records(
             ));
         }
         if let Ok(bytes) = canonical_json(evidence) {
-            let actual = domain_hash(EVIDENCE_SCHEMA_V2, &bytes);
+            let actual = domain_hash(EVIDENCE_SCHEMA_V3, &bytes);
             if actual != wrapper.sha256 {
                 evidence_issue(
                     issues,
@@ -1077,7 +1083,7 @@ fn validate_evidence_records(
                 );
             }
         }
-        if evidence.schema != EVIDENCE_SCHEMA_V2 {
+        if evidence.schema != EVIDENCE_SCHEMA_V3 {
             evidence_issue(
                 issues,
                 &wrapper.sha256,
@@ -1096,10 +1102,11 @@ fn validate_evidence_records(
                 "evidence provenance does not match the release revision and tree state",
             );
         }
-        if closures
+        let semantic_closure = closures
             .get(&evidence.provenance.semantic_closure)
-            .is_none_or(|kind| *kind != ClosureKind::Semantic)
-        {
+            .copied()
+            .filter(|closure| closure.kind == ClosureKind::Semantic);
+        if semantic_closure.is_none() {
             evidence_issue(
                 issues,
                 &wrapper.sha256,
@@ -1111,7 +1118,7 @@ fn validate_evidence_records(
             if !valid_digest(&reference.sha256)
                 || closures
                     .get(&reference.sha256)
-                    .is_none_or(|kind| *kind != reference.kind)
+                    .is_none_or(|closure| closure.kind != reference.kind)
             {
                 evidence_issue(
                     issues,
@@ -1130,7 +1137,14 @@ fn validate_evidence_records(
             }
         }
         validate_provenance(&wrapper.sha256, evidence, issues);
-        validate_evidence_shape(&wrapper.sha256, evidence, &graph_nodes, issues);
+        validate_evidence_shape(
+            &wrapper.sha256,
+            evidence,
+            semantic_closure,
+            &claims,
+            &graph_nodes,
+            issues,
+        );
         if issues.len() != before {
             invalid.insert(wrapper.sha256.clone());
         }
@@ -1146,6 +1160,14 @@ fn evidence_issue(issues: &mut Vec<VerificationIssue>, digest: &str, message: im
 
 fn validate_provenance(id: &str, evidence: &EvidenceReceipt, issues: &mut Vec<VerificationIssue>) {
     let provenance = &evidence.provenance;
+    let expected_failure = (evidence.kind == EvidenceKind::MutationWitness)
+        .then(|| {
+            evidence
+                .mutation_witness
+                .as_ref()
+                .map(|witness| &witness.expected_failure)
+        })
+        .flatten();
     for (label, digest) in [
         ("tool identity", provenance.tool.identity_sha256.as_str()),
         (
@@ -1245,12 +1267,24 @@ fn validate_provenance(id: &str, evidence: &EvidenceReceipt, issues: &mut Vec<Ve
                 format!("execution run {index} reports truncated output"),
             );
         }
-        if evidence.outcome == EvidenceOutcome::Passed && run.exit_code != Some(0) {
-            evidence_issue(
-                issues,
-                id,
-                format!("passed evidence run {index} did not complete with exit status zero"),
-            );
+        if evidence.outcome == EvidenceOutcome::Passed {
+            let accepted = expected_failure.is_some_and(|expected| {
+                expected.run_index == index
+                    && run
+                        .exit_code
+                        .is_some_and(|code| expected.allowed_exit_codes.contains(&code))
+            }) || (expected_failure
+                .is_none_or(|expected| expected.run_index != index)
+                && run.exit_code == Some(0));
+            if !accepted {
+                evidence_issue(
+                    issues,
+                    id,
+                    format!(
+                        "passed evidence run {index} did not match its registered exit expectation"
+                    ),
+                );
+            }
         }
         for (label, digest) in [
             ("stdout", &run.stdout_sha256),
@@ -1418,6 +1452,8 @@ fn validate_artifact_inventory(
 fn validate_evidence_shape(
     id: &str,
     evidence: &EvidenceReceipt,
+    semantic_closure: Option<&SourceClosureReceipt>,
+    claims: &BTreeMap<&str, &ClaimReceipt>,
     nodes: &BTreeMap<&str, &GraphNode>,
     issues: &mut Vec<VerificationIssue>,
 ) {
@@ -1800,10 +1836,14 @@ fn validate_evidence_shape(
             if evidence.evaluation_mode.is_some()
                 || evidence.binding_mode.is_some()
                 || !evidence.mutation_witness.as_ref().is_some_and(|item| {
-                    valid_digest(&item.mutation_sha256) && !item.check_id.trim().is_empty()
+                    mutation_witness_valid(evidence, item, semantic_closure, claims)
                 })
             {
-                evidence_issue(issues, id, "mutation witness is incomplete");
+                evidence_issue(
+                    issues,
+                    id,
+                    "mutation witness does not bind one exact registered mutant, clean baseline, and truthful expected failing run",
+                );
             }
         }
         EvidenceKind::Open => {
@@ -1836,6 +1876,166 @@ fn validate_evidence_shape(
             "open obligation appears on the wrong evidence kind",
         );
     }
+}
+
+fn mutation_witness_valid(
+    evidence: &EvidenceReceipt,
+    witness: &crate::MutationWitnessReceipt,
+    semantic_closure: Option<&SourceClosureReceipt>,
+    claims: &BTreeMap<&str, &ClaimReceipt>,
+) -> bool {
+    let input_roles = [
+        &witness.registry,
+        &witness.target_preimage,
+        &witness.mutant_artifact,
+        &witness.witness_source,
+    ];
+    let input_role_names = input_roles
+        .iter()
+        .map(|artifact| artifact.logical_name.as_str())
+        .collect::<BTreeSet<_>>();
+    let input_roles_are_exact = evidence.provenance.input_artifacts.len() == input_roles.len()
+        && input_role_names.len() == input_roles.len()
+        && input_roles.iter().all(|artifact| {
+            exact_artifact_count(&evidence.provenance.input_artifacts, artifact) == 1
+        });
+    let postimage_is_exact = evidence.provenance.generated_artifacts.len() == 1
+        && evidence.provenance.generated_artifacts[0] == witness.target_postimage;
+    let replacement_is_exact = witness.target_preimage.logical_name
+        == witness.target_postimage.logical_name
+        && witness.target_preimage.sha256 != witness.target_postimage.sha256
+        && witness.target_postimage.logical_name != witness.mutant_artifact.logical_name
+        && same_artifact_bytes(&witness.target_postimage, &witness.mutant_artifact);
+    let singleton_inventory =
+        evidence.inventoried_targets == BTreeSet::from([witness.mutation_id.clone()]);
+    let singleton_unit = evidence.unit_id == format!("unit:{}", witness.mutation_id);
+    let expected_failure_is_exact = witness.expected_failure.allowed_exit_codes
+        == BTreeSet::from([101])
+        && witness.baseline_run_index < witness.expected_failure.run_index;
+    let baseline_run = evidence.provenance.runs.get(witness.baseline_run_index);
+    let mutant_run = evidence
+        .provenance
+        .runs
+        .get(witness.expected_failure.run_index);
+    let baseline_command = evidence.provenance.commands.get(witness.baseline_run_index);
+    let mutant_command = evidence
+        .provenance
+        .commands
+        .get(witness.expected_failure.run_index);
+    let commands_bind_same_check =
+        baseline_command
+            .zip(mutant_command)
+            .is_some_and(|(baseline, mutant)| {
+                baseline.program != mutant.program
+                    && baseline.environment_allowlist == mutant.environment_allowlist
+                    && command_runs_exact_check(baseline, &witness.check_id)
+                    && command_runs_exact_check(mutant, &witness.check_id)
+            });
+    let passed_run_shape = evidence.outcome != EvidenceOutcome::Passed
+        || (baseline_run.is_some_and(|run| run.exit_code == Some(0))
+            && mutant_run.is_some_and(|run| run.exit_code == Some(101))
+            && evidence
+                .provenance
+                .runs
+                .iter()
+                .filter(|run| run.exit_code != Some(0))
+                .count()
+                == 1);
+    let strings_are_valid = witness.schema == MUTATION_WITNESS_SCHEMA_V2
+        && valid_mutation_id(&witness.mutation_id)
+        && bounded_text(&witness.subject, 4096)
+        && bounded_text(&witness.guard, 8192)
+        && bounded_text(&witness.check_id, 4096)
+        && valid_digest(&witness.mutation_sha256);
+    let identity_is_exact = mutation_identity(evidence, witness)
+        .is_some_and(|identity| identity == witness.mutation_sha256);
+    let preimage_is_in_semantic_closure = semantic_closure.is_some_and(|closure| {
+        closure
+            .members
+            .iter()
+            .filter(|member| {
+                member.path == witness.target_preimage.logical_name
+                    && member.sha256 == witness.target_preimage.sha256
+                    && member.size_bytes == witness.target_preimage.size_bytes
+            })
+            .count()
+            == 1
+    });
+    let subject_node = mutation_subject_node(&witness.subject);
+    let affected_claim_subjects_match = !evidence.claim_ids.is_empty()
+        && evidence.claim_ids.iter().all(|claim_id| {
+            claims
+                .get(claim_id.as_str())
+                .is_some_and(|claim| claim.subject == subject_node)
+        });
+
+    strings_are_valid
+        && input_roles_are_exact
+        && postimage_is_exact
+        && replacement_is_exact
+        && singleton_inventory
+        && singleton_unit
+        && expected_failure_is_exact
+        && commands_bind_same_check
+        && passed_run_shape
+        && identity_is_exact
+        && preimage_is_in_semantic_closure
+        && affected_claim_subjects_match
+}
+
+fn mutation_subject_node(subject: &str) -> String {
+    let digest = raw_sha256(subject.as_bytes());
+    format!(
+        "subject:{}",
+        digest
+            .strip_prefix("sha256:")
+            .expect("raw SHA-256 has its stable prefix")
+    )
+}
+
+fn mutation_identity(
+    evidence: &EvidenceReceipt,
+    witness: &crate::MutationWitnessReceipt,
+) -> Option<String> {
+    let material = serde_json::json!({
+        "check_id": witness.check_id,
+        "claims": evidence.claim_ids,
+        "guard": witness.guard,
+        "mutant_artifact": witness.mutant_artifact,
+        "mutation_id": witness.mutation_id,
+        "registry": witness.registry,
+        "subject": witness.subject,
+        "target_postimage": witness.target_postimage,
+        "target_preimage": witness.target_preimage,
+        "witness_source": witness.witness_source,
+    });
+    canonical_json(&material)
+        .ok()
+        .map(|bytes| domain_hash(MUTATION_IDENTITY_DOMAIN_V2, &bytes))
+}
+
+fn command_runs_exact_check(command: &crate::CommandReceipt, check_id: &str) -> bool {
+    let selector = check_id
+        .split_once("::")
+        .map_or(check_id, |(_, selector)| selector);
+    command.args == [selector, "--exact"]
+}
+
+fn bounded_text(value: &str, max_chars: usize) -> bool {
+    !value.trim().is_empty()
+        && value.chars().count() <= max_chars
+        && !value.chars().any(char::is_control)
+}
+
+fn valid_mutation_id(value: &str) -> bool {
+    value.len() <= 256
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+        })
 }
 
 fn artifact_binding_shape(binding: &ArtifactBindingReceipt, evidence: &EvidenceReceipt) -> bool {

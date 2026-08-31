@@ -40,6 +40,10 @@ rust_name = "allowance_kernel::decide_transfer"
 
 [[invocations.translated_closure]]
 kind = "function"
+rust_name = "allowance_kernel::decision::decide_transfer"
+
+[[invocations.translated_closure]]
+kind = "function"
 rust_name = "allowance_kernel::{allowance_kernel::Decision}::denied"
 
 [[invocations.translated_closure]]

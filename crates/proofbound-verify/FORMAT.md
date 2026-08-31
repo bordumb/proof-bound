@@ -1,4 +1,4 @@
-# Proofbound compiled release receipt v2
+# Proofbound compiled release receipt v3
 
 This document is the handoff contract between a release producer and the
 standalone `proofbound-verify` binary. The authoritative field types are the
@@ -18,7 +18,7 @@ does not run external tools.
 `release.json` has exactly this shape:
 
 ```json
-{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/2"}
+{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/3"}
 ```
 
 `payload` is a normalized relative path. Absolute paths, `.`/`..`, duplicate
@@ -41,18 +41,19 @@ The domains are fixed:
 
 | Value | Domain |
 |---|---|
-| compiled payload | `proofbound-compiled-release/2` |
+| compiled payload | `proofbound-compiled-release/3` |
 | graph | `proofbound-graph/1` |
-| evidence record | `proofbound-evidence/2` |
+| evidence record | `proofbound-evidence/3` |
 | source-closure record | `proofbound-source-closure/1` |
 | evidence cache material | `proofbound-cache-key/1` |
+| registered mutation identity | `proofbound-mutation/2` |
 
 `sealed_files[].sha256` and closure-member hashes are ordinary SHA-256 over
 the exact file bytes, still rendered as `sha256:<64 lowercase hex>`.
 
 ## Compiled payload
 
-The payload schema is `proofbound-compiled-release/2` and contains exactly:
+The payload schema is `proofbound-compiled-release/3` and contains exactly:
 
 | Field | Meaning |
 |---|---|
@@ -104,12 +105,14 @@ input identities; it does not discard artifact sizes.
 `provenance.execution_kind` is required. `observed-processes` requires nonempty
 `provenance.commands` and `provenance.runs` arrays with identical length. Run
 position `i` must carry `command_index: i`; no representative command,
-reordered run, omitted run, or truncated output is accepted. Passing evidence
-requires every run to have a non-null exit status; `exit_code` is always
-present and nullable so an incomplete non-passing process is still represented
-explicitly. Each command keeps its own bounded, uniquely named environment
-allowlist. Every environment entry has a required nullable `value_sha256`,
-never a raw value.
+reordered run, omitted run, or truncated output is accepted. Ordinary passing
+evidence requires every run to exit zero. The sole exception is a versioned
+mutation witness: its one typed `expected_failure` run must retain exit 101,
+while every other run, including its baseline witness, must exit zero.
+`exit_code` is always present and nullable so an incomplete non-passing process
+is still represented explicitly. Each command keeps its own bounded, uniquely
+named environment allowlist. Every environment entry has a required nullable
+`value_sha256`, never a raw value.
 
 `compiler-internal` means the evidence was derived without a subprocess and
 requires both command and run arrays to be empty. A compiler-internal record
@@ -148,11 +151,11 @@ aliases, nested markers, nonliteral identity fields, and mismatched statement
 hashes fail closed. Composing `native-evaluated` narrows the artifact binding
 to native mode as well.
 
-The v2 `TheoremReceipt` therefore requires `statement_wire` in addition to its
+`TheoremReceipt` requires `statement_wire` in addition to its
 encoding and digest. The v2 `ArtifactBindingReceipt` is exactly
 `{"theorem_evidence": ..., "artifact": {"logical_name": ..., "sha256": ...,
 "size_bytes": ...}}`; the six v1 checker-authored binding booleans are not
-accepted. Release-envelope, compiled-release, and evidence v1 inputs are
+accepted. Release-envelope, compiled-release, and evidence v1/v2 inputs are
 rejected rather than guessed or migrated by the verifier.
 
 A trusted-transcription detail is the nested, versioned
@@ -175,6 +178,33 @@ ledger must contain the corresponding unit-scoped components named
 `trusted-transcription/<unit-without-unit-prefix>/<role>`, with the ABI as
 version and the recomputed role digest as identity. This permits two units with
 different drivers without collapsing their trust identities.
+
+A mutation witness is the nested `proofbound-mutation-witness/2` record. It
+names exactly one lowercase mutation ID, and the outer target inventory must be
+that singleton. The outer unit ID must be exactly `unit:<mutation-id>`. Every
+affected outer claim must bind the subject node independently derived as
+`subject:<sha256(raw mutation subject)>`. Its four provenance inputs are
+exactly the registry, target preimage, registered mutant artifact, and witness
+source; its only generated artifact is the replayed target postimage. The
+target preimage's path, digest, and size must identify exactly one member of
+the referenced semantic closure. The preimage and postimage keep the same
+logical target but different bytes, while the postimage bytes exactly equal
+the separately registered mutant artifact. No extra input, generated artifact,
+mutation, or affected claim can be smuggled into the evidence unit.
+
+`baseline_run_index` binds the clean witness execution and
+`expected_failure.run_index` binds the later mutant execution. The former must
+exit 0 and the latter must exit 101; `{101}` is the complete allowed-exit set,
+and no other nonzero run is accepted. Both commands independently select the
+same exact test with `[<selector>, "--exact"]`, carry the same environment
+allowlist, and name distinct shadow-built executables so the clean binary
+cannot be replayed as the mutant. The verifier independently recomputes
+`mutation_sha256` as
+`sha256(proofbound-mutation/2 || NUL || canonical(material))`, where `material`
+contains `mutation_id`, `subject`, `guard`, `check_id`, the complete four input
+artifact roles, the postimage, and the outer claim set. Run positions and proof
+term classification are deliberately excluded from registration identity;
+they are separately bound by the evidence receipt and policy logic.
 
 The closed enum spellings are defined by `src/format.rs`: most inputs use
 `kebab-case`; the three output facets use `SCREAMING_SNAKE_CASE`. `FlowScope`

@@ -7,10 +7,6 @@ repository.workspace = true
 rust-version = "1.93"
 publish = false
 
-[features]
-default = []
-mutation-testing = []
-
 [lib]
 path = "src/lib.rs"
 

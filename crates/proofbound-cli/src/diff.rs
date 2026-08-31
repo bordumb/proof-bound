@@ -8,8 +8,8 @@ use anyhow::{Context, Result, bail};
 use proofbound_evidence::{canonical_json, domain_hash};
 use proofbound_manifest::{
     AssumptionManifest, BindingMode, BoundedDomain, ClaimManifest, EvaluationMode, EvidenceKind,
-    EvidenceUnitManifest, ModelCheckUnitManifest, PolicyManifest, ProjectBundle, ProjectManifest,
-    RegressionKind, ReviewManifest, TranslationUnitManifest,
+    EvidenceUnitManifest, ModelCheckUnitManifest, MutationRegistry, PolicyManifest, ProjectBundle,
+    ProjectManifest, RegressionKind, ReviewManifest, TranslationUnitManifest,
 };
 use serde::Serialize;
 
@@ -192,14 +192,22 @@ fn compare_manifest_path(
             path,
             regressions,
         ),
-        Some("proofbound-evidence-unit/1" | "proofbound-evidence-unit/2") => {
-            compare_evidence_manifests(
-                parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
-                parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
-                path,
-                regressions,
-            )
-        }
+        Some(
+            "proofbound-evidence-unit/1"
+            | "proofbound-evidence-unit/2"
+            | "proofbound-evidence-unit/3",
+        ) => compare_evidence_manifests(
+            parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
+            parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
+            path,
+            regressions,
+        ),
+        Some("proofbound-mutation-registry/2") => compare_mutation_registries(
+            parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
+            parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
+            path,
+            regressions,
+        ),
         Some("proofbound-model-check-unit/1") => compare_model_check_manifests(
             parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
             parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
@@ -706,6 +714,17 @@ fn compare_evidence_manifests(
             ),
         )?;
     }
+    if old.mutation != new.mutation {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::MutationCoverageRemoved,
+            format!(
+                "evidence unit {} changed its sealed singleton mutation registry",
+                old.id
+            ),
+        )?;
+    }
     if binding_rank(new.binding_mode) < binding_rank(old.binding_mode) {
         add_for_claims(
             regressions,
@@ -732,6 +751,45 @@ fn compare_evidence_manifests(
             old.bounded_domain.as_ref(),
             new.bounded_domain.as_ref(),
             regressions,
+        )?;
+    }
+    Ok(())
+}
+
+fn compare_mutation_registries(
+    old: Option<MutationRegistry>,
+    new: Option<MutationRegistry>,
+    path: &str,
+    regressions: &mut Vec<Regression>,
+) -> Result<()> {
+    let Some(old) = old.as_ref() else {
+        return Ok(());
+    };
+    let old_claims = string_set(&old.mutation.affected_claims);
+    let Some(new) = new.as_ref() else {
+        return add_for_claims(
+            regressions,
+            &old_claims,
+            RegressionKind::MutationCoverageRemoved,
+            format!(
+                "sealed mutation registry {} was removed at {path}",
+                old.mutation.id
+            ),
+        );
+    };
+    let claims = old_claims
+        .union(&string_set(&new.mutation.affected_claims))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if old != new {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::MutationCoverageRemoved,
+            format!(
+                "sealed mutation registry {} changed its subject, guard, byte identities, witness, or affected claims at {path}",
+                old.mutation.id
+            ),
         )?;
     }
     Ok(())
@@ -1732,6 +1790,109 @@ claims = ["TEST-CLAIM-001"]
             regressions
                 .iter()
                 .any(|item| item.kind == RegressionKind::SourceClosureWeakened)
+        );
+    }
+
+    #[test]
+    fn mutation_unit_registration_changes_are_never_silent() {
+        let mut old = evidence();
+        old.schema = "proofbound-evidence-unit/3".into();
+        old.id = "remove-cap-guard".into();
+        old.adapter = proofbound_manifest::AdapterKind::RustTest;
+        old.kind = EvidenceKind::MutationWitness;
+        old.tier = 1;
+        old.operation.kind = proofbound_manifest::OperationKind::CargoTest;
+        old.operation.manifest = None;
+        old.operation.targets = vec!["cap_guard_is_enforced".into()];
+        old.theorem = None;
+        old.evaluation_mode = None;
+        old.expected_inventory = vec!["remove-cap-guard".into()];
+        old.mutation = Some(
+            serde_json::from_value(json!({
+                "schema": "proofbound-mutation-replay/1",
+                "registry": "proofbound/mutations/remove-cap-guard.toml"
+            }))
+            .unwrap(),
+        );
+        let mut new = old.clone();
+        new.mutation.as_mut().unwrap().registry = "proofbound/mutations/replacement.toml".into();
+
+        let mut regressions = Vec::new();
+        compare_evidence_manifests(
+            Some(old.clone()),
+            Some(new),
+            "proofbound/evidence/remove-cap-guard.toml",
+            &mut regressions,
+        )
+        .unwrap();
+        assert!(regressions.iter().any(|item| {
+            item.kind == RegressionKind::MutationCoverageRemoved
+                && item.detail.contains("sealed singleton mutation")
+        }));
+
+        regressions.clear();
+        compare_evidence_manifests(
+            Some(old),
+            None,
+            "proofbound/evidence/remove-cap-guard.toml",
+            &mut regressions,
+        )
+        .unwrap();
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::MutationCoverageRemoved)
+        );
+    }
+
+    #[test]
+    fn mutation_registry_changes_are_never_silent() {
+        let old: MutationRegistry = serde_json::from_value(json!({
+            "schema": "proofbound-mutation-registry/2",
+            "subject": "rust:allowance_kernel::decide_transfer",
+            "mutation": {
+                "id": "remove-cap-guard",
+                "guard": "cap guard",
+                "target_path": "rust/kernel/src/decision.rs",
+                "target_preimage_sha256": format!("sha256:{}", "11".repeat(32)),
+                "mutant_path": "proofbound/mutations/mutants/remove-cap-guard.rs",
+                "mutant_sha256": format!("sha256:{}", "22".repeat(32)),
+                "witness": "cap_guard_is_enforced",
+                "witness_path": "rust/kernel/tests/mutation_witnesses.rs",
+                "witness_sha256": format!("sha256:{}", "33".repeat(32)),
+                "affected_claims": ["TEST-CLAIM-001"]
+            }
+        }))
+        .unwrap();
+        let mut changed = old.clone();
+        changed.mutation.mutant_sha256 = format!("sha256:{}", "44".repeat(32));
+
+        let mut regressions = Vec::new();
+        compare_mutation_registries(
+            Some(old.clone()),
+            Some(changed),
+            "proofbound/mutations/remove-cap-guard.toml",
+            &mut regressions,
+        )
+        .unwrap();
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::MutationCoverageRemoved)
+        );
+
+        regressions.clear();
+        compare_mutation_registries(
+            Some(old),
+            None,
+            "proofbound/mutations/remove-cap-guard.toml",
+            &mut regressions,
+        )
+        .unwrap();
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::MutationCoverageRemoved)
         );
     }
 

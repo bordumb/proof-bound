@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.10.0
+**Version:** 0.11.0
 
 **Date:** 2026-08-31
 
@@ -12,6 +12,13 @@
 
 ### Revision history
 
+- **0.11.0** — sealed singleton mutation replay: reserves evidence-unit `/3`
+  and mutation-registry `/2` for one byte-pinned full-file mutant and one exact
+  witness per evidence fate; runs the witness in independent clean and mutated
+  shadows; advances adapter observations to `/2`; and advances evidence,
+  compiled state, releases, and envelopes to `/3` so one typed exit-101
+  detection run does not reinterpret the all-zero version-2 contract (§5,
+  §10.2, §11.2.2, §11.5; ADR 0017).
 - **0.10.0** — exact executable inventories: fixes the five adapter operation
   response meanings; requires passed observed-process evidence to carry a
   nonempty exact inventory and only successful, untruncated runs; closes the
@@ -322,7 +329,7 @@ kinds simultaneously.
 | `exhaustive-check` | Every member of an explicitly finite registered domain was evaluated. |
 | `property-test` | Generated examples exercised a property; this is empirical evidence. |
 | `example-test` | Named test cases passed. |
-| `mutation-witness` | A registered mutation of the subject was shown to violate a registered check. The strongest form is a compiled proof term witnessing the violation; the weakest is a registered, deliberately failing test. |
+| `mutation-witness` | One byte-pinned mutation of the subject was automatically installed in a fresh shadow after the same exact registered check passed on an independent clean shadow; that check then failed with its registered expected exit. The strongest form may additionally carry a compiled proof term witnessing the violation. |
 | `review` | A human review attestation exists for a precisely scoped surface. |
 | `assumption` | The claim depends on an explicit hypothesis or external premise. |
 | `open` | Required evidence is absent or incomplete. |
@@ -523,7 +530,7 @@ Additional rules:
   separator ` Registered finite domain: ` and the registered finite-domain
   language.
   The property is never replaced by domain-only wording, and no unbounded
-  language is emitted for bounded evidence. The version-2 compiled claim keeps
+  language is emitted for bounded evidence. The version-3 compiled claim keeps
   `statement` and optional `public_language` as separate fields, while the
   reported status keeps the derived `public_statement`; both status engines
   independently reproduce this composition. The same composition applies
@@ -1030,8 +1037,8 @@ metadata, not source-text scanning (§17).
 Adapters communicate with the orchestrator over a versioned JSON subprocess
 protocol: requests and responses are schema-validated canonical JSON on
 stdin/stdout (`schemas/adapter-protocol.schema.json`), and evidence is
-returned either as a complete `proofbound-evidence/2` record or as a strict
-`proofbound-adapter-observation/1` execution receipt that the assurance
+returned either as a complete `proofbound-evidence/3` record or as a strict
+`proofbound-adapter-observation/2` execution receipt that the assurance
 compiler deterministically enriches with graph and source-closure identities.
 The latter prevents a tool adapter from fabricating project provenance it does
 not own. Both alternatives are closed schemas; an arbitrary JSON object is not
@@ -1089,7 +1096,7 @@ equally sized ordered `runs` array. Run `i` has `command_index = i` and binds
 that command's exit state, raw stdout/stderr identities, normalized-output
 identity, truncation state, and duration. A nonblank `normalization` identifier
 names the transformation used before the deterministic-result identity was
-computed. The compiler preserves these fields in `proofbound-evidence/2`
+computed. The compiler preserves these fields in `proofbound-evidence/3`
 provenance instead of selecting a representative command; it also records the
 separate typed `reproduction_command`. An unavailable memory observation is
 the explicit JSON value `null`, never an invented zero.
@@ -1107,7 +1114,11 @@ reproduced and audited.
 
 A `Passed` observation, or a `Passed` canonical evidence/receipt record whose
 `execution_kind` is `observed-processes`, has a nonempty exact inventory. Every
-run in such a record has `exit_code = 0` and `output_truncated = false`.
+run has `output_truncated = false` and normally has `exit_code = 0`. The sole
+nonzero case is the one run named by a version-2 mutation-witness detail's
+typed `expected_failure`; its allowed exit-code set is exactly `[101]`, its
+baseline run executed the same exact check with exit zero, and every other run
+remains zero.
 `compiler-internal` evidence has no observed runs and may legitimately have an
 empty inventory; the nonempty rule must not invent targets or process facts for
 it. Failed, unavailable, and other non-passing records may preserve a partial
@@ -1257,7 +1268,7 @@ Every claim has a stable ID, exact internal `statement`, bound `subject`, trust
 `profile`, cited `evidence`, cited `assumptions`, and explicit
 `open_obligations` and `out_of_scope` lists. `public_language` is an optional
 reader-facing restatement and cannot strengthen `statement`; it never replaces
-the internal field. The version-2 compiled release retains `statement` and,
+the internal field. The version-3 compiled release retains `statement` and,
 when supplied, `public_language` separately. Its reported claim status carries
 the independently derived `public_statement`: `public_language` when present,
 otherwise `statement`, with the bounded-domain suffix required by Section
@@ -1404,7 +1415,7 @@ exists in the nested observation or manifest; the generic protocol outcome is
 derived from execution and comparison results.
 
 The compiler admits that observation only when every registered path, format,
-inventory member, and artifact identity matches. The canonical version-2
+inventory member, and artifact identity matches. The canonical version-3
 evidence record then retains the five artifact identities and two derived role
 records under its nested `proofbound-trusted-transcription/1` value. Each role
 identity is independently recomputed from canonical `{abi, driver, role}`
@@ -1425,6 +1436,83 @@ cannot yield `PROVED`, `ARTIFACT_BOUND`, or `REFINED`.
 `schemas/adapter-observation.schema.json`, `schemas/evidence.schema.json`, and
 `schemas/receipt.schema.json` are the closed machine-readable contracts for
 this route and MUST remain field-for-field consistent with this section.
+
+### 11.2.2 Sealed singleton mutation replay
+
+Mutation replay also uses a new, closed evidence-unit version; neither generic
+version 1 nor trusted-transcription version 2 is reinterpreted:
+
+```toml
+schema = "proofbound-evidence-unit/3"
+id = "remove-cap-guard"
+adapter = "rust-test"
+kind = "mutation-witness"
+claims = ["TRANSFER-CAP-001"]
+tier = 0
+expected_inventory = ["remove-cap-guard"]
+inputs = [
+  "proofbound/mutations/mutants/remove-cap-guard/decision.rs",
+  "proofbound/mutations/remove-cap-guard.toml",
+  "rust/kernel/src/decision.rs",
+  "rust/kernel/tests/mutation_witnesses.rs",
+]
+outputs = []
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+
+[mutation]
+schema = "proofbound-mutation-replay/1"
+registry = "proofbound/mutations/remove-cap-guard.toml"
+
+[operation]
+type = "cargo-test"
+package = "allowance-kernel"
+manifest = "Cargo.toml"
+
+[resource_budget]
+time_seconds = 120
+disk_bytes = 1073741824
+memory_bytes = 2147483648
+```
+
+The referenced registry is structurally singular:
+
+```toml
+schema = "proofbound-mutation-registry/2"
+subject = "rust:allowance-kernel::decide_transfer"
+
+[mutation]
+id = "remove-cap-guard"
+guard = "amount must not exceed cap"
+target_path = "rust/kernel/src/decision.rs"
+target_preimage_sha256 = "sha256:…"
+mutant_path = "proofbound/mutations/mutants/remove-cap-guard/decision.rs"
+mutant_sha256 = "sha256:…"
+witness = "mutation_witnesses::cap_guard_is_enforced"
+witness_path = "rust/kernel/tests/mutation_witnesses.rs"
+witness_sha256 = "sha256:…"
+affected_claims = ["TRANSFER-CAP-001"]
+```
+
+The unit ID, registry mutation ID, and sole expected-inventory member are
+identical. `claims` and `affected_claims` are the same nonempty strict lexical
+set. Registry, target, full-file mutant, and witness paths are distinct safe
+regular files and form the unit's exact sorted `inputs`; all three declared
+file identities match their bytes. Each affected claim names the registry
+subject and its semantic closure contains `target_path`. Across a project, a
+registry path and mutation ID belong to exactly one evidence unit. The
+operation derives its test from `witness`; checker-authored target aliases,
+additional arguments, outputs, qualifiers, or multiple mutations are invalid.
+
+For `check` and `reproduce`, the adapter creates two fresh shadows from the
+same reviewed source. It verifies the target preimage, recompiles and discovers
+the exact witness in the baseline shadow, and requires that one test to pass.
+In the second shadow it copies the registered full-file mutant bytes over the
+target, verifies the target postimage equals the mutant artifact, recompiles,
+rediscovers the same test, and requires that exact test to fail with libtest
+exit code 101. A compile failure, missing or renamed test, another exit code,
+truncated output, timeout, extra changed path, or mutation of the repository is
+not a successful witness. `inventory` performs exact registration and witness
+discovery without admitting evidence; `update` is unsupported.
 
 ### 11.3 Translation unit
 
@@ -1686,7 +1774,7 @@ prohibited is the reference failure mode: a single project-global closure
 copied identically into every claim, which conveys no per-claim dependency
 information while inflating the manifest by orders of magnitude.
 
-### 11.5 Version-2 evidence and release receipt semantics
+### 11.5 Versioned evidence and release receipt semantics
 
 `proofbound-evidence/2`, `proofbound-compiled-release/2`, and
 `proofbound-release-envelope/2` are a coordinated wire transition. Version 1
@@ -1723,16 +1811,36 @@ The canonical evidence record has these additional fidelity requirements:
   Non-passing records may retain empty or partial inventory and failed run
   facts for diagnosis; those facts never support claim admission.
 
-The compiled release keeps a claim's required internal `statement` and its
+Version 3 is a second coordinated transition:
+`proofbound-adapter-observation/2`, `proofbound-evidence/3`,
+`proofbound-compiled-project/3`, `proofbound-compiled-release/3`, and
+`proofbound-release-envelope/3`. It retains every version-2 fidelity rule and
+adds a typed expected-failure binding to the closed
+`proofbound-mutation-witness/2` detail. That detail carries the exact mutation
+ID, subject and guard; registry, target-preimage, full-file-mutant,
+target-postimage, and witness-source artifact identities; check identity;
+baseline run index; one expected-failure run index; and optional proof-term
+witness. Its mutation identity is recomputed from those typed facts and the
+exact evidence claim set, not accepted as an adapter-authored Boolean.
+
+For passed mutation evidence, the baseline and mutant commands run the same
+exact check. The baseline run is earlier and exits zero; the expected-failure
+run exits exactly 101; all other runs exit zero; and no output is truncated.
+For every non-mutation passed record, `expected_failure` is absent and the
+version-2 all-zero rule remains unchanged. Version-2 evidence and receipts are
+never accepted under these version-3 rules, so a previously invalid nonzero
+run cannot acquire a new meaning without a fresh check and receipt.
+
+The version-3 compiled release keeps a claim's required internal `statement` and its
 optional `public_language` as distinct fields. Each reported claim status
 contains the required derived `public_statement` described in Section 6.3.2.
 The independent verifier recomputes that rendered field from the retained
 claim inputs and rejects substitution or drift.
 
-The producer's private compiled-state boundary advances at the same time to
-`proofbound-compiled-project/2`, and claim-input identities use the
-`proofbound-claim-input/2` domain. Reporting and release commands MUST reject
-version-1 compiled state and require a fresh `proofbound check`; otherwise an
+The producer's private compiled-state boundary is
+`proofbound-compiled-project/3`, and claim-input identities use the
+`proofbound-claim-input/3` domain. Reporting and release commands MUST reject
+older compiled state and require a fresh `proofbound check`; otherwise an
 evidence-free legacy ledger claim could be released after its internal
 statement had already been replaced by reader-facing language.
 
@@ -2148,6 +2256,13 @@ therefore reuses evidence:
 - A receipt is reusable when its cache key is unchanged: semantic closure
   digest, input artifact digests, toolchain identity, adapter version, and
   unit configuration digest.
+- A Cargo mutation replay additionally seals the normalized reviewed source
+  tree copied into its clean and mutant shadows: every regular-file path, byte
+  digest, and copied permission model, under the same state exclusions and
+  limits. Directories in those shadows are derived only as parents of copied
+  files. Cargo package directories are not a sufficient execution boundary
+  because Rust may consume repository-local files through explicit paths,
+  inclusions, custom targets, or build scripts.
 - Reuse is recorded in the receipt chain; `status` distinguishes "verified
   from cache" from "re-verified now."
 - `--fresh` forces re-execution of any unit.

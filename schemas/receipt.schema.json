@@ -33,7 +33,7 @@
       "additionalProperties": false,
       "required": ["schema", "payload", "payload_sha256"],
       "properties": {
-        "schema": { "const": "proofbound-release-envelope/2" },
+        "schema": { "const": "proofbound-release-envelope/3" },
         "payload": { "const": "compiled-receipt.json" },
         "payload_sha256": { "$ref": "#/$defs/digest" }
       }
@@ -43,7 +43,7 @@
       "additionalProperties": false,
       "required": ["schema", "project", "project_revision", "project_tier", "tree_state", "graph", "graph_sha256", "claims", "evidence", "assumptions", "premises", "policies", "closures", "sealed_files", "reported_statuses"],
       "properties": {
-        "schema": { "const": "proofbound-compiled-release/2" },
+        "schema": { "const": "proofbound-compiled-release/3" },
         "project": { "type": "string", "minLength": 1, "maxLength": 128 },
         "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
         "project_tier": { "type": "integer", "minimum": 0, "maximum": 3 },
@@ -97,7 +97,7 @@
       "additionalProperties": false,
       "required": ["schema", "unit_id", "node_id", "kind", "claim_ids", "outcome", "inventoried_targets", "assumptions", "premises", "provenance"],
       "properties": {
-        "schema": { "const": "proofbound-evidence/2" },
+        "schema": { "const": "proofbound-evidence/3" },
         "unit_id": { "$ref": "#/$defs/id" },
         "node_id": { "$ref": "#/$defs/id" },
         "kind": { "$ref": "#/$defs/evidenceKind" },
@@ -139,11 +139,32 @@
                   "runs": {
                     "items": {
                       "properties": {
-                        "exit_code": { "const": 0 },
                         "output_truncated": { "const": false }
                       }
                     }
                   }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["outcome", "kind", "provenance"],
+            "properties": {
+              "outcome": { "const": "passed" },
+              "kind": { "not": { "const": "mutation-witness" } },
+              "provenance": {
+                "required": ["execution_kind"],
+                "properties": { "execution_kind": { "const": "observed-processes" } }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "provenance": {
+                "properties": {
+                  "runs": { "items": { "properties": { "exit_code": { "const": 0 } } } }
                 }
               }
             }
@@ -155,7 +176,22 @@
         { "if": { "properties": { "kind": { "const": "source-refinement" } }, "required": ["kind"] }, "then": { "required": ["source_refinement"] } },
         { "if": { "properties": { "kind": { "const": "bounded-check" } }, "required": ["kind"] }, "then": { "required": ["bounded_check"] } },
         { "if": { "properties": { "kind": { "const": "exhaustive-check" } }, "required": ["kind"] }, "then": { "required": ["exhaustive_check"] } },
-        { "if": { "properties": { "kind": { "const": "mutation-witness" } }, "required": ["kind"] }, "then": { "required": ["mutation_witness"] } },
+        {
+          "if": { "properties": { "kind": { "const": "mutation-witness" } }, "required": ["kind"] },
+          "then": {
+            "required": ["mutation_witness"],
+            "properties": {
+              "inventoried_targets": { "minItems": 1, "maxItems": 1 },
+              "provenance": {
+                "properties": {
+                  "input_artifacts": { "minItems": 4, "maxItems": 4 },
+                  "generated_artifacts": { "minItems": 1, "maxItems": 1 }
+                }
+              }
+            }
+          },
+          "else": { "not": { "required": ["mutation_witness"] } }
+        },
         { "if": { "properties": { "kind": { "const": "open" } }, "required": ["kind"] }, "then": { "required": ["open_obligation"] } }
       ]
     },
@@ -217,8 +253,31 @@
     },
     "mutationWitnessReceipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["mutation_sha256", "check_id", "proof_term_witness"],
-      "properties": { "mutation_sha256": { "$ref": "#/$defs/digest" }, "check_id": { "type": "string" }, "proof_term_witness": { "type": "boolean" } }
+      "required": ["schema", "mutation_id", "subject", "guard", "mutation_sha256", "registry", "target_preimage", "mutant_artifact", "target_postimage", "witness_source", "check_id", "baseline_run_index", "expected_failure", "proof_term_witness"],
+      "properties": {
+        "schema": { "const": "proofbound-mutation-witness/2" },
+        "mutation_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,255}$" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" },
+        "guard": { "type": "string", "minLength": 1, "maxLength": 8192, "pattern": "\\S" },
+        "mutation_sha256": { "$ref": "#/$defs/digest" },
+        "registry": { "$ref": "#/$defs/artifact" },
+        "target_preimage": { "$ref": "#/$defs/artifact" },
+        "mutant_artifact": { "$ref": "#/$defs/artifact" },
+        "target_postimage": { "$ref": "#/$defs/artifact" },
+        "witness_source": { "$ref": "#/$defs/artifact" },
+        "check_id": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" },
+        "baseline_run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "expected_failure": { "$ref": "#/$defs/expectedFailureReceipt" },
+        "proof_term_witness": { "type": "boolean" }
+      }
+    },
+    "expectedFailureReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_index", "allowed_exit_codes"],
+      "properties": {
+        "run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "allowed_exit_codes": { "const": [101] }
+      }
     },
     "evidenceProvenance": {
       "type": "object", "additionalProperties": false,

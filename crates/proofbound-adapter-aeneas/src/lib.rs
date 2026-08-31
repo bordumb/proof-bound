@@ -35,7 +35,7 @@ use thiserror::Error;
 use walkdir::WalkDir;
 
 pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
-pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/1";
+pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
 pub const ADAPTER_ID: &str = "charon-aeneas";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TOOL_OUTPUT_BYTES: usize = 8 * 1024 * 1024;

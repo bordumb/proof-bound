@@ -69,6 +69,7 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
             environment_allowlist: vec!["LEAN_PATH".to_owned()],
             bounded_domain: None,
             transcription: None,
+            mutation: None,
             resource_budget: ResourceBudget {
                 time_seconds: 60,
                 disk_bytes: 256 << 20,

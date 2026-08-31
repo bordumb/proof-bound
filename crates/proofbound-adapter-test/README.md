@@ -53,6 +53,29 @@ parses one anchored runner summary proving exactly one pass; substring matches
 such as `11 passed` are rejected, and libtest output capture remains enabled so
 test-authored stdout cannot impersonate the harness summary.
 
+Mutation witnesses use the separate `proofbound-evidence-unit/3` route and a
+singleton `proofbound-mutation-registry/2`. The registry byte-pins one target
+preimage, one complete replacement file, and the source file containing one
+exact libtest witness. Its mutation ID, affected claims, and four input paths
+must exactly equal the evidence unit; legacy registrations that merely name a
+mutant function are not executable evidence.
+
+Replay uses two independently copied shadows. The unmodified shadow must
+compile, collect the registered inventory, and report exactly one passing
+witness. The adapter then copies the registered mutant bytes over only the
+registered target in the second shadow, checks the exact postimage, recompiles,
+requires the complete collected inventory to remain identical, and runs the
+same witness alone. Detection means the anchored libtest result reports
+exactly one failure with exit code 101. A compilation error, missing test,
+crash, other exit code, truncation, still-passing mutant, path escape, symlink,
+digest drift, or change to the reviewed root fails closed. Before any child
+process, the adapter snapshots the complete reviewed project tree while
+excluding explicit ephemeral tool-output roots such as `target/`. The baseline
+shadow and original tree must remain identical; the mutant shadow may differ
+at exactly the registered target with exactly the registered postimage. The
+observation retains the nonzero run truthfully and binds it through a typed
+`expected_failure`; it is never rewritten as a successful child process.
+
 Generator verification never asks a program to inspect outputs that are
 already present. The adapter builds a fresh candidate project from the exact
 registered non-output inputs, keeps every declared output absent, invokes the
@@ -92,13 +115,14 @@ observation. No other ambient variable is admitted.
 This executable accepts one canonical JSON `proofbound-adapter-protocol/1`
 request on standard input and emits one canonical response on standard output.
 The request `unit` is a strict `proofbound-evidence-unit/1` object, except the
-typed trusted-transcription route, which alone uses
-`proofbound-evidence-unit/2`. Commands are typed program/argument vectors;
-manifest strings are never evaluated by a shell.
+typed trusted-transcription and mutation-replay routes, which use
+`proofbound-evidence-unit/2` and `proofbound-evidence-unit/3`, respectively.
+Commands are typed program/argument vectors; manifest strings are never
+evaluated by a shell.
 
 Successful evidence-producing operations return a common observation in the
 response's `evidence` field. All non-Lean adapters use this exact
-`proofbound-adapter-observation/1` shape:
+`proofbound-adapter-observation/2` shape:
 
 - `unit_id`, `evidence_kind`, and `outcome`;
 - `input_artifacts` and `generated_artifacts`, each with logical name,
@@ -118,9 +142,13 @@ the portable adapter process could not measure process-tree RSS and does not
 fabricate a zero.
 
 `commands` and `runs` are complete ordered arrays of equal length; run `i`
-has `command_index = i`. The compiler preserves the sequence and required
-normalization identifier in version-2 evidence provenance and separately adds
-the typed reproduction command.
+has `command_index = i`. Ordinarily every run in passed evidence exits zero.
+A mutation replay has one explicitly indexed expected-failure run whose raw
+exit must belong to the registered singleton set `{101}`; every other run,
+including the baseline witness and both compilations, must exit zero. The
+compiler preserves this sequence and the required normalization identifier in
+version-3 evidence provenance and separately adds the typed reproduction
+command.
 
 The observation is deliberately not a full
 `proofbound_core::EvidenceRecord`: a raw adapter unit does not contain the
