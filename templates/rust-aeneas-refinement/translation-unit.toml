@@ -1,4 +1,4 @@
-schema = "proofbound-translation-unit/2"
+schema = "proofbound-translation-unit/3"
 id = "example-kernel-translation"
 pipeline = "charon-aeneas"
 generated_dir = "templates/rust-aeneas-refinement/lean/Generated"
@@ -19,6 +19,17 @@ llbc_file = "proofbound_refinement_template.llbc"
 start_from = ["proofbound_refinement_template::withdraw"]
 opaque = []
 include = []
+
+# These rows match the bundled example under the installed translator. Replace
+# them with the pinned report's exact supported-local closure when adopting a
+# different subject.
+[[invocations.translated_closure]]
+kind = "function"
+rust_name = "proofbound_refinement_template::withdraw"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "proofbound_refinement_template::Decision"
 
 [[invocations.outputs]]
 kind = "lean-source"

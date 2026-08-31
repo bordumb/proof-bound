@@ -1,4 +1,4 @@
-schema = "proofbound-translation-unit/2"
+schema = "proofbound-translation-unit/3"
 id = "transfer-kernel"
 pipeline = "charon-aeneas"
 generated_dir = "demo/allowance/lean/Generated/Allowance"
@@ -30,6 +30,29 @@ llbc_file = "allowance_kernel.llbc"
 start_from = ["allowance_kernel::decide_transfer"]
 opaque = []
 include = []
+
+# Exact supported local closure observed with the installed Charon/Aeneas
+# command. This is not evidence while translation.lock has placeholder
+# revisions; once pinned, check/update must reproduce these rows exactly.
+[[invocations.translated_closure]]
+kind = "function"
+rust_name = "allowance_kernel::decide_transfer"
+
+[[invocations.translated_closure]]
+kind = "function"
+rust_name = "allowance_kernel::{allowance_kernel::Decision}::denied"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "allowance_kernel::Decision"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "allowance_kernel::DecisionCode"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "allowance_kernel::Request"
 
 [[invocations.outputs]]
 kind = "lean-source"

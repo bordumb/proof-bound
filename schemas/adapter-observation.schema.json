@@ -22,12 +22,28 @@
     "unit_configuration_sha256": { "$ref": "#/$defs/digest" },
     "resource_budget": { "$ref": "#/$defs/budget" },
     "resource_usage": { "$ref": "#/$defs/usage" },
-    "inventory": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 100000 },
+    "inventory": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 },
     "normalization": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" },
     "artifact_binding": { "$ref": "#/$defs/artifact_binding" },
     "trusted_transcription": { "$ref": "#/$defs/trusted_transcription" }
   },
   "allOf": [
+    {
+      "if": { "properties": { "outcome": { "const": "passed" } }, "required": ["outcome"] },
+      "then": {
+        "properties": {
+          "inventory": { "minItems": 1 },
+          "runs": {
+            "items": {
+              "properties": {
+                "exit_code": { "const": 0 },
+                "output_truncated": { "const": false }
+              }
+            }
+          }
+        }
+      }
+    },
     {
       "if": { "properties": { "evidence_kind": { "const": "trusted-transcription" } }, "required": ["evidence_kind"] },
       "then": { "required": ["trusted_transcription"] },
@@ -36,6 +52,15 @@
   ],
   "$defs": {
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "inventoryItem": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "allOf": [
+        { "pattern": "\\S" },
+        { "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" }
+      ]
+    },
     "artifact": {
       "type": "object", "additionalProperties": false,
       "required": ["logical_name", "sha256", "size_bytes"],

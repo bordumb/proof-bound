@@ -8,11 +8,12 @@ use thiserror::Error;
 
 use crate::{
     AdapterKind, AssumptionCategory, BindingMode, EvidenceKind, ImportMappingMode,
-    MAX_TRANSLATION_CLAIMS, MAX_TRANSLATION_EXTERNAL_BRIDGES, MAX_TRANSLATION_INVOCATIONS,
-    MAX_TRANSLATION_MAPPED_OUTPUTS, MAX_TRANSLATION_PATH_BYTES, MAX_TRANSLATION_SOURCE_ROOTS,
-    MAX_TRANSLATION_SYMBOLS, MAX_TRANSLATION_TEMPLATE_AXIOMS, MAX_TRANSLATION_WARNINGS,
-    OperationKind, ProjectBundle, TRANSLATION_RESERVED_PATH_COMPONENTS, TranslationOutputKind,
-    TranslationPipeline,
+    MAX_ADAPTER_INVENTORY_ITEM_CHARS, MAX_ADAPTER_INVENTORY_ITEMS, MAX_TRANSLATION_CLAIMS,
+    MAX_TRANSLATION_EXTERNAL_BRIDGES, MAX_TRANSLATION_INVOCATIONS, MAX_TRANSLATION_MAPPED_OUTPUTS,
+    MAX_TRANSLATION_PATH_BYTES, MAX_TRANSLATION_SOURCE_ROOTS, MAX_TRANSLATION_SYMBOLS,
+    MAX_TRANSLATION_TEMPLATE_AXIOMS, MAX_TRANSLATION_WARNINGS, OperationKind, ProjectBundle,
+    TRANSLATION_RESERVED_PATH_COMPONENTS, TranslationOutputKind, TranslationPipeline,
+    canonical_adapter_inventory,
 };
 
 const BUILTIN_PROFILES: &[&str] = &[
@@ -416,6 +417,8 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
             message: "resource budgets must be nonzero".to_owned(),
         });
     }
+    validate_executable_route(unit)?;
+    validate_registered_evidence_inventory(unit)?;
     match unit.kind {
         EvidenceKind::Theorem | EvidenceKind::ArtifactSoundness
             if unit.evaluation_mode.is_none() =>
@@ -491,33 +494,105 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
             message: "only trusted-transcription evidence may declare [transcription]".to_owned(),
         });
     }
-    let operation_ok = matches!(
-        (unit.adapter, unit.operation.kind),
-        (AdapterKind::RustTest, OperationKind::CargoTest)
-            | (AdapterKind::PythonTest, OperationKind::Pytest)
-            | (AdapterKind::PythonTest, OperationKind::Generator)
-            | (AdapterKind::Lean, OperationKind::LeanAudit)
-            | (AdapterKind::Kani, OperationKind::Kani)
-            | (AdapterKind::CharonAeneas, OperationKind::Translation)
-            | (AdapterKind::CanonicalArtifact, OperationKind::ArtifactCheck)
-            | (
-                AdapterKind::IndependentCheck,
-                OperationKind::IndependentCheck
-            )
-            | (AdapterKind::HumanReview, OperationKind::Review)
-            | (AdapterKind::SourceClosure, OperationKind::Closure)
-            | (
-                AdapterKind::TrustedTranscription,
-                OperationKind::Transcription
-            )
+    Ok(())
+}
+
+fn validate_executable_route(unit: &crate::EvidenceUnitManifest) -> Result<(), SemanticError> {
+    let route = (unit.adapter, unit.operation.kind, unit.kind);
+    let supported = matches!(
+        route,
+        (
+            AdapterKind::Lean,
+            OperationKind::LeanAudit,
+            EvidenceKind::Theorem
+        ) | (
+            AdapterKind::CharonAeneas,
+            OperationKind::Translation,
+            EvidenceKind::SourceRefinement
+        ) | (
+            AdapterKind::Kani,
+            OperationKind::Kani,
+            EvidenceKind::BoundedCheck
+        ) | (
+            AdapterKind::RustTest,
+            OperationKind::CargoTest,
+            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest | EvidenceKind::MutationWitness
+        ) | (
+            AdapterKind::PythonTest,
+            OperationKind::Pytest,
+            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest
+        ) | (
+            AdapterKind::PythonTest,
+            OperationKind::Generator,
+            EvidenceKind::ExampleTest
+        ) | (
+            AdapterKind::CanonicalArtifact,
+            OperationKind::ArtifactCheck,
+            EvidenceKind::ArtifactSoundness
+        ) | (
+            AdapterKind::IndependentCheck,
+            OperationKind::IndependentCheck,
+            EvidenceKind::IndependentCheck
+        ) | (
+            AdapterKind::TrustedTranscription,
+            OperationKind::Transcription,
+            EvidenceKind::TrustedTranscription
+        )
     );
-    if !operation_ok {
+    if supported {
+        Ok(())
+    } else {
+        Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "adapter, typed operation, and evidence kind do not form a supported executable route; human review and source closure are compiler-internal"
+                .to_owned(),
+        })
+    }
+}
+
+fn validate_registered_evidence_inventory(
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    if unit.adapter == AdapterKind::CharonAeneas {
+        if unit.expected_inventory.is_empty() {
+            return Ok(());
+        }
         return Err(SemanticError::EvidenceQualifier {
             unit: unit.id.clone(),
-            message: "adapter and typed operation do not match".to_owned(),
+            message: "Charon/Aeneas expected_inventory must be empty because the referenced translation-unit/3 typed closure is authoritative"
+                .to_owned(),
         });
     }
+    validate_inventory(&unit.expected_inventory, true).map_err(|message| {
+        SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: format!("expected_inventory {message}"),
+        }
+    })?;
     Ok(())
+}
+
+fn validate_inventory(inventory: &[String], require_nonempty: bool) -> Result<Vec<String>, String> {
+    if (require_nonempty && inventory.is_empty()) || inventory.len() > MAX_ADAPTER_INVENTORY_ITEMS {
+        return Err(format!(
+            "must contain {} through {MAX_ADAPTER_INVENTORY_ITEMS} entries",
+            usize::from(require_nonempty)
+        ));
+    }
+    if inventory.iter().any(|item| {
+        item.trim().is_empty()
+            || item.chars().count() > MAX_ADAPTER_INVENTORY_ITEM_CHARS
+            || item.chars().any(char::is_control)
+    }) {
+        return Err(format!(
+            "entries must be nonblank, control-free, and at most {MAX_ADAPTER_INVENTORY_ITEM_CHARS} characters"
+        ));
+    }
+    let canonical = canonical_adapter_inventory(inventory);
+    if canonical.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err("must not contain duplicate target identities".to_owned());
+    }
+    Ok(canonical)
 }
 
 fn validate_transcription_qualifiers(
@@ -666,7 +741,7 @@ fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     let mut destinations = BTreeSet::<String>::new();
     let mut llbc_files = BTreeSet::new();
     for (id, (path, unit)) in &bundle.translation_units {
-        schema(path, &unit.schema, "proofbound-translation-unit/2")?;
+        schema(path, &unit.schema, "proofbound-translation-unit/3")?;
         local_id(id, path)?;
         if unit.pipeline != TranslationPipeline::CharonAeneas
             || unit.determinism_runs != 2
@@ -709,6 +784,7 @@ fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
         let generated_dir = Path::new(&unit.generated_dir);
         let mut lean_destinations = BTreeSet::<String>::new();
         let mut start_symbols = BTreeSet::<String>::new();
+        let mut translated_symbols = BTreeSet::<String>::new();
         for invocation in &unit.invocations {
             local_id(&invocation.id, path)?;
             if !valid_cargo_package(&invocation.cargo_package) {
@@ -812,6 +888,71 @@ fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                         unit: id.clone(),
                         message: format!(
                             "start_from symbol {symbol} is repeated across invocations"
+                        ),
+                    });
+                }
+            }
+            if invocation.translated_closure.is_empty()
+                || invocation.translated_closure.len() > MAX_TRANSLATION_SYMBOLS
+                || !invocation
+                    .translated_closure
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1])
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} translated_closure must contain between 1 and {MAX_TRANSLATION_SYMBOLS} entries in strict kind/name order",
+                        invocation.id
+                    ),
+                });
+            }
+            let mut invocation_translated_symbols = BTreeSet::new();
+            for entry in &invocation.translated_closure {
+                if !valid_translation_report_name(&entry.rust_name) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} translated_closure has an invalid Rust path {}",
+                            invocation.id, entry.rust_name
+                        ),
+                    });
+                }
+                if !invocation_translated_symbols.insert(entry.rust_name.clone()) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} translated_closure ambiguously categorizes {} more than once",
+                            invocation.id, entry.rust_name
+                        ),
+                    });
+                }
+                if !translated_symbols.insert(entry.rust_name.clone()) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "translated closure symbol {} is repeated across invocations",
+                            entry.rust_name
+                        ),
+                    });
+                }
+                if invocation.opaque.contains(&entry.rust_name) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} translated_closure contains opaque symbol {}",
+                            invocation.id, entry.rust_name
+                        ),
+                    });
+                }
+            }
+            for root in &invocation.start_from {
+                if !invocation_translated_symbols.contains(root) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} start_from root {} is absent from translated_closure",
+                            invocation.id, root
                         ),
                     });
                 }
@@ -966,6 +1107,13 @@ fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                 });
             }
         }
+        let translated_inventory = unit.canonical_translated_closure_inventory();
+        validate_inventory(&translated_inventory, true).map_err(|message| {
+            SemanticError::Translation {
+                unit: id.clone(),
+                message: format!("translated_closure inventory {message}"),
+            }
+        })?;
         let mapped_output_limit = bundle
             .project
             .limits
@@ -1271,6 +1419,15 @@ fn valid_rust_identifier(value: &str) -> bool {
 
 fn valid_rust_path(value: &str) -> bool {
     value.split("::").all(valid_rust_identifier)
+}
+
+fn valid_translation_report_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 1024
+        && value.trim() == value
+        && value
+            .bytes()
+            .all(|byte| byte == b' ' || byte.is_ascii_graphic())
 }
 
 fn valid_lean_module(value: &str) -> bool {
@@ -1718,6 +1875,181 @@ mod tests {
     }
 
     #[test]
+    fn executable_evidence_routes_are_closed_over_adapter_operation_and_kind() {
+        let bundle = repository_bundle();
+        let mut unit = bundle.evidence_units["manifest-workspace"].1.clone();
+        let supported = [
+            (
+                AdapterKind::Lean,
+                OperationKind::LeanAudit,
+                EvidenceKind::Theorem,
+            ),
+            (
+                AdapterKind::CharonAeneas,
+                OperationKind::Translation,
+                EvidenceKind::SourceRefinement,
+            ),
+            (
+                AdapterKind::Kani,
+                OperationKind::Kani,
+                EvidenceKind::BoundedCheck,
+            ),
+            (
+                AdapterKind::RustTest,
+                OperationKind::CargoTest,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::RustTest,
+                OperationKind::CargoTest,
+                EvidenceKind::PropertyTest,
+            ),
+            (
+                AdapterKind::RustTest,
+                OperationKind::CargoTest,
+                EvidenceKind::MutationWitness,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Pytest,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Pytest,
+                EvidenceKind::PropertyTest,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Generator,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::CanonicalArtifact,
+                OperationKind::ArtifactCheck,
+                EvidenceKind::ArtifactSoundness,
+            ),
+            (
+                AdapterKind::IndependentCheck,
+                OperationKind::IndependentCheck,
+                EvidenceKind::IndependentCheck,
+            ),
+            (
+                AdapterKind::TrustedTranscription,
+                OperationKind::Transcription,
+                EvidenceKind::TrustedTranscription,
+            ),
+        ];
+        for (adapter, operation, kind) in supported {
+            unit.adapter = adapter;
+            unit.operation.kind = operation;
+            unit.kind = kind;
+            assert!(
+                validate_executable_route(&unit).is_ok(),
+                "rejected supported route {adapter:?}/{operation:?}/{kind:?}"
+            );
+        }
+
+        let unsupported = [
+            (
+                AdapterKind::Lean,
+                OperationKind::LeanAudit,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::CharonAeneas,
+                OperationKind::Translation,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::Kani,
+                OperationKind::Kani,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::RustTest,
+                OperationKind::CargoTest,
+                EvidenceKind::ExhaustiveCheck,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Pytest,
+                EvidenceKind::ExhaustiveCheck,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Generator,
+                EvidenceKind::PropertyTest,
+            ),
+            (
+                AdapterKind::CanonicalArtifact,
+                OperationKind::ArtifactCheck,
+                EvidenceKind::IndependentCheck,
+            ),
+            (
+                AdapterKind::IndependentCheck,
+                OperationKind::IndependentCheck,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::HumanReview,
+                OperationKind::Review,
+                EvidenceKind::Review,
+            ),
+            (
+                AdapterKind::SourceClosure,
+                OperationKind::Closure,
+                EvidenceKind::Review,
+            ),
+        ];
+        for (adapter, operation, kind) in unsupported {
+            unit.adapter = adapter;
+            unit.operation.kind = operation;
+            unit.kind = kind;
+            assert!(
+                validate_executable_route(&unit).is_err(),
+                "accepted unsupported route {adapter:?}/{operation:?}/{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn registered_inventory_is_bounded_unique_and_canonicalized_as_a_set() {
+        let canonical = validate_inventory(&["z".to_owned(), "a".to_owned()], true).unwrap();
+        assert_eq!(canonical, ["a", "z"]);
+        assert!(validate_inventory(&[], false).unwrap().is_empty());
+        assert!(validate_inventory(&[], true).is_err());
+        assert!(
+            validate_inventory(&["z".to_owned(), "a".to_owned(), "z".to_owned()], true).is_err()
+        );
+        assert!(validate_inventory(&["\u{2003}".to_owned()], true).is_err());
+        assert!(validate_inventory(&["target\u{7f}smuggled".to_owned()], true).is_err());
+        assert!(validate_inventory(&["target\u{85}smuggled".to_owned()], true).is_err());
+        assert!(validate_inventory(&["x".repeat(MAX_ADAPTER_INVENTORY_ITEM_CHARS)], true).is_ok());
+        assert!(
+            validate_inventory(&["x".repeat(MAX_ADAPTER_INVENTORY_ITEM_CHARS + 1)], true).is_err()
+        );
+        assert!(
+            validate_inventory(
+                &vec!["target".to_owned(); MAX_ADAPTER_INVENTORY_ITEMS + 1],
+                true
+            )
+            .is_err()
+        );
+
+        let bundle = repository_bundle();
+        let mut unit = bundle.evidence_units["manifest-workspace"].1.clone();
+        unit.expected_inventory = vec!["z".to_owned(), "a".to_owned()];
+        validate_registered_evidence_inventory(&unit).unwrap();
+        assert_eq!(unit.canonical_expected_inventory(), ["a", "z"]);
+
+        unit.adapter = AdapterKind::CharonAeneas;
+        assert!(validate_registered_evidence_inventory(&unit).is_err());
+        unit.expected_inventory.clear();
+        validate_registered_evidence_inventory(&unit).unwrap();
+    }
+
+    #[test]
     fn transcription_cannot_claim_strong_binding() {
         let unit = crate::EvidenceUnitManifest {
             schema: "proofbound-evidence-unit/1".into(),
@@ -1820,7 +2152,7 @@ mod tests {
     }
 
     #[test]
-    fn translation_v2_rejects_reserved_rewrite_and_selector_injection() {
+    fn translation_v3_rejects_reserved_rewrite_and_selector_injection() {
         let mut bundle = repository_bundle();
         let (_, translation) = bundle.translation_units.get_mut("transfer-kernel").unwrap();
         translation.import_mapping.mode = ImportMappingMode::AuditedRewrite;
@@ -1840,7 +2172,78 @@ mod tests {
     }
 
     #[test]
-    fn translation_v2_rejects_prefix_collisions_and_reused_llbc_paths() {
+    fn translation_v3_requires_an_exact_typed_translated_closure() {
+        let bundle = repository_bundle();
+        let translation = &bundle.translation_units["transfer-kernel"].1;
+        assert_eq!(
+            translation.canonical_translated_closure_inventory(),
+            [
+                "function:allowance_kernel::decide_transfer",
+                "function:allowance_kernel::{allowance_kernel::Decision}::denied",
+                "type:allowance_kernel::Decision",
+                "type:allowance_kernel::DecisionCode",
+                "type:allowance_kernel::Request",
+            ]
+        );
+
+        let mut empty = repository_bundle();
+        empty
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .translated_closure
+            .clear();
+        assert!(validate_translations(&empty).is_err());
+
+        let mut unordered = repository_bundle();
+        unordered
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .translated_closure
+            .reverse();
+        assert!(validate_translations(&unordered).is_err());
+
+        let mut missing_root = repository_bundle();
+        missing_root
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .translated_closure
+            .remove(0);
+        let error = validate_translations(&missing_root)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("start_from root"), "{error}");
+
+        let mut ambiguous_kind = repository_bundle();
+        let invocation = &mut ambiguous_kind
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0];
+        invocation
+            .translated_closure
+            .push(crate::TranslationInventoryEntry {
+                kind: crate::TranslationInventoryKind::Type,
+                rust_name: "allowance_kernel::decide_transfer".to_owned(),
+            });
+        invocation.translated_closure.sort();
+        let error = validate_translations(&ambiguous_kind)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("ambiguously categorizes"), "{error}");
+    }
+
+    #[test]
+    fn translation_v3_rejects_prefix_collisions_and_reused_llbc_paths() {
         let mut bundle = repository_bundle();
         let invocation = &mut bundle
             .translation_units
@@ -1872,7 +2275,7 @@ mod tests {
     }
 
     #[test]
-    fn translation_v2_rejects_repeated_starts_across_invocations() {
+    fn translation_v3_rejects_repeated_starts_across_invocations() {
         let mut bundle = repository_bundle();
         let translation = &mut bundle
             .translation_units
@@ -1893,7 +2296,7 @@ mod tests {
     }
 
     #[test]
-    fn translation_v2_subdir_layout_keeps_lean_below_it_and_report_at_root() {
+    fn translation_v3_subdir_layout_keeps_lean_below_it_and_report_at_root() {
         let mut bundle = repository_bundle();
         let invocation = &mut bundle
             .translation_units
@@ -1937,7 +2340,7 @@ mod tests {
     }
 
     #[test]
-    fn translation_v2_rejects_duplicate_external_bridge_modules() {
+    fn translation_v3_rejects_duplicate_external_bridge_modules() {
         let mut bundle = repository_bundle();
         let translation = &mut bundle
             .translation_units
@@ -1959,7 +2362,7 @@ mod tests {
     }
 
     #[test]
-    fn translation_v2_requires_a_literal_matching_package_manifest() {
+    fn translation_v3_requires_a_literal_matching_package_manifest() {
         let mut bundle = repository_bundle();
         bundle
             .translation_units
@@ -2084,6 +2487,7 @@ mod tests {
         evidence.claims = translation.claims.clone();
         evidence.resource_budget = translation.resource_budget;
         evidence.outputs.clear();
+        evidence.expected_inventory.clear();
         evidence.inputs.push(manifest.to_owned());
         bundle.evidence_units.insert(
             evidence.id.clone(),

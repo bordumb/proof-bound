@@ -72,7 +72,7 @@ fn request() -> AdapterRequest {
             refinement_theorem: None,
             premises: Vec::new(),
             assumptions: Vec::new(),
-            expected_inventory: Vec::new(),
+            expected_inventory: vec!["Fixture.identity".to_owned()],
             inputs: vec!["crates/proofbound-adapter-lean/tests/fixtures/Semantic.lean".to_owned()],
             outputs: Vec::new(),
             environment_allowlist: Vec::new(),

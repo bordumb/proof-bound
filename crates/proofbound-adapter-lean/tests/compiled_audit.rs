@@ -55,7 +55,10 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
             refinement_theorem: None,
             premises: Vec::new(),
             assumptions: vec!["PBAC-NATIVE-SHA256-001".to_owned()],
-            expected_inventory: Vec::new(),
+            expected_inventory: vec![
+                "ProofboundArtifactDemo.Claims.publishedArtifactSoundness".to_owned(),
+                "ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness".to_owned(),
+            ],
             inputs: vec![
                 "demo/artifact-certificate/lean/ProofboundArtifactDemo/Certificate.lean".to_owned(),
                 "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean".to_owned(),

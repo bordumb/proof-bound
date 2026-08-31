@@ -1539,6 +1539,55 @@ fn bounded_check_from_registered_model(
     })
 }
 
+/// Return the one manifest-owned target inventory an adapter must establish.
+///
+/// Translation units own their complete typed closure in the registered
+/// translation manifest; `operation.targets` remains the separately checked
+/// ordered start-root list. Every other adapter uses `expected_inventory`. An
+/// empty registration is never evidence, regardless of subprocess exit
+/// status.
+fn registered_adapter_inventory(
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+) -> Result<Vec<String>> {
+    let inventory = if unit.adapter == AdapterKind::CharonAeneas {
+        let manifest = unit.operation.manifest.as_deref().with_context(|| {
+            format!(
+                "PB-ADAPTER-0016: translation unit {} has no registered manifest",
+                unit.id
+            )
+        })?;
+        let manifest_path = bundle.root.join(manifest);
+        let translation = bundle
+            .translation_units
+            .values()
+            .find(|(path, _)| path == &manifest_path)
+            .map(|(_, translation)| translation)
+            .with_context(|| {
+                format!("PB-ADAPTER-0016: translation manifest {manifest:?} is not registered")
+            })?;
+        translation.canonical_translated_closure_inventory()
+    } else {
+        unit.canonical_expected_inventory()
+    };
+    let unique = inventory.iter().collect::<BTreeSet<_>>();
+    if inventory.is_empty()
+        || inventory.len() > 100_000
+        || unique.len() != inventory.len()
+        || inventory.iter().any(|item| {
+            item.trim().is_empty()
+                || item.chars().count() > 4096
+                || item.chars().any(char::is_control)
+        })
+    {
+        bail!(
+            "PB-ADAPTER-0016: adapter unit {} has no exact nonempty bounded unique inventory registration",
+            unit.id
+        );
+    }
+    Ok(inventory)
+}
+
 fn execute_or_reuse(
     context: &ExecutionContext<'_>,
     unit: &EvidenceUnitManifest,
@@ -1570,7 +1619,7 @@ fn execute_or_reuse(
                 cache_key: cache_key.into(),
                 outcome: "verified-from-cache".into(),
                 evidence_sha256: Some(digest),
-                inventory: unit.expected_inventory.clone(),
+                inventory: registered_adapter_inventory(context.bundle, unit)?,
                 diagnostics: vec![AdapterDiagnostic {
                     code: "PB-CACHE-0002".into(),
                     message: format!("reused exact prior receipt {prior_digest}"),
@@ -1586,6 +1635,7 @@ fn execute_or_reuse(
     let response = adapter::invoke(context.root, unit, "check", request_unit)?;
     let record = response_to_record(
         context.root,
+        context.bundle,
         unit,
         registered_model,
         closure_ids,
@@ -1663,10 +1713,9 @@ fn reusable_cached_record(
         .map(|id| PremiseId::new(id.clone()))
         .collect::<Result<BTreeSet<_>, _>>()
         .ok()?;
-    let expected_inventory = unit
-        .expected_inventory
-        .iter()
-        .cloned()
+    let expected_inventory = registered_adapter_inventory(context.bundle, unit)
+        .ok()?
+        .into_iter()
         .collect::<BTreeSet<_>>();
     let expected_evaluation = unit
         .evaluation_mode
@@ -1694,7 +1743,7 @@ fn reusable_cached_record(
         || record.bounded_check.as_ref() != expected_bounded_check.as_ref()
         || trusted_transcription_record_matches_unit(unit, &record).is_err()
         || !has_observed_adapter_execution(&record)
-        || (!unit.expected_inventory.is_empty() && record.inventoried_targets != expected_inventory)
+        || record.inventoried_targets != expected_inventory
         || record.provenance.semantic_source_closure != parse_digest(semantic_closure).ok()?
         || record.provenance.additional_closures != additional_closures
         || expected_claims
@@ -1715,8 +1764,25 @@ fn reusable_cached_record(
     Some((record, reference.evidence_sha256))
 }
 
+/// Parse adapter-authored core evidence without allowing typed collection
+/// normalization to change what the adapter actually signed. In particular,
+/// `BTreeSet` deserialization must not hide duplicate or reordered inventory
+/// entries present in the wire value.
+fn canonical_direct_evidence_record(value: &serde_json::Value) -> Result<Option<EvidenceRecord>> {
+    let Ok(record) = serde_json::from_value::<EvidenceRecord>(value.clone()) else {
+        return Ok(None);
+    };
+    if canonical_json(&record)? != canonical_json(value)? {
+        bail!(
+            "PB-ADAPTER-0027: direct evidence wire value differs from its canonical typed encoding"
+        );
+    }
+    Ok(Some(record))
+}
+
 fn response_to_record(
     root: &Path,
+    bundle: &ProjectBundle,
     unit: &EvidenceUnitManifest,
     registered_model: Option<&ModelCheckUnitManifest>,
     closure_ids: &[String],
@@ -1735,6 +1801,13 @@ fn response_to_record(
                 .join("; ")
         );
     }
+    let expected_inventory = registered_adapter_inventory(bundle, unit)?;
+    if response.inventory != expected_inventory {
+        bail!(
+            "PB-ADAPTER-0016: adapter response inventory differs from the exact nonempty registration for {}",
+            unit.id
+        );
+    }
     let value = response
         .evidence
         .clone()
@@ -1748,18 +1821,26 @@ fn response_to_record(
         ManifestEvidenceKind::ArtifactSoundness | ManifestEvidenceKind::TrustedTranscription
     ) || unit.adapter == AdapterKind::Kani
     {
-        observation_to_record(root, unit, registered_model, closure_ids, &value)?
-    } else if let Ok(record) = serde_json::from_value::<EvidenceRecord>(value.clone()) {
+        observation_to_record(root, bundle, unit, registered_model, closure_ids, &value)?
+    } else if let Some(record) = canonical_direct_evidence_record(&value)? {
         record
     } else {
-        observation_to_record(root, unit, registered_model, closure_ids, &value)?
+        observation_to_record(root, bundle, unit, registered_model, closure_ids, &value)?
     };
-    bind_record_to_execution(root, unit, closure_ids, additional_closures, &mut record)?;
+    bind_record_to_execution(
+        root,
+        bundle,
+        unit,
+        closure_ids,
+        additional_closures,
+        &mut record,
+    )?;
     Ok(record)
 }
 
 fn bind_record_to_execution(
     root: &Path,
+    bundle: &ProjectBundle,
     unit: &EvidenceUnitManifest,
     closure_ids: &[String],
     additional_closures: &[ClosureIdentity],
@@ -1807,14 +1888,10 @@ fn bind_record_to_execution(
             unit.id
         );
     }
-    if !unit.expected_inventory.is_empty()
-        && record.inventoried_targets
-            != unit
-                .expected_inventory
-                .iter()
-                .cloned()
-                .collect::<BTreeSet<_>>()
-    {
+    let expected_inventory = registered_adapter_inventory(bundle, unit)?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    if record.inventoried_targets != expected_inventory {
         bail!(
             "PB-ADAPTER-0022: evidence inventory differs from configured unit {}",
             unit.id
@@ -2027,6 +2104,7 @@ struct UsageObservation {
 
 fn observation_to_record(
     root: &Path,
+    bundle: &ProjectBundle,
     unit: &EvidenceUnitManifest,
     registered_model: Option<&ModelCheckUnitManifest>,
     closure_ids: &[String],
@@ -2054,7 +2132,7 @@ fn observation_to_record(
         || observation.runs.iter().enumerate().any(|(index, run)| {
             run.command_index != index
                 || run.output_truncated
-                || (passed && run.exit_code.is_none())
+                || (passed && run.exit_code != Some(0))
                 || parse_digest(&run.stdout_sha256).is_err()
                 || parse_digest(&run.stderr_sha256).is_err()
                 || parse_digest(&run.normalized_output_sha256).is_err()
@@ -2062,20 +2140,9 @@ fn observation_to_record(
     {
         bail!("PB-ADAPTER-0015: observation run metadata is incomplete or truncated");
     }
-    if !unit.expected_inventory.is_empty() {
-        let expected = unit
-            .expected_inventory
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        let actual = observation
-            .inventory
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        if expected != actual {
-            bail!("PB-ADAPTER-0016: exact inventory mismatch for {}", unit.id);
-        }
+    let expected_inventory = registered_adapter_inventory(bundle, unit)?;
+    if observation.inventory != expected_inventory {
+        bail!("PB-ADAPTER-0016: exact inventory mismatch for {}", unit.id);
     }
     let kind = manifest_evidence_kind(unit.kind);
     let evidence_id = EvidenceId::new(canonical_reference(unit.kind, &unit.id))?;
@@ -5156,7 +5223,7 @@ mod tests {
         }))
         .unwrap();
         let translation = serde_json::from_value(json!({
-            "schema": "proofbound-translation-unit/2",
+            "schema": "proofbound-translation-unit/3",
             "id": "translation-cache",
             "pipeline": "charon-aeneas",
             "generated_dir": "generated/tree",
@@ -5174,6 +5241,9 @@ mod tests {
                 "start_from": ["subject::entry"],
                 "opaque": [],
                 "include": [],
+                "translated_closure": [
+                    {"kind": "function", "rust_name": "subject::entry"}
+                ],
                 "outputs": [
                     {
                         "kind": "lean-source",
@@ -5945,8 +6015,16 @@ mod tests {
             .parent()
             .and_then(Path::parent)
             .unwrap();
-        let record =
-            observation_to_record(root, &unit, None, &[digest("closure")], &observation).unwrap();
+        let bundle = cache_test_bundle(root);
+        let record = observation_to_record(
+            root,
+            &bundle,
+            &unit,
+            None,
+            &[digest("closure")],
+            &observation,
+        )
+        .unwrap();
         assert_eq!(record.provenance.commands.len(), 3);
         assert_eq!(record.provenance.runs.len(), 3);
         assert_eq!(record.provenance.runs[2].command_index, 2);
@@ -5984,6 +6062,7 @@ mod tests {
         assert!(!has_observed_adapter_execution(&forged_internal));
         let error = bind_record_to_execution(
             root,
+            &bundle,
             &unit,
             std::slice::from_ref(&closure),
             &[],
@@ -5997,6 +6076,7 @@ mod tests {
         failed_with_incomplete_run["runs"][0]["exit_code"] = serde_json::Value::Null;
         let failed_record = observation_to_record(
             root,
+            &bundle,
             &unit,
             None,
             std::slice::from_ref(&closure),
@@ -6011,8 +6091,15 @@ mod tests {
             .unwrap()
             .remove("peak_memory_bytes");
         assert!(
-            observation_to_record(root, &unit, None, &[digest("closure")], &missing_memory)
-                .is_err()
+            observation_to_record(
+                root,
+                &bundle,
+                &unit,
+                None,
+                &[digest("closure")],
+                &missing_memory,
+            )
+            .is_err()
         );
 
         let mut missing_exit = observation.clone();
@@ -6021,7 +6108,29 @@ mod tests {
             .unwrap()
             .remove("exit_code");
         assert!(
-            observation_to_record(root, &unit, None, &[digest("closure")], &missing_exit).is_err()
+            observation_to_record(
+                root,
+                &bundle,
+                &unit,
+                None,
+                &[digest("closure")],
+                &missing_exit,
+            )
+            .is_err()
+        );
+
+        let mut passing_nonzero_exit = observation.clone();
+        passing_nonzero_exit["runs"][1]["exit_code"] = json!(1);
+        assert!(
+            observation_to_record(
+                root,
+                &bundle,
+                &unit,
+                None,
+                &[digest("closure")],
+                &passing_nonzero_exit,
+            )
+            .is_err()
         );
 
         let mut missing_environment_identity = observation.clone();
@@ -6032,6 +6141,7 @@ mod tests {
         assert!(
             observation_to_record(
                 root,
+                &bundle,
                 &unit,
                 None,
                 &[digest("closure")],
@@ -6045,6 +6155,7 @@ mod tests {
         assert!(
             observation_to_record(
                 root,
+                &bundle,
                 &unit,
                 None,
                 &[digest("closure")],
@@ -6166,9 +6277,11 @@ mod tests {
             .parent()
             .and_then(Path::parent)
             .unwrap();
+        let bundle = cache_test_bundle(root);
         let closure = digest("closure");
         let record = observation_to_record(
             root,
+            &bundle,
             &unit,
             None,
             std::slice::from_ref(&closure),
@@ -6209,6 +6322,7 @@ mod tests {
         assert!(
             observation_to_record(
                 root,
+                &bundle,
                 &unit,
                 None,
                 std::slice::from_ref(&closure),
@@ -6223,6 +6337,7 @@ mod tests {
         assert!(
             observation_to_record(
                 root,
+                &bundle,
                 &unit,
                 None,
                 std::slice::from_ref(&closure),
@@ -6238,6 +6353,7 @@ mod tests {
         mismatched_candidate["generated_artifacts"][1]["sha256"] = json!(wrong_digest);
         let invalid = observation_to_record(
             root,
+            &bundle,
             &unit,
             None,
             std::slice::from_ref(&closure),
@@ -6293,6 +6409,216 @@ mod tests {
                 &canonical_json(&cache_material).unwrap()
             )
         );
+    }
+
+    fn inventory_protocol_unit() -> EvidenceUnitManifest {
+        serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/1",
+            "id": "inventory-protocol",
+            "adapter": "rust-test",
+            "kind": "example-test",
+            "claims": ["CLAIM-ONE"],
+            "tier": 0,
+            "operation": {
+                "type": "cargo-test",
+                "package": "subject",
+                "targets": ["alpha", "beta"]
+            },
+            "expected_inventory": ["alpha", "beta"],
+            "inputs": [],
+            "outputs": [],
+            "environment_allowlist": [],
+            "resource_budget": {"time_seconds":1,"disk_bytes":1,"memory_bytes":1}
+        }))
+        .unwrap()
+    }
+
+    fn direct_example_record_value(inventory: Vec<&str>) -> serde_json::Value {
+        let digest = format!("sha256:{}", "00".repeat(32));
+        json!({
+            "schema": "proofbound-evidence/2",
+            "id": "example-test:inventory-protocol",
+            "node_id": "evidence:example-test:inventory-protocol",
+            "unit_id": "unit:inventory-protocol",
+            "kind": "example-test",
+            "status": "passed",
+            "claims": ["CLAIM-ONE"],
+            "inventoried_targets": inventory,
+            "assumptions": [],
+            "premises": [],
+            "provenance": {
+                "project_revision": "adapter-observed-revision",
+                "tree_state": "dirty",
+                "semantic_source_closure": digest,
+                "additional_closures": [],
+                "input_artifacts": [],
+                "generated_artifacts": [],
+                "tool": {"name":"cargo","version":"1","identity_sha256":digest},
+                "adapter": {"name":"proofbound-adapter-test","version":"1","identity_sha256":digest},
+                "execution_kind": "observed-processes",
+                "commands": [{"program":"cargo","args":["test"],"environment_allowlist":[]}],
+                "runs": [{
+                    "command_index": 0,
+                    "exit_code": 0,
+                    "stdout_sha256": digest,
+                    "stderr_sha256": digest,
+                    "normalized_output_sha256": digest,
+                    "output_truncated": false,
+                    "duration_ms": 1
+                }],
+                "normalization": "cargo-test-output/1",
+                "reproduction_command": {"program":"cargo","args":["test"],"environment_allowlist":[]},
+                "started_unix_ms": 1,
+                "completed_unix_ms": 2,
+                "deterministic_result_identity": digest,
+                "unit_configuration_sha256": digest,
+                "resource_budget": {"time_ms":1,"disk_bytes":1,"memory_bytes":1},
+                "resource_usage": {"time_ms":1,"peak_disk_bytes":1,"peak_memory_bytes":1},
+                "cache_origin": "executed"
+            }
+        })
+    }
+
+    #[test]
+    fn direct_record_wire_inventory_must_equal_its_canonical_typed_encoding() {
+        let canonical = direct_example_record_value(vec!["alpha", "beta"]);
+        assert!(
+            canonical_direct_evidence_record(&canonical)
+                .unwrap()
+                .is_some()
+        );
+
+        for inventory in [vec!["alpha", "alpha", "beta"], vec!["beta", "alpha"]] {
+            let error = canonical_direct_evidence_record(&direct_example_record_value(inventory))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("PB-ADAPTER-0027"), "{error}");
+        }
+    }
+
+    #[test]
+    fn response_inventory_rejects_missing_extra_duplicate_order_and_inner_skew() {
+        let unit = inventory_protocol_unit();
+        let bundle = cache_test_bundle(Path::new("."));
+        let mut source_ordered_unit = unit.clone();
+        source_ordered_unit.expected_inventory = vec!["beta".to_owned(), "alpha".to_owned()];
+        assert_eq!(
+            registered_adapter_inventory(&bundle, &source_ordered_unit).unwrap(),
+            ["alpha", "beta"]
+        );
+        let response = |inventory: Vec<&str>, inner: Vec<&str>| AdapterResponse {
+            schema: "proofbound-adapter-protocol/1".into(),
+            message_type: "response".into(),
+            request_id: "0123456789abcdef0123456789abcdef".into(),
+            adapter: "rust-test".into(),
+            success: true,
+            evidence: Some(direct_example_record_value(inner)),
+            inventory: inventory.into_iter().map(str::to_owned).collect(),
+            diagnostics: Vec::new(),
+        };
+
+        for outer in [
+            vec!["alpha"],
+            vec!["alpha", "beta", "gamma"],
+            vec!["alpha", "alpha", "beta"],
+            vec!["beta", "alpha"],
+        ] {
+            let error = response_to_record(
+                Path::new("."),
+                &bundle,
+                &unit,
+                None,
+                &[],
+                &[],
+                &response(outer, vec!["alpha", "beta"]),
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains("PB-ADAPTER-0016"), "{error}");
+        }
+
+        let error = response_to_record(
+            Path::new("."),
+            &bundle,
+            &unit,
+            None,
+            &[],
+            &[],
+            &response(vec!["alpha", "beta"], vec!["alpha"]),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("PB-ADAPTER-0022"), "{error}");
+    }
+
+    #[test]
+    fn cache_reuse_rejects_duplicate_or_reordered_record_inventory_bytes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = ContentAddressedStore::new(temporary.path().join("evidence"));
+        let unit = inventory_protocol_unit();
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap();
+        let bundle = cache_test_bundle(repository_root);
+        let context = ExecutionContext {
+            root: repository_root,
+            state_root: temporary.path(),
+            store: &store,
+            bundle: &bundle,
+        };
+        let cache_key = format!("sha256:{}", "11".repeat(32));
+        let closure = format!("sha256:{}", "00".repeat(32));
+        let cache_path = temporary.path().join("cache-reference.json");
+
+        let canonical_record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["alpha", "beta"])).unwrap();
+        let canonical_digest = store.put(EVIDENCE_DOMAIN, &canonical_record).unwrap();
+        write_canonical(
+            &cache_path,
+            &CacheReference {
+                schema: "proofbound-cache-ref/1".into(),
+                cache_key: cache_key.clone(),
+                evidence_sha256: canonical_digest,
+            },
+        )
+        .unwrap();
+        assert!(
+            reusable_cached_record(
+                &context,
+                &unit,
+                std::slice::from_ref(&closure),
+                &[],
+                &cache_key,
+                &cache_path,
+            )
+            .is_some()
+        );
+
+        for inventory in [vec!["alpha", "alpha", "beta"], vec!["beta", "alpha"]] {
+            let bytes = canonical_json(&direct_example_record_value(inventory)).unwrap();
+            let digest = store.put_bytes(EVIDENCE_DOMAIN, &bytes).unwrap();
+            write_canonical(
+                &cache_path,
+                &CacheReference {
+                    schema: "proofbound-cache-ref/1".into(),
+                    cache_key: cache_key.clone(),
+                    evidence_sha256: digest,
+                },
+            )
+            .unwrap();
+            assert!(
+                reusable_cached_record(
+                    &context,
+                    &unit,
+                    std::slice::from_ref(&closure),
+                    &[],
+                    &cache_key,
+                    &cache_path,
+                )
+                .is_none()
+            );
+        }
     }
 
     #[test]
@@ -6387,8 +6713,9 @@ mod tests {
             inventory: vec!["published-artifact".to_owned()],
             diagnostics: vec![],
         };
-        let error =
-            response_to_record(Path::new("."), &unit, None, &[], &[], &response).unwrap_err();
+        let bundle = cache_test_bundle(Path::new("."));
+        let error = response_to_record(Path::new("."), &bundle, &unit, None, &[], &[], &response)
+            .unwrap_err();
         assert!(error.to_string().contains("PB-ADAPTER-0012"));
     }
 
@@ -6405,8 +6732,9 @@ mod tests {
             inventory: Vec::new(),
             diagnostics: Vec::new(),
         };
-        let error =
-            response_to_record(Path::new("."), &unit, None, &[], &[], &response).unwrap_err();
+        let bundle = cache_test_bundle(Path::new("."));
+        let error = response_to_record(Path::new("."), &bundle, &unit, None, &[], &[], &response)
+            .unwrap_err();
         assert!(error.to_string().contains("adapter rejected unit failed"));
     }
 

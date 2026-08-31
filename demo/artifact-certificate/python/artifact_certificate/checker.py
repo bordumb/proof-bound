@@ -262,29 +262,27 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        certificate = inspect_path(args.certificate)
-    except OSError as error:
-        print(
+        inspect_path(args.certificate)
+    except OSError:
+        sys.stdout.write(
             json.dumps(
                 {
-                    "schema": "pbac-check-result/1",
+                    "schema": "proofbound-independent-check-result/1",
                     "accepted": False,
-                    "code": "PBAC_E_IO",
-                    "message": str(error),
+                    "inventory": [],
                 },
                 sort_keys=True,
                 separators=(",", ":"),
             )
         )
         return 3
-    except Rejection as error:
-        print(
+    except Rejection:
+        sys.stdout.write(
             json.dumps(
                 {
-                    "schema": "pbac-check-result/1",
+                    "schema": "proofbound-independent-check-result/1",
                     "accepted": False,
-                    "code": error.code,
-                    "offset": error.offset,
+                    "inventory": [],
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -292,13 +290,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    print(
+    sys.stdout.write(
         json.dumps(
             {
-                "schema": "pbac-check-result/1",
+                "schema": "proofbound-independent-check-result/1",
                 "accepted": True,
-                "entries": len(certificate.entries),
-                "target": certificate.target,
+                "inventory": [args.certificate.name],
             },
             sort_keys=True,
             separators=(",", ":"),

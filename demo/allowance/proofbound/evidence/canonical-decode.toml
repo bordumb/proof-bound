@@ -6,6 +6,7 @@ claims = ["DEMO-TRANSFER-006"]
 tier = 2
 evaluation_mode = "kernel"
 theorem = "ProofboundDemo.Claims.Canonical.acceptedFixture_decodes"
+expected_inventory = ["ProofboundDemo.Claims.Canonical.acceptedFixture_decodes"]
 inputs = [
   "demo/allowance/fixtures/v1/accepted.bin",
   "demo/allowance/lean/ProofboundDemo/Canonical.lean",

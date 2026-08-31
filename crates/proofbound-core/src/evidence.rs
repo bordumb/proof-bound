@@ -491,11 +491,13 @@ impl EvidenceProvenance {
                     "capture and hash the complete stdout, stderr, and normalized output",
                 )));
             }
-            if status == EvidenceStatus::Passed && run.exit_code.is_none() {
+            if status == EvidenceStatus::Passed && run.exit_code != Some(0) {
                 errors.push(contextual(StructuredError::new(
                     ErrorCode::PbCoreInvalidEvidence,
-                    format!("passing evidence run {index} has no completed exit status"),
-                    "record the process exit status for every completed passing evidence run",
+                    format!(
+                        "passing evidence run {index} did not complete with exit status zero"
+                    ),
+                    "require every process contributing to passed evidence to complete successfully with exit status zero",
                 )));
             }
         }
@@ -926,6 +928,23 @@ impl EvidenceRecord {
             ));
         }
 
+        let inventory_valid = self.inventoried_targets.len() <= 100_000
+            && self.inventoried_targets.iter().all(|target| {
+                !target.trim().is_empty()
+                    && target.chars().count() <= 4096
+                    && !target.chars().any(char::is_control)
+            });
+        if !inventory_valid
+            || (self.status == EvidenceStatus::Passed
+                && self.provenance.execution_kind == ExecutionKind::ObservedProcesses
+                && self.inventoried_targets.is_empty())
+        {
+            errors.push(error(
+                "observed evidence lacks a nonempty bounded exact target inventory".into(),
+                "record 1 through 100000 unique nonblank control-free target identities of at most 4096 characters for every passed observed-process evidence record",
+            ));
+        }
+
         match self.kind {
             EvidenceKind::Theorem => {
                 if self.evaluation_mode.is_none() || self.theorem.is_none() {
@@ -946,6 +965,7 @@ impl EvidenceRecord {
                             .is_ok_and(|digest| digest == theorem.statement_sha256);
                     if theorem.attributed_claim != *claim_id
                         || theorem.declaration.trim().is_empty()
+                        || !self.inventoried_targets.contains(&theorem.declaration)
                         || !wire_identity_valid
                         || !theorem.axiom_audit_passed
                         || theorem.contains_sorry_ax
@@ -1020,6 +1040,21 @@ impl EvidenceRecord {
                             "trusted transcription aliases two artifact roles to one logical name"
                                 .into(),
                             "give source, committed transcription, candidate, re-encoded source, and driver distinct logical names",
+                        ));
+                    }
+                    let expected_inventory = BTreeSet::from([
+                        record.source.logical_name.as_str().to_owned(),
+                        record
+                            .committed_transcription
+                            .logical_name
+                            .as_str()
+                            .to_owned(),
+                    ]);
+                    if self.inventoried_targets != expected_inventory {
+                        errors.push(error(
+                            "trusted transcription target inventory does not exactly name its source and committed transcription"
+                                .into(),
+                            "derive the exact two-entry inventory from the typed trusted-transcription record",
                         ));
                     }
                     if self.provenance.input_artifacts.len() != 3 {
@@ -1157,6 +1192,7 @@ impl EvidenceRecord {
                     if !check.domain.description.trim().is_empty()
                         && !check.solver.trim().is_empty()
                         && !check.harnesses.is_empty()
+                        && check.harnesses == self.inventoried_targets
                         && check.unwind_bounds.keys().eq(check.harnesses.iter())
                         && check.unwind_bounds.values().all(|bound| *bound > 0)
                         && check.assumptions.len() <= 4096

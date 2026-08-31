@@ -1245,11 +1245,11 @@ fn validate_provenance(id: &str, evidence: &EvidenceReceipt, issues: &mut Vec<Ve
                 format!("execution run {index} reports truncated output"),
             );
         }
-        if evidence.outcome == EvidenceOutcome::Passed && run.exit_code.is_none() {
+        if evidence.outcome == EvidenceOutcome::Passed && run.exit_code != Some(0) {
             evidence_issue(
                 issues,
                 id,
-                format!("passed evidence has incomplete execution run {index}"),
+                format!("passed evidence run {index} did not complete with exit status zero"),
             );
         }
         for (label, digest) in [
@@ -1448,6 +1448,23 @@ fn validate_evidence_shape(
             ),
         );
     }
+    let inventory_valid = evidence.inventoried_targets.len() <= 100_000
+        && evidence.inventoried_targets.iter().all(|target| {
+            !target.trim().is_empty()
+                && target.chars().count() <= 4096
+                && !target.chars().any(char::is_control)
+        });
+    if !inventory_valid
+        || (evidence.outcome == EvidenceOutcome::Passed
+            && evidence.provenance.execution_kind == ExecutionKind::ObservedProcesses
+            && evidence.inventoried_targets.is_empty())
+    {
+        evidence_issue(
+            issues,
+            id,
+            "passed observed-process evidence requires a nonempty bounded exact target inventory",
+        );
+    }
     let shape = [
         evidence.theorem.is_some(),
         evidence.artifact_binding.is_some(),
@@ -1495,6 +1512,7 @@ fn validate_evidence_shape(
                     && statement_digest(&theorem.statement_wire)
                         .is_ok_and(|digest| digest == theorem.statement_sha256);
                 if theorem.declaration.trim().is_empty()
+                    || !evidence.inventoried_targets.contains(&theorem.declaration)
                     || !statement_identity_valid
                     || theorem.attributed_claim.trim().is_empty()
                     || !evidence.claim_ids.contains(&theorem.attributed_claim)
@@ -1564,6 +1582,17 @@ fn validate_evidence_shape(
                         issues,
                         id,
                         "trusted transcription aliases two artifact roles to one logical name",
+                    );
+                }
+                let expected_inventory = BTreeSet::from([
+                    item.source.logical_name.clone(),
+                    item.committed_transcription.logical_name.clone(),
+                ]);
+                if evidence.inventoried_targets != expected_inventory {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "trusted transcription target inventory does not exactly name its source and committed transcription",
                     );
                 }
                 if evidence.provenance.input_artifacts.len() != 3 {
@@ -1707,6 +1736,7 @@ fn validate_evidence_shape(
                         && valid_digest(&item.domain.registration_sha256)
                         && !item.solver.trim().is_empty()
                         && !item.harnesses.is_empty()
+                        && item.harnesses == evidence.inventoried_targets
                         && item.unwind_bounds.keys().eq(item.harnesses.iter())
                         && item.unwind_bounds.values().all(|bound| *bound > 0)
                         && item.assumptions.len() <= 4096

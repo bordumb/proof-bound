@@ -59,6 +59,10 @@ fn attach_trusted_transcription(record: &mut EvidenceRecord, prefix: &str) {
         &format!("driver-bytes:{prefix}"),
         24,
     );
+    record.inventoried_targets = BTreeSet::from([
+        source.logical_name.as_str().to_owned(),
+        committed_transcription.logical_name.as_str().to_owned(),
+    ]);
     record.provenance.input_artifacts.extend([
         source.clone(),
         committed_transcription.clone(),
@@ -241,7 +245,7 @@ fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: BTreeSet::new(),
+        inventoried_targets: BTreeSet::from([format!("{id}::registered")]),
         assumptions: BTreeSet::new(),
         premises: BTreeSet::new(),
         open_obligation: None,
@@ -303,8 +307,10 @@ fn theorem_record(id: &str, mode: crate::EvaluationMode) -> EvidenceRecord {
     let mut record = basic_record(id, EvidenceKind::Theorem, &format!("theorem:{id}"));
     record.evaluation_mode = Some(mode);
     let statement_wire = binding_statement(&claim_id(), &bound_artifact());
+    let declaration = format!("Proofbound.Tests.{id}");
+    record.inventoried_targets = BTreeSet::from([declaration.clone()]);
     record.theorem = Some(TheoremEvidence {
-        declaration: format!("Proofbound.Tests.{id}"),
+        declaration,
         statement_encoding: "lean-expr-cbor/1".into(),
         statement_sha256: crate::lean_statement_wire_digest(&statement_wire).unwrap(),
         statement_wire,
@@ -330,6 +336,7 @@ fn domain() -> BoundedDomain {
 
 fn bounded_record(id: &str) -> EvidenceRecord {
     let mut record = basic_record(id, EvidenceKind::BoundedCheck, &format!("model:{id}"));
+    record.inventoried_targets = BTreeSet::from(["check_all".into()]);
     record.bounded_check = Some(BoundedCheckEvidence {
         domain: domain(),
         solver: "cadical 2".into(),
@@ -670,6 +677,20 @@ fn multi_command_provenance_rejects_index_drift_truncation_and_incomplete_passes
     let mut incomplete = valid.clone();
     incomplete.provenance.runs[1].exit_code = None;
     assert!(incomplete.validate(&claim_id()).is_err());
+
+    let mut nonzero = valid.clone();
+    nonzero.provenance.runs[1].exit_code = Some(1);
+    assert!(nonzero.validate(&claim_id()).is_err());
+
+    let mut empty_inventory = valid.clone();
+    empty_inventory.inventoried_targets.clear();
+    assert!(empty_inventory.validate(&claim_id()).is_err());
+
+    let mut controlled_inventory = valid.clone();
+    controlled_inventory
+        .inventoried_targets
+        .insert("tests::bad\nname".into());
+    assert!(controlled_inventory.validate(&claim_id()).is_err());
 
     let mut missing_run = valid.clone();
     missing_run.provenance.runs.pop();

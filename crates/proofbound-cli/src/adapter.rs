@@ -132,26 +132,22 @@ fn parse_response(
     if !object.contains_key("evidence") {
         bail!("PB-ADAPTER-0008: adapter response omitted required evidence field");
     }
-    if response.success && response.evidence.is_none() && request_operation != "update" {
-        bail!("PB-ADAPTER-0008: non-update adapter success omitted evidence");
-    }
-    if !response.success && response.evidence.is_some() {
-        bail!("PB-ADAPTER-0008: failed adapter response must not carry evidence");
-    }
-    validate_response_schema(&response)?;
+    validate_response_schema(&response, request_operation)?;
     Ok(response)
 }
 
-fn validate_response_schema(response: &AdapterResponse) -> Result<()> {
+fn validate_response_schema(response: &AdapterResponse, request_operation: &str) -> Result<()> {
     if response.inventory.len() > 100_000
-        || response
-            .inventory
-            .iter()
-            .collect::<std::collections::BTreeSet<_>>()
-            .len()
-            != response.inventory.len()
+        || !response.inventory.windows(2).all(|pair| pair[0] < pair[1])
+        || response.inventory.iter().any(|item| {
+            item.trim().is_empty()
+                || item.chars().count() > 4096
+                || item.chars().any(char::is_control)
+        })
     {
-        bail!("PB-ADAPTER-0008: adapter inventory exceeds limits or contains duplicates");
+        bail!(
+            "PB-ADAPTER-0008: adapter inventory must be a bounded strict-lexical set of valid targets"
+        );
     }
     if response.diagnostics.len() > 4_096 {
         bail!("PB-ADAPTER-0008: adapter diagnostics exceed the protocol limit");
@@ -183,7 +179,75 @@ fn validate_response_schema(response: &AdapterResponse) -> Result<()> {
             bail!("PB-ADAPTER-0008: adapter evidence has an unsupported schema");
         }
     }
+    validate_operation_response(response, request_operation)?;
     Ok(())
+}
+
+fn validate_operation_response(response: &AdapterResponse, operation: &str) -> Result<()> {
+    if !response.success {
+        if response.evidence.is_some() || !response.inventory.is_empty() {
+            bail!(
+                "PB-ADAPTER-0008: failed adapter response must carry null evidence and an empty inventory"
+            );
+        }
+        return Ok(());
+    }
+
+    match operation {
+        "doctor" if response.evidence.is_some() || !response.inventory.is_empty() => bail!(
+            "PB-ADAPTER-0008: successful doctor response must carry null evidence and an empty inventory"
+        ),
+        "inventory" if response.evidence.is_some() || response.inventory.is_empty() => bail!(
+            "PB-ADAPTER-0008: successful inventory response must carry null evidence and an exact nonempty inventory"
+        ),
+        "check" | "reproduce" => {
+            let evidence = response.evidence.as_ref().context(
+                "PB-ADAPTER-0008: successful evidence response omitted passing evidence",
+            )?;
+            if response.inventory.is_empty() || !evidence_reports_passed(evidence)? {
+                bail!(
+                    "PB-ADAPTER-0008: successful evidence response must carry passing evidence and an exact nonempty inventory"
+                );
+            }
+        }
+        "update" => {
+            if let Some(evidence) = &response.evidence
+                && evidence_reports_passed(evidence)?
+            {
+                bail!("PB-ADAPTER-0008: update response must not carry passing evidence");
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn evidence_reports_passed(evidence: &serde_json::Value) -> Result<bool> {
+    let object = evidence
+        .as_object()
+        .context("PB-ADAPTER-0008: adapter evidence must be an object")?;
+    match object.get("schema").and_then(serde_json::Value::as_str) {
+        Some("proofbound-evidence/2") => {
+            let status = object
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .context("PB-ADAPTER-0008: adapter evidence omitted its typed status")?;
+            match status {
+                "passed" => Ok(true),
+                "failed" | "missing" | "drifted" | "unregistered" | "ambiguous" | "corrupt"
+                | "skipped" | "unavailable" => Ok(false),
+                _ => bail!("PB-ADAPTER-0008: adapter evidence has an invalid typed status"),
+            }
+        }
+        Some("proofbound-adapter-observation/1") => {
+            match object.get("outcome").and_then(serde_json::Value::as_str) {
+                Some("passed") => Ok(true),
+                Some("failed") => Ok(false),
+                _ => bail!("PB-ADAPTER-0008: adapter observation has an invalid typed outcome"),
+            }
+        }
+        _ => bail!("PB-ADAPTER-0008: adapter evidence has an unsupported schema"),
+    }
 }
 
 fn valid_diagnostic_code(code: &str) -> bool {
@@ -359,7 +423,7 @@ mod tests {
             "adapter": "lean",
             "success": success,
             "evidence": evidence,
-            "inventory": [],
+            "inventory": ["Demo.claim"],
             "diagnostics": [],
         })
     }
@@ -398,11 +462,9 @@ mod tests {
             )
             .is_err()
         );
-    }
 
-    #[test]
-    fn only_update_success_may_omit_evidence() {
-        let bytes = canonical_json(&protocol_value(true, serde_json::Value::Null)).unwrap();
+        let mut inventoried_failure = protocol_value(false, serde_json::Value::Null);
+        let bytes = canonical_json(&inventoried_failure).unwrap();
         assert!(
             parse_response(
                 &bytes,
@@ -413,15 +475,160 @@ mod tests {
             )
             .is_err()
         );
+        inventoried_failure["inventory"] = serde_json::json!([]);
+        let bytes = canonical_json(&inventoried_failure).unwrap();
         assert!(
             parse_response(
                 &bytes,
                 &[],
                 "0123456789abcdef0123456789abcdef",
                 "lean",
-                "update",
+                "check",
             )
             .is_ok()
+        );
+    }
+
+    #[test]
+    fn successful_operations_have_disjoint_evidence_and_inventory_shapes() {
+        let parse = |value: &serde_json::Value, operation: &str| {
+            parse_response(
+                &canonical_json(value).unwrap(),
+                &[],
+                "0123456789abcdef0123456789abcdef",
+                "lean",
+                operation,
+            )
+        };
+
+        let mut doctor = protocol_value(true, serde_json::Value::Null);
+        doctor["inventory"] = serde_json::json!([]);
+        assert!(parse(&doctor, "doctor").is_ok());
+        doctor["inventory"] = serde_json::json!(["Demo.claim"]);
+        assert!(parse(&doctor, "doctor").is_err());
+
+        let inventory = protocol_value(true, serde_json::Value::Null);
+        assert!(parse(&inventory, "inventory").is_ok());
+        assert!(
+            parse(
+                &protocol_value(true, serde_json::json!({"schema": "proofbound-evidence/2"})),
+                "inventory"
+            )
+            .is_err()
+        );
+
+        let evidence = protocol_value(
+            true,
+            serde_json::json!({
+                "schema": "proofbound-evidence/2",
+                "status": "passed"
+            }),
+        );
+        assert!(parse(&evidence, "check").is_ok());
+        assert!(parse(&evidence, "reproduce").is_ok());
+        assert!(parse(&protocol_value(true, serde_json::Value::Null), "check").is_err());
+        assert!(
+            parse(
+                &protocol_value(
+                    true,
+                    serde_json::json!({
+                        "schema": "proofbound-evidence/2",
+                        "status": "failed"
+                    })
+                ),
+                "check"
+            )
+            .is_err()
+        );
+
+        assert!(
+            parse(
+                &protocol_value(
+                    true,
+                    serde_json::json!({
+                        "schema": "proofbound-evidence/2",
+                        "status": "passed"
+                    })
+                ),
+                "update"
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                &protocol_value(
+                    true,
+                    serde_json::json!({
+                        "schema": "proofbound-evidence/2",
+                        "status": "drifted"
+                    })
+                ),
+                "update"
+            )
+            .is_ok()
+        );
+        assert!(parse(&protocol_value(true, serde_json::Value::Null), "update").is_ok());
+    }
+
+    #[test]
+    fn successful_inventory_is_nonempty_valid_unique_and_strictly_sorted() {
+        let mut value = protocol_value(
+            true,
+            serde_json::json!({
+                "schema": "proofbound-evidence/2",
+                "status": "passed"
+            }),
+        );
+        value["inventory"] = serde_json::json!([]);
+        let bytes = canonical_json(&value).unwrap();
+        assert!(
+            parse_response(
+                &bytes,
+                &[],
+                "0123456789abcdef0123456789abcdef",
+                "lean",
+                "check",
+            )
+            .is_err()
+        );
+
+        value["inventory"] = serde_json::json!(["b", "a"]);
+        let bytes = canonical_json(&value).unwrap();
+        assert!(
+            parse_response(
+                &bytes,
+                &[],
+                "0123456789abcdef0123456789abcdef",
+                "lean",
+                "check",
+            )
+            .is_err()
+        );
+
+        value["inventory"] = serde_json::json!(["a", "a"]);
+        let bytes = canonical_json(&value).unwrap();
+        assert!(
+            parse_response(
+                &bytes,
+                &[],
+                "0123456789abcdef0123456789abcdef",
+                "lean",
+                "check",
+            )
+            .is_err()
+        );
+
+        value["inventory"] = serde_json::json!(["bad\nname"]);
+        let bytes = canonical_json(&value).unwrap();
+        assert!(
+            parse_response(
+                &bytes,
+                &[],
+                "0123456789abcdef0123456789abcdef",
+                "lean",
+                "check",
+            )
+            .is_err()
         );
     }
 }

@@ -105,6 +105,13 @@ fn trusted_transcription(
     )
 }
 
+fn trusted_transcription_inventory(detail: &TrustedTranscriptionReceipt) -> BTreeSet<String> {
+    BTreeSet::from([
+        detail.source.logical_name.clone(),
+        detail.committed_transcription.logical_name.clone(),
+    ])
+}
+
 fn string_literal(value: &str) -> serde_json::Value {
     serde_json::json!([7, [1, value]])
 }
@@ -371,7 +378,7 @@ fn theorem_release() -> CompiledRelease {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: BTreeSet::from(["Synthetic.theorem".into()]),
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -400,7 +407,7 @@ fn bounded_release() -> CompiledRelease {
     record.node_id = "model-check:m".into();
     record.unit_id = "unit:bounded".into();
     record.kind = EvidenceKind::BoundedCheck;
-    record.inventoried_targets.clear();
+    record.inventoried_targets = BTreeSet::from(["check_all".into()]);
     record.bounded_check = Some(BoundedCheckReceipt {
         domain: BoundedDomain {
             id: "domain:tiny".into(),
@@ -901,7 +908,7 @@ fn unresolved_assumption_cannot_be_omitted_from_output() {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: BTreeSet::from(["review:runtime-host".into()]),
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -1132,7 +1139,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: BTreeSet::from(["artifact.bin".into()]),
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -1140,6 +1147,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
     });
     let (trusted_transcription, transcription_provenance) =
         trusted_transcription("transcription", &release.closures[0].sha256);
+    let transcription_inventory = trusted_transcription_inventory(&trusted_transcription);
     let transcription = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: "unit:transcription".into(),
@@ -1157,7 +1165,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: transcription_inventory,
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -1207,6 +1215,7 @@ fn transcribed_release() -> CompiledRelease {
         },
     ]);
     let (detail, provenance) = trusted_transcription("transcription", &release.closures[0].sha256);
+    let transcription_inventory = trusted_transcription_inventory(&detail);
     let transcription = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: "unit:transcription".into(),
@@ -1224,7 +1233,7 @@ fn transcribed_release() -> CompiledRelease {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: transcription_inventory,
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -1523,7 +1532,7 @@ fn command_run_order_coverage_completion_and_output_are_fail_closed() {
             .any(|issue| issue.message.contains("truncated output"))
     );
 
-    let mut incomplete = complete;
+    let mut incomplete = complete.clone();
     incomplete.evidence[0].record.provenance.runs[0].exit_code = None;
     rehash_first_evidence(&mut incomplete);
     let error = verify_compiled_release(&incomplete).unwrap_err();
@@ -1531,8 +1540,32 @@ fn command_run_order_coverage_completion_and_output_are_fail_closed() {
         error
             .issues
             .iter()
-            .any(|issue| issue.message.contains("incomplete execution run"))
+            .any(|issue| issue.message.contains("exit status zero"))
     );
+
+    let mut nonzero = complete.clone();
+    nonzero.evidence[0].record.provenance.runs[0].exit_code = Some(1);
+    rehash_first_evidence(&mut nonzero);
+    let error = verify_compiled_release(&nonzero).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("exit status zero"))
+    );
+
+    let mut empty_inventory = complete;
+    empty_inventory.evidence[0]
+        .record
+        .inventoried_targets
+        .clear();
+    rehash_first_evidence(&mut empty_inventory);
+    let error = verify_compiled_release(&empty_inventory).unwrap_err();
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("nonempty bounded exact target inventory")
+    }));
 }
 
 #[test]
@@ -1960,6 +1993,7 @@ fn unit_scoped_transcription_tcb_roles_allow_distinct_drivers() {
             proof_environment: None,
         },
     ]);
+    let second_inventory = trusted_transcription_inventory(&detail);
     let second = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V2.into(),
         unit_id: "unit:transcription-two".into(),
@@ -1977,7 +2011,7 @@ fn unit_scoped_transcription_tcb_roles_allow_distinct_drivers() {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: second_inventory,
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -2269,7 +2303,11 @@ fn empty_raw_record(
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: BTreeSet::new(),
+        inventoried_targets: if raw.outcome == "passed" {
+            BTreeSet::from([format!("{}::registered", raw.id)])
+        } else {
+            BTreeSet::new()
+        },
         assumptions: BTreeSet::new(),
         premises: raw.premises.iter().cloned().collect(),
         open_obligation: None,
@@ -2353,6 +2391,7 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                     unwind_bounds: BTreeMap::from([("check_all".into(), 1)]),
                     assumptions: Vec::new(),
                 });
+                record.inventoried_targets = BTreeSet::from(["check_all".into()]);
                 (record, NodeKind::ModelCheckUnit)
             }
             "exhaustive-check" => {
@@ -2400,8 +2439,10 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                 } else {
                     plain_statement(&format!("Corpus.Unrelated.{}", raw.id))
                 };
+                let declaration = format!("Corpus.{}", raw.id);
+                record.inventoried_targets = BTreeSet::from([declaration.clone()]);
                 record.theorem = Some(TheoremReceipt {
-                    declaration: format!("Corpus.{}", raw.id),
+                    declaration,
                     statement_encoding: "lean-expr-cbor/1".into(),
                     statement_sha256: lean_statement_wire_digest(&statement_wire).unwrap(),
                     statement_wire,
@@ -2454,6 +2495,7 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                 record.binding_mode = Some(BindingMode::ExternalRoundTrip);
                 let (detail, provenance) =
                     trusted_transcription(&raw.id, &release.closures[0].sha256);
+                record.inventoried_targets = trusted_transcription_inventory(&detail);
                 record.trusted_transcription = Some(detail);
                 record.provenance = provenance;
                 for suffix in ["transcriber", "reencoder"] {

@@ -242,7 +242,9 @@ fn compare_manifest_path(
 fn is_translation_schema(schema: &str) -> bool {
     matches!(
         schema,
-        "proofbound-translation-unit/1" | "proofbound-translation-unit/2"
+        "proofbound-translation-unit/1"
+            | "proofbound-translation-unit/2"
+            | "proofbound-translation-unit/3"
     )
 }
 
@@ -255,7 +257,7 @@ fn compare_translation_manifest_change(
     regressions: &mut Vec<Regression>,
 ) -> Result<()> {
     match (old_schema, new_schema) {
-        (Some("proofbound-translation-unit/2"), Some("proofbound-translation-unit/2")) => {
+        (Some("proofbound-translation-unit/3"), Some("proofbound-translation-unit/3")) => {
             compare_translation_manifests(
                 parse_at_schema(old_text, old_schema, path)?,
                 parse_at_schema(new_text, new_schema, path)?,
@@ -263,13 +265,13 @@ fn compare_translation_manifest_change(
                 regressions,
             )
         }
-        (None, Some("proofbound-translation-unit/2")) => compare_translation_manifests(
+        (None, Some("proofbound-translation-unit/3")) => compare_translation_manifests(
             None,
             parse_at_schema(new_text, new_schema, path)?,
             path,
             regressions,
         ),
-        (Some("proofbound-translation-unit/2"), None) => compare_translation_manifests(
+        (Some("proofbound-translation-unit/3"), None) => compare_translation_manifests(
             parse_at_schema(old_text, old_schema, path)?,
             None,
             path,
@@ -1412,7 +1414,7 @@ mod tests {
 
     fn translation() -> TranslationUnitManifest {
         serde_json::from_value(json!({
-            "schema": "proofbound-translation-unit/2",
+            "schema": "proofbound-translation-unit/3",
             "id": "kernel-translation",
             "pipeline": "charon-aeneas",
             "invocations": [{
@@ -1424,6 +1426,9 @@ mod tests {
                 "start_from": ["kernel::decide"],
                 "opaque": [],
                 "include": [],
+                "translated_closure": [
+                    {"kind": "function", "rust_name": "kernel::decide"}
+                ],
                 "aeneas_subdir": "Kernel",
                 "outputs": [
                     {
@@ -1512,6 +1517,27 @@ mod tests {
     }
 
     #[test]
+    fn translation_diff_detects_same_count_typed_closure_replacement() {
+        let old = translation();
+        let mut new = old.clone();
+        new.invocations[0].translated_closure[0].rust_name = "kernel::different".to_owned();
+        let mut regressions = Vec::new();
+        compare_translation_manifests(
+            Some(old),
+            Some(new),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::SourceClosureWeakened)
+        );
+    }
+
+    #[test]
     fn translation_identity_change_does_not_hide_other_regressions() {
         let old = translation();
         let mut new = old.clone();
@@ -1567,6 +1593,36 @@ claims = ["TEST-CLAIM-001"]
         assert_eq!(regressions.len(), 1);
         assert_eq!(regressions[0].kind, RegressionKind::SourceClosureWeakened);
         assert!(regressions[0].detail.contains("changed schema"));
+    }
+
+    #[test]
+    fn translation_v2_to_v3_closure_migration_is_never_silent() {
+        let old = r#"
+schema = "proofbound-translation-unit/2"
+id = "kernel-translation"
+claims = ["TEST-CLAIM-001"]
+"#;
+        let new = r#"
+schema = "proofbound-translation-unit/3"
+id = "kernel-translation"
+claims = ["TEST-CLAIM-001"]
+"#;
+        let mut regressions = Vec::new();
+        compare_translation_manifest_change(
+            Some(old),
+            Some("proofbound-translation-unit/2"),
+            Some(new),
+            Some("proofbound-translation-unit/3"),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert_eq!(regressions.len(), 1);
+        assert_eq!(regressions[0].kind, RegressionKind::SourceClosureWeakened);
+        assert!(regressions[0].detail.contains("changed schema"));
+        assert!(regressions[0].detail.contains("/2"));
+        assert!(regressions[0].detail.contains("/3"));
     }
 
     #[test]

@@ -23,6 +23,10 @@ pub enum StoreError {
     InvalidDigest(String),
     #[error("stored object {digest} is corrupt for domain {domain}")]
     Corrupt { digest: String, domain: String },
+    #[error(
+        "stored object {digest} is not the canonical encoding of its typed value for domain {domain}"
+    )]
+    NonCanonical { digest: String, domain: String },
     #[error("refusing symlink at sealed evidence boundary: {0}")]
     Symlink(PathBuf),
 }
@@ -95,9 +99,20 @@ impl ContentAddressedStore {
         Ok(digest)
     }
 
-    pub fn get<T: DeserializeOwned>(&self, domain: &str, digest: &str) -> Result<T, StoreError> {
+    pub fn get<T: DeserializeOwned + Serialize>(
+        &self,
+        domain: &str,
+        digest: &str,
+    ) -> Result<T, StoreError> {
         let bytes = self.get_bytes(domain, digest)?;
-        Ok(serde_json::from_slice(&bytes)?)
+        let value = serde_json::from_slice(&bytes)?;
+        if canonical_json(&value)? != bytes {
+            return Err(StoreError::NonCanonical {
+                digest: digest.to_owned(),
+                domain: domain.to_owned(),
+            });
+        }
+        Ok(value)
     }
 
     pub fn get_bytes(&self, domain: &str, digest: &str) -> Result<Vec<u8>, StoreError> {
@@ -177,7 +192,9 @@ impl ContentAddressedStore {
 #[cfg(test)]
 mod tests {
     use crate::{ClosureKind, ClosureLimits, build_closure};
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
+    use std::collections::BTreeSet;
 
     use super::*;
 
@@ -194,6 +211,41 @@ mod tests {
             store.get_bytes("test/1", &digest),
             Err(StoreError::Corrupt { .. })
         ));
+    }
+
+    #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+    struct InventoriedValue {
+        inventory: BTreeSet<String>,
+    }
+
+    #[test]
+    fn typed_get_rejects_duplicate_or_reordered_set_encodings() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ContentAddressedStore::new(temp.path());
+        let domain = "typed-inventory/1";
+
+        let canonical = InventoriedValue {
+            inventory: BTreeSet::from(["a".to_owned(), "b".to_owned()]),
+        };
+        let canonical_digest = store.put(domain, &canonical).unwrap();
+        assert_eq!(
+            store
+                .get::<InventoriedValue>(domain, &canonical_digest)
+                .unwrap(),
+            canonical
+        );
+
+        for encoded in [
+            json!({"inventory": ["a", "a", "b"]}),
+            json!({"inventory": ["b", "a"]}),
+        ] {
+            let bytes = canonical_json(&encoded).unwrap();
+            let digest = store.put_bytes(domain, &bytes).unwrap();
+            assert!(matches!(
+                store.get::<InventoriedValue>(domain, &digest),
+                Err(StoreError::NonCanonical { .. })
+            ));
+        }
     }
 
     #[test]

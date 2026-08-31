@@ -107,6 +107,14 @@ struct ArtifactCheckerReport {
     inventory: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct IndependentCheckerReport {
+    schema: String,
+    accepted: bool,
+    inventory: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ObservationOutcome {
@@ -651,18 +659,24 @@ fn execute_request<E: Executor>(
             (result.commands, result.outputs, result.inventory)
         }
     };
-    let artifact_binding = if flavor == TestFlavor::CanonicalArtifact
-        && matches!(request.operation.as_str(), "check" | "reproduce")
-    {
-        let output = outputs.last().ok_or_else(|| {
-            AdapterError::Inventory("canonical checker produced no result".to_owned())
-        })?;
-        let (binding, reported_inventory) =
-            validate_artifact_checker_report(&output.stdout, &unit, &execution_root)?;
-        inventory = reported_inventory;
-        Some(binding)
-    } else {
-        None
+    let artifact_binding = match flavor {
+        TestFlavor::CanonicalArtifact => {
+            let output = outputs.last().ok_or_else(|| {
+                AdapterError::Inventory("canonical checker produced no result".to_owned())
+            })?;
+            let (binding, reported_inventory) =
+                validate_artifact_checker_report(&output.stdout, &unit, &execution_root)?;
+            inventory = reported_inventory;
+            Some(binding)
+        }
+        TestFlavor::IndependentCheck => {
+            let output = outputs.last().ok_or_else(|| {
+                AdapterError::Inventory("independent checker produced no result".to_owned())
+            })?;
+            inventory = validate_independent_checker_report(&output.stdout, &unit)?;
+            None
+        }
+        _ => None,
     };
     // Tool version calls are deliberately not repeated in the evidence run;
     // prepend their observations so every actual subprocess is recorded.
@@ -671,6 +685,11 @@ fn execute_request<E: Executor>(
     all_commands.append(&mut commands);
     let mut all_outputs = version_runs;
     all_outputs.append(&mut outputs);
+    if all_outputs.iter().any(|output| output.status != Some(0)) {
+        return Err(AdapterError::Internal(
+            "successful observation contains a non-zero or missing process exit status".to_owned(),
+        ));
+    }
     let disk_bytes = directory_size(
         shadow
             .as_ref()
@@ -750,7 +769,8 @@ fn execute_request<E: Executor>(
         artifact_binding,
         trusted_transcription,
     };
-    Ok((Some(observation), inventory))
+    let evidence = (request.operation != "inventory").then_some(observation);
+    Ok((evidence, inventory))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -796,6 +816,25 @@ fn validate_unit(
     if unit.schema != expected_schema {
         return Err(AdapterError::Unit(format!("expected {expected_schema}")));
     }
+    let kind_matches_route = match flavor {
+        TestFlavor::Rust => matches!(
+            unit.kind,
+            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest | EvidenceKind::MutationWitness
+        ),
+        TestFlavor::Python => matches!(
+            unit.kind,
+            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest
+        ),
+        TestFlavor::Generator => unit.kind == EvidenceKind::ExampleTest,
+        TestFlavor::CanonicalArtifact => unit.kind == EvidenceKind::ArtifactSoundness,
+        TestFlavor::IndependentCheck => unit.kind == EvidenceKind::IndependentCheck,
+        TestFlavor::TrustedTranscription => unit.kind == EvidenceKind::TrustedTranscription,
+    };
+    if !kind_matches_route {
+        return Err(AdapterError::Unit(
+            "adapter, typed operation, and evidence kind do not agree".to_owned(),
+        ));
+    }
     if !valid_local_id(&unit.id) {
         return Err(AdapterError::Unit(
             "unit id must use the strict lowercase segmented grammar".to_owned(),
@@ -811,6 +850,17 @@ fn validate_unit(
     if unit.claims.is_empty() {
         return Err(AdapterError::Unit(
             "evidence unit must name at least one claim".to_owned(),
+        ));
+    }
+    if unit.expected_inventory.is_empty()
+        || unit
+            .expected_inventory
+            .iter()
+            .any(|item| !valid_inventory_item(item))
+    {
+        return Err(AdapterError::Inventory(
+            "expected_inventory must contain at least one trim-nonempty item of at most 4096 characters with no Unicode controls"
+                .to_owned(),
         ));
     }
     if unit.resource_budget.time_seconds == 0
@@ -876,6 +926,11 @@ fn validate_checker_configuration(
         if unit.outputs.is_empty() {
             return Err(AdapterError::Unit(
                 "generator must declare at least one exact committed output".to_owned(),
+            ));
+        }
+        if unit.outputs.iter().any(|output| output == checker) {
+            return Err(AdapterError::Unit(
+                "generator checker must not also be a generated output".to_owned(),
             ));
         }
         for output in &unit.outputs {
@@ -1290,7 +1345,6 @@ fn run_rust_tests<E: Executor>(
                 .insert(
                     canonical.clone(),
                     RustTestNode {
-                        canonical: canonical.clone(),
                         executable: binary.executable.clone(),
                         libtest_name: test,
                     },
@@ -1361,15 +1415,11 @@ fn run_rust_tests<E: Executor>(
         for node in execution_nodes {
             let spec = ProcessSpec {
                 program: node.executable.to_string_lossy().into_owned(),
-                args: vec![
-                    node.libtest_name,
-                    "--exact".to_owned(),
-                    "--nocapture".to_owned(),
-                ],
+                args: vec![node.libtest_name.clone(), "--exact".to_owned()],
             };
             let output = executor.run(&spec, shadow_root, environment, deadline.remaining()?)?;
             ensure_success(&spec, &output)?;
-            ensure_one_rust_test_ran(&node.canonical, &output)?;
+            ensure_one_rust_test_ran(&node.libtest_name, &output)?;
             commands.push(observe_command(&spec, &environment_observation));
             outputs.push(output);
         }
@@ -1385,7 +1435,6 @@ struct RustTestBinary {
 
 #[derive(Clone, Debug)]
 struct RustTestNode {
-    canonical: String,
     executable: PathBuf,
     libtest_name: String,
 }
@@ -1503,12 +1552,41 @@ fn resolve_expected_rust_tests(
 }
 
 fn ensure_one_rust_test_ran(name: &str, output: &ProcessOutput) -> Result<(), AdapterError> {
-    let text = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    if !(text.contains("1 passed") && text.contains("0 failed")) {
+    let stdout = std::str::from_utf8(&output.stdout)
+        .map_err(|error| AdapterError::Inventory(format!("non-UTF-8 libtest output: {error}")))?;
+    let stderr = std::str::from_utf8(&output.stderr)
+        .map_err(|error| AdapterError::Inventory(format!("non-UTF-8 libtest output: {error}")))?;
+    let lines = stdout
+        .lines()
+        .chain(stderr.lines())
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    let expected_result = format!("test {name} ... ok");
+    let summaries = lines
+        .iter()
+        .filter_map(|line| line.strip_prefix("test result: "))
+        .collect::<Vec<_>>();
+    let exact_summary = summaries.len() == 1
+        && summaries[0].strip_prefix("ok. ").is_some_and(|summary| {
+            let fields = summary.split(';').map(str::trim).collect::<Vec<_>>();
+            fields.len() >= 4
+                && fields[0] == "1 passed"
+                && fields[1] == "0 failed"
+                && fields[2] == "0 ignored"
+                && fields[3] == "0 measured"
+        });
+    if lines
+        .iter()
+        .filter(|line| **line == "running 1 test")
+        .count()
+        != 1
+        || lines
+            .iter()
+            .filter(|line| **line == expected_result.as_str())
+            .count()
+            != 1
+        || !exact_summary
+    {
         return Err(AdapterError::Inventory(format!(
             "Rust test `{name}` did not report exactly one passing test"
         )));
@@ -1666,23 +1744,28 @@ fn run_python_checker<E: Executor>(
         let _ = shadow_path(shadow_root, path)?;
     }
 
-    let inventory = sorted_unique(unit.expected_inventory.clone(), "checker inventory")?;
-    let mut commands = Vec::new();
-    let mut outputs = Vec::new();
-    if matches!(request.operation.as_str(), "check" | "reproduce") {
-        let mut args = vec![shadow_checker.to_string_lossy().into_owned()];
-        args.extend(unit.operation.arguments.clone());
-        let spec = ProcessSpec {
-            program: "python3".to_owned(),
-            args,
-        };
-        let output = executor.run(&spec, shadow_root, environment, deadline.remaining()?)?;
-        ensure_success(&spec, &output)?;
-        let environment_observation = observe_environment(environment, &unit.environment_allowlist);
-        commands.push(observe_command(&spec, &environment_observation));
-        outputs.push(output);
+    if !matches!(
+        request.operation.as_str(),
+        "inventory" | "check" | "reproduce"
+    ) {
+        return Err(AdapterError::Request(
+            "checker executes only for inventory, check, or reproduce".to_owned(),
+        ));
     }
-    Ok((commands, outputs, inventory))
+    let mut args = vec![shadow_checker.to_string_lossy().into_owned()];
+    args.extend(unit.operation.arguments.clone());
+    let spec = ProcessSpec {
+        program: "python3".to_owned(),
+        args,
+    };
+    let output = executor.run(&spec, shadow_root, environment, deadline.remaining()?)?;
+    ensure_success(&spec, &output)?;
+    let environment_observation = observe_environment(environment, &unit.environment_allowlist);
+    Ok((
+        vec![observe_command(&spec, &environment_observation)],
+        vec![output],
+        Vec::new(),
+    ))
 }
 
 fn run_python_generator<E: Executor>(
@@ -1697,39 +1780,76 @@ fn run_python_generator<E: Executor>(
         unit.operation.checker.as_deref().ok_or_else(|| {
             AdapterError::Unit("generator operation requires a checker".to_owned())
         })?;
-    let checker_path = shadow_path(execution_root, checker)?;
+    let committed = if request.operation == "update" {
+        None
+    } else {
+        Some(collect_exact_outputs(execution_root, &unit.outputs)?)
+    };
+    let (run_root, checker_path, workspace_before) = if request.operation == "update" {
+        let checker_path = shadow_path(execution_root, checker)?;
+        (execution_root.to_path_buf(), checker_path, None)
+    } else if matches!(
+        request.operation.as_str(),
+        "inventory" | "check" | "reproduce"
+    ) {
+        let candidate_root = assemble_generator_candidate(execution_root, unit)?;
+        let checker_path = shadow_path(&candidate_root, checker)?;
+        let workspace = candidate_root
+            .parent()
+            .and_then(Path::parent)
+            .ok_or_else(|| {
+                AdapterError::Internal("generator candidate has no workspace root".to_owned())
+            })?
+            .to_path_buf();
+        let before = snapshot_tree(&workspace)?;
+        (candidate_root, checker_path, Some((workspace, before)))
+    } else {
+        return Err(AdapterError::Request(
+            "generator executes only for inventory, check, reproduce, or update".to_owned(),
+        ));
+    };
     if !checker_path.is_file()
         || checker_path.extension().and_then(|value| value.to_str()) != Some("py")
     {
         return Err(AdapterError::UnsafePath(checker.to_owned()));
     }
 
-    let inventory = sorted_unique(unit.outputs.clone(), "generator output inventory")?;
-    if request.operation == "inventory" {
-        return Ok((Vec::new(), Vec::new(), inventory));
-    }
-
-    let before = if matches!(request.operation.as_str(), "check" | "reproduce") {
-        Some(collect_exact_outputs(execution_root, &unit.outputs)?)
-    } else {
-        None
-    };
-    let mut args = vec![checker_path.to_string_lossy().into_owned()];
-    if request.operation == "update" {
-        args.push("--update".to_owned());
-    }
+    let args = vec![
+        checker_path.to_string_lossy().into_owned(),
+        "--update".to_owned(),
+    ];
     let spec = ProcessSpec {
         program: "python3".to_owned(),
         args,
     };
-    let output = executor.run(&spec, execution_root, environment, deadline.remaining()?)?;
+    let output = executor.run(&spec, &run_root, environment, deadline.remaining()?)?;
     ensure_success(&spec, &output)?;
-    let after = collect_exact_outputs(execution_root, &unit.outputs)?;
-    if before.as_ref().is_some_and(|before| before != &after) {
+    let generated = collect_exact_outputs(&run_root, &unit.outputs)?;
+    if let Some((workspace, before)) = workspace_before {
+        ensure_exact_generator_changes(
+            &workspace,
+            &run_root,
+            &unit.outputs,
+            &before,
+            &snapshot_tree(&workspace)?,
+        )?;
+    }
+    if committed
+        .as_ref()
+        .is_some_and(|committed| &generated != committed)
+    {
         return Err(AdapterError::ToolFailed(
-            "verify-only generator changed a declared output in its disposable checkout".to_owned(),
+            "freshly generated output bytes differ from the committed exact output inventory"
+                .to_owned(),
         ));
     }
+    let inventory = sorted_unique(
+        generated
+            .iter()
+            .map(|artifact| artifact.logical_name.clone())
+            .collect(),
+        "generator observed output inventory",
+    )?;
 
     let environment_observation = observe_environment(environment, &unit.environment_allowlist);
     Ok((
@@ -1737,6 +1857,100 @@ fn run_python_generator<E: Executor>(
         vec![output],
         inventory,
     ))
+}
+
+fn assemble_generator_candidate(
+    project_root: &Path,
+    unit: &EvidenceUnitManifest,
+) -> Result<PathBuf, AdapterError> {
+    let workspace = project_root.parent().ok_or_else(|| {
+        AdapterError::Internal("sealed project has no workspace parent".to_owned())
+    })?;
+    let candidate_root = workspace.join("generator-candidate").join(&unit.id);
+    if candidate_root.exists() {
+        return Err(AdapterError::Internal(
+            "generator candidate root already exists".to_owned(),
+        ));
+    }
+    fs::create_dir_all(&candidate_root)?;
+    let outputs = unit.outputs.iter().collect::<BTreeSet<_>>();
+    for input in &unit.inputs {
+        if outputs.contains(input) {
+            continue;
+        }
+        let source = shadow_path(project_root, input)?;
+        if !source.is_file() {
+            return Err(AdapterError::Unit(format!(
+                "generator input `{input}` must be an exact regular file"
+            )));
+        }
+        let destination = candidate_root.join(input);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(source, destination)?;
+    }
+    for output in &unit.outputs {
+        if candidate_root.join(output).exists() {
+            return Err(AdapterError::Internal(format!(
+                "generator candidate output `{output}` was not initially absent"
+            )));
+        }
+    }
+    Ok(candidate_root)
+}
+
+fn ensure_exact_generator_changes(
+    workspace: &Path,
+    candidate_root: &Path,
+    outputs: &[String],
+    before: &[(PathBuf, TreeSnapshotEntry)],
+    after: &[(PathBuf, TreeSnapshotEntry)],
+) -> Result<(), AdapterError> {
+    let candidate = candidate_root.strip_prefix(workspace).map_err(|_| {
+        AdapterError::Internal("generator candidate escaped its workspace".to_owned())
+    })?;
+    let before = before.iter().cloned().collect::<BTreeMap<_, _>>();
+    let after = after.iter().cloned().collect::<BTreeMap<_, _>>();
+    if before
+        .iter()
+        .any(|(path, entry)| after.get(path) != Some(entry))
+    {
+        return Err(AdapterError::ToolFailed(
+            "generator changed or removed a registered seed or sealed project file".to_owned(),
+        ));
+    }
+
+    let mut allowed_new = BTreeSet::new();
+    let mut output_paths = BTreeSet::new();
+    for output in outputs {
+        let path = candidate.join(output);
+        output_paths.insert(path.to_path_buf());
+        allowed_new.insert(path.to_path_buf());
+        let mut parent = path.parent();
+        while let Some(path) = parent {
+            if path == candidate {
+                break;
+            }
+            allowed_new.insert(path.to_path_buf());
+            parent = path.parent();
+        }
+    }
+    for (path, entry) in &after {
+        if before.contains_key(path) {
+            continue;
+        }
+        if !allowed_new.contains(path)
+            || (output_paths.contains(path) && !matches!(entry, TreeSnapshotEntry::File { .. }))
+            || (!output_paths.contains(path) && !matches!(entry, TreeSnapshotEntry::Directory))
+        {
+            return Err(AdapterError::Inventory(format!(
+                "generator emitted undeclared path `{}`",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn run_trusted_transcription<E: Executor>(
@@ -1866,13 +2080,20 @@ fn run_trusted_transcription<E: Executor>(
         ),
     ];
     generated_artifacts.sort_by(|left, right| left.logical_name.cmp(&right.logical_name));
+    let inventory = sorted_unique(
+        vec![
+            source_observation.logical_name.clone(),
+            committed_observation.logical_name.clone(),
+        ],
+        "trusted-transcription observed inventory",
+    )?;
     Ok(TranscriptionRunResult {
         commands: vec![
             observe_command(&transcribe_spec, &environment_observation),
             observe_command(&reencode_spec, &environment_observation),
         ],
         outputs: vec![transcribe_output, reencode_output],
-        inventory: unit.expected_inventory.clone(),
+        inventory,
         facts: TranscriptionFacts {
             generated_artifacts,
             unit_id: unit.id.clone(),
@@ -2128,6 +2349,11 @@ fn validate_artifact_checker_report(
         ));
     }
 
+    if !valid_inventory_item(&report.artifact_logical_name) {
+        return Err(AdapterError::Inventory(
+            "canonical checker artifact logical name violates the result ABI".to_owned(),
+        ));
+    }
     validate_relative_path(&report.artifact_logical_name)?;
     if !unit
         .inputs
@@ -2160,6 +2386,52 @@ fn validate_artifact_checker_report(
         },
         reported_inventory,
     ))
+}
+
+fn validate_independent_checker_report(
+    bytes: &[u8],
+    unit: &EvidenceUnitManifest,
+) -> Result<Vec<String>, AdapterError> {
+    if bytes.is_empty() || bytes.len() > MAX_TOOL_OUTPUT_BYTES {
+        return Err(AdapterError::Inventory(
+            "independent checker result is empty or oversized".to_owned(),
+        ));
+    }
+    let report: IndependentCheckerReport = serde_json::from_slice(bytes).map_err(|error| {
+        AdapterError::Inventory(format!("invalid independent checker result: {error}"))
+    })?;
+    if canonical_json(&report).map_err(|error| AdapterError::Internal(error.to_string()))? != bytes
+    {
+        return Err(AdapterError::Inventory(
+            "independent checker result must be canonical JSON with no trailing bytes".to_owned(),
+        ));
+    }
+    if report.schema != "proofbound-independent-check-result/1" || !report.accepted {
+        return Err(AdapterError::Inventory(
+            "independent checker did not return an accepted v1 result".to_owned(),
+        ));
+    }
+    let expected = sorted_unique(
+        unit.expected_inventory.clone(),
+        "independent expected inventory",
+    )?;
+    let actual = sorted_unique(report.inventory, "independent checker result inventory")?;
+    if actual.is_empty() || actual != expected {
+        let missing: Vec<_> = expected
+            .iter()
+            .filter(|item| !actual.contains(item))
+            .cloned()
+            .collect();
+        let extra: Vec<_> = actual
+            .iter()
+            .filter(|item| !expected.contains(item))
+            .cloned()
+            .collect();
+        return Err(AdapterError::Inventory(format!(
+            "independent checker inventory mismatch; missing={missing:?}, extra={extra:?}"
+        )));
+    }
+    Ok(actual)
 }
 
 #[derive(Clone, Debug)]
@@ -2267,12 +2539,31 @@ fn resolve_python_targets(
 }
 
 fn ensure_one_python_test_ran(name: &str, output: &ProcessOutput) -> Result<(), AdapterError> {
-    let text = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    if !text.contains("1 passed") || text.contains(" failed") {
+    let stdout = std::str::from_utf8(&output.stdout)
+        .map_err(|error| AdapterError::Inventory(format!("non-UTF-8 pytest output: {error}")))?;
+    let stderr = std::str::from_utf8(&output.stderr)
+        .map_err(|error| AdapterError::Inventory(format!("non-UTF-8 pytest output: {error}")))?;
+    let summaries = stdout
+        .lines()
+        .chain(stderr.lines())
+        .map(str::trim)
+        .filter(|line| {
+            let mut words = line.split_whitespace();
+            words
+                .next()
+                .is_some_and(|count| count.bytes().all(|byte| byte.is_ascii_digit()))
+                && words.next() == Some("passed")
+        })
+        .collect::<Vec<_>>();
+    if summaries.len() != 1
+        || !summaries[0].starts_with("1 passed")
+        || summaries[0]
+            .as_bytes()
+            .get("1 passed".len())
+            .is_some_and(|byte| !matches!(byte, b' ' | b','))
+        || summaries[0].contains(" failed")
+        || summaries[0].contains(" error")
+    {
         return Err(AdapterError::Inventory(format!(
             "pytest node `{name}` did not report exactly one passing test"
         )));
@@ -2414,6 +2705,12 @@ fn sorted_unique(mut values: Vec<String>, label: &str) -> Result<Vec<String>, Ad
     Ok(values)
 }
 
+fn valid_inventory_item(value: &str) -> bool {
+    !value.trim().is_empty()
+        && value.chars().count() <= 4096
+        && !value.chars().any(char::is_control)
+}
+
 fn evidence_kind_name(kind: EvidenceKind) -> &'static str {
     match kind {
         EvidenceKind::Theorem => "theorem",
@@ -2522,9 +2819,12 @@ fn normalize_output(
     let mut text = String::from_utf8_lossy(stdout).replace("\r\n", "\n");
     text.push('\n');
     text.push_str(&String::from_utf8_lossy(stderr).replace("\r\n", "\n"));
-    let text = strip_ansi(&text)
+    let mut text = strip_ansi(&text)
         .replace(&shadow_root.to_string_lossy().to_string(), "$PROJECT")
         .replace(&project_root.to_string_lossy().to_string(), "$PROJECT");
+    if let Some(workspace) = shadow_root.parent() {
+        text = text.replace(&workspace.to_string_lossy().to_string(), "$PROOFBOUND_WORK");
+    }
     let mut lines: Vec<_> = text
         .lines()
         .filter(|line| {
@@ -3209,6 +3509,33 @@ else:
     }
 
     #[test]
+    fn runner_summaries_require_exactly_one_selected_test() {
+        let rust = ProcessOutput {
+            status: Some(0),
+            stdout: b"running 1 test\ntest module::one ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s\n".to_vec(),
+            stderr: Vec::new(),
+            truncated: false,
+            duration_ms: 1,
+        };
+        assert!(ensure_one_rust_test_ran("module::one", &rust).is_ok());
+        let mut eleven = rust.clone();
+        eleven.stdout = b"running 11 tests\ntest module::one ... ok\n\ntest result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n".to_vec();
+        assert!(ensure_one_rust_test_ran("module::one", &eleven).is_err());
+
+        let python = ProcessOutput {
+            status: Some(0),
+            stdout: b".                                                                        [100%]\n1 passed in 0.01s\n".to_vec(),
+            stderr: Vec::new(),
+            truncated: false,
+            duration_ms: 1,
+        };
+        assert!(ensure_one_python_test_ran("test_sample::test_one", &python).is_ok());
+        let mut eleven = python.clone();
+        eleven.stdout = b"...........                                                              [100%]\n11 passed in 0.01s\n".to_vec();
+        assert!(ensure_one_python_test_ran("test_sample::test_one", &eleven).is_err());
+    }
+
+    #[test]
     fn dangerous_arguments_and_paths_fail_closed() {
         assert!(
             validate_arguments(TestFlavor::Rust, &["--target-dir=/outside".to_owned()]).is_err()
@@ -3298,6 +3625,58 @@ else:
         let mut output = independent.clone();
         output.outputs.push("committed.json".to_owned());
         assert!(validate_unit(&request("independent-check", "check", &output), &output).is_err());
+    }
+
+    #[test]
+    fn every_route_rejects_empty_inventory_before_tool_execution() {
+        let mut unit = checker_unit(
+            "independent-check",
+            "independent-check",
+            "independent-check",
+        );
+        unit.expected_inventory.clear();
+        assert!(matches!(
+            validate_unit(&request("independent-check", "check", &unit), &unit),
+            Err(AdapterError::Inventory(_))
+        ));
+    }
+
+    #[test]
+    fn inventory_preflight_uses_character_limits_and_rejects_unicode_controls() {
+        let mut unit = checker_unit(
+            "independent-check",
+            "independent-check",
+            "independent-check",
+        );
+
+        for invalid in [
+            "   ".to_owned(),
+            "registered\u{0085}item".to_owned(),
+            "x".repeat(4097),
+        ] {
+            unit.expected_inventory = vec![invalid];
+            assert!(matches!(
+                validate_unit(&request("independent-check", "check", &unit), &unit),
+                Err(AdapterError::Inventory(_))
+            ));
+        }
+
+        unit.expected_inventory = vec!["é".repeat(4096)];
+        assert!(validate_unit(&request("independent-check", "check", &unit), &unit).is_ok());
+    }
+
+    #[test]
+    fn test_runners_reject_exhaustive_kind_relabeling() {
+        let mut rust = generator_unit();
+        rust.adapter = AdapterKind::RustTest;
+        rust.kind = EvidenceKind::ExhaustiveCheck;
+        rust.operation.kind = OperationKind::CargoTest;
+        assert!(validate_unit(&request("rust-test", "check", &rust), &rust).is_err());
+
+        let mut python = generator_unit();
+        python.kind = EvidenceKind::ExhaustiveCheck;
+        python.operation.kind = OperationKind::Pytest;
+        assert!(validate_unit(&request("python-test", "check", &python), &python).is_err());
     }
 
     #[test]
@@ -3463,7 +3842,7 @@ else:
     }
 
     #[test]
-    fn trusted_transcription_inventory_is_exact_and_evidence_backed() {
+    fn trusted_transcription_inventory_executes_but_is_not_assurance_evidence() {
         let root = tempfile::tempdir().unwrap();
         write_transcription_fixture(root.path(), VALID_TRANSCRIPTION_DRIVER);
         let unit = transcription_unit();
@@ -3474,10 +3853,7 @@ else:
         )
         .unwrap();
         assert_eq!(inventory, ["committed.txt", "source.bin"]);
-        let observation = observation.expect("successful inventory is evidence-backed");
-        assert_eq!(observation.inventory, inventory);
-        assert_eq!(observation.commands.len(), 3);
-        assert!(observation.trusted_transcription.is_some());
+        assert!(observation.is_none());
     }
 
     #[test]
@@ -3582,7 +3958,21 @@ p=argparse.ArgumentParser(); p.add_argument("mode"); p.add_argument("--source");
     fn generator_unit_has_exact_outputs_and_reserved_update_switch() {
         let root = tempfile::tempdir().unwrap();
         fs::create_dir(root.path().join("fixtures")).unwrap();
-        fs::write(root.path().join("generate.py"), b"raise SystemExit(0)\n").unwrap();
+        fs::write(
+            root.path().join("generate.py"),
+            br#"import argparse
+from pathlib import Path
+p = argparse.ArgumentParser()
+p.add_argument("--update", action="store_true")
+a = p.parse_args()
+if not a.update:
+    raise SystemExit(2)
+path = Path("fixtures/generated.bin")
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_bytes(b"fixture")
+"#,
+        )
+        .unwrap();
         fs::write(root.path().join("fixtures/generated.bin"), b"fixture").unwrap();
         let unit = generator_unit();
         assert_eq!(
@@ -3590,23 +3980,10 @@ p=argparse.ArgumentParser(); p.add_argument("mode"); p.add_argument("--source");
             TestFlavor::Generator
         );
 
-        let mut fake = FakeExecutor::default();
-        for stdout in [
-            b"Python 3.12.0\n".as_slice(),
-            b"fixtures match\n".as_slice(),
-        ] {
-            fake.outputs.push_back(ProcessOutput {
-                status: Some(0),
-                stdout: stdout.to_vec(),
-                stderr: vec![],
-                truncated: false,
-                duration_ms: 1,
-            });
-        }
         let (observation, inventory) = execute_request(
             &request("python-test", "check", &unit),
             root.path(),
-            &mut fake,
+            &mut RealExecutor,
         )
         .unwrap();
         let observation = observation.unwrap();
@@ -3616,7 +3993,11 @@ p=argparse.ArgumentParser(); p.add_argument("mode"); p.add_argument("--source");
             observation.generated_artifacts[0].logical_name,
             inventory[0]
         );
-        assert!(!fake.seen[1].args.contains(&"--update".to_owned()));
+        assert_eq!(
+            observation.commands.last().unwrap().args.last().unwrap(),
+            "--update",
+            "verification regenerates into an output-free candidate"
+        );
 
         let mut update = FakeExecutor::default();
         for stdout in [
@@ -3647,6 +4028,70 @@ p=argparse.ArgumentParser(); p.add_argument("mode"); p.add_argument("--source");
             validate_unit(
                 &request("python-test", "check", &missing_output),
                 &missing_output
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn generator_candidate_rejects_noop_missing_extra_drift_and_escape() {
+        let cases = [
+            (
+                "noop",
+                "import argparse\np=argparse.ArgumentParser(); p.add_argument('--update', action='store_true'); p.parse_args()\n",
+            ),
+            (
+                "missing",
+                "import argparse\nfrom pathlib import Path\np=argparse.ArgumentParser(); p.add_argument('--update', action='store_true'); p.parse_args(); Path('fixtures').mkdir(parents=True, exist_ok=True)\n",
+            ),
+            (
+                "extra",
+                "import argparse\nfrom pathlib import Path\np=argparse.ArgumentParser(); p.add_argument('--update', action='store_true'); p.parse_args(); Path('fixtures').mkdir(parents=True, exist_ok=True); Path('fixtures/generated.bin').write_bytes(b'fixture'); Path('fixtures/extra.bin').write_bytes(b'extra')\n",
+            ),
+            (
+                "drift",
+                "import argparse\nfrom pathlib import Path\np=argparse.ArgumentParser(); p.add_argument('--update', action='store_true'); p.parse_args(); Path('fixtures').mkdir(parents=True, exist_ok=True); Path('fixtures/generated.bin').write_bytes(b'drift')\n",
+            ),
+            (
+                "escape",
+                "import argparse\nfrom pathlib import Path\np=argparse.ArgumentParser(); p.add_argument('--update', action='store_true'); p.parse_args(); Path('fixtures').mkdir(parents=True, exist_ok=True); Path('fixtures/generated.bin').write_bytes(b'fixture'); Path('../escaped.bin').write_bytes(b'escape')\n",
+            ),
+        ];
+        for (label, script) in cases {
+            let root = tempfile::tempdir().unwrap();
+            fs::create_dir(root.path().join("fixtures")).unwrap();
+            fs::write(root.path().join("generate.py"), script).unwrap();
+            fs::write(root.path().join("fixtures/generated.bin"), b"fixture").unwrap();
+            let result = execute_request(
+                &request("python-test", "check", &generator_unit()),
+                root.path(),
+                &mut RealExecutor,
+            );
+            assert!(result.is_err(), "{label} generator must fail closed");
+            assert_eq!(
+                fs::read(root.path().join("fixtures/generated.bin")).unwrap(),
+                b"fixture",
+                "candidate execution must not modify the committed output"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generator_candidate_rejects_symlinked_output() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("fixtures")).unwrap();
+        fs::write(
+            root.path().join("generate.py"),
+            "import argparse\nfrom pathlib import Path\np=argparse.ArgumentParser(); p.add_argument('--update', action='store_true'); p.parse_args(); Path('fixtures').mkdir(parents=True, exist_ok=True); Path('fixtures/generated.bin').symlink_to('../generate.py')\n",
+        )
+        .unwrap();
+        fs::write(root.path().join("fixtures/generated.bin"), b"fixture").unwrap();
+        assert!(
+            execute_request(
+                &request("python-test", "check", &generator_unit()),
+                root.path(),
+                &mut RealExecutor,
             )
             .is_err()
         );
@@ -3858,6 +4303,16 @@ affected_claims = ["CLAIM-ONE"]
             .is_err()
         );
 
+        let mut controlled_name = valid.clone();
+        controlled_name["artifact_logical_name"] = json!("artifact\u{0085}.bin");
+        let error = validate_artifact_checker_report(
+            &canonical_json(&controlled_name).unwrap(),
+            &unit,
+            &canonical_root,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("result ABI"));
+
         for forbidden in [
             "theorem",
             "claims",
@@ -3884,6 +4339,122 @@ affected_claims = ["CLAIM-ONE"]
         let mut noncanonical = canonical_json(&valid).unwrap();
         noncanonical.push(b'\n');
         assert!(validate_artifact_checker_report(&noncanonical, &unit, &canonical_root).is_err());
+    }
+
+    #[test]
+    fn independent_checker_report_is_canonical_nonempty_and_exact() {
+        let unit = checker_unit(
+            "independent-check",
+            "independent-check",
+            "independent-check",
+        );
+        let valid = json!({
+            "schema": "proofbound-independent-check-result/1",
+            "accepted": true,
+            "inventory": ["published-artifact"]
+        });
+        assert_eq!(
+            validate_independent_checker_report(&canonical_json(&valid).unwrap(), &unit).unwrap(),
+            ["published-artifact"]
+        );
+
+        for invalid in [
+            json!({
+                "schema": "proofbound-independent-check-result/1",
+                "accepted": true,
+                "inventory": []
+            }),
+            json!({
+                "schema": "proofbound-independent-check-result/1",
+                "accepted": true,
+                "inventory": ["extra"]
+            }),
+            json!({
+                "schema": "proofbound-independent-check-result/1",
+                "accepted": true,
+                "inventory": ["published-artifact", "published-artifact"]
+            }),
+            json!({
+                "schema": "proofbound-independent-check-result/1",
+                "accepted": false,
+                "inventory": ["published-artifact"]
+            }),
+        ] {
+            assert!(
+                validate_independent_checker_report(&canonical_json(&invalid).unwrap(), &unit)
+                    .is_err()
+            );
+        }
+
+        let mut unknown = valid.clone();
+        unknown["claims"] = json!(["CLAIM-ONE"]);
+        assert!(
+            validate_independent_checker_report(&canonical_json(&unknown).unwrap(), &unit).is_err()
+        );
+        let mut trailing = canonical_json(&valid).unwrap();
+        trailing.push(b'\n');
+        assert!(validate_independent_checker_report(&trailing, &unit).is_err());
+    }
+
+    #[test]
+    fn independent_inventory_runs_checker_and_rejects_exit_status_only() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("checker.py"), b"raise SystemExit(0)\n").unwrap();
+        fs::write(root.path().join("artifact.bin"), b"artifact").unwrap();
+        let unit = checker_unit(
+            "independent-check",
+            "independent-check",
+            "independent-check",
+        );
+
+        let mut exit_only = FakeExecutor::default();
+        for stdout in [b"Python 3.12.0\n".as_slice(), b"".as_slice()] {
+            exit_only.outputs.push_back(ProcessOutput {
+                status: Some(0),
+                stdout: stdout.to_vec(),
+                stderr: Vec::new(),
+                truncated: false,
+                duration_ms: 1,
+            });
+        }
+        assert!(matches!(
+            execute_request(
+                &request("independent-check", "inventory", &unit),
+                root.path(),
+                &mut exit_only,
+            ),
+            Err(AdapterError::Inventory(_))
+        ));
+        assert_eq!(exit_only.seen.len(), 2, "inventory must run the checker");
+
+        let mut exact = FakeExecutor::default();
+        exact.outputs.push_back(ProcessOutput {
+            status: Some(0),
+            stdout: b"Python 3.12.0\n".to_vec(),
+            stderr: Vec::new(),
+            truncated: false,
+            duration_ms: 1,
+        });
+        exact.outputs.push_back(ProcessOutput {
+            status: Some(0),
+            stdout: canonical_json(&json!({
+                "schema": "proofbound-independent-check-result/1",
+                "accepted": true,
+                "inventory": ["published-artifact"]
+            }))
+            .unwrap(),
+            stderr: Vec::new(),
+            truncated: false,
+            duration_ms: 1,
+        });
+        let (observation, inventory) = execute_request(
+            &request("independent-check", "inventory", &unit),
+            root.path(),
+            &mut exact,
+        )
+        .unwrap();
+        assert_eq!(inventory, ["published-artifact"]);
+        assert!(observation.is_none());
     }
 
     #[cfg(unix)]

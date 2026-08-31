@@ -7,6 +7,7 @@ tier = 2
 evaluation_mode = "kernel"
 theorem = "YourProject.Artifact.publishedArtifactSoundness"
 assumptions = []
+expected_inventory = ["YourProject.Artifact.publishedArtifactSoundness"]
 inputs = ["path/to/ArtifactClaim.lean"]
 outputs = []
 environment_allowlist = ["LEAN_PATH"]

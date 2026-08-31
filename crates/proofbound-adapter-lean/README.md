@@ -49,7 +49,9 @@ in compiled output. Declaration name, declaration kind, and the complete
 transitive axiom set are compared exactly. A project-axiom map classifies Lean
 axiom names as Proofbound assumption IDs; its values must equal the target
 unit's assumption list. `sorryAx` is rejected even if someone attempts to
-register it.
+register it. The evidence unit's `expected_inventory` must be nonempty and
+must exactly equal the declarations in `claim_inventory`; this is checked
+before starting Lean, then checked again against compiled audit output.
 
 For an already captured compiled audit, replace the audit member with:
 

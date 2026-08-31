@@ -18,6 +18,22 @@ Successful adapters return either a complete `proofbound-evidence/2` record or
 the strict, tool-neutral `proofbound-adapter-observation/1` object defined by
 `adapter-observation.schema.json`; the compiler validates and converts the
 latter without trusting adapter-supplied claim status.
+Operation responses are exact: successful `doctor` is null evidence plus empty
+inventory; successful `inventory` is null evidence plus an exact nonempty
+inventory; successful `check` and `reproduce` carry passed evidence plus that
+same inventory; and `update` never carries passed evidence. Failed responses
+carry null evidence and empty inventory. Runtime validation additionally
+requires successful inventories to be strictly sorted lexical sets.
+
+`checker-result.schema.json` defines the two accepted checker-output records
+consumed by the canonical-artifact and independent-check routes. Both records
+are closed, require `accepted: true`, and carry a nonempty, duplicate-free exact
+inventory; the artifact record additionally identifies the checked bytes.
+Inventory strings are trim-nonempty, contain at most 4096 Unicode characters,
+and contain no Unicode control character. Failure diagnostics are not part of
+this ABI because adapters reject a nonzero checker exit before parsing its
+output. Adapters also require canonical JSON framing with no trailing bytes and
+exact equality with the registered inventory, which JSON Schema cannot express.
 
 Version-2 evidence preserves the exact registered bounded-assumption strings,
 requires nullable `peak_memory_bytes` (`null` means unmeasured; numeric zero is
@@ -30,6 +46,18 @@ observed-process shape; the compiler adds model registration, claim, closure,
 and reproduction provenance that an adapter does not own. JSON Schema enforces
 the closed field shapes, while the implementations enforce cross-field
 equality, command/run alignment, and exact registration matches.
+A passed observed-process record requires a nonempty inventory, exit code zero
+for every run, and `output_truncated: false`. A passed compiler-internal record
+may have an empty inventory because it has no tool-selected targets or runs;
+non-passing records may retain failed run facts and empty/partial inventories
+for diagnosis.
+
+`translation-unit.schema.json` defines only
+`proofbound-translation-unit/3`. Every invocation registers an exact typed
+`translated_closure` of supported non-opaque local functions and types in
+addition to its selector roots and exact produced-to-destination map. Version 2
+is rejected rather than allowing a successful translator exit with an empty or
+partial transitive closure.
 
 The version-2 compiled release retains required internal claim `statement`,
 optional reader-facing `public_language`, and required derived status

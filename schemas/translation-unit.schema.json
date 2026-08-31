@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "pipeline", "invocations", "generated_dir", "handwritten_refinement", "determinism_runs", "determinism_normalization", "forbid_generated_axioms", "import_mapping", "resource_budget", "claims"],
   "properties": {
-    "schema": { "const": "proofbound-translation-unit/2" },
+    "schema": { "const": "proofbound-translation-unit/3" },
     "id": { "$ref": "#/$defs/id" },
     "pipeline": { "const": "charon-aeneas" },
     "invocations": { "type": "array", "items": { "$ref": "#/$defs/invocation" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
@@ -32,11 +32,12 @@
       "description": "Portable slash-normalized relative path. Printable ASCII excludes backslash and control bytes, so maxLength is also the UTF-8 byte limit. Empty, dot, parent, doubled, trailing-slash, and Proofbound project-control components are forbidden."
     },
     "symbol": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" },
+    "reportRustName": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[\\u0021-\\u007E](?:[\\u0020-\\u007E]*[\\u0021-\\u007E])?$", "description": "Exact printable-ASCII rust_name emitted by Aeneas; unlike command-line selectors this may contain canonical impl/type syntax." },
     "symbols": { "type": "array", "items": { "$ref": "#/$defs/symbol" }, "uniqueItems": true, "maxItems": 4096 },
     "invocation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "cargo_package", "cargo_manifest", "crate_name", "llbc_file", "start_from", "opaque", "include", "outputs"],
+      "required": ["id", "cargo_package", "cargo_manifest", "crate_name", "llbc_file", "start_from", "opaque", "include", "translated_closure", "outputs"],
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "cargo_package": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$" },
@@ -46,8 +47,18 @@
         "start_from": { "allOf": [{ "$ref": "#/$defs/symbols" }, { "minItems": 1 }], "description": "Exact supported local Rust function-or-type roots selected for translation." },
         "opaque": { "$ref": "#/$defs/symbols" },
         "include": { "$ref": "#/$defs/symbols" },
+        "translated_closure": { "type": "array", "items": { "$ref": "#/$defs/inventoryEntry" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096, "description": "Exact supported, non-opaque local function/type closure expected in the Aeneas report. Semantic validation requires strict (kind, rust_name) order and unambiguous Rust names." },
         "aeneas_subdir": { "$ref": "#/$defs/path", "description": "Optional Aeneas subdirectory beneath -dest. Lean produced paths include this prefix; translation.json remains at the -dest root." },
         "outputs": { "type": "array", "items": { "$ref": "#/$defs/output" }, "uniqueItems": true, "minItems": 2, "maxItems": 100000, "description": "Produced paths are relative to the Aeneas -dest root, not to aeneas_subdir." }
+      }
+    },
+    "inventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "rust_name"],
+      "properties": {
+        "kind": { "enum": ["function", "type"] },
+        "rust_name": { "$ref": "#/$defs/reportRustName" }
       }
     },
     "output": {

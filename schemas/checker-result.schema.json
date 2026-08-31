@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/checker-result.schema.json",
+  "title": "Proofbound accepted checker result",
+  "description": "The closed accepted-output ABI for canonical artifact and independent checkers. Failure output is not part of this schema because adapters reject a nonzero checker exit before parsing its report.",
+  "oneOf": [
+    { "$ref": "#/$defs/artifactCheckResult" },
+    { "$ref": "#/$defs/independentCheckResult" }
+  ],
+  "$defs": {
+    "inventory": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/inventoryItem" },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 100000
+    },
+    "inventoryItem": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "allOf": [
+        { "pattern": "\\S" },
+        { "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" }
+      ]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "artifactLogicalName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "allOf": [
+        { "pattern": "\\S" },
+        { "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" }
+      ]
+    },
+    "artifactCheckResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "accepted", "artifact_logical_name", "artifact_sha256", "inventory"],
+      "properties": {
+        "schema": { "const": "proofbound-artifact-check-result/1" },
+        "accepted": { "const": true },
+        "artifact_logical_name": { "$ref": "#/$defs/artifactLogicalName" },
+        "artifact_sha256": { "$ref": "#/$defs/digest" },
+        "inventory": { "$ref": "#/$defs/inventory" }
+      }
+    },
+    "independentCheckResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "accepted", "inventory"],
+      "properties": {
+        "schema": { "const": "proofbound-independent-check-result/1" },
+        "accepted": { "const": true },
+        "inventory": { "$ref": "#/$defs/inventory" }
+      }
+    }
+  }
+}

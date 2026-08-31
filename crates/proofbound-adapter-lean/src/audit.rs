@@ -98,26 +98,24 @@ fn verify_audit_with_policy(
             "register every compiled proofbound_claim and ensure every registered claim is imported",
         ));
     }
-    if !unit.evidence_unit.expected_inventory.is_empty() {
-        let configured: BTreeSet<_> = unit
-            .evidence_unit
-            .expected_inventory
-            .iter()
-            .cloned()
-            .collect();
-        let compiled: BTreeSet<_> = output
-            .claims
-            .iter()
-            .map(|claim| claim.declaration.clone())
-            .collect();
-        if configured != compiled {
-            return Err(AdapterError::new(
-                INVENTORY,
-                format!(
-                    "evidence_unit.expected_inventory differs from compiled declarations; configured={configured:?}, compiled={compiled:?}"
-                ),
-            ));
-        }
+    let configured: BTreeSet<_> = unit
+        .evidence_unit
+        .expected_inventory
+        .iter()
+        .cloned()
+        .collect();
+    let compiled: BTreeSet<_> = output
+        .claims
+        .iter()
+        .map(|claim| claim.declaration.clone())
+        .collect();
+    if configured != compiled {
+        return Err(AdapterError::new(
+            INVENTORY,
+            format!(
+                "evidence_unit.expected_inventory differs from compiled declarations; configured={configured:?}, compiled={compiled:?}"
+            ),
+        ));
     }
 
     let mut target_verified = None;
@@ -414,6 +412,23 @@ pub(crate) fn validate_unit(unit: &LeanAdapterUnit) -> Result<(), AdapterError> 
         return Err(AdapterError::new(
             CONFIGURATION,
             "claim_inventory must be strictly sorted by claim_id",
+        ));
+    }
+    let registered = expected_inventory(&unit.claim_inventory)?
+        .into_values()
+        .map(|claim| claim.declaration.clone())
+        .collect::<BTreeSet<_>>();
+    let configured = evidence
+        .expected_inventory
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if evidence.expected_inventory.is_empty() || configured != registered {
+        return Err(AdapterError::new(
+            INVENTORY,
+            format!(
+                "evidence_unit.expected_inventory must be nonempty and exactly equal the registered Lean declarations; configured={configured:?}, registered={registered:?}"
+            ),
         ));
     }
     Ok(())
@@ -806,7 +821,7 @@ mod tests {
                 refinement_theorem: None,
                 premises: Vec::new(),
                 assumptions: Vec::new(),
-                expected_inventory: Vec::new(),
+                expected_inventory: vec!["Demo.claim".to_owned()],
                 inputs: vec!["lean/Demo.lean".to_owned()],
                 outputs: Vec::new(),
                 environment_allowlist: Vec::new(),
@@ -857,6 +872,17 @@ mod tests {
         let digest = statement_digest(&audit.claims[0].expr_wire).unwrap();
         let verified = verify_audit(&unit(Some(format!("sha256:{digest}"))), &audit, true).unwrap();
         assert_eq!(verified.target.declaration, "Demo.claim");
+    }
+
+    #[test]
+    fn expected_inventory_is_nonempty_and_exact_before_audit_execution() {
+        let mut empty = unit(None);
+        empty.evidence_unit.expected_inventory.clear();
+        assert_eq!(validate_unit(&empty).unwrap_err().code, INVENTORY);
+
+        let mut wrong = unit(None);
+        wrong.evidence_unit.expected_inventory = vec!["Demo.other".to_owned()];
+        assert_eq!(validate_unit(&wrong).unwrap_err().code, INVENTORY);
     }
 
     #[test]

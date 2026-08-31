@@ -9,6 +9,15 @@
   "$defs": {
     "id": { "type": "string", "minLength": 1, "maxLength": 512 },
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "inventoryItem": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "allOf": [
+        { "pattern": "\\S" },
+        { "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" }
+      ]
+    },
     "artifact": {
       "type": "object", "additionalProperties": false,
       "required": ["logical_name", "sha256", "size_bytes"],
@@ -104,13 +113,42 @@
         "exhaustive_check": { "$ref": "#/$defs/exhaustiveCheckReceipt" },
         "mutation_witness": { "$ref": "#/$defs/mutationWitnessReceipt" },
         "independence": { "enum": ["independent", "common-origin"] },
-        "inventoried_targets": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "inventoried_targets": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 },
         "assumptions": { "$ref": "#/$defs/ids" },
         "premises": { "$ref": "#/$defs/ids" },
         "open_obligation": { "$ref": "#/$defs/openObligation" },
         "provenance": { "$ref": "#/$defs/evidenceProvenance" }
       },
       "allOf": [
+        {
+          "if": {
+            "required": ["outcome", "provenance"],
+            "properties": {
+              "outcome": { "const": "passed" },
+              "provenance": {
+                "required": ["execution_kind"],
+                "properties": { "execution_kind": { "const": "observed-processes" } }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "inventoried_targets": { "minItems": 1 },
+              "provenance": {
+                "properties": {
+                  "runs": {
+                    "items": {
+                      "properties": {
+                        "exit_code": { "const": 0 },
+                        "output_truncated": { "const": false }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         { "if": { "properties": { "kind": { "const": "theorem" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "theorem"] } },
         { "if": { "properties": { "kind": { "const": "artifact-soundness" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "binding_mode", "artifact_binding"] } },
         { "if": { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] }, "then": { "required": ["binding_mode", "trusted_transcription"], "properties": { "binding_mode": { "const": "external-round-trip" } } } },

@@ -7,6 +7,10 @@ tier = 2
 evaluation_mode = "native"
 theorem = "ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness"
 assumptions = ["PBAC-CALIBRATION-AX-001", "PBAC-NATIVE-SHA256-001"]
+expected_inventory = [
+  "ProofboundArtifactDemo.Claims.publishedArtifactSoundness",
+  "ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness",
+]
 inputs = [
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Certificate.lean",
   "demo/artifact-certificate/lean/ProofboundArtifactDemo/Claims.lean",

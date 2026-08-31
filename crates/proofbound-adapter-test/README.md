@@ -4,9 +4,18 @@ The executable serves five strict adapter identities:
 
 - `rust-test` with a typed `cargo-test` operation;
 - `python-test` with a typed `pytest` operation;
-- `canonical-artifact` with a typed `artifact-check` operation; and
+- `canonical-artifact` with a typed `artifact-check` operation;
 - `independent-check` with a typed `independent-check` operation; and
 - `trusted-transcription` with a typed `transcription` operation.
+
+The protocol operations have fixed response meanings. `doctor` probes the
+route's tool and returns null evidence with an empty inventory. `inventory`
+performs authoritative discovery and exact registration comparison, then
+returns null evidence with the canonical nonempty inventory; discovery is not
+assurance. `check` and `reproduce` perform the route's full action and return a
+passed observation with the same exact inventory. Only generator `update` is
+supported; it returns no evidence, and every other route rejects update.
+Failures return null evidence and an empty inventory.
 
 Python checker operations require a repository-relative, non-symlink `.py`
 checker and a non-empty exact `expected_inventory`. The checker and every
@@ -15,6 +24,43 @@ executed bytes into the observation. The adapter invokes resolved `python3`
 directly with the checker followed by exactly those registered arguments. It
 does not use a shell, accept command strings, follow paths outside the shadow
 checkout, or permit committed outputs.
+
+Independent checkers must emit exactly one compact canonical result and no
+trailing bytes:
+
+```json
+{"accepted":true,"inventory":["registered-item"],"schema":"proofbound-independent-check-result/1"}
+```
+
+The result has no defaulted or extension fields. `accepted` must be true and
+the reported inventory must be nonempty, duplicate-free, and exactly equal to
+the unit's registered inventory. `inventory`, `check`, and `reproduce` all run
+and parse the checker; the inventory response discards the resulting process
+observation, while check and reproduce may admit it. A zero exit status without
+the exact result is not evidence.
+Canonical artifact checkers likewise run for all three operations and retain
+their stricter `proofbound-artifact-check-result/1` byte-identity contract.
+
+Every route rejects an empty registered inventory before starting its tool.
+Each item must remain nonempty after Unicode trimming, contain at most 4096
+Unicode characters, and contain no Unicode control character.
+Cargo/libtest and pytest inventories come from collected nodes, generator
+inventories come from observed exact output files, and transcription inventory
+comes from the two resolved inputs whose bytes participate in the round trip.
+Missing, extra, or duplicate selected items fail closed.
+Each registered libtest or pytest node is then invoked alone. The adapter
+parses one anchored runner summary proving exactly one pass; substring matches
+such as `11 passed` are rejected, and libtest output capture remains enabled so
+test-authored stdout cannot impersonate the harness summary.
+
+Generator verification never asks a program to inspect outputs that are
+already present. The adapter builds a fresh candidate project from the exact
+registered non-output inputs, keeps every declared output absent, invokes the
+generator with the adapter-owned `--update` switch, and compares the resulting
+exact path-to-bytes inventory with the committed outputs. A no-op, missing or
+extra output, byte drift, seed mutation, symlink, or path escape fails closed.
+Only the explicit `update` operation writes the registered project outputs,
+and that operation returns no evidence.
 
 Trusted transcription is the deliberately weaker `external-round-trip`
 binding. Its version-2 evidence unit registers exactly a source file, a
@@ -29,8 +75,9 @@ python3 DRIVER reencode --transcription CANDIDATE --output REENCODED
 Both calls run in a disposable shadow. The candidate must byte-match the
 committed transcription and the re-encoded bytes must byte-match the source.
 The `inventory`, `check`, and `reproduce` operations all run this connected
-round trip, so an inventory response is backed by the same exact observations
-rather than by driver exit status alone.
+round trip, so inventory is derived by the same exact execution rather than by
+driver exit status alone, although its response intentionally carries null
+evidence.
 Missing, extra, partial, trailing, symlinked, or out-of-boundary output fails
 closed. The nested observation reports only the four observed byte identities,
 the exact driver identity, registered formats, and two domain-separated tool

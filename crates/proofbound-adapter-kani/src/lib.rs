@@ -8,7 +8,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
+    fmt, fs,
     io::Read,
     path::{Component, Path, PathBuf},
     process::{Command, ExitStatus, Stdio},
@@ -18,10 +18,13 @@ use std::{
 
 use proofbound_evidence::{canonical_json, domain_hash, sha256_bytes};
 use proofbound_manifest::{
-    AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, EvidenceUnitManifest,
-    ModelCheckUnitManifest, OperationKind,
+    AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, EvidenceKind,
+    EvidenceUnitManifest, ModelCheckUnitManifest, OperationKind,
 };
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{self, MapAccess, Visitor},
+};
 use serde_json::Value;
 use tempfile::TempDir;
 use thiserror::Error;
@@ -543,6 +546,8 @@ fn execute_request<E: Executor>(
             "json".to_owned(),
         ],
     };
+    let metadata_file = package_dir.join("kani-list.json");
+    require_absent_inventory_output(&metadata_file)?;
     let remaining = remaining_time(started, budget.time_ms)?;
     let inventory_output = executor.run(&inventory_spec, &package_dir, &environment, remaining)?;
     ensure_success(&inventory_spec, &inventory_output)?;
@@ -551,13 +556,7 @@ fn execute_request<E: Executor>(
             "Kani inventory output exceeded 8 MiB".to_owned(),
         ));
     }
-    let metadata_file = package_dir.join("kani-list.json");
-    let metadata_bytes = fs::read(&metadata_file).map_err(|error| {
-        AdapterError::ToolOutput(format!(
-            "could not read {}: {error}",
-            metadata_file.display()
-        ))
-    })?;
+    let metadata_bytes = read_fresh_inventory_output(&metadata_file, &package_dir)?;
     let (inventory, metadata_version) = parse_kani_inventory(&metadata_bytes)?;
     if metadata_version != tool.version {
         return Err(AdapterError::ToolOutput(format!(
@@ -595,6 +594,11 @@ fn execute_request<E: Executor>(
             "shadow execution used {disk_bytes} disk bytes, limit is {}",
             budget.disk_bytes
         )));
+    }
+    if outputs.iter().any(|output| output.status != Some(0)) {
+        return Err(AdapterError::Internal(
+            "successful observation contains a non-zero or missing process exit status".to_owned(),
+        ));
     }
     let runs = observe_runs(&outputs, &shadow_root, &root);
     let input_artifacts = collect_input_artifacts(&root, &evidence.inputs)?;
@@ -634,16 +638,18 @@ fn execute_request<E: Executor>(
         inventory: inventory.clone(),
         normalization: "stable-tool-output/1".to_owned(),
     };
-    Ok((Some(observation), inventory))
+    let evidence = (request.operation != "inventory").then_some(observation);
+    Ok((evidence, inventory))
 }
 
 fn validate_evidence_unit(unit: &EvidenceUnitManifest) -> Result<(), AdapterError> {
     if unit.schema != "proofbound-evidence-unit/1"
         || unit.adapter != AdapterKind::Kani
         || unit.operation.kind != OperationKind::Kani
+        || unit.kind != EvidenceKind::BoundedCheck
     {
         return Err(AdapterError::Unit(
-            "expected a proofbound-evidence-unit/1 Kani operation".to_owned(),
+            "expected a proofbound-evidence-unit/1 bounded-check Kani operation".to_owned(),
         ));
     }
     require_unique("claims", &unit.claims)?;
@@ -736,7 +742,10 @@ struct KaniList {
     kani_version: String,
     #[serde(rename = "file-version")]
     file_version: String,
-    #[serde(rename = "standard-harnesses")]
+    #[serde(
+        rename = "standard-harnesses",
+        deserialize_with = "deserialize_unique_harness_map"
+    )]
     standard_harnesses: BTreeMap<String, Vec<String>>,
     #[serde(rename = "contract-harnesses")]
     contract_harnesses: BTreeMap<String, Vec<String>>,
@@ -753,6 +762,40 @@ struct KaniTotals {
     contract_harnesses: usize,
     #[serde(rename = "functions-under-contract")]
     functions_under_contract: usize,
+}
+
+fn deserialize_unique_harness_map<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct UniqueHarnessMap;
+
+    impl<'de> Visitor<'de> for UniqueHarnessMap {
+        type Value = BTreeMap<String, Vec<String>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a standard-harnesses object with unique source keys")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let mut harnesses = BTreeMap::new();
+            while let Some((source, entries)) = map.next_entry::<String, Vec<String>>()? {
+                if harnesses.insert(source.clone(), entries).is_some() {
+                    return Err(de::Error::custom(format!(
+                        "duplicate standard-harnesses source key `{source}`"
+                    )));
+                }
+            }
+            Ok(harnesses)
+        }
+    }
+
+    deserializer.deserialize_map(UniqueHarnessMap)
 }
 
 fn parse_kani_inventory(bytes: &[u8]) -> Result<(Vec<String>, String), AdapterError> {
@@ -804,7 +847,45 @@ fn parse_kani_inventory(bytes: &[u8]) -> Result<(Vec<String>, String), AdapterEr
     Ok((inventory, list.kani_version))
 }
 
+fn require_absent_inventory_output(path: &Path) -> Result<(), AdapterError> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Err(AdapterError::ToolOutput(format!(
+            "refusing pre-existing Kani inventory output `{}`",
+            path.display()
+        ))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(AdapterError::Io(error)),
+    }
+}
+
+fn read_fresh_inventory_output(path: &Path, package_dir: &Path) -> Result<Vec<u8>, AdapterError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        AdapterError::ToolOutput(format!(
+            "Kani did not create fresh inventory output `{}`: {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.file_type().is_file() || metadata.len() > MAX_TOOL_OUTPUT_BYTES as u64 {
+        return Err(AdapterError::ToolOutput(
+            "fresh Kani inventory output must be a bounded regular file".to_owned(),
+        ));
+    }
+    let canonical = path.canonicalize().map_err(AdapterError::Io)?;
+    let package_dir = package_dir.canonicalize().map_err(AdapterError::Io)?;
+    if !canonical.starts_with(&package_dir) {
+        return Err(AdapterError::ToolOutput(
+            "fresh Kani inventory output escaped the selected package".to_owned(),
+        ));
+    }
+    fs::read(canonical).map_err(AdapterError::Io)
+}
+
 fn exact_inventory(expected: &[String], actual: &[String]) -> Result<(), AdapterError> {
+    if expected.is_empty() || actual.is_empty() {
+        return Err(AdapterError::ToolOutput(
+            "Kani requires a nonempty registered and observed harness inventory".to_owned(),
+        ));
+    }
     let mut expected_sorted = expected.to_vec();
     expected_sorted.sort();
     if expected_sorted != actual {
@@ -1394,6 +1475,49 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct InventoryExecutor {
+        calls: usize,
+    }
+
+    impl Executor for InventoryExecutor {
+        fn run(
+            &mut self,
+            _spec: &ProcessSpec,
+            cwd: &Path,
+            _environment: &BTreeMap<String, String>,
+            _timeout: Duration,
+        ) -> Result<ProcessOutput, AdapterError> {
+            let stdout = match self.calls {
+                0 => b"Kani Rust Verifier 0.67.0\n".to_vec(),
+                1 => serde_json::to_vec(&json!({
+                    "packages": [{
+                        "name": "fixture",
+                        "manifest_path": cwd.join("Cargo.toml")
+                    }]
+                }))
+                .unwrap(),
+                2 => {
+                    fs::write(cwd.join("kani-list.json"), kani_metadata(&["crate::h"]))?;
+                    Vec::new()
+                }
+                _ => {
+                    return Err(AdapterError::Internal(
+                        "unexpected inventory call".to_owned(),
+                    ));
+                }
+            };
+            self.calls += 1;
+            Ok(ProcessOutput {
+                status: Some(0),
+                stdout,
+                stderr: Vec::new(),
+                truncated: false,
+                duration_ms: 1,
+            })
+        }
+    }
+
     fn kani_metadata(harnesses: &[&str]) -> Vec<u8> {
         serde_json::to_vec(&json!({
             "kani-version": "0.67.0",
@@ -1464,12 +1588,158 @@ mod tests {
     }
 
     #[test]
+    fn rejects_duplicate_raw_standard_harness_source_keys() {
+        let duplicate_source = br#"{
+            "kani-version":"0.67.0",
+            "file-version":"0.1",
+            "standard-harnesses":{
+                "src/lib.rs":["crate::first"],
+                "src/lib.rs":["crate::second"]
+            },
+            "contract-harnesses":{},
+            "contracts":[],
+            "totals":{
+                "standard-harnesses":1,
+                "contract-harnesses":0,
+                "functions-under-contract":0
+            }
+        }"#;
+        let error = parse_kani_inventory(duplicate_source).unwrap_err();
+        assert!(error.to_string().contains("duplicate standard-harnesses"));
+    }
+
+    #[test]
     fn inventory_comparison_reports_missing_and_extra() {
         let error = exact_inventory(&["crate::wanted".to_owned()], &["crate::extra".to_owned()])
             .unwrap_err();
         let message = error.to_string();
         assert!(message.contains("wanted"));
         assert!(message.contains("extra"));
+        assert!(exact_inventory(&["crate::wanted".to_owned()], &[]).is_err());
+    }
+
+    #[test]
+    fn kani_inventory_file_must_be_fresh_regular_and_package_local() {
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("kani-list.json");
+        fs::write(&output, b"stale").unwrap();
+        assert!(require_absent_inventory_output(&output).is_err());
+        fs::remove_file(&output).unwrap();
+        assert!(require_absent_inventory_output(&output).is_ok());
+        fs::write(&output, kani_metadata(&["crate::h"])).unwrap();
+        assert!(read_fresh_inventory_output(&output, temp.path()).is_ok());
+
+        #[cfg(unix)]
+        {
+            fs::remove_file(&output).unwrap();
+            fs::write(temp.path().join("elsewhere.json"), b"{}").unwrap();
+            std::os::unix::fs::symlink("elsewhere.json", &output).unwrap();
+            assert!(read_fresh_inventory_output(&output, temp.path()).is_err());
+        }
+    }
+
+    #[test]
+    fn kani_rejects_evidence_kind_relabeling() {
+        let mut unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema":"proofbound-evidence-unit/1",
+            "id":"bounded-unit",
+            "adapter":"kani",
+            "kind":"bounded-check",
+            "claims":["CLAIM-ONE"],
+            "tier":1,
+            "operation":{"type":"kani","targets":["crate::h"],"manifest":"model.toml"},
+            "expected_inventory":["crate::h"],
+            "inputs":["model.toml"],
+            "outputs":[],
+            "environment_allowlist":["PATH"],
+            "bounded_domain":{"id":"domain","description":"one case","cardinality":1,"ordering_key":[0]},
+            "resource_budget":{"time_seconds":1,"disk_bytes":1,"memory_bytes":1}
+        }))
+        .unwrap();
+        assert!(validate_evidence_unit(&unit).is_ok());
+        unit.kind = EvidenceKind::SourceRefinement;
+        assert!(validate_evidence_unit(&unit).is_err());
+    }
+
+    #[test]
+    fn inventory_returns_exact_targets_without_assurance_evidence() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(
+            root.path().join("Cargo.toml"),
+            b"[package]\nname='fixture'\nversion='0.1.0'\n",
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("model.toml"),
+            br#"schema = "proofbound-model-check-unit/1"
+id = "bounded-unit"
+adapter = "kani"
+package = "fixture"
+harnesses = ["crate::h"]
+claims = ["CLAIM-ONE"]
+solver = "cadical"
+unwind = 1
+assumptions = []
+
+[domain]
+id = "domain"
+description = "one case"
+cardinality = 1
+ordering_key = [0]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 10485760
+memory_bytes = 1
+"#,
+        )
+        .unwrap();
+        let request: AdapterRequest = serde_json::from_value(json!({
+            "schema": PROTOCOL_SCHEMA,
+            "type": "request",
+            "request_id": "0123456789abcdef0123456789abcdef",
+            "adapter": ADAPTER_ID,
+            "operation": "inventory",
+            "project_root": ".",
+            "unit": {
+                "schema":"proofbound-evidence-unit/1",
+                "id":"bounded-unit",
+                "adapter":"kani",
+                "kind":"bounded-check",
+                "claims":["CLAIM-ONE"],
+                "tier":1,
+                "operation":{
+                    "type":"kani",
+                    "package":"fixture",
+                    "targets":["crate::h"],
+                    "manifest":"model.toml"
+                },
+                "expected_inventory":["crate::h"],
+                "inputs":["model.toml"],
+                "outputs":[],
+                "environment_allowlist":[],
+                "bounded_domain":{
+                    "id":"domain",
+                    "description":"one case",
+                    "cardinality":1,
+                    "ordering_key":[0]
+                },
+                "resource_budget":{
+                    "time_seconds":60,
+                    "disk_bytes":10485760,
+                    "memory_bytes":1
+                }
+            }
+        }))
+        .unwrap();
+        let mut executor = InventoryExecutor::default();
+        let (evidence, inventory) = execute_request(&request, root.path(), &mut executor).unwrap();
+        assert!(evidence.is_none());
+        assert_eq!(inventory, ["crate::h"]);
+        assert_eq!(
+            executor.calls, 3,
+            "inventory must not run the Kani proof phase"
+        );
     }
 
     #[test]

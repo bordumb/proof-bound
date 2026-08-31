@@ -8,12 +8,12 @@
   "properties": {
     "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2"] },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
-    "adapter": { "enum": ["lean", "charon-aeneas", "kani", "rust-test", "python-test", "canonical-artifact", "source-closure", "independent-check", "human-review", "trusted-transcription"] },
+    "adapter": { "enum": ["lean", "charon-aeneas", "kani", "rust-test", "python-test", "canonical-artifact", "independent-check", "trusted-transcription"] },
     "kind": { "$ref": "evidence.schema.json#/$defs/kind" },
     "claims": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
     "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
     "operation": { "type": "object", "additionalProperties": false, "required": ["type"], "properties": {
-      "type": { "enum": ["cargo-test", "pytest", "generator", "lean-audit", "kani", "translation", "artifact-check", "independent-check", "review", "closure", "transcription"] },
+      "type": { "enum": ["cargo-test", "pytest", "generator", "lean-audit", "kani", "translation", "artifact-check", "independent-check", "transcription"] },
       "package": { "type": "string", "minLength": 1, "maxLength": 256 },
       "targets": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "maxItems": 4096 },
       "paths": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 4096 },
@@ -28,7 +28,20 @@
     "refinement_theorem": { "type": "string", "minLength": 1, "maxLength": 1024 },
     "premises": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "maxItems": 4096 },
     "assumptions": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "maxItems": 4096 },
-    "expected_inventory": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "maxItems": 100000 },
+    "expected_inventory": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "allOf": [
+          { "pattern": "\\S" },
+          { "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$" }
+        ]
+      },
+      "uniqueItems": true,
+      "maxItems": 100000
+    },
     "inputs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 100000 },
     "outputs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 100000 },
     "environment_allowlist": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" }, "uniqueItems": true, "maxItems": 256 },
@@ -40,20 +53,100 @@
     {
       "if": { "properties": { "schema": { "const": "proofbound-evidence-unit/1" } }, "required": ["schema"] },
       "then": {
-        "not": {
-          "anyOf": [
-            { "required": ["transcription"] },
-            { "properties": { "adapter": { "const": "trusted-transcription" } }, "required": ["adapter"] },
-            { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] },
-            { "properties": { "operation": { "properties": { "type": { "const": "transcription" } }, "required": ["type"] } }, "required": ["operation"] }
-          ]
-        }
+        "allOf": [
+          {
+            "not": {
+              "anyOf": [
+                { "required": ["transcription"] },
+                { "properties": { "adapter": { "const": "trusted-transcription" } }, "required": ["adapter"] },
+                { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] },
+                { "properties": { "operation": { "properties": { "type": { "const": "transcription" } }, "required": ["type"] } }, "required": ["operation"] }
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "adapter": { "const": "lean" },
+                  "kind": { "const": "theorem" },
+                  "operation": { "properties": { "type": { "const": "lean-audit" } }, "required": ["type"] }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
+                  "adapter": { "const": "charon-aeneas" },
+                  "kind": { "const": "source-refinement" },
+                  "operation": { "properties": { "type": { "const": "translation" } }, "required": ["type"] }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
+                  "adapter": { "const": "kani" },
+                  "kind": { "const": "bounded-check" },
+                  "operation": { "properties": { "type": { "const": "kani" } }, "required": ["type"] }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
+                  "adapter": { "const": "rust-test" },
+                  "kind": { "enum": ["example-test", "property-test", "mutation-witness"] },
+                  "operation": { "properties": { "type": { "const": "cargo-test" } }, "required": ["type"] }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
+                  "adapter": { "const": "python-test" },
+                  "kind": { "enum": ["example-test", "property-test"] },
+                  "operation": { "properties": { "type": { "const": "pytest" } }, "required": ["type"] }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
+                  "adapter": { "const": "python-test" },
+                  "kind": { "const": "example-test" },
+                  "operation": { "properties": { "type": { "const": "generator" } }, "required": ["type"] }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
+                  "adapter": { "const": "canonical-artifact" },
+                  "kind": { "const": "artifact-soundness" },
+                  "operation": { "properties": { "type": { "const": "artifact-check" } }, "required": ["type"] }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
+                  "adapter": { "const": "independent-check" },
+                  "kind": { "const": "independent-check" },
+                  "operation": { "properties": { "type": { "const": "independent-check" } }, "required": ["type"] }
+                },
+                "required": ["adapter", "kind", "operation"]
+              }
+            ]
+          },
+          {
+            "if": { "properties": { "adapter": { "const": "charon-aeneas" } }, "required": ["adapter"] },
+            "then": { "properties": { "expected_inventory": { "maxItems": 0 } } },
+            "else": {
+              "required": ["expected_inventory"],
+              "properties": { "expected_inventory": { "minItems": 1 } }
+            }
+          }
+        ]
       }
     },
     {
       "if": { "properties": { "schema": { "const": "proofbound-evidence-unit/2" } }, "required": ["schema"] },
       "then": {
-        "required": ["binding_mode", "transcription"],
+        "required": ["binding_mode", "transcription", "expected_inventory", "inputs", "outputs", "environment_allowlist"],
         "properties": {
           "adapter": { "const": "trusted-transcription" },
           "kind": { "const": "trusted-transcription" },

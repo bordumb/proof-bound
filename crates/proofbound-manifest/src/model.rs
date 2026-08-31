@@ -197,6 +197,33 @@ pub struct EvidenceUnitManifest {
     pub resource_budget: ResourceBudget,
 }
 
+/// Maximum number of exact targets one evidence-producing adapter may bind.
+pub const MAX_ADAPTER_INVENTORY_ITEMS: usize = 100_000;
+
+/// Maximum Unicode-scalar length of one portable adapter target identity.
+pub const MAX_ADAPTER_INVENTORY_ITEM_CHARS: usize = 4096;
+
+/// Return an inventory in the one portable lexical wire order.
+///
+/// Manifest inventories have set semantics: semantic validation rejects
+/// duplicates before adapters run, while source order is not evidence. This
+/// helper deliberately performs only canonicalization so callers can use the
+/// same ordering after validation without silently repairing invalid entries.
+#[must_use]
+pub fn canonical_adapter_inventory(inventory: &[String]) -> Vec<String> {
+    let mut canonical = inventory.to_vec();
+    canonical.sort();
+    canonical
+}
+
+impl EvidenceUnitManifest {
+    /// Return this unit's manifest-owned inventory in portable wire order.
+    #[must_use]
+    pub fn canonical_expected_inventory(&self) -> Vec<String> {
+        canonical_adapter_inventory(&self.expected_inventory)
+    }
+}
+
 /// Manifest-owned inputs for the executable trusted-transcription route.
 ///
 /// The adapter derives the two trusted roles from the registered driver and
@@ -412,8 +439,58 @@ pub struct TranslationInvocation {
     pub start_from: Vec<String>,
     pub opaque: Vec<String>,
     pub include: Vec<String>,
+    pub translated_closure: Vec<TranslationInventoryEntry>,
     pub aeneas_subdir: Option<String>,
     pub outputs: Vec<TranslationOutputMapping>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranslationInventoryEntry {
+    pub kind: TranslationInventoryKind,
+    pub rust_name: String,
+}
+
+impl TranslationInventoryEntry {
+    #[must_use]
+    pub fn canonical_name(&self) -> String {
+        format!("{}:{}", self.kind.as_str(), self.rust_name)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranslationInventoryKind {
+    Function,
+    Type,
+}
+
+impl TranslationInventoryKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Function => "function",
+            Self::Type => "type",
+        }
+    }
+}
+
+impl TranslationUnitManifest {
+    /// Return the manifest-owned translated closure in one portable order.
+    ///
+    /// Semantic validation guarantees that the entries are unique. Sorting
+    /// the category-prefixed names here also produces a stable inventory when
+    /// a unit has multiple ordered invocations.
+    #[must_use]
+    pub fn canonical_translated_closure_inventory(&self) -> Vec<String> {
+        let inventory = self
+            .invocations
+            .iter()
+            .flat_map(|invocation| &invocation.translated_closure)
+            .map(TranslationInventoryEntry::canonical_name)
+            .collect::<Vec<_>>();
+        canonical_adapter_inventory(&inventory)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

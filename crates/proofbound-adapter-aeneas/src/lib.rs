@@ -1,6 +1,6 @@
 //! Manifest-driven Charon/Aeneas translation adapter.
 //!
-//! The version-2 translation unit is authoritative. Each typed invocation
+//! The version-3 translation unit is authoritative. Each typed invocation
 //! declares its Cargo manifest, crate, LLBC path, symbols, Aeneas subdirectory,
 //! and complete produced-to-committed output map. Extraction and translation
 //! run twice in an isolated shadow checkout; normalized pretty-printed LLBC and
@@ -20,12 +20,13 @@ use std::{
 
 use proofbound_evidence::{canonical_json, domain_hash, sha256_bytes};
 use proofbound_manifest::{
-    AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, EvidenceUnitManifest,
-    ExternalBridge, ImportMappingMode, MAX_TRANSLATION_CLAIMS, MAX_TRANSLATION_EXTERNAL_BRIDGES,
-    MAX_TRANSLATION_INVOCATIONS, MAX_TRANSLATION_MAPPED_OUTPUTS, MAX_TRANSLATION_PATH_BYTES,
-    MAX_TRANSLATION_SOURCE_ROOTS, MAX_TRANSLATION_SYMBOLS, MAX_TRANSLATION_TEMPLATE_AXIOMS,
-    MAX_TRANSLATION_WARNINGS, OperationKind, ProjectManifest, TRANSLATION_RESERVED_PATH_COMPONENTS,
-    TemplateAxiom, TranslationInvocation, TranslationOutputKind, TranslationPipeline,
+    AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, EvidenceKind,
+    EvidenceUnitManifest, ExternalBridge, ImportMappingMode, MAX_TRANSLATION_CLAIMS,
+    MAX_TRANSLATION_EXTERNAL_BRIDGES, MAX_TRANSLATION_INVOCATIONS, MAX_TRANSLATION_MAPPED_OUTPUTS,
+    MAX_TRANSLATION_PATH_BYTES, MAX_TRANSLATION_SOURCE_ROOTS, MAX_TRANSLATION_SYMBOLS,
+    MAX_TRANSLATION_TEMPLATE_AXIOMS, MAX_TRANSLATION_WARNINGS, OperationKind, ProjectManifest,
+    TRANSLATION_RESERVED_PATH_COMPONENTS, TemplateAxiom, TranslationInventoryEntry,
+    TranslationInventoryKind, TranslationInvocation, TranslationOutputKind, TranslationPipeline,
     TranslationUnitManifest, TranslationWarningKind,
 };
 use serde::{Deserialize, Serialize};
@@ -620,8 +621,8 @@ fn execute_request<E: Executor>(
             "two translation runs differ at {difference}"
         )));
     }
-    let inventory = translation_symbols(&translation)?;
-    exact_symbol_inventory(&inventory, &first.translated_symbols)?;
+    let inventory = translation.canonical_translated_closure_inventory();
+    exact_symbol_inventory(&inventory, &first.translated_inventory)?;
     audit_generated_inventory(&first.generated, &translation)?;
 
     let committed_dir = resolve_output_path(&root, &translation.generated_dir)?;
@@ -713,16 +714,34 @@ fn execute_request<E: Executor>(
         inventory: inventory.clone(),
         normalization: translation.determinism_normalization,
     };
-    Ok((Some(observation), inventory))
+    Ok((
+        completed_operation_evidence(&request.operation, observation)?,
+        inventory,
+    ))
+}
+
+fn completed_operation_evidence(
+    operation: &str,
+    observation: AdapterObservation,
+) -> Result<Option<AdapterObservation>, AdapterError> {
+    match operation {
+        "inventory" => Ok(None),
+        "check" | "reproduce" => Ok(Some(observation)),
+        other => Err(AdapterError::Internal(format!(
+            "completed evidence operation has unexpected type `{other}`"
+        ))),
+    }
 }
 
 fn validate_evidence_unit(unit: &EvidenceUnitManifest) -> Result<(), AdapterError> {
     if unit.schema != "proofbound-evidence-unit/1"
         || unit.adapter != AdapterKind::CharonAeneas
         || unit.operation.kind != OperationKind::Translation
+        || unit.kind != EvidenceKind::SourceRefinement
     {
         return Err(AdapterError::Unit(
-            "expected a proofbound-evidence-unit/1 charon-aeneas translation operation".to_owned(),
+            "expected a proofbound-evidence-unit/1 source-refinement charon-aeneas translation operation"
+                .to_owned(),
         ));
     }
     require_unique_bounded("claims", &unit.claims, MAX_TRANSLATION_CLAIMS)?;
@@ -765,14 +784,14 @@ fn validate_translation_unit(
     manifest_byte_limit: u64,
     artifact_byte_limit: u64,
 ) -> Result<(), AdapterError> {
-    if unit.schema != "proofbound-translation-unit/2"
+    if unit.schema != "proofbound-translation-unit/3"
         || !safe_invocation_id(&unit.id)
         || unit.pipeline != TranslationPipeline::CharonAeneas
         || unit.determinism_runs != 2
         || unit.determinism_normalization != "pretty-printed-llbc/1"
         || !unit.forbid_generated_axioms
     {
-        return Err(AdapterError::Unit("translation requires schema v2, the charon-aeneas pipeline, two runs, pretty-printed-llbc/1, and forbidden generated axioms".to_owned()));
+        return Err(AdapterError::Unit("translation requires schema v3, the charon-aeneas pipeline, two runs, pretty-printed-llbc/1, and forbidden generated axioms".to_owned()));
     }
     require_sorted_unique_bounded("claims", &unit.claims, MAX_TRANSLATION_CLAIMS)?;
     if unit.invocations.is_empty() || unit.claims.is_empty() {
@@ -825,6 +844,7 @@ fn validate_translation_unit(
     }
     let mut destinations = Vec::new();
     let mut llbc_files = BTreeSet::new();
+    let mut translated_symbols = BTreeSet::new();
     for invocation in &unit.invocations {
         validate_invocation(root, &generated_root, invocation, manifest_byte_limit)?;
         if !llbc_files.insert(invocation.llbc_file.as_str()) {
@@ -832,6 +852,14 @@ fn validate_translation_unit(
                 "LLBC path `{}` is declared by more than one invocation",
                 invocation.llbc_file
             )));
+        }
+        for entry in &invocation.translated_closure {
+            if !translated_symbols.insert(entry.rust_name.as_str()) {
+                return Err(AdapterError::Unit(format!(
+                    "translated closure symbol `{}` is declared by more than one invocation",
+                    entry.rust_name
+                )));
+            }
         }
         for output in &invocation.outputs {
             let path = normalized_relative(&output.destination)?;
@@ -963,6 +991,47 @@ fn validate_invocation(
             "invocation `{}` requires start symbols and declared outputs",
             invocation.id
         )));
+    }
+    if invocation.translated_closure.is_empty()
+        || invocation.translated_closure.len() > MAX_TRANSLATION_SYMBOLS
+        || invocation
+            .translated_closure
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return Err(AdapterError::Unit(format!(
+            "invocation `{}` requires a nonempty translated_closure in strict kind/name order",
+            invocation.id
+        )));
+    }
+    let mut translated_names = BTreeSet::new();
+    for entry in &invocation.translated_closure {
+        if !safe_translation_report_name(&entry.rust_name) {
+            return Err(AdapterError::Unit(format!(
+                "invocation `{}` has an invalid translated_closure Rust name",
+                invocation.id
+            )));
+        }
+        if !translated_names.insert(entry.rust_name.as_str()) {
+            return Err(AdapterError::Unit(format!(
+                "invocation `{}` ambiguously categorizes translated closure symbol `{}`",
+                invocation.id, entry.rust_name
+            )));
+        }
+        if invocation.opaque.contains(&entry.rust_name) {
+            return Err(AdapterError::Unit(format!(
+                "invocation `{}` puts `{}` in both translated_closure and opaque selectors",
+                invocation.id, entry.rust_name
+            )));
+        }
+    }
+    for root in &invocation.start_from {
+        if !translated_names.contains(root.as_str()) {
+            return Err(AdapterError::Unit(format!(
+                "invocation `{}` start root `{root}` is absent from translated_closure",
+                invocation.id
+            )));
+        }
     }
     if invocation.outputs.len() > MAX_TRANSLATION_MAPPED_OUTPUTS {
         return Err(AdapterError::Unit(format!(
@@ -1263,7 +1332,7 @@ struct TranslationRun {
     outputs: Vec<ProcessOutput>,
     reproduction: BTreeMap<String, Vec<u8>>,
     generated: BTreeMap<String, Vec<u8>>,
-    translated_symbols: Vec<String>,
+    translated_inventory: Vec<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1286,7 +1355,7 @@ fn execute_translation_run<E: Executor>(
     let mut outputs = Vec::new();
     let mut generated = BTreeMap::<String, Vec<u8>>::new();
     let mut reproduction = BTreeMap::new();
-    let mut translated_symbols = Vec::new();
+    let mut translated_inventory = Vec::new();
     for invocation in &unit.invocations {
         let invocation_root = run_root.join("invocations").join(&invocation.id);
         let llbc_root = invocation_root.join("llbc");
@@ -1385,7 +1454,7 @@ fn execute_translation_run<E: Executor>(
             invocation,
             remaining_generated_bytes,
         )?;
-        translated_symbols.extend(translation_report_inventory(&produced, invocation, lock)?);
+        translated_inventory.extend(translation_report_inventory(&produced, invocation, lock)?);
         for mapping in &invocation.outputs {
             let bytes = produced
                 .get(&mapping.produced)
@@ -1409,7 +1478,7 @@ fn execute_translation_run<E: Executor>(
         outputs,
         reproduction,
         generated,
-        translated_symbols,
+        translated_inventory,
     })
 }
 
@@ -1593,6 +1662,7 @@ fn normalize_pretty_llbc(bytes: &[u8]) -> Vec<u8> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TranslationReport {
     aeneas_version: String,
     charon_version: String,
@@ -1600,19 +1670,136 @@ struct TranslationReport {
     crate_name: String,
     functions: Vec<TranslationFunction>,
     types: Vec<TranslationType>,
+    #[serde(default, rename = "globals")]
+    _globals: Vec<TranslationGlobal>,
+    #[serde(default, rename = "trait_decls")]
+    _trait_decls: Vec<TranslationTraitDeclaration>,
+    #[serde(default, rename = "trait_impls")]
+    _trait_impls: Vec<TranslationTraitImplementation>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TranslationFunction {
+    #[serde(default, rename = "def_id")]
+    _def_id: Option<u64>,
+    #[serde(default, rename = "lean_name")]
+    _lean_name: Option<String>,
+    #[serde(default, rename = "lean_file")]
+    _lean_file: Option<String>,
     rust_name: String,
     is_local: bool,
+    #[serde(default, rename = "source")]
+    _source: Option<TranslationSource>,
     is_opaque: bool,
+    #[serde(default, rename = "can_fail")]
+    _can_fail: Option<bool>,
+    #[serde(default, rename = "can_diverge")]
+    _can_diverge: Option<bool>,
+    #[serde(default, rename = "is_rec")]
+    _is_rec: Option<bool>,
+    #[serde(default, rename = "reducible")]
+    _reducible: Option<bool>,
+    #[serde(default, rename = "loop")]
+    loop_metadata: Option<TranslationLoop>,
+    #[serde(default)]
+    parent_lean_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TranslationType {
+    #[serde(default, rename = "def_id")]
+    _def_id: Option<u64>,
+    #[serde(default, rename = "lean_name")]
+    _lean_name: Option<String>,
+    #[serde(default, rename = "lean_file")]
+    _lean_file: Option<String>,
     rust_name: String,
     is_local: bool,
+    #[serde(default, rename = "source")]
+    _source: Option<TranslationSource>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TranslationSource {
+    #[serde(rename = "file")]
+    _file: String,
+    #[serde(rename = "begin_line")]
+    _begin_line: u64,
+    #[serde(rename = "end_line")]
+    _end_line: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TranslationLoop {
+    #[serde(rename = "id")]
+    _id: u64,
+    #[serde(rename = "pos")]
+    _pos: Vec<u64>,
+    #[serde(rename = "is_body")]
+    _is_body: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TranslationGlobal {
+    #[serde(rename = "def_id")]
+    _def_id: u64,
+    #[serde(rename = "lean_name")]
+    _lean_name: String,
+    #[serde(rename = "lean_file")]
+    _lean_file: String,
+    #[serde(rename = "rust_name")]
+    _rust_name: String,
+    #[serde(rename = "is_local")]
+    _is_local: bool,
+    #[serde(rename = "source")]
+    _source: TranslationSource,
+    #[serde(rename = "can_fail")]
+    _can_fail: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TranslationTraitDeclaration {
+    #[serde(rename = "def_id")]
+    _def_id: u64,
+    #[serde(rename = "lean_name")]
+    _lean_name: String,
+    #[serde(rename = "lean_file")]
+    _lean_file: String,
+    #[serde(rename = "rust_name")]
+    _rust_name: String,
+    #[serde(rename = "is_local")]
+    _is_local: bool,
+    #[serde(rename = "source")]
+    _source: TranslationSource,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TranslationTraitImplementation {
+    #[serde(rename = "def_id")]
+    _def_id: u64,
+    #[serde(rename = "lean_name")]
+    _lean_name: String,
+    #[serde(rename = "lean_file")]
+    _lean_file: String,
+    #[serde(rename = "rust_name")]
+    _rust_name: String,
+    #[serde(rename = "is_local")]
+    _is_local: bool,
+    #[serde(rename = "source")]
+    _source: TranslationSource,
+    #[serde(rename = "impl_trait_def_id")]
+    _impl_trait_def_id: u64,
+    #[serde(rename = "impl_trait_rust_name")]
+    _impl_trait_rust_name: String,
+    #[serde(rename = "impl_trait_is_builtin")]
+    _impl_trait_is_builtin: bool,
 }
 
 fn translation_report_inventory(
@@ -1620,6 +1807,12 @@ fn translation_report_inventory(
     invocation: &TranslationInvocation,
     lock: &TranslationToolchainLock,
 ) -> Result<Vec<String>, AdapterError> {
+    if invocation.start_from.is_empty() {
+        return Err(AdapterError::Inventory(format!(
+            "invocation `{}` has an empty authoritative start inventory",
+            invocation.id
+        )));
+    }
     let report_mapping = invocation
         .outputs
         .iter()
@@ -1631,6 +1824,15 @@ fn translation_report_inventory(
     let report: TranslationReport = serde_json::from_slice(bytes).map_err(|error| {
         AdapterError::Inventory(format!("{}: {error}", report_mapping.produced))
     })?;
+    if !report._globals.is_empty()
+        || !report._trait_decls.is_empty()
+        || !report._trait_impls.is_empty()
+    {
+        return Err(AdapterError::Inventory(format!(
+            "translation report `{}` contains unsupported global or trait inventory",
+            report_mapping.produced
+        )));
+    }
     if !report.aeneas_version.contains(&lock.aeneas_revision)
         || !report.charon_version.contains(&lock.charon_revision)
     {
@@ -1646,16 +1848,42 @@ fn translation_report_inventory(
         )));
     }
     let explicit_opaque: BTreeSet<_> = invocation.opaque.iter().map(String::as_str).collect();
-    let mut report_symbols = BTreeSet::new();
+    let mut report_symbols = BTreeMap::<String, bool>::new();
+    let mut loop_symbols = Vec::new();
     let mut supported_local = BTreeSet::new();
     for function in report.functions {
-        if !safe_rust_symbol(&function.rust_name) {
+        if !safe_translation_report_name(&function.rust_name) {
             return Err(AdapterError::Inventory(format!(
                 "invalid translated symbol `{}`",
                 function.rust_name
             )));
         }
-        if !report_symbols.insert(function.rust_name.clone()) {
+        if function.loop_metadata.is_some() != function.parent_lean_name.is_some()
+            || function
+                .parent_lean_name
+                .as_ref()
+                .is_some_and(|name| name.trim().is_empty())
+        {
+            return Err(AdapterError::Inventory(format!(
+                "translation report has malformed loop metadata for `{}`",
+                function.rust_name
+            )));
+        }
+        if function.loop_metadata.is_some() {
+            if !function.is_local || function.is_opaque {
+                return Err(AdapterError::Inventory(format!(
+                    "translation report loop entry `{}` is external or opaque",
+                    function.rust_name
+                )));
+            }
+            loop_symbols.push(function.rust_name);
+            continue;
+        }
+        let supported = function.is_local && !function.is_opaque;
+        if report_symbols
+            .insert(function.rust_name.clone(), supported)
+            .is_some()
+        {
             return Err(AdapterError::Inventory(format!(
                 "translation report repeats supported symbol `{}`",
                 function.rust_name
@@ -1669,35 +1897,70 @@ fn translation_report_inventory(
                 )));
             }
             if !function.is_opaque {
-                supported_local.insert(function.rust_name);
+                supported_local.insert(TranslationInventoryEntry {
+                    kind: TranslationInventoryKind::Function,
+                    rust_name: function.rust_name,
+                });
             }
         }
     }
     for translated_type in report.types {
-        if !safe_rust_symbol(&translated_type.rust_name) {
+        if !safe_translation_report_name(&translated_type.rust_name) {
             return Err(AdapterError::Inventory(format!(
                 "invalid translated type `{}`",
                 translated_type.rust_name
             )));
         }
-        if !report_symbols.insert(translated_type.rust_name.clone()) {
+        let supported = translated_type.is_local;
+        if report_symbols
+            .insert(translated_type.rust_name.clone(), supported)
+            .is_some()
+        {
             return Err(AdapterError::Inventory(format!(
                 "translation report repeats supported symbol `{}`",
                 translated_type.rust_name
             )));
         }
         if translated_type.is_local {
-            supported_local.insert(translated_type.rust_name);
+            supported_local.insert(TranslationInventoryEntry {
+                kind: TranslationInventoryKind::Type,
+                rust_name: translated_type.rust_name,
+            });
         }
     }
+    for symbol in loop_symbols {
+        if report_symbols.get(&symbol) != Some(&true) {
+            return Err(AdapterError::Inventory(format!(
+                "translation report loop entry `{symbol}` has no supported local parent function"
+            )));
+        }
+    }
+    if supported_local.is_empty() {
+        return Err(AdapterError::Inventory(format!(
+            "translation report for invocation `{}` selected no supported local functions or types",
+            invocation.id
+        )));
+    }
+
+    let actual = supported_local.into_iter().collect::<Vec<_>>();
+    let expected = invocation
+        .translated_closure
+        .iter()
+        .map(TranslationInventoryEntry::canonical_name)
+        .collect::<Vec<_>>();
+    let actual = actual
+        .iter()
+        .map(TranslationInventoryEntry::canonical_name)
+        .collect::<Vec<_>>();
+    exact_symbol_inventory(&expected, &actual)?;
     for symbol in &invocation.start_from {
-        if !supported_local.contains(symbol) {
+        if report_symbols.get(symbol) != Some(&true) {
             return Err(AdapterError::Inventory(format!(
                 "start_from symbol `{symbol}` is absent, external, opaque, or unsupported in the translation report"
             )));
         }
     }
-    Ok(invocation.start_from.clone())
+    Ok(actual)
 }
 
 fn validate_external_boundaries(
@@ -2724,6 +2987,14 @@ fn safe_rust_identifier(value: &str) -> bool {
 fn safe_rust_symbol(value: &str) -> bool {
     !value.is_empty() && value.len() <= 1024 && value.split("::").all(safe_rust_identifier)
 }
+fn safe_translation_report_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 1024
+        && value.trim() == value
+        && value
+            .bytes()
+            .all(|byte| byte == b' ' || byte.is_ascii_graphic())
+}
 fn safe_module_name(value: &str) -> bool {
     !value.is_empty() && value.len() <= 1024 && value.split('.').all(safe_rust_identifier)
 }
@@ -2838,13 +3109,76 @@ mod tests {
         }
     }
 
+    struct ExitZeroEmptySelectionExecutor {
+        lock: TranslationToolchainLock,
+    }
+
+    impl Executor for ExitZeroEmptySelectionExecutor {
+        fn run(
+            &mut self,
+            spec: &ProcessSpec,
+            _cwd: &Path,
+            _environment: &BTreeMap<String, String>,
+            _timeout: Duration,
+        ) -> Result<ProcessOutput, AdapterError> {
+            let mut stdout = Vec::new();
+            match (spec.program.as_str(), spec.args.first().map(String::as_str)) {
+                ("charon", Some("cargo")) => {
+                    let destination = argument_value(spec, "--dest-file")?;
+                    fs::write(destination, b"{}")?;
+                }
+                ("charon", Some("pretty-print")) => {
+                    stdout = b"// successful extraction with an empty selection\n".to_vec();
+                }
+                ("aeneas", _) => {
+                    let destination = PathBuf::from(argument_value(spec, "-dest")?);
+                    fs::write(destination.join("Funs.lean"), b"namespace Empty\n")?;
+                    let report = json!({
+                        "aeneas_version": self.lock.aeneas_revision,
+                        "charon_version": self.lock.charon_revision,
+                        "crate": "demo_kernel",
+                        "functions": [],
+                        "types": []
+                    });
+                    fs::write(
+                        destination.join("translation.json"),
+                        serde_json::to_vec(&report)
+                            .map_err(|error| AdapterError::Internal(error.to_string()))?,
+                    )?;
+                }
+                _ => {
+                    return Err(AdapterError::Internal(format!(
+                        "unexpected fake command: {} {:?}",
+                        spec.program, spec.args
+                    )));
+                }
+            }
+            Ok(ProcessOutput {
+                status: Some(0),
+                stdout,
+                stderr: Vec::new(),
+                truncated: false,
+                duration_ms: 1,
+            })
+        }
+    }
+
+    fn argument_value<'a>(spec: &'a ProcessSpec, flag: &str) -> Result<&'a str, AdapterError> {
+        spec.args
+            .windows(2)
+            .find(|pair| pair[0] == flag)
+            .map(|pair| pair[1].as_str())
+            .ok_or_else(|| AdapterError::Internal(format!("missing fake argument `{flag}`")))
+    }
+
     fn sample_translation() -> TranslationUnitManifest {
         serde_json::from_value(json!({
-            "schema":"proofbound-translation-unit/2","id":"kernel","pipeline":"charon-aeneas",
+            "schema":"proofbound-translation-unit/3","id":"kernel","pipeline":"charon-aeneas",
             "invocations":[{
                 "id":"demo-kernel","cargo_package":"demo-kernel","cargo_manifest":"rust/Cargo.toml",
                 "crate_name":"demo_kernel","llbc_file":"demo_kernel.llbc",
                 "start_from":["demo_kernel::decide"],"opaque":["external_crate"],"include":["external_crate::Type"],
+                "translated_closure":[{"kind":"function","rust_name":"demo_kernel::decide"}],
                 "aeneas_subdir":null,
                 "outputs":[
                     {"kind":"lean-source","produced":"Funs.lean","destination":"lean/Generated/Demo/Funs.lean"},
@@ -3166,6 +3500,20 @@ mod tests {
             "demo_kernel::RootLinkage".to_owned(),
             "demo_kernel::decide".to_owned(),
         ];
+        invocation.translated_closure = vec![
+            TranslationInventoryEntry {
+                kind: TranslationInventoryKind::Function,
+                rust_name: "demo_kernel::decide".to_owned(),
+            },
+            TranslationInventoryEntry {
+                kind: TranslationInventoryKind::Function,
+                rust_name: "demo_kernel::helper".to_owned(),
+            },
+            TranslationInventoryEntry {
+                kind: TranslationInventoryKind::Type,
+                rust_name: "demo_kernel::RootLinkage".to_owned(),
+            },
+        ];
         let lock = TranslationToolchainLock {
             schema: "proofbound-translation-toolchain/1".to_owned(),
             charon_revision: "charon-pin".to_owned(),
@@ -3179,13 +3527,14 @@ mod tests {
             "crate":"demo_kernel",
             "functions":[
                 {"rust_name":"demo_kernel::decide","is_local":true,"is_opaque":false},
+                {"rust_name":"demo_kernel::helper","is_local":true,"is_opaque":false},
                 {"rust_name":"external::helper","is_local":false,"is_opaque":false}
             ],
             "types":[
                 {"rust_name":"demo_kernel::RootLinkage","is_local":true},
                 {"rust_name":"external::Type","is_local":false}
             ],
-            "globals":[{"rust_name":"demo_kernel::GLOBAL","is_local":true}]
+            "globals":[]
         });
         let generated = |value: &Value| {
             BTreeMap::from([(
@@ -3195,7 +3544,11 @@ mod tests {
         };
         assert_eq!(
             translation_report_inventory(&generated(&report), &invocation, &lock).unwrap(),
-            invocation.start_from
+            [
+                "function:demo_kernel::decide",
+                "function:demo_kernel::helper",
+                "type:demo_kernel::RootLinkage"
+            ]
         );
 
         let mut missing = report.clone();
@@ -3215,6 +3568,243 @@ mod tests {
         let mut ambiguous = report;
         ambiguous["types"][0]["rust_name"] = json!("demo_kernel::decide");
         assert!(translation_report_inventory(&generated(&ambiguous), &invocation, &lock).is_err());
+    }
+
+    #[test]
+    fn translation_report_schema_rejects_unknown_inventory_surfaces() {
+        let invocation = sample_translation().invocations.remove(0);
+        let lock = TranslationToolchainLock {
+            schema: "proofbound-translation-toolchain/1".to_owned(),
+            charon_revision: "charon-pin".to_owned(),
+            aeneas_revision: "aeneas-pin".to_owned(),
+            rust_toolchain: "rust-pin".to_owned(),
+            lean_toolchain: "lean-pin".to_owned(),
+        };
+        let base = json!({
+            "aeneas_version":"aeneas-pin",
+            "charon_version":"charon-pin",
+            "crate":"demo_kernel",
+            "functions":[{
+                "rust_name":"demo_kernel::decide",
+                "is_local":true,
+                "is_opaque":false
+            }],
+            "types":[],
+            "globals":[],
+            "trait_decls":[],
+            "trait_impls":[]
+        });
+        let generated = |value: &Value| {
+            BTreeMap::from([(
+                "translation.json".to_owned(),
+                serde_json::to_vec(value).unwrap(),
+            )])
+        };
+        assert!(translation_report_inventory(&generated(&base), &invocation, &lock).is_ok());
+
+        let mut unknown_category = base.clone();
+        unknown_category["statics"] = json!([]);
+        assert!(
+            translation_report_inventory(&generated(&unknown_category), &invocation, &lock)
+                .is_err()
+        );
+
+        let mut unknown_entry_field = base;
+        unknown_entry_field["functions"][0]["selected_by"] = json!("start-from");
+        assert!(
+            translation_report_inventory(&generated(&unknown_entry_field), &invocation, &lock)
+                .is_err()
+        );
+
+        let mut unsupported_category = json!({
+            "aeneas_version":"aeneas-pin",
+            "charon_version":"charon-pin",
+            "crate":"demo_kernel",
+            "functions":[{
+                "rust_name":"demo_kernel::decide",
+                "is_local":true,
+                "is_opaque":false
+            }],
+            "types":[],
+            "globals":[],
+            "trait_decls":[],
+            "trait_impls":[]
+        });
+        unsupported_category["globals"] = json!([{
+            "def_id":0,
+            "lean_name":"demo_kernel.VALUE",
+            "lean_file":"Globals.lean",
+            "rust_name":"demo_kernel::VALUE",
+            "is_local":true,
+            "source":{"file":"src/lib.rs","begin_line":1,"end_line":1},
+            "can_fail":false
+        }]);
+        let error =
+            translation_report_inventory(&generated(&unsupported_category), &invocation, &lock)
+                .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported global or trait inventory")
+        );
+    }
+
+    #[test]
+    fn translation_report_rejects_same_count_and_extra_local_inventory_drift() {
+        let invocation = sample_translation().invocations.remove(0);
+        let lock = TranslationToolchainLock {
+            schema: "proofbound-translation-toolchain/1".to_owned(),
+            charon_revision: "charon-pin".to_owned(),
+            aeneas_revision: "aeneas-pin".to_owned(),
+            rust_toolchain: "rust-pin".to_owned(),
+            lean_toolchain: "lean-pin".to_owned(),
+        };
+        let generated = |functions: Value| {
+            BTreeMap::from([(
+                "translation.json".to_owned(),
+                serde_json::to_vec(&json!({
+                    "aeneas_version":"aeneas-pin",
+                    "charon_version":"charon-pin",
+                    "crate":"demo_kernel",
+                    "functions":functions,
+                    "types":[]
+                }))
+                .unwrap(),
+            )])
+        };
+
+        let same_count_drift = generated(json!([{
+            "rust_name":"demo_kernel::different",
+            "is_local":true,
+            "is_opaque":false
+        }]));
+        let error =
+            translation_report_inventory(&same_count_drift, &invocation, &lock).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("missing=[\"function:demo_kernel::decide\"]")
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("extra=[\"function:demo_kernel::different\"]")
+        );
+
+        let extra = generated(json!([
+            {
+                "rust_name":"demo_kernel::decide",
+                "is_local":true,
+                "is_opaque":false
+            },
+            {
+                "rust_name":"demo_kernel::helper",
+                "is_local":true,
+                "is_opaque":false
+            }
+        ]));
+        let error = translation_report_inventory(&extra, &invocation, &lock).unwrap_err();
+        assert!(error.to_string().contains("missing=[]"));
+        assert!(
+            error
+                .to_string()
+                .contains("extra=[\"function:demo_kernel::helper\"]")
+        );
+
+        let category_drift = BTreeMap::from([(
+            "translation.json".to_owned(),
+            serde_json::to_vec(&json!({
+                "aeneas_version":"aeneas-pin",
+                "charon_version":"charon-pin",
+                "crate":"demo_kernel",
+                "functions":[],
+                "types":[{"rust_name":"demo_kernel::decide","is_local":true}]
+            }))
+            .unwrap(),
+        )]);
+        let error = translation_report_inventory(&category_drift, &invocation, &lock).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("missing=[\"function:demo_kernel::decide\"]")
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("extra=[\"type:demo_kernel::decide\"]")
+        );
+    }
+
+    #[test]
+    fn generated_loop_entries_collapse_to_their_registered_rust_function() {
+        let invocation = sample_translation().invocations.remove(0);
+        let lock = TranslationToolchainLock {
+            schema: "proofbound-translation-toolchain/1".to_owned(),
+            charon_revision: "charon-pin".to_owned(),
+            aeneas_revision: "aeneas-pin".to_owned(),
+            rust_toolchain: "rust-pin".to_owned(),
+            lean_toolchain: "lean-pin".to_owned(),
+        };
+        let report = json!({
+            "aeneas_version":"aeneas-pin",
+            "charon_version":"charon-pin",
+            "crate":"demo_kernel",
+            "functions":[
+                {"rust_name":"demo_kernel::decide","is_local":true,"is_opaque":false},
+                {
+                    "rust_name":"demo_kernel::decide","is_local":true,"is_opaque":false,
+                    "loop":{"id":0,"pos":[0],"is_body":true},
+                    "parent_lean_name":"demo_kernel.decide"
+                }
+            ],
+            "types":[]
+        });
+        let generated = BTreeMap::from([(
+            "translation.json".to_owned(),
+            serde_json::to_vec(&report).unwrap(),
+        )]);
+        assert_eq!(
+            translation_report_inventory(&generated, &invocation, &lock).unwrap(),
+            ["function:demo_kernel::decide"]
+        );
+    }
+
+    #[test]
+    fn successful_charon_with_empty_typed_selection_is_not_evidence() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("project");
+        let work = temp.path().join("work");
+        fs::create_dir_all(&project).unwrap();
+        fs::create_dir_all(&work).unwrap();
+        write_translation_validation_fixture(&project);
+        let lock = TranslationToolchainLock {
+            schema: "proofbound-translation-toolchain/1".to_owned(),
+            charon_revision: "charon-pin".to_owned(),
+            aeneas_revision: "aeneas-pin".to_owned(),
+            rust_toolchain: "rust-pin".to_owned(),
+            lean_toolchain: "lean-pin".to_owned(),
+        };
+        let mut executor = ExitZeroEmptySelectionExecutor { lock: lock.clone() };
+        let error = execute_translation_run(
+            1,
+            &sample_translation(),
+            &lock,
+            &project.canonicalize().unwrap(),
+            &work,
+            &BTreeMap::new(),
+            &[],
+            &mut executor,
+            Instant::now(),
+            60_000,
+            1_000_000,
+        )
+        .unwrap_err();
+        assert!(matches!(error, AdapterError::Inventory(_)));
+        assert!(
+            error
+                .to_string()
+                .contains("selected no supported local functions or types")
+        );
     }
 
     #[test]
@@ -3257,6 +3847,7 @@ mod tests {
         write_translation_validation_fixture(temp.path());
         let mut unit = sample_translation();
         unit.invocations[0].start_from = vec!["zeta::run".to_owned()];
+        unit.invocations[0].translated_closure[0].rust_name = "zeta::run".to_owned();
         let mut second = unit.invocations[0].clone();
         second.id = "second".to_owned();
         second.cargo_package = "second".to_owned();
@@ -3264,6 +3855,7 @@ mod tests {
         second.crate_name = "second".to_owned();
         second.llbc_file = "second.llbc".to_owned();
         second.start_from = vec!["alpha::run".to_owned()];
+        second.translated_closure[0].rust_name = "alpha::run".to_owned();
         for output in &mut second.outputs {
             output.destination = output
                 .destination
@@ -3275,6 +3867,10 @@ mod tests {
         assert_eq!(translation_symbols(&unit).unwrap(), ordered);
         let root = temp.path().canonicalize().unwrap();
         validate_translation_unit(&root, &evidence, &unit, MAX_REQUEST_BYTES, u64::MAX).unwrap();
+        assert_eq!(
+            unit.canonical_translated_closure_inventory(),
+            ["function:alpha::run", "function:zeta::run"]
+        );
 
         unit.invocations[1].start_from = vec!["zeta::run".to_owned()];
         let error = translation_symbols(&unit).unwrap_err();
@@ -3321,6 +3917,10 @@ mod tests {
         let mut evidence = sample_translation_evidence(vec!["demo_kernel::decide".to_owned()]);
         evidence.expected_inventory = vec!["checker-owned-inventory".to_owned()];
         assert!(validate_evidence_unit(&evidence).is_err());
+
+        let mut relabeled = sample_translation_evidence(vec!["demo_kernel::decide".to_owned()]);
+        relabeled.kind = EvidenceKind::ExampleTest;
+        assert!(validate_evidence_unit(&relabeled).is_err());
 
         for invalid in [
             "lean//Generated",
@@ -3409,7 +4009,7 @@ mod tests {
     }
 
     #[test]
-    fn observation_shape_round_trips() {
+    fn observation_round_trips_and_inventory_operation_returns_no_evidence() {
         let observation = AdapterObservation {
             schema: OBSERVATION_SCHEMA.to_owned(),
             unit_id: "u".to_owned(),
@@ -3439,13 +4039,23 @@ mod tests {
                 peak_disk_bytes: 1,
                 peak_memory_bytes: None,
             },
-            inventory: vec![],
+            inventory: vec!["function:demo::f".to_owned()],
             normalization: "pretty-printed-llbc/1".to_owned(),
         };
         let bytes = canonical_json(&observation).unwrap();
         assert_eq!(
             serde_json::from_slice::<AdapterObservation>(&bytes).unwrap(),
             observation
+        );
+        assert!(
+            completed_operation_evidence("inventory", observation.clone())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            completed_operation_evidence("check", observation)
+                .unwrap()
+                .is_some()
         );
     }
 

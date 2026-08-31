@@ -109,7 +109,7 @@ def sample_bounded_evidence() -> dict[str, object]:
             },
             "adapter": {
                 "name": "proofbound-adapter-kani",
-                "version": "0.9.0",
+                "version": "0.10.0",
                 "identity_sha256": digest,
             },
             "execution_kind": "observed-processes",
@@ -172,6 +172,24 @@ def sample_adapter_observation() -> dict[str, object]:
     }
 
 
+def sample_artifact_checker_result() -> dict[str, object]:
+    return {
+        "schema": "proofbound-artifact-check-result/1",
+        "accepted": True,
+        "artifact_logical_name": "fixtures/valid-basic.pbac",
+        "artifact_sha256": f"sha256:{'01' * 32}",
+        "inventory": ["valid-basic.pbac"],
+    }
+
+
+def sample_independent_checker_result() -> dict[str, object]:
+    return {
+        "schema": "proofbound-independent-check-result/1",
+        "accepted": True,
+        "inventory": ["valid-basic.pbac"],
+    }
+
+
 def test_every_public_schema_is_valid_draft_2020_12() -> None:
     schemas, _ = schema_registry()
     assert schemas
@@ -216,6 +234,12 @@ def test_standalone_verifier_release_fixture_matches_shipped_receipt_schema() ->
     validate.validate(compiled)
     validator("graph.schema.json").validate(compiled["graph"])
 
+    invalid_inventory = json.loads(json.dumps(compiled))
+    invalid_inventory["evidence"][0]["record"]["inventoried_targets"] = [
+        "target\u0085smuggled"
+    ]
+    assert list(validate.iter_errors(invalid_inventory))
+
     observed_without_processes = json.loads(json.dumps(compiled))
     provenance = observed_without_processes["evidence"][0]["record"]["provenance"]
     provenance["execution_kind"] = "observed-processes"
@@ -229,11 +253,30 @@ def test_standalone_verifier_release_fixture_matches_shipped_receipt_schema() ->
     assert list(validate.iter_errors(internal_with_processes))
 
     compiler_internal = json.loads(json.dumps(compiled))
-    provenance = compiler_internal["evidence"][0]["record"]["provenance"]
+    internal_record = compiler_internal["evidence"][0]["record"]
+    provenance = internal_record["provenance"]
     provenance["execution_kind"] = "compiler-internal"
     provenance["commands"] = []
     provenance["runs"] = []
+    internal_record["inventoried_targets"] = []
     validate.validate(compiler_internal)
+
+    observed_without_inventory = json.loads(json.dumps(compiled))
+    observed_without_inventory["evidence"][0]["record"]["inventoried_targets"] = []
+    assert list(validate.iter_errors(observed_without_inventory))
+
+    for field, value in [("exit_code", 1), ("output_truncated", True)]:
+        invalid_run = json.loads(json.dumps(compiled))
+        invalid_run["evidence"][0]["record"]["provenance"]["runs"][0][field] = value
+        assert list(validate.iter_errors(invalid_run))
+
+    failed_observation = json.loads(json.dumps(compiled))
+    failed_record = failed_observation["evidence"][0]["record"]
+    failed_record["outcome"] = "failed"
+    failed_record["inventoried_targets"] = []
+    failed_record["provenance"]["runs"][0]["exit_code"] = 1
+    failed_record["provenance"]["runs"][0]["output_truncated"] = True
+    validate.validate(failed_observation)
 
 
 def test_runtime_report_and_graph_export_shapes_match_public_schemas() -> None:
@@ -308,6 +351,91 @@ def test_adapter_schema_forbids_evidence_on_failure() -> None:
     }
     assert list(validator("adapter-protocol.schema.json").iter_errors(response))
 
+    response["evidence"] = None
+    response["inventory"] = ["must-not-survive-failure"]
+    assert list(validator("adapter-protocol.schema.json").iter_errors(response))
+
+    response["success"] = True
+    response["evidence"] = None
+    response["inventory"] = ["   "]
+    assert list(validator("adapter-protocol.schema.json").iter_errors(response))
+
+
+def test_checker_result_schema_is_closed_nonempty_and_exact() -> None:
+    validate = validator("checker-result.schema.json")
+    artifact = sample_artifact_checker_result()
+    independent = sample_independent_checker_result()
+    validate.validate(artifact)
+    validate.validate(independent)
+
+    for valid in [artifact, independent]:
+        unknown = json.loads(json.dumps(valid))
+        unknown["claims"] = ["DEMO-CLAIM-001"]
+        assert list(validate.iter_errors(unknown))
+
+        empty = json.loads(json.dumps(valid))
+        empty["inventory"] = []
+        assert list(validate.iter_errors(empty))
+
+        duplicate = json.loads(json.dumps(valid))
+        duplicate["inventory"] = ["same", "same"]
+        assert list(validate.iter_errors(duplicate))
+
+        for control_item in [
+            "valid\nsmuggled",
+            "valid\u0000smuggled",
+            "valid\u007fsmuggled",
+            "valid\u0085smuggled",
+            "   ",
+        ]:
+            control = json.loads(json.dumps(valid))
+            control["inventory"] = [control_item]
+            assert list(validate.iter_errors(control))
+
+        maximum = json.loads(json.dumps(valid))
+        maximum["inventory"] = ["é" * 4096]
+        validate.validate(maximum)
+
+        oversized = json.loads(json.dumps(valid))
+        oversized["inventory"] = ["é" * 4097]
+        assert list(validate.iter_errors(oversized))
+
+        failure_shape = json.loads(json.dumps(valid))
+        failure_shape["accepted"] = False
+        assert list(validate.iter_errors(failure_shape))
+
+    artifact_control = sample_artifact_checker_result()
+    artifact_control["artifact_logical_name"] = "fixtures/valid\u007f.pbac"
+    assert list(validate.iter_errors(artifact_control))
+
+    artifact_failure = {
+        "schema": "proofbound-artifact-check-result/1",
+        "accepted": False,
+        "error": "diagnostic only",
+    }
+    assert list(validate.iter_errors(artifact_failure))
+
+    cross_route_shape = sample_independent_checker_result()
+    cross_route_shape["artifact_sha256"] = f"sha256:{'01' * 32}"
+    assert list(validate.iter_errors(cross_route_shape))
+
+
+def test_checker_result_wire_requires_one_canonical_json_value() -> None:
+    validate = validator("checker-result.schema.json")
+    value = sample_independent_checker_result()
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    parsed = json.loads(payload)
+    validate.validate(parsed)
+    assert json.dumps(parsed, sort_keys=True, separators=(",", ":")) == payload
+
+    for trailing in ["\n", "{}", "[]"]:
+        framed = payload + trailing
+        try:
+            candidate = json.loads(framed)
+        except json.JSONDecodeError:
+            continue
+        assert json.dumps(candidate, sort_keys=True, separators=(",", ":")) != framed
+
 
 def test_version_2_evidence_schema_preserves_receipt_fidelity() -> None:
     validate = validator("evidence.schema.json")
@@ -347,7 +475,27 @@ def test_version_2_evidence_schema_preserves_receipt_fidelity() -> None:
 
     evidence["provenance"]["commands"] = []
     evidence["provenance"]["runs"] = []
+    evidence["inventoried_targets"] = []
     validate.validate(evidence)
+
+    evidence = sample_bounded_evidence()
+    evidence["inventoried_targets"] = []
+    assert list(validate.iter_errors(evidence))
+
+    evidence["inventoried_targets"] = ["target\u0085smuggled"]
+    assert list(validate.iter_errors(evidence))
+
+    for field, value in [("exit_code", 1), ("output_truncated", True)]:
+        evidence = sample_bounded_evidence()
+        evidence["provenance"]["runs"][0][field] = value
+        assert list(validate.iter_errors(evidence))
+
+    failed = sample_bounded_evidence()
+    failed["status"] = "failed"
+    failed["inventoried_targets"] = []
+    failed["provenance"]["runs"][0]["exit_code"] = 1
+    failed["provenance"]["runs"][0]["output_truncated"] = True
+    validate.validate(failed)
 
 
 def test_adapter_observation_schema_keeps_ordered_execution_facts() -> None:
@@ -361,6 +509,22 @@ def test_adapter_observation_schema_keeps_ordered_execution_facts() -> None:
     observation = sample_adapter_observation()
     del observation["runs"][0]["exit_code"]
     assert list(validate.iter_errors(observation))
+
+    observation = sample_adapter_observation()
+    observation["inventory"] = ["   "]
+    assert list(validate.iter_errors(observation))
+
+    for field, value in [("exit_code", 1), ("output_truncated", True)]:
+        observation = sample_adapter_observation()
+        observation["runs"][0][field] = value
+        assert list(validate.iter_errors(observation))
+
+    failed = sample_adapter_observation()
+    failed["outcome"] = "failed"
+    failed["inventory"] = []
+    failed["runs"][0]["exit_code"] = 1
+    failed["runs"][0]["output_truncated"] = True
+    validate.validate(failed)
 
 
 def test_auxiliary_adapter_manifests_match_strict_public_schemas() -> None:
@@ -392,7 +556,9 @@ def test_auxiliary_adapter_manifests_match_strict_public_schemas() -> None:
     )
 
 
-def test_translation_unit_v2_schema_closes_invocations_and_outputs() -> None:
+def test_translation_unit_v3_schema_closes_invocations_outputs_and_report_inventory() -> (
+    None
+):
     validate = validator("translation-unit.schema.json")
     with (
         ROOT
@@ -405,9 +571,9 @@ def test_translation_unit_v2_schema_closes_invocations_and_outputs() -> None:
         translation = tomllib.load(source)
     validate.validate(translation)
 
-    version_1 = json.loads(json.dumps(translation))
-    version_1["schema"] = "proofbound-translation-unit/1"
-    assert list(validate.iter_errors(version_1))
+    version_2 = json.loads(json.dumps(translation))
+    version_2["schema"] = "proofbound-translation-unit/2"
+    assert list(validate.iter_errors(version_2))
 
     advisory = json.loads(json.dumps(translation))
     advisory["adapter"] = "charon-aeneas"
@@ -416,6 +582,20 @@ def test_translation_unit_v2_schema_closes_invocations_and_outputs() -> None:
     missing_identity = json.loads(json.dumps(translation))
     del missing_identity["invocations"][0]["cargo_manifest"]
     assert list(validate.iter_errors(missing_identity))
+
+    missing_closure = json.loads(json.dumps(translation))
+    del missing_closure["invocations"][0]["translated_closure"]
+    assert list(validate.iter_errors(missing_closure))
+
+    invalid_closure_kind = json.loads(json.dumps(translation))
+    invalid_closure_kind["invocations"][0]["translated_closure"][0]["kind"] = "global"
+    assert list(validate.iter_errors(invalid_closure_kind))
+
+    invalid_closure_name = json.loads(json.dumps(translation))
+    invalid_closure_name["invocations"][0]["translated_closure"][0]["rust_name"] = (
+        " allowance_kernel::decide_transfer"
+    )
+    assert list(validate.iter_errors(invalid_closure_name))
 
     selector_injection = json.loads(json.dumps(translation))
     selector_injection["invocations"][0]["start_from"] = [
@@ -512,10 +692,95 @@ def test_every_shipped_template_manifest_matches_its_public_schema() -> None:
             validator(schema).validate(tomllib.load(source))
 
 
+def test_evidence_unit_routes_and_registered_inventory_are_closed() -> None:
+    validate = validator("evidence-unit.schema.json")
+    with (ROOT / "templates/explicit-assumption/evidence-unit.toml").open(
+        "rb"
+    ) as source:
+        base = tomllib.load(source)
+
+    supported = [
+        ("lean", "lean-audit", "theorem"),
+        ("charon-aeneas", "translation", "source-refinement"),
+        ("kani", "kani", "bounded-check"),
+        ("rust-test", "cargo-test", "example-test"),
+        ("rust-test", "cargo-test", "property-test"),
+        ("rust-test", "cargo-test", "mutation-witness"),
+        ("python-test", "pytest", "example-test"),
+        ("python-test", "pytest", "property-test"),
+        ("python-test", "generator", "example-test"),
+        ("canonical-artifact", "artifact-check", "artifact-soundness"),
+        ("independent-check", "independent-check", "independent-check"),
+    ]
+    for adapter, operation, kind in supported:
+        candidate = json.loads(json.dumps(base))
+        candidate["adapter"] = adapter
+        candidate["operation"]["type"] = operation
+        candidate["kind"] = kind
+        if adapter == "charon-aeneas":
+            candidate.pop("expected_inventory")
+        else:
+            candidate["expected_inventory"] = ["z", "a"]
+        validate.validate(candidate)
+
+    unsupported = [
+        ("lean", "lean-audit", "example-test"),
+        ("charon-aeneas", "translation", "example-test"),
+        ("kani", "kani", "example-test"),
+        ("rust-test", "cargo-test", "exhaustive-check"),
+        ("python-test", "pytest", "exhaustive-check"),
+        ("python-test", "generator", "property-test"),
+        ("canonical-artifact", "artifact-check", "independent-check"),
+        ("independent-check", "independent-check", "example-test"),
+        ("human-review", "review", "review"),
+        ("source-closure", "closure", "review"),
+    ]
+    for adapter, operation, kind in unsupported:
+        candidate = json.loads(json.dumps(base))
+        candidate["adapter"] = adapter
+        candidate["operation"]["type"] = operation
+        candidate["kind"] = kind
+        assert list(validate.iter_errors(candidate)), (adapter, operation, kind)
+
+    for invalid_inventory in [
+        [],
+        ["same", "same"],
+        ["\u2003"],
+        ["target\u001fsmuggled"],
+        ["target\u007fsmuggled"],
+        ["target\u0085smuggled"],
+        ["x" * 4097],
+    ]:
+        candidate = json.loads(json.dumps(base))
+        candidate["expected_inventory"] = invalid_inventory
+        assert list(validate.iter_errors(candidate)), invalid_inventory
+
+    aeneas = json.loads(json.dumps(base))
+    aeneas["adapter"] = "charon-aeneas"
+    aeneas["operation"]["type"] = "translation"
+    aeneas["kind"] = "source-refinement"
+    aeneas["expected_inventory"] = ["checker-authored-selector"]
+    assert list(validate.iter_errors(aeneas))
+
+    with (ROOT / "templates/trusted-transcription/evidence-unit.toml").open(
+        "rb"
+    ) as source:
+        transcription = tomllib.load(source)
+    for required in [
+        "expected_inventory",
+        "inputs",
+        "outputs",
+        "environment_allowlist",
+    ]:
+        missing = json.loads(json.dumps(transcription))
+        del missing[required]
+        assert list(validate.iter_errors(missing)), required
+
+
 def test_trusted_transcription_route_is_versioned_and_closed() -> None:
-    with (
-        ROOT / "demo/trusted-transcription/evidence/trusted-values.toml"
-    ).open("rb") as source:
+    with (ROOT / "demo/trusted-transcription/evidence/trusted-values.toml").open(
+        "rb"
+    ) as source:
         unit = tomllib.load(source)
     validate_unit = validator("evidence-unit.schema.json")
     validate_unit.validate(unit)

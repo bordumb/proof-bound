@@ -64,7 +64,12 @@ and byte checker remain distinct records. The receipt verifier derives linkage
 from this elaborated statement and rejects aliases or nested markers.
 Write the diagnostic `independent_checker.py` separately from that canonical
 checker (and from the Rust/Lean implementations) if you retain the optional
-independent evidence unit.
+independent evidence unit. A zero exit status is not evidence by itself: on
+success the checker must emit exactly one canonical JSON object of the form
+`{"accepted":true,"inventory":["published-certificate"],"schema":"proofbound-independent-check-result/1"}`.
+The inventory must be nonempty, strictly sorted, and exactly equal the
+manifest registration; unknown fields, trailing output, an empty selection,
+or a same-sized substitution fail closed.
 
 ## Publication checklist
 

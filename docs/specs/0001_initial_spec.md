@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.9.0
+**Version:** 0.10.0
 
 **Date:** 2026-08-31
 
@@ -12,6 +12,13 @@
 
 ### Revision history
 
+- **0.10.0** — exact executable inventories: fixes the five adapter operation
+  response meanings; requires passed observed-process evidence to carry a
+  nonempty exact inventory and only successful, untruncated runs; closes the
+  canonical-artifact and independent-check result ABIs; verifies generators by
+  fresh `--update` reproduction; rejects duplicate raw Kani metadata keys; and
+  advances translation units to `/3` with an exact typed supported-local
+  closure (§7.1, §10.2, §11.2–11.3, §11.5; ADR 0016).
 - **0.9.0** — executable trusted transcription: introduces the closed
   `proofbound-evidence-unit/2` transcription route and fixed Python driver ABI,
   derives distinct transcriber and re-encoder TCB roles from observed driver
@@ -586,11 +593,36 @@ generally requires native evaluation (which enlarges the TCB, §9.6) and grows
 generated modules. That cost is recorded in the TCB ledger and the evidence
 evaluation mode; it is not a reason to silently weaken the binding.
 
-The checker report contains only its outcome, exact discovered inventory, and
-the adapter-recomputed artifact identity. It cannot author the claim ID,
-theorem link, binding mode, or binding-validity booleans. The compiler joins
-that identity to the typed theorem statement; the independent verifier repeats
-the join from the portable expression wire.
+Checker stdout is a strict, route-specific ABI. A canonical-artifact checker
+emits exactly one canonical JSON value with this closed shape (the displayed
+digest is abbreviated only for readability):
+
+```json
+{"accepted":true,"artifact_logical_name":"artifact.pbac","artifact_sha256":"sha256:<64-lowercase-hex>","inventory":["artifact.pbac"],"schema":"proofbound-artifact-check-result/1"}
+```
+
+An independent checker emits the smaller closed shape:
+
+```json
+{"accepted":true,"inventory":["registered-item"],"schema":"proofbound-independent-check-result/1"}
+```
+
+Both require `accepted = true` and a nonempty, duplicate-free exact inventory.
+Inventory strings are trim-nonempty, at most 4096 Unicode characters, and
+contain no Unicode control character. The value uses canonical key ordering
+and compact encoding with no trailing whitespace or second JSON value. Unknown,
+defaulted, claim-linkage, theorem, and binding-validity fields are forbidden.
+A nonzero exit, truncated output, false result, malformed or noncanonical JSON,
+or inventory mismatch fails before evidence admission; checker failure text is
+not part of this success ABI. `schemas/checker-result.schema.json` defines the
+two records, while exact framing and registered-set equality are enforced by
+the adapter.
+
+The artifact report's logical name and digest are independently recomputed from
+the registered checked input. A checker cannot author the claim ID, theorem
+link, binding mode, or binding-validity booleans. The compiler joins that
+identity to the typed theorem statement; the independent verifier repeats the
+join from the portable expression wire.
 
 The framework MAY generate envelope grammar, bounded parser scaffolding, error
 codes, and module boilerplate. It MUST NOT generate both independent semantic
@@ -1007,6 +1039,51 @@ an evidence boundary. An adapter is therefore any process in any language that
 speaks the protocol — future language verticals do not link against the Rust
 core, and no adapter couples to a Rust ABI.
 
+The five protocol operations have fixed response meanings; an adapter-specific
+interpretation is invalid:
+
+- `doctor` probes the registered tool identity and required capabilities. A
+  successful response has `evidence: null` and an empty `inventory`; capability
+  discovery is not assurance evidence.
+- `inventory` executes the authoritative discovery needed by the route and
+  compares it bidirectionally with the registration. A successful response has
+  `evidence: null` and the exact nonempty canonical inventory. It does not
+  establish that the registered claim check passed. When a route has no
+  separate metadata surface — canonical-artifact, independent-check,
+  generator, or trusted-transcription — inventory still runs and parses the
+  connected checker or reproduction needed to discover the exact set; the
+  resulting process facts are deliberately discarded rather than admitted as
+  evidence.
+- `check` performs discovery and the registered assurance action in a sealed
+  copy. Success returns `Passed` evidence plus the same exact nonempty
+  inventory and never modifies committed files.
+- `reproduce` has the same adapter execution and response contract as `check`,
+  but the orchestrator selects one exact unit and bypasses cached evidence.
+- `update` is the only write-capable operation and only for a route with an
+  explicit output allowlist. It never returns `Passed` evidence; `null` is the
+  normal result, while a route-specific `Drifted` record may be returned only
+  as non-admissible review information. An update result cannot support a
+  claim until a subsequent pinned `check` passes.
+
+Every failed response has `success: false`, `evidence: null`, an empty
+inventory, and a bounded stable diagnostic. Successful response inventories
+are strict lexical sets: trim-nonempty strings of at most 4096 Unicode
+characters, with no Unicode control character, serialized in strictly
+increasing order. Exact means equality in both directions with the registered
+or tool-derived set; a count, subset, exit status, or source-text scan is not an
+inventory.
+
+For Kani, `cargo kani list --format json` must create a fresh `kani-list.json`
+that was absent immediately before invocation. The adapter accepts only a
+bounded regular file inside the selected package, rejects duplicate raw JSON
+keys in the `standard-harnesses` object before any map representation can
+collapse them, verifies the metadata totals and tool version, and matches the
+nonempty standard-harness set exactly against the registered model-check unit.
+Contract harnesses are outside the initial profile and fail closed. `inventory`
+stops after this discovery; `check` and `reproduce` additionally run the exact
+registered harness vector with its solver and unwind configuration. Kani
+`update` is unsupported because the route owns no committed generated output.
+
 An execution observation carries the complete ordered `commands` array and an
 equally sized ordered `runs` array. Run `i` has `command_index = i` and binds
 that command's exit state, raw stdout/stderr identities, normalized-output
@@ -1027,6 +1104,15 @@ process command or run merely to satisfy a provenance shape. Its separate
 typed `reproduction_command`, normalization identity, configuration identity,
 timing, budget, and usage remain required so the derivation can still be
 reproduced and audited.
+
+A `Passed` observation, or a `Passed` canonical evidence/receipt record whose
+`execution_kind` is `observed-processes`, has a nonempty exact inventory. Every
+run in such a record has `exit_code = 0` and `output_truncated = false`.
+`compiler-internal` evidence has no observed runs and may legitimately have an
+empty inventory; the nonempty rule must not invent targets or process facts for
+it. Failed, unavailable, and other non-passing records may preserve a partial
+or empty inventory and nonzero/truncated run facts for diagnosis, but cannot be
+admitted as successful evidence.
 
 ### 10.3 Project plugins
 
@@ -1213,11 +1299,17 @@ regenerates committed fixtures. Such a unit is `example-test` evidence only
 for its verify-only `check`/`reproduce` execution; `update` returns no evidence.
 Its non-empty `outputs` list is a literal, exact write allowlist, every output
 is also registered in `inputs` so committed drift invalidates cached checks,
-and `expected_inventory` is exactly the output list. The adapter invokes the
-program without a write switch for verification and may add the reserved
-`--update` switch only for `proofbound update UNIT` inside the orchestrator's
-sealed update shadow. A successful update response therefore carries no
-evidence record: regeneration is not assurance evidence.
+and `expected_inventory` is exactly the output list. For `inventory`, `check`,
+and `reproduce`, the adapter creates a fresh candidate project containing the
+exact registered non-output inputs and no declared output, invokes the program
+with the adapter-owned `--update` switch there, and compares the resulting
+complete path-to-bytes inventory with the committed outputs. Verification does
+not trust a program's read-only self-report about files already present. A
+no-op, missing or extra output, write outside the allowlist, symlink/path
+escape, or byte drift fails closed. Only `proofbound update UNIT` runs that
+same switch in the orchestrator's sealed update shadow for import into the
+reviewed tree. A successful update response therefore carries no evidence
+record: regeneration is not assurance evidence.
 
 ### 11.2.1 Executable trusted-transcription unit
 
@@ -1337,7 +1429,7 @@ this route and MUST remain field-for-field consistent with this section.
 ### 11.3 Translation unit
 
 ```toml
-schema = "proofbound-translation-unit/2"
+schema = "proofbound-translation-unit/3"
 id = "transfer-kernel"
 pipeline = "charon-aeneas"
 generated_dir = "lean/Generated/Transfer"
@@ -1383,6 +1475,26 @@ opaque = []
 include = []
 aeneas_subdir = "Transfer"
 
+[[invocations.translated_closure]]
+kind = "function"
+rust_name = "allowance_kernel::decide_transfer"
+
+[[invocations.translated_closure]]
+kind = "function"
+rust_name = "allowance_kernel::{allowance_kernel::Decision}::denied"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "allowance_kernel::Decision"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "allowance_kernel::DecisionCode"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "allowance_kernel::Request"
+
 [[invocations.outputs]]
 kind = "lean-source"
 # `produced` is relative to the Aeneas `-dest` root. Lean outputs include the
@@ -1411,27 +1523,49 @@ disk_bytes = 26843545600
 memory_bytes = 8589934592
 ```
 
-Version 2 is deliberately breaking. A version-1 manifest's global package and
-symbol lists do not say which Cargo manifest, crate identity, LLBC filename,
-Aeneas output directory, or committed destination belongs to each extraction.
-They also permit the adapter to discover outputs and infer paths. Version 2
-rejects that ambiguity rather than guessing a migration.
+Version 3 is deliberately breaking. Version 2 made invocations and output maps
+authoritative but recorded only selector roots, so it could prove that a root
+was present without binding the full transitive local closure emitted by the
+translator. Version 3 adds the required typed `translated_closure`; the adapter
+must reject version 2 rather than infer this security-relevant inventory.
 
 `pipeline` is the typed `charon-aeneas` pipeline. `invocations` is a non-empty,
 strictly ID-sorted sequence, and its order is execution and receipt order. Each
 invocation declares the exact Cargo package and repository-relative package
 `Cargo.toml`, whose literal `[package].name` MUST equal `cargo_package`, Rust
-crate name, run-workspace-relative `.llbc` file, start,
-opaque, and included symbol inventories, optional Aeneas subdirectory, and
-complete output map. Symbol inventories are strict sorted sets of Rust paths;
-`start_from` may name a supported local function or local type, and the exact
-translation-report inventory MUST confirm every selected entry in its typed
-function-or-type collection. Characters that could become command-line syntax
-are inadmissible. Invocation IDs use the segmented lowercase grammar
+crate name, run-workspace-relative `.llbc` file, start, opaque, and included
+selector inventories, the exact typed `translated_closure`, optional Aeneas
+subdirectory, and complete output map. Selector inventories are strict sorted
+sets of command-safe Rust paths. `start_from` may name a supported local
+function or local type, and every root MUST occur exactly once as a non-opaque
+local entry in the translation report. Characters that could become
+command-line syntax are inadmissible in selectors. Invocation IDs use the
+segmented lowercase grammar
 `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`. IDs and LLBC paths are unique, and a
 `start_from` symbol may occur in only one invocation in a unit. No package,
 manifest, crate, LLBC name, symbol, output path, or unit count may be inferred
 from another field or embedded in adapter source.
+
+`translated_closure` is the pre-registered complete set of supported,
+non-opaque local Rust functions and types that Aeneas is expected to report,
+including dependencies reached transitively from `start_from`. Its rows are in
+strict `(kind, rust_name)` order, use the typed kinds `function` and `type`, and
+may contain Aeneas's printable-ASCII canonical Rust names (including canonical
+impl/type syntax) because these values are never command arguments. A Rust name
+may occur in only one kind or invocation. The adapter MUST compare the full
+typed report closure bidirectionally: an empty, missing, extra, duplicate,
+cross-kind, external, opaque, or unsupported root/closure result is not
+evidence even when Charon and Aeneas exit zero. External and opaque report
+dependencies do not satisfy roots and are outside this supported-local closure;
+`opaque` and `include` remain separately typed selector controls. The portable
+adapter and receipt inventory is the globally strict-lexical vector of
+`function:<rust_name>` and `type:<rust_name>` entries derived from the
+registered rows; ordered `start_from` roots remain separately auditable.
+Version 3 does not register Aeneas global, trait-declaration, or
+trait-implementation inventories. Their report keys are closed and parsed, but
+any non-empty such category MUST fail as an unsupported capability rather than
+silently omitting generated semantics from the registered closure. Supporting
+one requires a versioned typed-inventory extension.
 
 Every invocation maps at least one `lean-source` and exactly one
 `translation-report`. Both `produced` and `destination` are safe relative
@@ -1504,7 +1638,7 @@ A source-refinement evidence unit using this manifest has no committed
 `outputs` and no `expected_inventory`: adapters return observations from a sealed shadow, while only
 `proofbound update` owns committed writes. Its operation manifest, flattened
 ordered start inventory, claims, and resource budget MUST exactly equal the
-registered version-2 translation unit. The manifest and generated tree are
+registered version-3 translation unit. The manifest and generated tree are
 automatic cache inputs. The handwritten refinement, every external bridge, and
 the existence or absence of every bridge-module candidate under every declared
 source root are automatic cache inputs as well. Omission from a manually
@@ -1581,6 +1715,13 @@ The canonical evidence record has these additional fidelity requirements:
   For both kinds, `provenance.normalization` is a required nonblank identifier
   and `provenance.reproduction_command` remains a separate required typed
   command.
+- A `passed` record with `execution_kind = "observed-processes"` has a
+  nonempty, duplicate-free exact `inventoried_targets` set. Every retained run
+  has exit code zero and untruncated output. The condition is deliberately the
+  conjunction: a passed `compiler-internal` derivation may have an empty
+  inventory because it observed neither a process nor tool-selected targets.
+  Non-passing records may retain empty or partial inventory and failed run
+  facts for diagnosis; those facts never support claim admission.
 
 The compiled release keeps a claim's required internal `statement` and its
 optional `public_language` as distinct fields. Each reported claim status

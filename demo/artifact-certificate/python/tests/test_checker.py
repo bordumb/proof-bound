@@ -84,6 +84,20 @@ def test_canonical_binding_report_contains_only_observed_artifact_facts(
     assert encode(decoded) == (repository / certificate).read_bytes()
 
 
+def test_independent_mode_emits_exact_canonical_inventory(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository = ROOT.parents[1]
+    monkeypatch.chdir(repository)
+    certificate = "demo/artifact-certificate/fixtures/valid-basic.pbac"
+    assert main([certificate]) == 0
+    output = capsys.readouterr().out
+    assert output == (
+        '{"accepted":true,"inventory":["valid-basic.pbac"],'
+        '"schema":"proofbound-independent-check-result/1"}'
+    )
+
+
 def test_binding_report_rejects_digest_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

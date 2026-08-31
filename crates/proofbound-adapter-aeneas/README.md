@@ -7,7 +7,7 @@ are typed program/argument vectors; manifest strings are never evaluated by a
 shell.
 
 For Charon/Aeneas translation, the referenced
-`proofbound-translation-unit/2` manifest is the execution plan. Its ordered
+`proofbound-translation-unit/3` manifest is the execution plan. Its ordered
 invocations provide every Cargo manifest, package/crate identity, LLBC path,
 symbol list, optional Aeneas subdirectory, and produced-to-destination output
 mapping. The adapter does not discover package or output layout. It rejects
@@ -18,10 +18,18 @@ projection is normalized for the two-run determinism check.
 
 Every `produced` path is relative to the invocation's Aeneas `-dest` root.
 When `aeneas_subdir` is set, Lean-source mappings include that prefix while
-the report remains exactly `translation.json` at the destination root. The
-report inventory resolves each `start_from` entry to exactly one supported,
-non-opaque local function or local type; missing, external, opaque,
-unsupported, and ambiguous entries fail closed.
+the report remains exactly `translation.json` at the destination root. Every
+`start_from` root must resolve to a supported, non-opaque local function or
+type. Independently, the report's complete supported-local function/type
+closure (including transitive dependencies) must be nonempty and exactly equal
+to the invocation's typed `translated_closure` rows; a successful process exit
+is never enough. Missing, extra, duplicate, cross-kind, external, opaque,
+unsupported, and ambiguous roots or closure entries fail closed. Evidence
+inventory uses globally sorted `function:<rust-name>` / `type:<rust-name>`
+entries; selector order remains separately manifest-bound.
+The pinned report shape is closed. Nonempty global, trait-declaration, or
+trait-implementation categories currently fail as unsupported instead of
+being silently omitted from evidence.
 
 `update` runs inside the orchestrator's sealed checkout, replaces only the
 complete declared generated tree, and returns no evidence. The orchestrator
