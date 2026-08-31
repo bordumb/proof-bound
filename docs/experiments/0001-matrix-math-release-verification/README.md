@@ -1,16 +1,16 @@
 # Experiment 0001: Matrix Math release verification (publish repo)
 
-- **Status:** planned
+- **Status:** running
 - **Registered:** 2026-08-31 (re-registered same day against the publish
   repo; see journal)
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-08-31 / —
 - **Subject:** `matrix-math-publish` at commit
   `3794e68b9dfeeae2b7d6d7d3c29bf512530a5b09`
   (github.com/bsd-developer/matrix-math-publish; local checkout at
-  `other_repos/matrix-math-publish`)
-- **Proofbound:** `926f5ea` (post-bootstrap) at re-registration; re-pin at
-  start
-- **Operator:** TBD-at-start
+  `other_repos/matrix-math-publish`); deterministic `git archive` SHA-256
+  `6f2003904ecc12cd1056f0c2ffcf6ab70abd879720022bee2ea3f9c02454a845`
+- **Proofbound:** `926f5eab41a20aaca7a1a892ac83181f5bd34247`
+- **Operator:** Codex (GPT-5)
 
 ## Why this subject
 
@@ -78,6 +78,10 @@ a historical record; this experiment binds only the publish repo.
   obsolete (the publish repo has a public remote) and is replaced by the
   producer-absent boundary question (Q4). No experiment work had started,
   so this replacement is a legal pre-registration edit.
+- **2026-08-31** — START. Pinned the clean publish checkout to commit
+  `3794e68b9dfeeae2b7d6d7d3c29bf512530a5b09`, deterministic Git-archive
+  SHA-256 `6f2003904ecc12cd1056f0c2ffcf6ab70abd879720022bee2ea3f9c02454a845`,
+  and Proofbound commit `926f5eab41a20aaca7a1a892ac83181f5bd34247`.
 
 ## Findings
 
