@@ -1385,12 +1385,14 @@ fn validate_evidence_shape(
                         && valid_digest(&item.domain.registration_sha256)
                         && !item.solver.trim().is_empty()
                         && !item.harnesses.is_empty()
+                        && item.unwind_bounds.keys().eq(item.harnesses.iter())
+                        && item.unwind_bounds.values().all(|bound| *bound > 0)
                 })
             {
                 evidence_issue(
                     issues,
                     id,
-                    "bounded check has no explicit domain, solver, or harness inventory",
+                    "bounded check has no explicit domain, solver, or exact nonzero per-harness unwind bounds",
                 );
             }
         }
@@ -2664,16 +2666,22 @@ fn derive_claim(
     } else {
         FormalFacet::Open
     };
-    if (matches!(formal, FormalFacet::BoundedChecked) || exhaustive_as_proof)
-        && claim
-            .registered_domain_language
-            .as_deref()
-            .is_none_or(|language| language.trim().is_empty())
-    {
-        claim_issue!(
-            VerificationIssueCode::PbvInvalidEvidence,
-            "bounded standing has no registered finite-domain public language",
-        );
+    if matches!(formal, FormalFacet::BoundedChecked) || exhaustive_as_proof {
+        match claim.registered_domain_language.as_deref() {
+            Some(domain) if !domain.trim().is_empty() => {
+                let public_statement = bounded_public_statement(&claim.statement, domain);
+                if public_statement == domain || !public_statement.starts_with(&claim.statement) {
+                    claim_issue!(
+                        VerificationIssueCode::PbvInvalidEvidence,
+                        "bounded public language does not retain the claim property",
+                    );
+                }
+            }
+            _ => claim_issue!(
+                VerificationIssueCode::PbvInvalidEvidence,
+                "bounded standing has no registered finite-domain public language",
+            ),
+        }
     }
 
     let mut linkages = BTreeSet::new();
@@ -2766,6 +2774,10 @@ fn derive_claim(
         },
         issues,
     )
+}
+
+fn bounded_public_statement(property: &str, domain: &str) -> String {
+    format!("{property} Registered finite domain: {domain}")
 }
 
 fn graph_node_is(graph: &AssuranceGraph, id: &str, kind: NodeKind) -> bool {
@@ -3042,6 +3054,14 @@ mod tests {
             native_premise_rule: None,
             additional_required_evidence: BTreeSet::new(),
         }
+    }
+
+    #[test]
+    fn bounded_reader_language_retains_property_and_registered_domain() {
+        assert_eq!(
+            bounded_public_statement("Property P.", "All registered two-bit inputs."),
+            "Property P. Registered finite domain: All registered two-bit inputs."
+        );
     }
 
     #[test]

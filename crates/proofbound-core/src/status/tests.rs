@@ -228,7 +228,7 @@ fn bounded_record(id: &str) -> EvidenceRecord {
         domain: domain(),
         solver: "cadical 2".into(),
         harnesses: BTreeSet::from(["check_all".into()]),
-        unwind_bounds: BTreeMap::from([("loop".into(), 256)]),
+        unwind_bounds: BTreeMap::from([("check_all".into(), 256)]),
     });
     record
 }
@@ -382,8 +382,66 @@ fn exhaustive_is_tested_unless_policy_explicitly_admits_finite_proof() {
     assert_eq!(status.formal, FormalFacet::Proved);
     assert_eq!(
         status.public_statement,
-        "For every registered u8 value, P holds."
+        "The registered subject has property P. Registered finite domain: For every registered u8 value, P holds."
     );
+}
+
+#[test]
+fn bounded_public_statement_retains_property_and_registered_domain() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
+    input.claim.registered_domain_language = Some("For every registered u8 value, P holds.".into());
+    add_record(
+        &mut input,
+        bounded_record("kani"),
+        NodeKind::ModelCheckUnit,
+        true,
+    );
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::BoundedChecked);
+    assert_eq!(
+        status.public_statement,
+        "The registered subject has property P. Registered finite domain: For every registered u8 value, P holds."
+    );
+
+    input.claim.statement = "The registered subject has a different property Q.".into();
+    let changed = derive_claim_status(&input);
+    assert_ne!(changed.public_statement, status.public_statement);
+    assert!(changed.public_statement.starts_with(&input.claim.statement));
+}
+
+#[test]
+fn bounded_check_requires_exact_nonzero_unwind_inventory() {
+    let mut extra = bounded_record("kani");
+    extra
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .insert("undeclared".into(), 1);
+
+    let mut missing = bounded_record("kani");
+    missing
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .clear();
+
+    let mut zero = bounded_record("kani");
+    zero.bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .insert("check_all".into(), 0);
+
+    for record in [extra, missing, zero] {
+        let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
+        input.claim.registered_domain_language =
+            Some("For every registered u8 value, P holds.".into());
+        add_record(&mut input, record, NodeKind::ModelCheckUnit, true);
+        assert_eq!(derive_claim_status(&input).formal, FormalFacet::Invalid);
+    }
 }
 
 #[test]

@@ -1063,6 +1063,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cargo_python_and_lake_versions_match() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        for relative in ["Cargo.toml", "pyproject.toml", "lakefile.toml"] {
+            let manifest = fs::read_to_string(root.join(relative)).unwrap();
+            let declared = manifest
+                .lines()
+                .find_map(|line| {
+                    line.trim()
+                        .strip_prefix("version = \"")
+                        .and_then(|value| value.strip_suffix('"'))
+                })
+                .unwrap_or_else(|| panic!("{relative} has no quoted version declaration"));
+            assert_eq!(
+                declared,
+                env!("CARGO_PKG_VERSION"),
+                "{relative} is out of sync with the Rust workspace version"
+            );
+        }
+    }
+
+    #[test]
     fn ci_runs_release_smoke_before_one_fresh_check_and_verifier_last() {
         let root = Path::new("/checkout/proof-bound");
         let scratch = Path::new("/tmp/xtask-test");

@@ -1,4 +1,9 @@
-use std::{collections::BTreeSet, fs, path::Path, process::Command};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+    process::Command,
+};
 
 use proofbound_verify::*;
 use tempfile::TempDir;
@@ -263,7 +268,7 @@ fn bounded_release() -> CompiledRelease {
         },
         solver: "kani 1.0".into(),
         harnesses: BTreeSet::from(["check_all".into()]),
-        unwind_bounds: Default::default(),
+        unwind_bounds: BTreeMap::from([("check_all".into(), 1)]),
     });
     release.evidence[0].sha256 = domain_hash(
         EVIDENCE_SCHEMA_V1,
@@ -281,6 +286,20 @@ fn bounded_release() -> CompiledRelease {
     release.reported_statuses[0].formal = FormalFacet::BoundedChecked;
     release.graph_sha256 = graph_hash(&release.graph);
     release
+}
+
+fn rehash_first_evidence(release: &mut CompiledRelease) {
+    let old = release.evidence[0].sha256.clone();
+    let replacement = domain_hash(
+        EVIDENCE_SCHEMA_V1,
+        &canonical_json(&release.evidence[0].record).unwrap(),
+    );
+    release.evidence[0].sha256.clone_from(&replacement);
+    for claim in &mut release.claims {
+        if claim.cited_evidence.remove(&old) {
+            claim.cited_evidence.insert(replacement.clone());
+        }
+    }
 }
 
 fn tcb_ledger_value(release: &CompiledRelease) -> serde_json::Value {
@@ -415,6 +434,30 @@ fn committed_release_fixture_is_canonical_and_verifies_in_place() {
 }
 
 #[test]
+fn empty_additional_closures_have_one_canonical_optional_shape() {
+    let release = base_release();
+    assert!(
+        release.evidence[0]
+            .record
+            .provenance
+            .additional_closures
+            .is_empty()
+    );
+    let value = serde_json::to_value(&release).unwrap();
+    assert!(
+        value["evidence"][0]["record"]["provenance"]
+            .get("additional_closures")
+            .is_none()
+    );
+
+    let directory = write_release(&release);
+    assert_eq!(
+        verify_release_dir(directory.path()).unwrap().verdict,
+        "receipt-consistent"
+    );
+}
+
+#[test]
 fn standalone_cli_honors_release_and_exit_contract() {
     let directory = write_release(&base_release());
     let output = Command::new(env!("CARGO_BIN_EXE_proofbound-verify"))
@@ -532,6 +575,45 @@ fn bounded_language_cannot_be_silently_omitted() {
     let error = verify_compiled_release(&release).unwrap_err();
     assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
     assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+}
+
+#[test]
+fn bounded_unwind_inventory_is_exact_and_nonzero() {
+    let mut extra = bounded_release();
+    extra.evidence[0]
+        .record
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .insert("undeclared".into(), 1);
+    rehash_first_evidence(&mut extra);
+    let error = verify_compiled_release(&extra).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut missing = bounded_release();
+    missing.evidence[0]
+        .record
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .clear();
+    rehash_first_evidence(&mut missing);
+    let error = verify_compiled_release(&missing).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut zero = bounded_release();
+    zero.evidence[0]
+        .record
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .insert("check_all".into(), 0);
+    rehash_first_evidence(&mut zero);
+    let error = verify_compiled_release(&zero).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
 }
 
 #[test]
@@ -1271,7 +1353,7 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                     },
                     solver: "corpus-solver 1".into(),
                     harnesses: BTreeSet::from(["check_all".into()]),
-                    unwind_bounds: Default::default(),
+                    unwind_bounds: BTreeMap::from([("check_all".into(), 1)]),
                 });
                 (record, NodeKind::ModelCheckUnit)
             }

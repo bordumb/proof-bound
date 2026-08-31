@@ -99,9 +99,10 @@ and cache key.
 Kind-specific requirements include compiled theorem identity and axiom audit,
 strong canonical artifact binding, explicit transcription TCB and round trip,
 deterministic source refinement with registered premises, explicit bounded
-domains/harnesses, exact exhaustive cardinality, independently inventoried
-checks, and mutation identities. Detail blocks or mode qualifiers on the wrong
-kind are invalid.
+domains/harnesses, the registered solver, exact nonzero per-harness unwind
+bounds, exact exhaustive cardinality, independently inventoried checks, and
+mutation identities. Detail blocks or mode qualifiers on the wrong kind are
+invalid.
 
 An `artifact-bound` policy admits a strong artifact binding checked explicitly
 in either kernel or native mode while its theorem is still admitted under the

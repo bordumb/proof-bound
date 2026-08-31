@@ -197,7 +197,7 @@
         "domain": { "$ref": "#/$defs/domain" },
         "solver": { "type": "string", "minLength": 1, "maxLength": 512 },
         "harnesses": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "minItems": 1, "maxItems": 100000 },
-        "unwind_bounds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 }, "maxProperties": 100000 }
+        "unwind_bounds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "minProperties": 1, "maxProperties": 100000 }
       }
     },
     "exhaustiveCheck": {

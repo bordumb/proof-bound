@@ -143,7 +143,7 @@
     "boundedCheckReceipt": {
       "type": "object", "additionalProperties": false,
       "required": ["domain", "solver", "harnesses", "unwind_bounds"],
-      "properties": { "domain": { "$ref": "#/$defs/boundedDomain" }, "solver": { "type": "string" }, "harnesses": { "$ref": "#/$defs/ids" }, "unwind_bounds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } } }
+      "properties": { "domain": { "$ref": "#/$defs/boundedDomain" }, "solver": { "type": "string", "minLength": 1 }, "harnesses": { "$ref": "#/$defs/ids" }, "unwind_bounds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "minProperties": 1 } }
     },
     "exhaustiveCheckReceipt": {
       "type": "object", "additionalProperties": false,

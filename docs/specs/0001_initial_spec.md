@@ -2,9 +2,9 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.5.0
+**Version:** 0.6.0
 
-**Date:** 2026-08-30
+**Date:** 2026-08-31
 
 **Project:** Proofbound
 
@@ -12,6 +12,11 @@
 
 ### Revision history
 
+- **0.6.0** — bounded-evidence fidelity: requires the bounded receipt's solver
+  and per-harness unwind bounds to equal the registered model-check unit, with
+  exact harness/unwind key coverage and nonzero bounds (§9.7); and requires
+  bounded reader output to preserve the compiled claim property while
+  appending the explicit registered finite domain (§6.3.2).
 - **0.5.0** — bootstrap-contract reconciliation: defines the Tier 0 `ledger`
   profile as an immutable built-in (§9.1); makes every shipped project and
   claim manifest field normative (§11.1–11.2); closes the adapter observation
@@ -470,9 +475,12 @@ Additional rules:
   failure: it renders in `status` output so the operator can see which claim
   broke and why, and the presence of any `INVALID` claim causes a nonzero
   exit. `INVALID` overrides all other facets.
-- **Bounded language.** A `BOUNDED_CHECKED` claim must state its registered
-  finite domain in its public claim language; no unbounded language is
-  emitted for bounded evidence.
+- **Bounded language.** A `BOUNDED_CHECKED` claim's `public_statement` is the
+  compiled reader-facing claim text followed by the literal separator
+  ` Registered finite domain: ` and the registered finite-domain language.
+  The property is never replaced by domain-only wording, and no unbounded
+  language is emitted for bounded evidence. The same composition applies when
+  an explicitly policy-admitted exhaustive finite check yields `PROVED`.
 - **Exhaustiveness.** `exhaustive-check` over a registered finite domain
   MAY be admitted as `PROVED` only when the policy explicitly says so and
   the domain registration is itself part of the claim closure; otherwise it
@@ -812,6 +820,9 @@ The initial built-in profiles are:
 - The bounded domain is explicit.
 - All harnesses are inventoried.
 - Solver/tool version, unwind bounds, assumptions, and results are recorded.
+  The receipt's solver equals the registered solver; its harness set and
+  unwind-bound key set are identical; and every recorded unwind bound is the
+  registered nonzero bound for that harness.
 - No unbounded claim is emitted.
 
 Projects MAY define stricter profiles. They MUST NOT redefine the meaning of a

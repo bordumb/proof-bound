@@ -753,10 +753,12 @@ impl EvidenceRecord {
                 Some(check)
                     if !check.domain.description.trim().is_empty()
                         && !check.solver.trim().is_empty()
-                        && !check.harnesses.is_empty() => {}
+                        && !check.harnesses.is_empty()
+                        && check.unwind_bounds.keys().eq(check.harnesses.iter())
+                        && check.unwind_bounds.values().all(|bound| *bound > 0) => {}
                 _ => errors.push(error(
-                    "bounded evidence lacks an explicit finite domain, solver, or harness inventory".into(),
-                    "register the finite domain and every bounded harness",
+                    "bounded evidence lacks an explicit finite domain, solver, or exact nonzero per-harness unwind bounds".into(),
+                    "register the finite domain, every bounded harness, and its unwind bound",
                 )),
             },
             EvidenceKind::ExhaustiveCheck => match &self.exhaustive_check {

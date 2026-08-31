@@ -923,11 +923,15 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
 
     let public_statement =
         if matches!(formal, FormalFacet::BoundedChecked) || used_exhaustive_as_proof {
-            input
-                .claim
-                .registered_domain_language
-                .clone()
-                .unwrap_or_else(|| input.claim.statement.clone())
+            input.claim.registered_domain_language.as_ref().map_or_else(
+                || input.claim.statement.clone(),
+                |domain| {
+                    format!(
+                        "{} Registered finite domain: {}",
+                        input.claim.statement, domain
+                    )
+                },
+            )
         } else {
             input.claim.statement.clone()
         };

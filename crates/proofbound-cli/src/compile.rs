@@ -20,14 +20,14 @@ use proofbound_core::{
     derive_claim_status,
 };
 use proofbound_evidence::{
-    ClosureRecord, ContentAddressedStore, canonical_json, domain_hash, git_identity,
+    ClosureMember, ClosureRecord, ContentAddressedStore, canonical_json, domain_hash, git_identity,
     merge_closures, sha256_bytes,
 };
 use proofbound_manifest::{
     AdapterDiagnostic, AdapterKind, AdapterResponse,
     AssumptionCategory as ManifestAssumptionCategory, AssumptionStatus as ManifestAssumptionStatus,
-    ClaimManifest, EvidenceKind as ManifestEvidenceKind, EvidenceUnitManifest, OperationKind,
-    PolicyManifest, PrimaryLinkage, ProjectBundle,
+    ClaimManifest, EvidenceKind as ManifestEvidenceKind, EvidenceUnitManifest,
+    ModelCheckUnitManifest, OperationKind, PolicyManifest, PrimaryLinkage, ProjectBundle,
 };
 use serde::{Deserialize, Serialize};
 
@@ -408,6 +408,85 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         PolicyDefinition::ledger(PolicyId::new("ledger")?),
         claim_id.as_str(),
     )?;
+    let semantic_closure = Sha256Digest::of_bytes(b"proofbound-release-smoke-semantic-v1");
+    let evidence = EvidenceRecord {
+        schema: "proofbound-evidence/1".into(),
+        id: EvidenceId::new("review:release-smoke")?,
+        node_id: NodeId::new("review:release-smoke")?,
+        unit_id: UnitId::new("unit:release-smoke")?,
+        kind: EvidenceKind::Review,
+        status: EvidenceStatus::Passed,
+        claims: BTreeSet::from([claim_id.clone()]),
+        evaluation_mode: None,
+        binding_mode: None,
+        theorem: None,
+        artifact_binding: None,
+        trusted_transcription: None,
+        source_refinement: None,
+        bounded_check: None,
+        exhaustive_check: None,
+        mutation_witness: None,
+        independence: None,
+        inventoried_targets: BTreeSet::new(),
+        assumptions: BTreeSet::new(),
+        premises: BTreeSet::new(),
+        open_obligation: None,
+        provenance: EvidenceProvenance {
+            project_revision: "proofbound-release-smoke-v1".into(),
+            tree_state: TreeState::Clean,
+            semantic_source_closure: semantic_closure,
+            additional_closures: Vec::new(),
+            input_artifacts: Vec::new(),
+            generated_artifacts: Vec::new(),
+            tool: ToolIdentity {
+                name: "proofbound-release-smoke".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                identity_sha256: Sha256Digest::of_bytes(b"proofbound-release-smoke-tool-v1"),
+            },
+            adapter: ToolIdentity {
+                name: "proofbound-cli".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                identity_sha256: Sha256Digest::of_bytes(b"proofbound-release-smoke-adapter-v1"),
+            },
+            command: CommandSpec {
+                program: "proofbound".into(),
+                args: vec!["release-smoke".into()],
+                environment_allowlist: Vec::new(),
+            },
+            reproduction_command: CommandSpec {
+                program: "proofbound".into(),
+                args: vec!["release-smoke".into()],
+                environment_allowlist: Vec::new(),
+            },
+            started_unix_ms: 0,
+            completed_unix_ms: 0,
+            deterministic_result_identity: Sha256Digest::of_bytes(
+                b"proofbound-release-smoke-result-v1",
+            ),
+            unit_configuration_sha256: Sha256Digest::of_bytes(
+                b"proofbound-release-smoke-configuration-v1",
+            ),
+            resource_budget: ResourceBudget::default(),
+            resource_usage: ResourceUsage::default(),
+            cache_origin: CacheOrigin::Executed,
+            prior_receipt_sha256: None,
+        },
+    };
+    let closure = ClosureRecord {
+        schema: "proofbound-source-closure/1".into(),
+        id: format!("sha256:{}", semantic_closure.to_hex()),
+        kind: proofbound_evidence::ClosureKind::Semantic,
+        root: ".".into(),
+        claim_id: Some(claim_id.to_string()),
+        members: vec![ClosureMember {
+            path: "release-smoke.synthetic".into(),
+            sha256: sha256_bytes(b"proofbound release smoke synthetic member"),
+            bytes: 41,
+        }],
+        total_bytes: 41,
+        discovery: "unit-claim-union/1".into(),
+        tool_identity: None,
+    };
     let claim = ClaimDefinition {
         schema: "proofbound-claim/1".into(),
         id: claim_id.clone(),
@@ -417,7 +496,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         subject: NodeId::new("subject:release-smoke")?,
         policy: policy.id.clone(),
         tier: Some(Tier::Ledger),
-        cited_evidence: BTreeSet::new(),
+        cited_evidence: BTreeSet::from([evidence.id.clone()]),
         assumptions: BTreeSet::new(),
         open_obligations: BTreeSet::from([OpenObligation {
             id: ObligationId::new("open:PB-SMOKE-LEDGER-001:0")?,
@@ -429,13 +508,13 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         registered_inputs: BTreeSet::new(),
         registered_domain_language: None,
     };
-    let graph = graph_for_claim(&claim, &policy, &[], &[], &[])?;
+    let graph = graph_for_claim(&claim, &policy, std::slice::from_ref(&evidence), &[], &[])?;
     let input = ClaimEvaluationInput {
         project_tier: Tier::Ledger,
         claim,
         policy,
         graph,
-        evidence: Vec::new(),
+        evidence: vec![evidence.clone()],
         assumptions: Vec::new(),
         premises: Vec::new(),
     };
@@ -452,8 +531,8 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         generated_at: "1970-01-01T00:00:00.000Z".into(),
         inputs: vec![input],
         statuses: vec![status],
-        evidence: Vec::new(),
-        closures: Vec::new(),
+        evidence: vec![evidence],
+        closures: vec![closure],
         unit_runs: Vec::new(),
         claim_input_identities: BTreeMap::new(),
     };
@@ -969,6 +1048,92 @@ fn select_units(
     Ok(units)
 }
 
+fn registered_model_check<'a>(
+    bundle: &'a ProjectBundle,
+    unit: &EvidenceUnitManifest,
+) -> Result<Option<&'a ModelCheckUnitManifest>> {
+    if unit.adapter != AdapterKind::Kani {
+        return Ok(None);
+    }
+    if unit.kind != ManifestEvidenceKind::BoundedCheck {
+        bail!("PB-ADAPTER-0017: Kani evidence must be registered as bounded-check");
+    }
+    let relative = unit
+        .operation
+        .manifest
+        .as_deref()
+        .context("PB-ADAPTER-0017: Kani evidence has no model-check manifest")?;
+    let (registered_path, model) = bundle.model_check_units.get(&unit.id).with_context(|| {
+        format!(
+            "PB-ADAPTER-0017: Kani evidence {} has no registered model-check unit",
+            unit.id
+        )
+    })?;
+    if registered_path != &bundle.root.join(relative) {
+        bail!(
+            "PB-ADAPTER-0017: Kani evidence {} does not reference its registered model-check manifest",
+            unit.id
+        );
+    }
+    // Validate every duplicated execution field here as well as in the adapter.
+    // The adapter establishes what ran; this independent producer-side check
+    // establishes that the receipt projects the same registered semantics.
+    let _ = bounded_check_from_registered_model(unit, model, &model.harnesses)?;
+    Ok(Some(model))
+}
+
+fn bounded_check_from_registered_model(
+    unit: &EvidenceUnitManifest,
+    model: &ModelCheckUnitManifest,
+    observed_inventory: &[String],
+) -> Result<BoundedCheckEvidence> {
+    if model.schema != "proofbound-model-check-unit/1"
+        || model.adapter != "kani"
+        || model.id != unit.id
+        || unit.operation.package.as_deref() != Some(model.package.as_str())
+        || unit.operation.targets != model.harnesses
+        || unit.expected_inventory != model.harnesses
+        || unit.claims != model.claims
+        || unit.bounded_domain.as_ref() != Some(&model.domain)
+        || unit.resource_budget != model.resource_budget
+        || model.solver.trim().is_empty()
+        || model.unwind == 0
+    {
+        bail!("PB-ADAPTER-0017: Kani evidence and registered model-check semantics disagree");
+    }
+
+    let harnesses = model.harnesses.iter().cloned().collect::<BTreeSet<_>>();
+    let observed = observed_inventory.iter().cloned().collect::<BTreeSet<_>>();
+    if harnesses.len() != model.harnesses.len()
+        || observed.len() != observed_inventory.len()
+        || observed != harnesses
+    {
+        bail!("PB-ADAPTER-0016: exact Kani harness inventory does not match the registration");
+    }
+
+    let unwind = u64::from(model.unwind);
+    Ok(BoundedCheckEvidence {
+        domain: BoundedDomain {
+            id: UnitId::new(model.domain.id.clone())?,
+            description: model.domain.description.clone(),
+            registration_sha256: Sha256Digest::of_bytes(canonical_json(&model.domain)?),
+            cardinality: Some(model.domain.cardinality),
+            constraints: model
+                .domain
+                .ordering_key
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        },
+        solver: model.solver.clone(),
+        harnesses: harnesses.clone(),
+        unwind_bounds: harnesses
+            .into_iter()
+            .map(|harness| (harness, unwind))
+            .collect(),
+    })
+}
+
 fn execute_or_reuse(
     context: &ExecutionContext<'_>,
     unit: &EvidenceUnitManifest,
@@ -1011,11 +1176,13 @@ fn execute_or_reuse(
         ));
     }
 
+    let registered_model = registered_model_check(context.bundle, unit)?;
     let request_unit = adapter_unit(context.root, context.bundle, unit)?;
     let response = adapter::invoke(context.root, unit, "check", request_unit)?;
     let record = response_to_record(
         context.root,
         unit,
+        registered_model,
         closure_ids,
         additional_closures,
         &response,
@@ -1102,6 +1269,12 @@ fn reusable_cached_record(
     let expected_binding = unit
         .binding_mode
         .and_then(|mode| serde_json::from_value(serde_json::to_value(mode).ok()?).ok());
+    let expected_bounded_check = match registered_model_check(context.bundle, unit).ok()? {
+        Some(model) => {
+            Some(bounded_check_from_registered_model(unit, model, &unit.expected_inventory).ok()?)
+        }
+        None => None,
+    };
     if record.schema != "proofbound-evidence/1"
         || record.id != expected_id
         || record.node_id != expected_node
@@ -1113,6 +1286,7 @@ fn reusable_cached_record(
         || record.premises != expected_premises
         || record.evaluation_mode != expected_evaluation
         || record.binding_mode != expected_binding
+        || record.bounded_check.as_ref() != expected_bounded_check.as_ref()
         || (!unit.expected_inventory.is_empty() && record.inventoried_targets != expected_inventory)
         || record.provenance.semantic_source_closure != parse_digest(semantic_closure).ok()?
         || record.provenance.additional_closures != additional_closures
@@ -1137,6 +1311,7 @@ fn reusable_cached_record(
 fn response_to_record(
     root: &Path,
     unit: &EvidenceUnitManifest,
+    registered_model: Option<&ModelCheckUnitManifest>,
     closure_ids: &[String],
     additional_closures: &[ClosureIdentity],
     response: &AdapterResponse,
@@ -1161,12 +1336,14 @@ fn response_to_record(
     // protocol.  Accepting an adapter-authored core record here would let a
     // checker assert the six strong-binding booleans without exposing the
     // checked theorem, claims, artifact identity, and byte-level results.
-    let mut record = if unit.kind == ManifestEvidenceKind::ArtifactSoundness {
-        observation_to_record(root, unit, closure_ids, &value)?
+    let mut record = if unit.kind == ManifestEvidenceKind::ArtifactSoundness
+        || unit.adapter == AdapterKind::Kani
+    {
+        observation_to_record(root, unit, registered_model, closure_ids, &value)?
     } else if let Ok(record) = serde_json::from_value::<EvidenceRecord>(value.clone()) {
         record
     } else {
-        observation_to_record(root, unit, closure_ids, &value)?
+        observation_to_record(root, unit, registered_model, closure_ids, &value)?
     };
     bind_record_to_execution(root, unit, closure_ids, additional_closures, &mut record)?;
     Ok(record)
@@ -1411,6 +1588,7 @@ struct UsageObservation {
 fn observation_to_record(
     root: &Path,
     unit: &EvidenceUnitManifest,
+    registered_model: Option<&ModelCheckUnitManifest>,
     closure_ids: &[String],
     value: &serde_json::Value,
 ) -> Result<EvidenceRecord> {
@@ -1534,26 +1712,13 @@ fn observation_to_record(
         None
     };
     let bounded_check = if kind == EvidenceKind::BoundedCheck {
-        let domain = unit
-            .bounded_domain
-            .as_ref()
-            .context("PB-ADAPTER-0017: bounded observation has no registered domain")?;
-        Some(BoundedCheckEvidence {
-            domain: BoundedDomain {
-                id: UnitId::new(domain.id.clone())?,
-                description: domain.description.clone(),
-                registration_sha256: Sha256Digest::of_bytes(canonical_json(domain)?),
-                cardinality: Some(domain.cardinality),
-                constraints: domain
-                    .ordering_key
-                    .iter()
-                    .map(|value| value.to_string())
-                    .collect(),
-            },
-            solver: "registered-kani-backend".into(),
-            harnesses: observation.inventory.iter().cloned().collect(),
-            unwind_bounds: BTreeMap::new(),
-        })
+        let model = registered_model
+            .context("PB-ADAPTER-0017: bounded observation has no registered model-check unit")?;
+        Some(bounded_check_from_registered_model(
+            unit,
+            model,
+            &observation.inventory,
+        )?)
     } else {
         None
     };
@@ -3398,7 +3563,7 @@ fn release_evidence_record(
             }))
         })
         .collect::<Result<Vec<_>>>()?;
-    let cache_material = serde_json::json!({
+    let mut cache_material = serde_json::json!({
         "semantic_closure": closure,
         "additional_closures": additional_closures,
         "input_artifacts": input_artifacts,
@@ -3406,6 +3571,7 @@ fn release_evidence_record(
         "adapter": adapter,
         "unit_configuration_sha256": unit_configuration,
     });
+    omit_empty_array_field(&mut cache_material, "additional_closures");
     let cache_key = domain_hash("proofbound-cache-key/1", &canonical_json(&cache_material)?);
     let command = std::iter::once(evidence.provenance.command.program.clone())
         .chain(evidence.provenance.command.args.iter().cloned())
@@ -3574,7 +3740,23 @@ fn release_evidence_record(
         },
     });
     omit_null_object_fields(&mut record);
+    if let Some(provenance) = record.get_mut("provenance") {
+        omit_empty_array_field(provenance, "additional_closures");
+    }
     Ok(record)
+}
+
+fn omit_empty_array_field(value: &mut serde_json::Value, field: &str) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    if object
+        .get(field)
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(Vec::is_empty)
+    {
+        object.remove(field);
+    }
 }
 
 fn omit_null_object_fields(value: &mut serde_json::Value) {
@@ -4139,6 +4321,131 @@ mod tests {
     }
 
     #[test]
+    fn bounded_receipt_projects_exact_registered_kani_semantics() {
+        let unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/1",
+            "id": "bounded-unit",
+            "adapter": "kani",
+            "kind": "bounded-check",
+            "claims": ["CLAIM-ONE"],
+            "tier": 1,
+            "operation": {
+                "type": "kani",
+                "package": "subject",
+                "manifest": "proofbound/model-checks/bounded-unit.toml",
+                "targets": ["proofs::first", "proofs::second"]
+            },
+            "expected_inventory": ["proofs::first", "proofs::second"],
+            "inputs": ["src/lib.rs", "proofbound/model-checks/bounded-unit.toml"],
+            "outputs": [],
+            "environment_allowlist": [],
+            "bounded_domain": {
+                "id": "finite-domain",
+                "description": "all registered two-bit inputs",
+                "cardinality": 4,
+                "ordering_key": [0, 1]
+            },
+            "resource_budget": {
+                "time_seconds": 30,
+                "disk_bytes": 1024,
+                "memory_bytes": 2048
+            }
+        }))
+        .unwrap();
+        let model: ModelCheckUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-model-check-unit/1",
+            "id": "bounded-unit",
+            "adapter": "kani",
+            "package": "subject",
+            "harnesses": ["proofs::first", "proofs::second"],
+            "claims": ["CLAIM-ONE"],
+            "domain": {
+                "id": "finite-domain",
+                "description": "all registered two-bit inputs",
+                "cardinality": 4,
+                "ordering_key": [0, 1]
+            },
+            "solver": "cadical",
+            "unwind": 7,
+            "assumptions": [],
+            "resource_budget": {
+                "time_seconds": 30,
+                "disk_bytes": 1024,
+                "memory_bytes": 2048
+            }
+        }))
+        .unwrap();
+
+        let receipt = bounded_check_from_registered_model(
+            &unit,
+            &model,
+            &["proofs::second".into(), "proofs::first".into()],
+        )
+        .unwrap();
+        assert_eq!(receipt.solver, "cadical");
+        assert_eq!(
+            receipt.unwind_bounds,
+            BTreeMap::from([("proofs::first".into(), 7), ("proofs::second".into(), 7)])
+        );
+        let error = bounded_check_from_registered_model(
+            &unit,
+            &model,
+            &["proofs::first".into(), "proofs::undeclared".into()],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("exact Kani harness inventory"));
+
+        let mut mismatched = model.clone();
+        mismatched.harnesses[1] = "proofs::different".into();
+        assert!(
+            bounded_check_from_registered_model(&unit, &mismatched, &unit.expected_inventory)
+                .is_err()
+        );
+
+        let mut zero_unwind = model.clone();
+        zero_unwind.unwind = 0;
+        assert!(
+            bounded_check_from_registered_model(&unit, &zero_unwind, &unit.expected_inventory)
+                .is_err()
+        );
+
+        let mut empty_solver = model;
+        empty_solver.solver.clear();
+        assert!(
+            bounded_check_from_registered_model(&unit, &empty_solver, &unit.expected_inventory)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn release_smoke_uses_the_canonical_empty_additional_closure_shape() {
+        let fixture = tempfile::tempdir().unwrap();
+        let destination = fixture.path().join("release");
+        release_smoke(&destination).unwrap();
+
+        let payload: serde_json::Value =
+            serde_json::from_slice(&fs::read(destination.join("compiled-receipt.json")).unwrap())
+                .unwrap();
+        let provenance = &payload["evidence"][0]["record"]["provenance"];
+        assert!(provenance.get("additional_closures").is_none());
+
+        let cache_material = json!({
+            "semantic_closure": provenance["semantic_closure"],
+            "input_artifacts": provenance["input_artifacts"],
+            "tool": provenance["tool"],
+            "adapter": provenance["adapter"],
+            "unit_configuration_sha256": provenance["unit_configuration_sha256"],
+        });
+        assert_eq!(
+            provenance["cache_key"],
+            domain_hash(
+                "proofbound-cache-key/1",
+                &canonical_json(&cache_material).unwrap()
+            )
+        );
+    }
+
+    #[test]
     fn artifact_adapter_cannot_bypass_checked_observation_with_core_record() {
         let digest = format!("sha256:{}", "00".repeat(32));
         let forged = json!({
@@ -4216,7 +4523,8 @@ mod tests {
             inventory: vec!["published-artifact".to_owned()],
             diagnostics: vec![],
         };
-        let error = response_to_record(Path::new("."), &unit, &[], &[], &response).unwrap_err();
+        let error =
+            response_to_record(Path::new("."), &unit, None, &[], &[], &response).unwrap_err();
         assert!(error.to_string().contains("PB-ADAPTER-0012"));
     }
 
@@ -4233,7 +4541,8 @@ mod tests {
             inventory: Vec::new(),
             diagnostics: Vec::new(),
         };
-        let error = response_to_record(Path::new("."), &unit, &[], &[], &response).unwrap_err();
+        let error =
+            response_to_record(Path::new("."), &unit, None, &[], &[], &response).unwrap_err();
         assert!(error.to_string().contains("adapter rejected unit failed"));
     }
 
