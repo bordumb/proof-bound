@@ -364,6 +364,27 @@
       "premises": [],
       "registered_domain": false,
       "expected": {"formal": "INVALID", "linkage": null, "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": false}
+    },
+    {
+      "id": "static-check-only",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "types", "kind": "static-check"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
+    },
+    {
+      "id": "static-check-proof-upgrade-attack",
+      "tier": 0,
+      "policy": {"components": ["ledger"]},
+      "evidence": [{"id": "types", "kind": "static-check"}],
+      "assumptions": [],
+      "premises": [],
+      "registered_domain": false,
+      "expected": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true},
+      "asserted": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "NONE", "assumptions": [], "undischarged_premises": [], "policy_admitted": true}
     }
   ]
 }

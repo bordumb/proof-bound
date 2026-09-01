@@ -1,0 +1,21 @@
+schema = "proofbound-evidence-unit/1"
+id = "reservation-types"
+adapter = "python-test"
+kind = "static-check"
+claims = ["PY-RESERVATION-001"]
+tier = 0
+assumptions = ["PY-RUNTIME-001"]
+expected_inventory = ["src/inventory_service/reservations.py"]
+inputs = ["mypy.ini", "requirements-dev.txt", "src/inventory_service/reservations.py"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "mypy"
+configuration = "mypy.ini"
+targets = ["src/inventory_service/reservations.py"]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 536870912

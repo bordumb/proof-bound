@@ -533,8 +533,7 @@ def test_auxiliary_adapter_manifests_match_strict_public_schemas() -> None:
     )
     assert len(mutation_paths) == 5
     mutations = [
-        tomllib.loads(path.read_text(encoding="utf-8"))
-        for path in mutation_paths
+        tomllib.loads(path.read_text(encoding="utf-8")) for path in mutation_paths
     ]
     translation_lock = tomllib.loads(
         (ROOT / "proofbound" / "toolchains" / "translation.lock").read_text(
@@ -786,8 +785,7 @@ def test_evidence_unit_routes_and_registered_inventory_are_closed() -> None:
 
 def test_mutation_replay_route_is_versioned_singleton_and_closed() -> None:
     unit_path = (
-        ROOT
-        / "demo/allowance/proofbound/evidence/remove-authorization-guard.toml"
+        ROOT / "demo/allowance/proofbound/evidence/remove-authorization-guard.toml"
     )
     with unit_path.open("rb") as source:
         unit = tomllib.load(source)
@@ -811,6 +809,121 @@ def test_mutation_replay_route_is_versioned_singleton_and_closed() -> None:
     shared_fate = json.loads(json.dumps(unit))
     shared_fate["expected_inventory"].append("another-mutation")
     assert list(validate.iter_errors(shared_fate))
+
+
+def test_typescript_routes_are_exact_and_ecosystem_coupled() -> None:
+    validate_unit = validator("evidence-unit.schema.json")
+    validate_mutation = validator("mutation-registry.schema.json")
+    root = ROOT / "demo/typescript-codec"
+
+    units = {
+        path.stem: tomllib.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((root / "evidence").glob("*.toml"))
+    }
+    assert set(units) == {
+        "bounded-roundtrip",
+        "npm-package",
+        "reject-padding-mutant",
+        "reject-padding",
+        "strict-types",
+    }
+    for unit in units.values():
+        validate_unit.validate(unit)
+    validate_mutation.validate(
+        tomllib.loads(
+            (root / "mutations/reject-padding.toml").read_text(encoding="utf-8")
+        )
+    )
+
+    reserved = json.loads(json.dumps(units["strict-types"]))
+    reserved["operation"]["type"] = "tsgo"
+    assert list(validate_unit.iter_errors(reserved))
+
+    smuggled_argument = json.loads(json.dumps(units["reject-padding"]))
+    smuggled_argument["operation"]["arguments"] = ["--run-anything"]
+    assert list(validate_unit.iter_errors(smuggled_argument))
+
+    mismatched_mutation = json.loads(json.dumps(units["reject-padding-mutant"]))
+    mismatched_mutation["adapter"] = "rust-test"
+    assert list(validate_unit.iter_errors(mismatched_mutation))
+
+    mismatched_distribution = json.loads(json.dumps(units["npm-package"]))
+    mismatched_distribution["adapter"] = "python-test"
+    assert list(validate_unit.iter_errors(mismatched_distribution))
+
+    nonzero_epoch = json.loads(json.dumps(units["npm-package"]))
+    nonzero_epoch["distribution"]["source_date_epoch"] = 1
+    assert list(validate_unit.iter_errors(nonzero_epoch))
+
+
+def test_python_routes_are_exact_and_reserved_analyzers_fail_closed() -> None:
+    validate_unit = validator("evidence-unit.schema.json")
+    validate_mutation = validator("mutation-registry.schema.json")
+    root = ROOT / "demo/python-inventory-service"
+    names = [
+        "reservation-property",
+        "reservation-types",
+        "reservation-mutant",
+        "wheel-reproduction",
+    ]
+    units = {
+        name: tomllib.loads(
+            (root / f"evidence/{name}.toml").read_text(encoding="utf-8")
+        )
+        for name in names
+    }
+    for unit in units.values():
+        validate_unit.validate(unit)
+    validate_mutation.validate(
+        tomllib.loads(
+            (root / "mutations/accept-over-cap.toml").read_text(encoding="utf-8")
+        )
+    )
+
+    reserved = json.loads(json.dumps(units["reservation-types"]))
+    reserved["operation"]["type"] = "pyright"
+    assert list(validate_unit.iter_errors(reserved))
+
+
+def test_npm_distribution_records_require_integrity_and_member_inventory() -> None:
+    schemas, registry = schema_registry()
+    definitions = [
+        ("adapter-observation.schema.json", "distribution_reproduction"),
+        ("evidence.schema.json", "distributionReproduction"),
+        ("receipt.schema.json", "distributionReproductionReceipt"),
+    ]
+    digest = f"sha256:{'01' * 32}"
+    valid = {
+        "schema": "proofbound-distribution-reproduction/1",
+        "format": "npm-package",
+        "run_digests": [digest, digest],
+        "registered_digest": digest,
+        "source_date_epoch": 0,
+        "build_backend_name": "npm",
+        "build_backend_version": "10.9.0",
+        "npm_integrity": "sha512-Zml4dHVyZQ==",
+        "member_inventory": ["package.json", "src/index.ts"],
+    }
+    for schema_name, definition in definitions:
+        definition_schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$ref": f"#/$defs/{definition}",
+            "$defs": schemas[schema_name]["$defs"],
+        }
+        validate = Draft202012Validator(definition_schema, registry=registry)
+        validate.validate(valid)
+
+        missing_integrity = json.loads(json.dumps(valid))
+        del missing_integrity["npm_integrity"]
+        assert list(validate.iter_errors(missing_integrity))
+
+        empty_members = json.loads(json.dumps(valid))
+        empty_members["member_inventory"] = []
+        assert list(validate.iter_errors(empty_members))
+
+        wrong_backend = json.loads(json.dumps(valid))
+        wrong_backend["build_backend_name"] = "custom-script"
+        assert list(validate.iter_errors(wrong_backend))
 
 
 def test_trusted_transcription_route_is_versioned_and_closed() -> None:

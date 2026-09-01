@@ -28,6 +28,9 @@ pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcript
 pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
 pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
 pub const MUTATION_WITNESS_SCHEMA_V2: &str = "proofbound-mutation-witness/2";
+pub const PYTHON_PROPERTY_SCHEMA_V1: &str = "proofbound-python-property/1";
+pub const STATIC_CHECK_SCHEMA_V1: &str = "proofbound-static-check/1";
+pub const DISTRIBUTION_REPRODUCTION_SCHEMA_V1: &str = "proofbound-distribution-reproduction/1";
 pub const MUTATION_IDENTITY_DOMAIN_V2: &str = "proofbound-mutation/2";
 
 fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -401,6 +404,17 @@ pub struct EvidenceProvenance {
     pub cache_origin: CacheOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prior_receipt_sha256: Option<Sha256Digest>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub python_plugins: Vec<PythonPluginEvidence>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPluginEvidence {
+    pub module: String,
+    pub distribution: String,
+    pub version: String,
+    pub origin_sha256: Sha256Digest,
 }
 
 impl EvidenceProvenance {
@@ -536,6 +550,23 @@ impl EvidenceProvenance {
             ))),
             _ => {}
         }
+        if self.python_plugins.len() > 32
+            || !self
+                .python_plugins
+                .windows(2)
+                .all(|pair| pair[0].module < pair[1].module)
+            || self.python_plugins.iter().any(|plugin| {
+                !valid_python_module(&plugin.module)
+                    || plugin.distribution.trim().is_empty()
+                    || plugin.version.trim().is_empty()
+            })
+        {
+            errors.push(contextual(StructuredError::new(
+                ErrorCode::PbCoreInvalidEvidence,
+                "Python plugin provenance is not a strict bounded module-name inventory",
+                "record each explicitly registered plugin once in module-name order with its distribution and origin identity",
+            )));
+        }
         errors
     }
 
@@ -549,6 +580,16 @@ impl EvidenceProvenance {
                 None => false,
             }
     }
+}
+
+fn valid_python_module(value: &str) -> bool {
+    value.split('.').enumerate().all(|(index, segment)| {
+        !segment.is_empty()
+            && segment.bytes().enumerate().all(|(position, byte)| {
+                (index != 0 || position != 0 || byte.is_ascii_lowercase() || byte == b'_')
+                    && (byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+            })
+    })
 }
 
 fn validate_command<F>(
@@ -757,6 +798,42 @@ pub struct BoundedCheckEvidence {
 pub struct ExhaustiveCheckEvidence {
     pub domain: BoundedDomain,
     pub evaluated_members: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPropertyEvidence {
+    pub schema: String,
+    pub framework: String,
+    pub seed: u64,
+    pub framework_version: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticCheckEvidence {
+    pub schema: String,
+    pub tool: String,
+    pub tool_version: String,
+    pub configuration_sha256: Sha256Digest,
+    pub targets: BTreeSet<String>,
+    pub diagnostics: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DistributionReproductionEvidence {
+    pub schema: String,
+    pub format: String,
+    pub run_digests: Vec<Sha256Digest>,
+    pub registered_digest: Sha256Digest,
+    pub source_date_epoch: u64,
+    pub build_backend_name: String,
+    pub build_backend_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npm_integrity: Option<String>,
+    #[serde(default)]
+    pub member_inventory: Vec<String>,
 }
 
 /// Deliberately broken subject and the check that detected it.
@@ -970,6 +1047,12 @@ pub struct EvidenceRecord {
     pub exhaustive_check: Option<ExhaustiveCheckEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mutation_witness: Option<MutationWitnessEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_property: Option<PythonPropertyEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub static_check: Option<StaticCheckEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution_reproduction: Option<DistributionReproductionEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub independence: Option<IndependenceMode>,
     #[serde(default)]
@@ -1322,13 +1405,74 @@ impl EvidenceRecord {
                     ));
                 }
             }
-            EvidenceKind::PropertyTest | EvidenceKind::ExampleTest => {
+            EvidenceKind::PropertyTest => {
                 if self.inventoried_targets.is_empty() {
                     errors.push(error(
                         "test evidence has no inventoried target".into(),
                         "record every collected test target and fail if collection skips one",
                     ));
                 }
+                if let Some(property) = &self.python_property {
+                    let seed_argument = format!("--hypothesis-seed={}", property.seed);
+                    let plugin = self
+                        .provenance
+                        .python_plugins
+                        .iter()
+                        .find(|plugin| plugin.module == "_hypothesis_pytestplugin");
+                    if property.schema != PYTHON_PROPERTY_SCHEMA_V1
+                        || property.framework != "hypothesis"
+                        || property.framework_version.trim().is_empty()
+                        || plugin.is_none_or(|plugin| {
+                            plugin.distribution != "hypothesis"
+                                || plugin.version != property.framework_version
+                        })
+                        || !self.provenance.commands.iter().any(|command| {
+                            command.args.iter().any(|argument| argument == &seed_argument)
+                        })
+                    {
+                        errors.push(error(
+                            "Python property evidence does not bind its registered framework, plugin version, and seed"
+                                .into(),
+                            "derive proofbound-python-property/1 from the typed property registration and exact pytest command",
+                        ));
+                    }
+                }
+            }
+            EvidenceKind::ExampleTest => {
+                if self.inventoried_targets.is_empty() {
+                    errors.push(error(
+                        "test evidence has no inventoried target".into(),
+                        "record every collected test target and fail if collection skips one",
+                    ));
+                }
+                if let Some(distribution) = &self.distribution_reproduction
+                    && !distribution_reproduction_valid(self, distribution)
+                {
+                    errors.push(error(
+                        "distribution reproduction does not bind two deterministic candidates to the registered artifact"
+                            .into(),
+                        "record both independently built candidates, their exact registered digest, and the build backend identity",
+                    ));
+                }
+            }
+            EvidenceKind::StaticCheck => match &self.static_check {
+                Some(check)
+                    if check.schema == STATIC_CHECK_SCHEMA_V1
+                        && matches!(check.tool.as_str(), "mypy" | "tsc")
+                        && !check.tool_version.trim().is_empty()
+                        && check.diagnostics == 0
+                        && !check.targets.is_empty()
+                        && check.targets == self.inventoried_targets
+                        && self
+                            .provenance
+                            .input_artifacts
+                            .iter()
+                            .any(|artifact| artifact.sha256 == check.configuration_sha256) => {}
+                _ => errors.push(error(
+                    "static-check evidence lacks an exact zero-diagnostic analyzer record and byte-pinned configuration"
+                        .into(),
+                    "record proofbound-static-check/1 with the registered targets and exact configuration identity",
+                )),
             }
             EvidenceKind::MutationWitness => {
                 match &self.mutation_witness {
@@ -1460,6 +1604,7 @@ impl EvidenceRecord {
             }
             EvidenceKind::PropertyTest
             | EvidenceKind::ExampleTest
+            | EvidenceKind::StaticCheck
             | EvidenceKind::Review
             | EvidenceKind::Assumption => {
                 self.theorem.is_none()
@@ -1475,7 +1620,27 @@ impl EvidenceRecord {
                     && self.binding_mode.is_none()
             }
         };
-        if !detail_allowed {
+        let ecosystem_details_allowed = match self.kind {
+            EvidenceKind::PropertyTest => {
+                self.static_check.is_none() && self.distribution_reproduction.is_none()
+            }
+            EvidenceKind::ExampleTest => {
+                self.python_property.is_none() && self.static_check.is_none()
+            }
+            EvidenceKind::StaticCheck => {
+                self.python_property.is_none()
+                    && self.static_check.is_some()
+                    && self.distribution_reproduction.is_none()
+                    && self.provenance.python_plugins.is_empty()
+            }
+            _ => {
+                self.python_property.is_none()
+                    && self.static_check.is_none()
+                    && self.distribution_reproduction.is_none()
+                    && self.provenance.python_plugins.is_empty()
+            }
+        };
+        if !detail_allowed || !ecosystem_details_allowed {
             errors.push(error(
                 format!(
                     "evidence '{}' contains qualifier or detail blocks belonging to another evidence kind",
@@ -1502,8 +1667,73 @@ impl EvidenceRecord {
     }
 }
 
+fn distribution_reproduction_valid(
+    record: &EvidenceRecord,
+    distribution: &DistributionReproductionEvidence,
+) -> bool {
+    if distribution.schema != DISTRIBUTION_REPRODUCTION_SCHEMA_V1
+        || !matches!(
+            distribution.format.as_str(),
+            "wheel" | "sdist" | "npm-package"
+        )
+        || distribution.run_digests.len() != 2
+        || distribution.run_digests[0] != distribution.run_digests[1]
+        || distribution
+            .run_digests
+            .iter()
+            .any(|digest| digest != &distribution.registered_digest)
+        || distribution.build_backend_name.trim().is_empty()
+        || distribution.build_backend_version.trim().is_empty()
+        || (distribution.format != "sdist" && distribution.member_inventory.is_empty())
+        || !distribution
+            .member_inventory
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+        || if distribution.format == "npm-package" {
+            distribution.source_date_epoch != 0
+                || distribution.build_backend_name != "npm"
+                || distribution
+                    .npm_integrity
+                    .as_deref()
+                    .is_none_or(|value| !value.starts_with("sha512-") || value.len() > 512)
+        } else {
+            distribution.npm_integrity.is_some()
+        }
+        || record.provenance.generated_artifacts.len() != 2
+    {
+        return false;
+    }
+    let expected = distribution
+        .run_digests
+        .iter()
+        .enumerate()
+        .map(|(index, digest)| {
+            (
+                format!(
+                    "distribution/{}/candidate-{}",
+                    record.unit_id.as_str().trim_start_matches("unit:"),
+                    index + 1
+                ),
+                digest,
+            )
+        })
+        .collect::<Vec<_>>();
+    expected.iter().all(|(logical_name, digest)| {
+        record
+            .provenance
+            .generated_artifacts
+            .iter()
+            .any(|artifact| {
+                artifact.logical_name.as_str() == logical_name && &artifact.sha256 == *digest
+            })
+    })
+}
+
 fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvidence) -> bool {
-    let expected_exit_codes = BTreeSet::from([101]);
+    let is_node = witness.subject.starts_with("npm:");
+    let is_python = witness.subject.starts_with("python:");
+    let expected_exit = if is_python || is_node { 1 } else { 101 };
+    let expected_exit_codes = BTreeSet::from([expected_exit]);
     let input_roles = [
         &witness.registry,
         &witness.target_preimage,
@@ -1514,7 +1744,8 @@ fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvid
         .iter()
         .map(|artifact| artifact.logical_name.as_str())
         .collect::<BTreeSet<_>>();
-    let input_roles_are_exact = record.provenance.input_artifacts.len() == input_roles.len()
+    let expected_input_count = input_roles.len() + usize::from(is_node) * 2;
+    let input_roles_are_exact = record.provenance.input_artifacts.len() == expected_input_count
         && input_role_names.len() == input_roles.len()
         && input_roles.iter().all(|artifact| {
             record
@@ -1524,7 +1755,17 @@ fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvid
                 .filter(|observed| *observed == *artifact)
                 .count()
                 == 1
-        });
+        })
+        && (!is_node
+            || ["package-lock.json", "package.json"].iter().all(|name| {
+                record
+                    .provenance
+                    .input_artifacts
+                    .iter()
+                    .filter(|artifact| artifact.logical_name.as_str() == *name)
+                    .count()
+                    == 1
+            }));
     let postimage_is_exact = record.provenance.generated_artifacts.len() == 1
         && record.provenance.generated_artifacts[0] == witness.target_postimage;
     let replacement_is_exact = witness.target_preimage.logical_name
@@ -1553,14 +1794,28 @@ fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvid
         baseline_command
             .zip(mutant_command)
             .is_some_and(|(baseline, mutant)| {
-                baseline.program != mutant.program
-                    && baseline.environment_allowlist == mutant.environment_allowlist
-                    && command_runs_exact_check(baseline, &witness.check_id)
-                    && command_runs_exact_check(mutant, &witness.check_id)
+                (if is_node {
+                    baseline.program == mutant.program && baseline.args == mutant.args
+                } else if is_python {
+                    python_mutation_command_runs_exact_check(
+                        baseline,
+                        "$BASELINE",
+                        &witness.check_id,
+                    ) && python_mutation_command_runs_exact_check(
+                        mutant,
+                        "$MUTANT",
+                        &witness.check_id,
+                    )
+                } else {
+                    baseline.program != mutant.program || baseline.args != mutant.args
+                }) && baseline.environment_allowlist == mutant.environment_allowlist
+                    && (is_python
+                        || (command_runs_exact_check(baseline, &witness.check_id)
+                            && command_runs_exact_check(mutant, &witness.check_id)))
             });
     let passed_run_shape = record.status != EvidenceStatus::Passed
         || (baseline_run.is_some_and(|run| run.exit_code == Some(0))
-            && mutant_run.is_some_and(|run| run.exit_code == Some(101))
+            && mutant_run.is_some_and(|run| run.exit_code == Some(expected_exit))
             && record
                 .provenance
                 .runs
@@ -1589,11 +1844,73 @@ fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvid
         && identity_is_exact
 }
 
+fn python_mutation_command_runs_exact_check(
+    command: &CommandSpec,
+    root: &str,
+    check_id: &str,
+) -> bool {
+    command.program == "python3"
+        && command.args
+            == [
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "--rootdir",
+                root,
+                "-q",
+                &format!("{root}/{check_id}"),
+            ]
+}
+
 fn command_runs_exact_check(command: &CommandSpec, check_id: &str) -> bool {
+    if command.args.first().map(String::as_str) == Some("run") {
+        return vitest_command_runs_exact_check(command, check_id);
+    }
+    if command.args.windows(2).any(|pair| pair == ["-m", "pytest"]) {
+        return command
+            .args
+            .last()
+            .is_some_and(|argument| argument.ends_with(check_id));
+    }
     let selector = check_id
         .split_once("::")
         .map_or(check_id, |(_, selector)| selector);
     command.args == [selector, "--exact"]
+}
+
+fn vitest_command_runs_exact_check(command: &CommandSpec, check_id: &str) -> bool {
+    let Some((file, name)) = check_id.split_once("::") else {
+        return false;
+    };
+    let expected_pattern = format!("^{}$", regex_escape(&name.replace(" > ", " ")));
+    command.args.len() >= 5
+        && command.args[..5]
+            == [
+                "run",
+                file,
+                "--reporter=json",
+                "--testNamePattern",
+                &expected_pattern,
+            ]
+        && (command.args.len() == 5
+            || (command.args.len() == 7
+                && command.args[5] == "--config"
+                && bounded_text(&command.args[6], 4096)))
+}
+
+fn regex_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(
+            character,
+            '.' | '+' | '*' | '?' | '^' | '$' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
 }
 
 fn bounded_text(value: &str, max_chars: usize) -> bool {

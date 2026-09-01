@@ -6,20 +6,22 @@
   "additionalProperties": false,
   "required": ["schema", "id", "adapter", "kind", "claims", "tier", "operation", "resource_budget"],
   "properties": {
-    "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2", "proofbound-evidence-unit/3"] },
+    "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2", "proofbound-evidence-unit/3", "proofbound-evidence-unit/4"] },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
-    "adapter": { "enum": ["lean", "charon-aeneas", "kani", "rust-test", "python-test", "canonical-artifact", "independent-check", "trusted-transcription"] },
+    "adapter": { "enum": ["lean", "charon-aeneas", "kani", "rust-test", "python-test", "node-test", "canonical-artifact", "independent-check", "trusted-transcription"] },
     "kind": { "$ref": "evidence.schema.json#/$defs/kind" },
     "claims": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
     "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
     "operation": { "type": "object", "additionalProperties": false, "required": ["type"], "properties": {
-      "type": { "enum": ["cargo-test", "pytest", "generator", "lean-audit", "kani", "translation", "artifact-check", "independent-check", "transcription"] },
+      "type": { "enum": ["cargo-test", "pytest", "generator", "lean-audit", "kani", "translation", "artifact-check", "independent-check", "transcription", "mypy", "pyright", "python-distribution", "ty", "pyrefly", "ruff", "vitest", "tsc", "npm-package", "tsgo"] },
       "package": { "type": "string", "minLength": 1, "maxLength": 256 },
       "targets": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "maxItems": 4096 },
       "paths": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "uniqueItems": true, "maxItems": 4096 },
       "manifest": { "type": "string", "minLength": 1, "maxLength": 4096 },
       "inventory": { "type": "string", "minLength": 1, "maxLength": 4096 },
       "checker": { "type": "string", "minLength": 1, "maxLength": 4096 },
+      "configuration": { "$ref": "#/$defs/exactPath" },
+      "plugins": { "type": "array", "items": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*(?:\\.[a-z0-9_]+)*$", "maxLength": 256 }, "uniqueItems": true, "maxItems": 32 },
       "arguments": { "type": "array", "items": { "type": "string", "maxLength": 4096 }, "maxItems": 4096 }
     } },
     "evaluation_mode": { "enum": ["kernel", "native"] },
@@ -48,6 +50,8 @@
     "bounded_domain": { "$ref": "claim.schema.json#/$defs/boundedDomain" },
     "transcription": { "$ref": "#/$defs/trustedTranscription" },
     "mutation": { "$ref": "#/$defs/mutationReplay" },
+    "property": { "$ref": "#/$defs/pythonProperty" },
+    "distribution": { "$ref": "#/$defs/distributionReproduction" },
     "resource_budget": { "type": "object", "additionalProperties": false, "required": ["time_seconds", "disk_bytes", "memory_bytes"], "properties": { "time_seconds": { "type": "integer", "minimum": 1 }, "disk_bytes": { "type": "integer", "minimum": 1 }, "memory_bytes": { "type": "integer", "minimum": 1 } } }
   },
   "allOf": [
@@ -60,6 +64,7 @@
               "anyOf": [
                 { "required": ["transcription"] },
                 { "required": ["mutation"] },
+                { "required": ["distribution"] },
                 { "properties": { "adapter": { "const": "trusted-transcription" } }, "required": ["adapter"] },
                 { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] },
                 { "properties": { "kind": { "const": "mutation-witness" } }, "required": ["kind"] },
@@ -119,6 +124,46 @@
               },
               {
                 "properties": {
+                  "adapter": { "const": "python-test" },
+                  "kind": { "const": "static-check" },
+                  "operation": { "properties": { "type": { "const": "mypy" } }, "required": ["type", "configuration", "targets"] }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
+                  "adapter": { "const": "node-test" },
+                  "kind": { "enum": ["example-test", "property-test"] },
+                  "operation": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["type"],
+                    "properties": {
+                      "type": { "const": "vitest" },
+                      "configuration": { "$ref": "#/$defs/exactPath" }
+                    }
+                  }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
+                  "adapter": { "const": "node-test" },
+                  "kind": { "const": "static-check" },
+                  "operation": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["type", "configuration"],
+                    "properties": {
+                      "type": { "const": "tsc" },
+                      "configuration": { "$ref": "#/$defs/exactPath" }
+                    }
+                  }
+                },
+                "required": ["adapter", "kind", "operation"]
+              },
+              {
+                "properties": {
                   "adapter": { "const": "canonical-artifact" },
                   "kind": { "const": "artifact-soundness" },
                   "operation": { "properties": { "type": { "const": "artifact-check" } }, "required": ["type"] }
@@ -141,6 +186,22 @@
             "else": {
               "required": ["expected_inventory"],
               "properties": { "expected_inventory": { "minItems": 1 } }
+            }
+          },
+          {
+            "if": { "required": ["property"] },
+            "then": {
+              "properties": {
+                "adapter": { "const": "python-test" },
+                "kind": { "const": "property-test" },
+                "operation": {
+                  "properties": {
+                    "type": { "const": "pytest" },
+                    "plugins": { "contains": { "const": "_hypothesis_pytestplugin" } }
+                  },
+                  "required": ["type", "plugins"]
+                }
+              }
             }
           }
         ]
@@ -165,6 +226,8 @@
           "refinement_theorem": false,
           "bounded_domain": false,
           "mutation": false,
+          "property": false,
+          "distribution": false,
           "premises": { "maxItems": 0 },
           "assumptions": { "maxItems": 0 },
           "outputs": { "maxItems": 0 },
@@ -178,33 +241,134 @@
       "if": { "properties": { "schema": { "const": "proofbound-evidence-unit/3" } }, "required": ["schema"] },
       "then": {
         "required": ["mutation", "expected_inventory", "inputs", "outputs", "environment_allowlist"],
-        "properties": {
-          "adapter": { "const": "rust-test" },
-          "kind": { "const": "mutation-witness" },
-          "operation": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["type", "package", "manifest"],
+        "oneOf": [
+          {
             "properties": {
-              "type": { "const": "cargo-test" },
-              "package": { "type": "string", "minLength": 1, "maxLength": 256 },
-              "manifest": { "$ref": "#/$defs/exactPath" },
-              "targets": { "maxItems": 0 },
-              "paths": { "maxItems": 0 },
-              "arguments": { "maxItems": 0 }
-            }
+              "adapter": { "const": "rust-test" },
+              "operation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type", "package", "manifest"],
+                "properties": {
+                  "type": { "const": "cargo-test" },
+                  "package": { "type": "string", "minLength": 1, "maxLength": 256 },
+                  "manifest": { "$ref": "#/$defs/exactPath" },
+                  "targets": { "maxItems": 0 },
+                  "paths": { "maxItems": 0 },
+                  "arguments": { "maxItems": 0 }
+                }
+              }
+            },
+            "required": ["adapter", "operation"]
           },
+          {
+            "properties": {
+              "adapter": { "const": "python-test" },
+              "operation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type"],
+                "properties": { "type": { "const": "pytest" } }
+              }
+            },
+            "required": ["adapter", "operation"]
+          },
+          {
+            "properties": {
+              "adapter": { "const": "node-test" },
+              "operation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type"],
+                "properties": { "type": { "const": "vitest" } }
+              }
+            },
+            "required": ["adapter", "operation"]
+          }
+        ],
+        "properties": {
+          "adapter": { "enum": ["rust-test", "python-test", "node-test"] },
+          "kind": { "const": "mutation-witness" },
           "evaluation_mode": false,
           "binding_mode": false,
           "theorem": false,
           "refinement_theorem": false,
           "bounded_domain": false,
           "transcription": false,
+          "property": false,
+          "distribution": false,
           "premises": { "maxItems": 0 },
           "assumptions": { "maxItems": 0 },
           "outputs": { "maxItems": 0 },
           "expected_inventory": { "minItems": 1, "maxItems": 1 },
-          "inputs": { "minItems": 4, "maxItems": 4 }
+          "inputs": { "minItems": 4, "maxItems": 6 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-evidence-unit/4" } }, "required": ["schema"] },
+      "then": {
+        "required": ["distribution", "expected_inventory", "inputs", "outputs", "environment_allowlist"],
+        "oneOf": [
+          {
+            "properties": {
+              "adapter": { "const": "python-test" },
+              "operation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type"],
+                "properties": { "type": { "const": "python-distribution" } }
+              },
+              "distribution": {
+                "allOf": [
+                  { "$ref": "#/$defs/distributionReproduction" },
+                  { "properties": { "format": { "enum": ["wheel", "sdist"] } } }
+                ]
+              }
+            },
+            "required": ["adapter", "operation", "distribution"]
+          },
+          {
+            "properties": {
+              "adapter": { "const": "node-test" },
+              "operation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type"],
+                "properties": { "type": { "const": "npm-package" } }
+              },
+              "distribution": {
+                "allOf": [
+                  { "$ref": "#/$defs/distributionReproduction" },
+                  {
+                    "properties": {
+                      "format": { "const": "npm-package" },
+                      "artifact_name": { "pattern": "\\.tgz$" },
+                      "source_date_epoch": { "const": 0 }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": ["adapter", "operation", "distribution"]
+          }
+        ],
+        "properties": {
+          "adapter": { "enum": ["python-test", "node-test"] },
+          "kind": { "const": "example-test" },
+          "evaluation_mode": false,
+          "binding_mode": false,
+          "theorem": false,
+          "refinement_theorem": false,
+          "bounded_domain": false,
+          "transcription": false,
+          "mutation": false,
+          "property": false,
+          "premises": { "maxItems": 0 },
+          "assumptions": { "maxItems": 0 },
+          "outputs": { "maxItems": 0 },
+          "expected_inventory": { "minItems": 1, "maxItems": 1 },
+          "inputs": { "minItems": 1 }
         }
       }
     }
@@ -242,6 +406,28 @@
       "properties": {
         "schema": { "const": "proofbound-mutation-replay/1" },
         "registry": { "allOf": [{ "$ref": "#/$defs/exactPath" }, { "pattern": "\\.toml$" }] }
+      }
+    },
+    "pythonProperty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "framework", "seed"],
+      "properties": {
+        "schema": { "const": "proofbound-python-property/1" },
+        "framework": { "const": "hypothesis" },
+        "seed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "distributionReproduction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "format", "artifact_name", "artifact_sha256", "source_date_epoch"],
+      "properties": {
+        "schema": { "const": "proofbound-distribution-reproduction/1" },
+        "format": { "enum": ["wheel", "sdist", "npm-package"] },
+        "artifact_name": { "type": "string", "pattern": "^[!-~]{1,255}$" },
+        "artifact_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "source_date_epoch": { "type": "integer", "minimum": 0 }
       }
     }
   }

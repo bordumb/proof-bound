@@ -20,9 +20,10 @@ use std::{
 
 use proofbound_evidence::{canonical_json, domain_hash, sha256_bytes};
 use proofbound_manifest::{
-    AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, BindingMode, EvidenceKind,
-    EvidenceUnitManifest, MutationReplaySchema, OperationKind,
-    TRANSLATION_RESERVED_PATH_COMPONENTS, TranscriptionDriverAbi, TrustedTranscriptionSchema,
+    AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, BindingMode,
+    DistributionFormat, EvidenceKind, EvidenceUnitManifest, MutationReplaySchema, OperationKind,
+    PythonPropertyFramework, TRANSLATION_RESERVED_PATH_COMPONENTS, TranscriptionDriverAbi,
+    TrustedTranscriptionSchema,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -66,6 +67,59 @@ pub struct AdapterObservation {
     pub trusted_transcription: Option<TrustedTranscriptionObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mutation_replay: Option<MutationReplayObservation>,
+    #[serde(default)]
+    pub python_plugins: Vec<PythonPluginObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python_property: Option<PythonPropertyObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub static_check: Option<StaticCheckObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distribution_reproduction: Option<DistributionReproductionObservation>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPluginObservation {
+    pub module: String,
+    pub distribution: String,
+    pub version: String,
+    pub origin_sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPropertyObservation {
+    pub schema: String,
+    pub framework: String,
+    pub seed: u64,
+    pub framework_version: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticCheckObservation {
+    pub schema: String,
+    pub tool: String,
+    pub tool_version: String,
+    pub configuration_sha256: String,
+    pub targets: Vec<String>,
+    pub diagnostics: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DistributionReproductionObservation {
+    pub schema: String,
+    pub format: String,
+    pub run_digests: Vec<String>,
+    pub registered_digest: String,
+    pub source_date_epoch: u64,
+    pub build_backend_name: String,
+    pub build_backend_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npm_integrity: Option<String>,
+    #[serde(default)]
+    pub member_inventory: Vec<String>,
 }
 
 /// Exact facts observed while replaying one registered source mutation.
@@ -276,6 +330,44 @@ struct TranscriptionFacts {
     transcribed_format: String,
 }
 
+struct PythonRunResult {
+    commands: Vec<CommandObservation>,
+    outputs: Vec<ProcessOutput>,
+    inventory: Vec<String>,
+    python_plugins: Vec<PythonPluginObservation>,
+    python_property: Option<PythonPropertyObservation>,
+    mutation_replay: Option<MutationReplayObservation>,
+}
+
+struct PythonPluginInspection {
+    commands: Vec<CommandObservation>,
+    outputs: Vec<ProcessOutput>,
+    plugins: Vec<PythonPluginObservation>,
+}
+
+struct PythonRunContext<'a> {
+    original_root: &'a Path,
+    baseline_root: &'a Path,
+    mutant_root: Option<&'a Path>,
+    environment: &'a BTreeMap<String, String>,
+    deadline: Deadline,
+}
+
+struct StaticCheckRunResult {
+    commands: Vec<CommandObservation>,
+    outputs: Vec<ProcessOutput>,
+    inventory: Vec<String>,
+    observation: StaticCheckObservation,
+}
+
+struct DistributionRunResult {
+    commands: Vec<CommandObservation>,
+    outputs: Vec<ProcessOutput>,
+    inventory: Vec<String>,
+    generated_artifacts: Vec<ArtifactObservation>,
+    observation: DistributionReproductionObservation,
+}
+
 #[derive(Clone, Copy)]
 struct Deadline {
     started: Instant,
@@ -391,6 +483,30 @@ fn resolve_executable(program: &str) -> std::io::Result<PathBuf> {
                 format!("{program} was not found on parent PATH"),
             )
         })
+}
+
+fn resolve_python_executable() -> std::io::Result<PathBuf> {
+    canonicalize_python_executable(resolve_executable("python3")?)
+}
+
+fn canonicalize_python_executable(resolved: PathBuf) -> std::io::Result<PathBuf> {
+    let absolute = if resolved.is_absolute() {
+        resolved
+    } else {
+        std::env::current_dir()?.join(resolved)
+    };
+    for parent in absolute.parent().into_iter().flat_map(Path::ancestors) {
+        if fs::symlink_metadata(parent)?.file_type().is_symlink() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "python3 resolves through symlinked PATH directory {}",
+                    parent.display()
+                ),
+            ));
+        }
+    }
+    absolute.canonicalize()
 }
 
 fn drain_bounded<R: Read>(mut reader: R) -> Result<(Vec<u8>, bool), AdapterError> {
@@ -620,7 +736,7 @@ fn execute_request<E: Executor>(
             environment.insert("CARGO_NET_OFFLINE".to_owned(), "true".to_owned());
             environment.insert("CARGO_TERM_COLOR".to_owned(), "never".to_owned());
         }
-        TestFlavor::Python => {
+        TestFlavor::Python | TestFlavor::PythonStatic | TestFlavor::PythonDistribution => {
             environment.insert("PYTHONDONTWRITEBYTECODE".to_owned(), "1".to_owned());
             environment.insert("PYTEST_DISABLE_PLUGIN_AUTOLOAD".to_owned(), "1".to_owned());
         }
@@ -641,12 +757,25 @@ fn execute_request<E: Executor>(
     let started = Instant::now();
     let (tool, version_runs, version_commands) = tool_identity(
         flavor,
+        unit.operation.kind,
         &root,
         &environment,
         &environment_observation,
         executor,
     )?;
     if request.operation == "doctor" {
+        if flavor == TestFlavor::Python {
+            inspect_python_plugins(
+                &unit,
+                &root,
+                &environment,
+                executor,
+                Deadline {
+                    started,
+                    budget_ms: budget.time_ms,
+                },
+            )?;
+        }
         if let Some(before) = &reviewed_tree_before {
             ensure_tree_unchanged(
                 "mutation replay tool probe",
@@ -661,11 +790,12 @@ fn execute_request<E: Executor>(
     } else {
         Some(shadow_project(&root, budget.disk_bytes)?)
     };
-    let mutant_shadow = if unit.kind == EvidenceKind::MutationWitness {
-        Some(shadow_project(&root, budget.disk_bytes)?)
-    } else {
-        None
-    };
+    let mutant_shadow =
+        if unit.kind == EvidenceKind::MutationWitness || flavor == TestFlavor::PythonDistribution {
+            Some(shadow_project(&root, budget.disk_bytes)?)
+        } else {
+            None
+        };
     let execution_root = match &shadow {
         Some(shadow) => shadow.path().join("project").canonicalize()?,
         None => root.clone(),
@@ -680,6 +810,11 @@ fn execute_request<E: Executor>(
     };
     let mut transcription_facts = None;
     let mut mutation_replay = None;
+    let mut python_plugins = Vec::new();
+    let mut python_property = None;
+    let mut static_check = None;
+    let mut distribution_reproduction = None;
+    let mut distribution_artifacts = None;
     let (mut commands, mut outputs, mut inventory) = match flavor {
         TestFlavor::Rust => {
             let context = RustRunContext {
@@ -693,14 +828,50 @@ fn execute_request<E: Executor>(
             mutation_replay = result.mutation_replay;
             (result.commands, result.outputs, result.inventory)
         }
-        TestFlavor::Python => run_python_tests(
-            request,
-            &unit,
-            &execution_root,
-            &environment,
-            executor,
-            deadline,
-        )?,
+        TestFlavor::Python => {
+            let context = PythonRunContext {
+                original_root: &root,
+                baseline_root: &execution_root,
+                mutant_root: mutant_execution_root.as_deref(),
+                environment: &environment,
+                deadline,
+            };
+            let result = run_python_tests(request, &unit, executor, context)?;
+            python_plugins = result.python_plugins;
+            python_property = result.python_property;
+            mutation_replay = result.mutation_replay;
+            (result.commands, result.outputs, result.inventory)
+        }
+        TestFlavor::PythonStatic => {
+            let result = run_python_static_check(
+                request,
+                &unit,
+                &execution_root,
+                &environment,
+                executor,
+                deadline,
+                tool.version.rsplit("; ").next().unwrap_or(&tool.version),
+            )?;
+            static_check = Some(result.observation);
+            (result.commands, result.outputs, result.inventory)
+        }
+        TestFlavor::PythonDistribution => {
+            let second_root = mutant_execution_root.as_deref().ok_or_else(|| {
+                AdapterError::Internal("distribution reproduction has no second shadow".to_owned())
+            })?;
+            let result = run_python_distribution(
+                request,
+                &unit,
+                &execution_root,
+                second_root,
+                &environment,
+                executor,
+                deadline,
+            )?;
+            distribution_artifacts = Some(result.generated_artifacts);
+            distribution_reproduction = Some(result.observation);
+            (result.commands, result.outputs, result.inventory)
+        }
         TestFlavor::CanonicalArtifact | TestFlavor::IndependentCheck => run_python_checker(
             request,
             &unit,
@@ -769,12 +940,19 @@ fn execute_request<E: Executor>(
             AdapterError::Internal("mutation run index overflowed".to_owned())
         })?;
     }
-    let expected_failure = mutation_replay
-        .as_ref()
-        .map(|replay| replay.expected_failure.run_index);
+    let expected_failure = mutation_replay.as_ref().map(|replay| {
+        (
+            replay.expected_failure.run_index,
+            replay.expected_failure.allowed_exit_codes.as_slice(),
+        )
+    });
     if all_outputs.iter().enumerate().any(|(index, output)| {
-        if Some(index) == expected_failure {
-            output.status != Some(101)
+        if expected_failure.is_some_and(|(run_index, _)| run_index == index) {
+            !expected_failure.is_some_and(|(_, allowed)| {
+                output
+                    .status
+                    .is_some_and(|status| allowed.contains(&status))
+            })
         } else {
             output.status != Some(0)
         }
@@ -829,6 +1007,10 @@ fn execute_request<E: Executor>(
         None if flavor == TestFlavor::Generator => {
             (collect_exact_outputs(&execution_root, &unit.outputs)?, None)
         }
+        None if distribution_artifacts.is_some() => (
+            distribution_artifacts.expect("guarded distribution artifacts"),
+            None,
+        ),
         None if mutation_replay.is_some() => (
             vec![
                 mutation_replay
@@ -843,7 +1025,7 @@ fn execute_request<E: Executor>(
     };
     let unit_bytes =
         canonical_json(&request.unit).map_err(|error| AdapterError::Internal(error.to_string()))?;
-    let result = serde_json::json!({"inventory":inventory,"artifact_binding":artifact_binding,"trusted_transcription":trusted_transcription,"mutation_replay":mutation_replay,"run_hashes":runs.iter().map(|run| &run.normalized_output_sha256).collect::<Vec<_>>()});
+    let result = serde_json::json!({"inventory":inventory,"artifact_binding":artifact_binding,"trusted_transcription":trusted_transcription,"mutation_replay":mutation_replay,"python_plugins":python_plugins,"python_property":python_property,"static_check":static_check,"distribution_reproduction":distribution_reproduction,"run_hashes":runs.iter().map(|run| &run.normalized_output_sha256).collect::<Vec<_>>()});
     let completed_unix_ms = unix_ms()?;
     let observation = AdapterObservation {
         schema: OBSERVATION_SCHEMA.to_owned(),
@@ -878,6 +1060,10 @@ fn execute_request<E: Executor>(
         artifact_binding,
         trusted_transcription,
         mutation_replay,
+        python_plugins,
+        python_property,
+        static_check,
+        distribution_reproduction,
     };
     if let Some(before) = &reviewed_tree_before {
         ensure_tree_unchanged(
@@ -894,6 +1080,8 @@ fn execute_request<E: Executor>(
 enum TestFlavor {
     Rust,
     Python,
+    PythonStatic,
+    PythonDistribution,
     Generator,
     CanonicalArtifact,
     IndependentCheck,
@@ -904,10 +1092,27 @@ fn validate_unit(
     request: &AdapterRequest,
     unit: &EvidenceUnitManifest,
 ) -> Result<TestFlavor, AdapterError> {
+    let reserved_python_operation = match unit.operation.kind {
+        OperationKind::Pyright => Some("pyright"),
+        OperationKind::Ty => Some("ty"),
+        OperationKind::Pyrefly => Some("pyrefly"),
+        OperationKind::Ruff => Some("ruff"),
+        _ => None,
+    };
+    if let Some(operation) = reserved_python_operation {
+        return Err(AdapterError::Unit(format!(
+            "operation `{}` is reserved but unsupported because it has no admitted authoritative inventory ABI",
+            operation
+        )));
+    }
     let flavor = match (request.adapter.as_str(), unit.adapter, unit.operation.kind) {
         ("rust-test", AdapterKind::RustTest, OperationKind::CargoTest) => TestFlavor::Rust,
         ("python-test", AdapterKind::PythonTest, OperationKind::Pytest) => TestFlavor::Python,
         ("python-test", AdapterKind::PythonTest, OperationKind::Generator) => TestFlavor::Generator,
+        ("python-test", AdapterKind::PythonTest, OperationKind::Mypy) => TestFlavor::PythonStatic,
+        ("python-test", AdapterKind::PythonTest, OperationKind::PythonDistribution) => {
+            TestFlavor::PythonDistribution
+        }
         ("canonical-artifact", AdapterKind::CanonicalArtifact, OperationKind::ArtifactCheck) => {
             TestFlavor::CanonicalArtifact
         }
@@ -929,6 +1134,8 @@ fn validate_unit(
         "proofbound-evidence-unit/3"
     } else if flavor == TestFlavor::TrustedTranscription {
         "proofbound-evidence-unit/2"
+    } else if flavor == TestFlavor::PythonDistribution {
+        "proofbound-evidence-unit/4"
     } else {
         "proofbound-evidence-unit/1"
     };
@@ -942,8 +1149,10 @@ fn validate_unit(
         ),
         TestFlavor::Python => matches!(
             unit.kind,
-            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest
+            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest | EvidenceKind::MutationWitness
         ),
+        TestFlavor::PythonStatic => unit.kind == EvidenceKind::StaticCheck,
+        TestFlavor::PythonDistribution => unit.kind == EvidenceKind::ExampleTest,
         TestFlavor::Generator => unit.kind == EvidenceKind::ExampleTest,
         TestFlavor::CanonicalArtifact => unit.kind == EvidenceKind::ArtifactSoundness,
         TestFlavor::IndependentCheck => unit.kind == EvidenceKind::IndependentCheck,
@@ -1001,9 +1210,13 @@ fn validate_unit(
     if let Some(manifest) = &unit.operation.manifest {
         validate_relative_path(manifest)?;
     }
+    if let Some(configuration) = &unit.operation.configuration {
+        validate_relative_path(configuration)?;
+    }
     validate_checker_configuration(flavor, unit)?;
     validate_transcription_configuration(flavor, unit)?;
     validate_mutation_configuration(unit)?;
+    validate_python_configuration(flavor, unit)?;
     validate_arguments(flavor, &unit.operation.arguments)?;
     Ok(flavor)
 }
@@ -1133,6 +1346,119 @@ fn validate_checker_configuration(
             "checker adapter and evidence kind do not agree".to_owned(),
         )),
     }
+}
+
+fn validate_python_configuration(
+    flavor: TestFlavor,
+    unit: &EvidenceUnitManifest,
+) -> Result<(), AdapterError> {
+    require_unique("plugins", &unit.operation.plugins)?;
+    if unit.operation.plugins.len() > 32
+        || unit
+            .operation
+            .plugins
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+        || unit
+            .operation
+            .plugins
+            .iter()
+            .any(|plugin| !safe_python_module(plugin))
+    {
+        return Err(AdapterError::Unit(
+            "pytest plugins must be a strict lexical set of at most 32 module names".to_owned(),
+        ));
+    }
+    if !unit.operation.plugins.is_empty() && flavor != TestFlavor::Python {
+        return Err(AdapterError::Unit(
+            "plugins are supported only by the typed pytest operation".to_owned(),
+        ));
+    }
+    match unit.property.as_ref() {
+        Some(property)
+            if flavor == TestFlavor::Python
+                && unit.kind == EvidenceKind::PropertyTest
+                && property.framework == PythonPropertyFramework::Hypothesis
+                && unit
+                    .operation
+                    .plugins
+                    .iter()
+                    .any(|name| name == "_hypothesis_pytestplugin") => {}
+        Some(_) => {
+            return Err(AdapterError::Unit(
+                "Python property registration requires property-test pytest evidence and its named plugin"
+                    .to_owned(),
+            ));
+        }
+        None => {}
+    }
+    if flavor == TestFlavor::PythonStatic {
+        let configuration = unit.operation.configuration.as_deref().ok_or_else(|| {
+            AdapterError::Unit("static-check requires operation.configuration".to_owned())
+        })?;
+        if !unit.inputs.iter().any(|input| input == configuration)
+            || unit.operation.targets.is_empty()
+            || unit.operation.targets.len() > 4096
+            || unit
+                .operation
+                .targets
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+            || unit.operation.targets != unit.expected_inventory
+        {
+            return Err(AdapterError::Unit(
+                "static-check requires an input-pinned configuration and exact strict target inventory"
+                    .to_owned(),
+            ));
+        }
+    } else if unit.operation.configuration.is_some() {
+        return Err(AdapterError::Unit(
+            "operation.configuration is supported only by typed static checks".to_owned(),
+        ));
+    }
+    match unit.distribution.as_ref() {
+        Some(distribution) if flavor == TestFlavor::PythonDistribution => {
+            let extension = match distribution.format {
+                DistributionFormat::Wheel => ".whl",
+                DistributionFormat::Sdist => ".tar.gz",
+                DistributionFormat::NpmPackage => {
+                    return Err(AdapterError::Unit(
+                        "npm-package requires the Node adapter".to_owned(),
+                    ));
+                }
+            };
+            if distribution.artifact_name.is_empty()
+                || distribution.artifact_name.len() > 255
+                || !distribution.artifact_name.is_ascii()
+                || !distribution
+                    .artifact_name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_graphic())
+                || distribution.artifact_name.contains(['/', '\\'])
+                || !distribution.artifact_name.ends_with(extension)
+                || !valid_sha256_text(&distribution.artifact_sha256)
+                || unit.expected_inventory != [format!("dist/{}", distribution.artifact_name)]
+                || !unit.inputs.iter().any(|path| path == "pyproject.toml")
+            {
+                return Err(AdapterError::Unit(
+                    "distribution reproduction has an invalid artifact identity or inventory"
+                        .to_owned(),
+                ));
+            }
+        }
+        Some(_) => {
+            return Err(AdapterError::Unit(
+                "[distribution] requires the typed python-distribution route".to_owned(),
+            ));
+        }
+        None if flavor == TestFlavor::PythonDistribution => {
+            return Err(AdapterError::Unit(
+                "python-distribution requires [distribution]".to_owned(),
+            ));
+        }
+        None => {}
+    }
+    Ok(())
 }
 
 fn validate_transcription_configuration(
@@ -1276,6 +1602,7 @@ fn validate_arguments(flavor: TestFlavor, arguments: &[String]) -> Result<(), Ad
     let forbidden = match flavor {
         TestFlavor::Rust => &forbidden_rust[..],
         TestFlavor::Python => &forbidden_python[..],
+        TestFlavor::PythonStatic | TestFlavor::PythonDistribution => &[][..],
         TestFlavor::CanonicalArtifact
         | TestFlavor::IndependentCheck
         | TestFlavor::Generator
@@ -1304,6 +1631,7 @@ fn validate_arguments(flavor: TestFlavor, arguments: &[String]) -> Result<(), Ad
 
 fn tool_identity<E: Executor>(
     flavor: TestFlavor,
+    operation: OperationKind,
     root: &Path,
     environment: &BTreeMap<String, String>,
     environment_observation: &[EnvironmentObservation],
@@ -1322,6 +1650,38 @@ fn tool_identity<E: Executor>(
             ProcessSpec {
                 program: "python3".to_owned(),
                 args: vec!["-m".to_owned(), "pytest".to_owned(), "--version".to_owned()],
+            },
+        ],
+        TestFlavor::PythonStatic => {
+            let mut specs = vec![ProcessSpec {
+                program: "python3".to_owned(),
+                args: vec!["--version".to_owned()],
+            }];
+            specs.push(match operation {
+                OperationKind::Mypy => ProcessSpec {
+                    program: "python3".to_owned(),
+                    args: vec!["-m".to_owned(), "mypy".to_owned(), "--version".to_owned()],
+                },
+                OperationKind::Pyright => ProcessSpec {
+                    program: "pyright".to_owned(),
+                    args: vec!["--version".to_owned()],
+                },
+                _ => {
+                    return Err(AdapterError::Internal(
+                        "static-check flavor has a non-analyzer operation".to_owned(),
+                    ));
+                }
+            });
+            specs
+        }
+        TestFlavor::PythonDistribution => vec![
+            ProcessSpec {
+                program: "python3".to_owned(),
+                args: vec!["--version".to_owned()],
+            },
+            ProcessSpec {
+                program: "python3".to_owned(),
+                args: vec!["-m".to_owned(), "build".to_owned(), "--version".to_owned()],
             },
         ],
         TestFlavor::CanonicalArtifact
@@ -1360,6 +1720,8 @@ fn tool_identity<E: Executor>(
     let name = match flavor {
         TestFlavor::Rust => "Cargo/libtest",
         TestFlavor::Python => "Python/pytest",
+        TestFlavor::PythonStatic => "Python/static-check",
+        TestFlavor::PythonDistribution => "Python/distribution-build",
         TestFlavor::CanonicalArtifact => "Python/canonical-artifact-checker",
         TestFlavor::IndependentCheck => "Python/independent-checker",
         TestFlavor::Generator => "Python/registered-generator",
@@ -1369,11 +1731,26 @@ fn tool_identity<E: Executor>(
         .iter()
         .map(|spec| observe_command(spec, environment_observation))
         .collect();
+    let identity_sha256 = if matches!(
+        flavor,
+        TestFlavor::Python
+            | TestFlavor::PythonStatic
+            | TestFlavor::PythonDistribution
+            | TestFlavor::CanonicalArtifact
+            | TestFlavor::IndependentCheck
+            | TestFlavor::Generator
+            | TestFlavor::TrustedTranscription
+    ) {
+        let resolved = resolve_python_executable()?;
+        sha256_bytes(&fs::read(resolved)?)
+    } else {
+        domain_hash("proofbound-tool-identity/1", version.as_bytes())
+    };
     Ok((
         ToolObservation {
             name: name.to_owned(),
             version: version.clone(),
-            identity_sha256: domain_hash("proofbound-tool-identity/1", version.as_bytes()),
+            identity_sha256,
         },
         outputs,
         commands,
@@ -2110,17 +2487,26 @@ fn validate_cargo_selector(selector: &str) -> Result<(), AdapterError> {
 fn run_python_tests<E: Executor>(
     request: &AdapterRequest,
     unit: &EvidenceUnitManifest,
-    shadow_root: &Path,
-    environment: &BTreeMap<String, String>,
     executor: &mut E,
-    deadline: Deadline,
-) -> Result<TestRunResult, AdapterError> {
-    let manifest = unit
-        .operation
-        .manifest
-        .as_deref()
-        .ok_or_else(|| AdapterError::Unit("pytest operation requires a manifest".to_owned()))?;
-    let shadow_manifest = shadow_path(shadow_root, manifest)?;
+    context: PythonRunContext<'_>,
+) -> Result<PythonRunResult, AdapterError> {
+    if unit.kind == EvidenceKind::MutationWitness {
+        return run_python_mutation(
+            unit,
+            context.original_root,
+            context.baseline_root,
+            context.mutant_root.ok_or_else(|| {
+                AdapterError::Internal("Python mutation has no mutant shadow".to_owned())
+            })?,
+            context.environment,
+            executor,
+            context.deadline,
+        );
+    }
+    let manifest = unit.operation.manifest.as_deref().ok_or_else(|| {
+        AdapterError::Unit("ordinary pytest operation requires a manifest".to_owned())
+    })?;
+    let shadow_manifest = shadow_path(context.baseline_root, manifest)?;
     if shadow_manifest.file_name().and_then(|name| name.to_str()) != Some("pyproject.toml") {
         return Err(AdapterError::Unit(
             "pytest manifest must be pyproject.toml".to_owned(),
@@ -2134,25 +2520,23 @@ fn run_python_tests<E: Executor>(
     let mut collection_paths = Vec::new();
     for path in &unit.operation.paths {
         collection_paths.push(
-            shadow_path(shadow_root, path)?
+            shadow_path(context.baseline_root, path)?
                 .to_string_lossy()
                 .into_owned(),
         );
     }
-    let mut args = vec![
-        "-m".to_owned(),
-        "pytest".to_owned(),
-        "--collect-only".to_owned(),
-        "-q".to_owned(),
-        "-p".to_owned(),
-        "no:cacheprovider".to_owned(),
-        "--rootdir".to_owned(),
-        shadow_manifest
-            .parent()
-            .expect("manifest parent")
-            .to_string_lossy()
-            .into_owned(),
-    ];
+    let inspection = inspect_python_plugins(
+        unit,
+        context.baseline_root,
+        context.environment,
+        executor,
+        context.deadline,
+    )?;
+    let mut commands = inspection.commands;
+    let mut outputs = inspection.outputs;
+    let python_plugins = inspection.plugins;
+    let mut args = pytest_prefix(unit, shadow_manifest.parent().expect("manifest parent"));
+    args.extend(["--collect-only".to_owned(), "-q".to_owned()]);
     args.extend(collection_paths);
     args.extend(unit.operation.arguments.clone());
     let collection_spec = ProcessSpec {
@@ -2161,12 +2545,12 @@ fn run_python_tests<E: Executor>(
     };
     let collection_output = executor.run(
         &collection_spec,
-        shadow_root,
-        environment,
-        deadline.remaining()?,
+        context.baseline_root,
+        context.environment,
+        context.deadline.remaining()?,
     )?;
     ensure_success(&collection_spec, &collection_output)?;
-    let discovered = parse_pytest_inventory(&collection_output.stdout, shadow_root)?;
+    let discovered = parse_pytest_inventory(&collection_output.stdout, context.baseline_root)?;
     let selected = resolve_python_targets(
         &unit.operation.targets,
         &unit.expected_inventory,
@@ -2177,36 +2561,800 @@ fn run_python_tests<E: Executor>(
         .map(|node| node.canonical.clone())
         .collect::<Vec<_>>();
     let inventory = sorted_unique(inventory, "pytest selected inventory")?;
-    let environment_observation = observe_environment(environment, &unit.environment_allowlist);
-    let mut commands = vec![observe_command(&collection_spec, &environment_observation)];
-    let mut outputs = vec![collection_output];
+    let environment_observation =
+        observe_environment(context.environment, &unit.environment_allowlist);
+    commands.push(observe_command(&collection_spec, &environment_observation));
+    outputs.push(collection_output);
     if matches!(request.operation.as_str(), "check" | "reproduce") {
         for node in selected {
+            let mut args = pytest_prefix(unit, shadow_manifest.parent().expect("manifest parent"));
+            args.push("-q".to_owned());
+            args.push(node.node_id);
             let spec = ProcessSpec {
                 program: "python3".to_owned(),
-                args: vec![
-                    "-m".to_owned(),
-                    "pytest".to_owned(),
-                    "-q".to_owned(),
-                    "-p".to_owned(),
-                    "no:cacheprovider".to_owned(),
-                    "--rootdir".to_owned(),
-                    shadow_manifest
-                        .parent()
-                        .expect("manifest parent")
-                        .to_string_lossy()
-                        .into_owned(),
-                    node.node_id,
-                ],
+                args,
             };
-            let output = executor.run(&spec, shadow_root, environment, deadline.remaining()?)?;
+            let output = executor.run(
+                &spec,
+                context.baseline_root,
+                context.environment,
+                context.deadline.remaining()?,
+            )?;
             ensure_success(&spec, &output)?;
             ensure_one_python_test_ran(&node.canonical, &output)?;
             commands.push(observe_command(&spec, &environment_observation));
             outputs.push(output);
         }
     }
-    Ok((commands, outputs, inventory))
+    let python_property = unit.property.as_ref().map(|property| {
+        let plugin = python_plugins
+            .iter()
+            .find(|plugin| plugin.module == "_hypothesis_pytestplugin")
+            .expect("validated Hypothesis plugin observation");
+        PythonPropertyObservation {
+            schema: "proofbound-python-property/1".to_owned(),
+            framework: match property.framework {
+                PythonPropertyFramework::Hypothesis => "hypothesis".to_owned(),
+            },
+            seed: property.seed,
+            framework_version: plugin.version.clone(),
+        }
+    });
+    Ok(PythonRunResult {
+        commands,
+        outputs,
+        inventory,
+        python_plugins,
+        python_property,
+        mutation_replay: None,
+    })
+}
+
+fn pytest_prefix(unit: &EvidenceUnitManifest, root: &Path) -> Vec<String> {
+    let mut args = vec![
+        "-m".to_owned(),
+        "pytest".to_owned(),
+        "-p".to_owned(),
+        "no:cacheprovider".to_owned(),
+        "--rootdir".to_owned(),
+        root.to_string_lossy().into_owned(),
+    ];
+    for plugin in &unit.operation.plugins {
+        args.extend(["-p".to_owned(), plugin.clone()]);
+    }
+    if let Some(property) = &unit.property {
+        args.push(format!("--hypothesis-seed={}", property.seed));
+    }
+    args
+}
+
+const PYTHON_PLUGIN_METADATA: &str = r#"import hashlib, importlib, importlib.metadata as m, json, pathlib, sys
+name=sys.argv[1]
+module=importlib.import_module(name)
+origin=getattr(module, '__file__', None)
+if not origin: raise RuntimeError('plugin has no origin')
+path=pathlib.Path(origin).resolve(strict=True)
+providers=sorted(set(m.packages_distributions().get(name.split('.')[0], [])))
+if len(providers) != 1: raise RuntimeError('plugin must have exactly one providing distribution')
+dist=m.distribution(providers[0])
+print(json.dumps({'module':name,'distribution':dist.metadata['Name'],'version':dist.version,'origin_sha256':'sha256:'+hashlib.sha256(path.read_bytes()).hexdigest()},sort_keys=True,separators=(',',':')))
+"#;
+
+fn inspect_python_plugins<E: Executor>(
+    unit: &EvidenceUnitManifest,
+    shadow_root: &Path,
+    environment: &BTreeMap<String, String>,
+    executor: &mut E,
+    deadline: Deadline,
+) -> Result<PythonPluginInspection, AdapterError> {
+    let environment_observation = observe_environment(environment, &unit.environment_allowlist);
+    let mut commands = Vec::new();
+    let mut outputs = Vec::new();
+    let mut plugins = Vec::new();
+    for module in &unit.operation.plugins {
+        let spec = ProcessSpec {
+            program: "python3".to_owned(),
+            args: vec![
+                "-c".to_owned(),
+                PYTHON_PLUGIN_METADATA.to_owned(),
+                module.clone(),
+            ],
+        };
+        let output = executor.run(&spec, shadow_root, environment, deadline.remaining()?)?;
+        ensure_success(&spec, &output).map_err(|_| {
+            AdapterError::ToolFailed(format!(
+                "registered pytest plugin module `{module}` could not be imported"
+            ))
+        })?;
+        let plugin: PythonPluginObservation =
+            serde_json::from_slice(&output.stdout).map_err(|error| {
+                AdapterError::Inventory(format!(
+                    "plugin metadata for `{module}` is not canonical typed JSON: {error}"
+                ))
+            })?;
+        if plugin.module != *module
+            || plugin.distribution.trim().is_empty()
+            || plugin.version.trim().is_empty()
+            || !valid_sha256_text(&plugin.origin_sha256)
+        {
+            return Err(AdapterError::Inventory(format!(
+                "plugin metadata for `{module}` is incomplete"
+            )));
+        }
+        commands.push(observe_command(&spec, &environment_observation));
+        outputs.push(output);
+        plugins.push(plugin);
+    }
+    Ok(PythonPluginInspection {
+        commands,
+        outputs,
+        plugins,
+    })
+}
+
+fn run_python_mutation<E: Executor>(
+    unit: &EvidenceUnitManifest,
+    original_root: &Path,
+    baseline_root: &Path,
+    mutant_root: &Path,
+    environment: &BTreeMap<String, String>,
+    executor: &mut E,
+    deadline: Deadline,
+) -> Result<PythonRunResult, AdapterError> {
+    let registry_path = &unit
+        .mutation
+        .as_ref()
+        .ok_or_else(|| AdapterError::Unit("mutation configuration is missing".to_owned()))?
+        .registry;
+    let loaded = load_mutation_registry(original_root, registry_path)?;
+    validate_mutation_unit(unit, &loaded, &[])?;
+    let mutation = &loaded.registry.mutation;
+    if !safe_pytest_node(&mutation.witness) || !loaded.registry.subject.starts_with("python:") {
+        return Err(AdapterError::Unit(
+            "Python mutation requires a python: subject and exact pytest node witness".to_owned(),
+        ));
+    }
+
+    let original_files = observe_mutation_files(original_root, &loaded)?;
+    if observe_mutation_files(baseline_root, &loaded)? != original_files
+        || observe_mutation_files(mutant_root, &loaded)? != original_files
+    {
+        return Err(AdapterError::ToolFailed(
+            "fresh Python mutation shadows do not byte-match registered inputs".to_owned(),
+        ));
+    }
+    let baseline_tree = snapshot_mutation_tree(baseline_root)?;
+    let mutant_tree = snapshot_mutation_tree(mutant_root)?;
+    if baseline_tree != mutant_tree {
+        return Err(AdapterError::ToolFailed(
+            "fresh Python mutation shadows differ".to_owned(),
+        ));
+    }
+    let environment_observation = observe_environment(environment, &unit.environment_allowlist);
+    let (mut commands, mut outputs, baseline_node) = collect_python_witness(
+        baseline_root,
+        &mutation.witness,
+        "$BASELINE",
+        environment,
+        &environment_observation,
+        executor,
+        deadline,
+    )?;
+    let baseline_spec = exact_pytest_witness_spec(baseline_root, &baseline_node);
+    let baseline_output = executor.run(
+        &baseline_spec,
+        baseline_root,
+        environment,
+        deadline.remaining()?,
+    )?;
+    ensure_success(&baseline_spec, &baseline_output)?;
+    ensure_one_python_test_ran(&mutation.witness, &baseline_output)?;
+    let baseline_run_index = outputs.len();
+    commands.push(observe_mutation_command(
+        &baseline_spec,
+        &environment_observation,
+        baseline_root,
+        "$BASELINE",
+    ));
+    outputs.push(baseline_output);
+    ensure_tree_unchanged(
+        "baseline Python mutation witness",
+        &baseline_tree,
+        &snapshot_mutation_tree(baseline_root)?,
+    )?;
+
+    let target_postimage = apply_registered_mutant(mutant_root, &loaded)?;
+    ensure_exact_mutant_tree(
+        &mutant_tree,
+        &snapshot_mutation_tree(mutant_root)?,
+        &mutation.target_path,
+        &target_postimage,
+    )?;
+    let (mut mutant_commands, mut mutant_outputs, mutant_node) = collect_python_witness(
+        mutant_root,
+        &mutation.witness,
+        "$MUTANT",
+        environment,
+        &environment_observation,
+        executor,
+        deadline,
+    )?;
+    commands.append(&mut mutant_commands);
+    outputs.append(&mut mutant_outputs);
+    let mutant_spec = exact_pytest_witness_spec(mutant_root, &mutant_node);
+    let mutant_output = executor.run(
+        &mutant_spec,
+        mutant_root,
+        environment,
+        deadline.remaining()?,
+    )?;
+    ensure_one_python_test_failed(&mutation.witness, &mutant_output)?;
+    let failure_run_index = outputs.len();
+    commands.push(observe_mutation_command(
+        &mutant_spec,
+        &environment_observation,
+        mutant_root,
+        "$MUTANT",
+    ));
+    outputs.push(mutant_output);
+    ensure_exact_mutant_tree(
+        &mutant_tree,
+        &snapshot_mutation_tree(mutant_root)?,
+        &mutation.target_path,
+        &target_postimage,
+    )?;
+    if observe_mutation_files(original_root, &loaded)? != original_files {
+        return Err(AdapterError::ToolFailed(
+            "Python mutation changed a registered file in the reviewed root".to_owned(),
+        ));
+    }
+    Ok(PythonRunResult {
+        commands,
+        outputs,
+        inventory: vec![mutation.id.clone()],
+        python_plugins: Vec::new(),
+        python_property: None,
+        mutation_replay: Some(MutationReplayObservation {
+            schema: "proofbound-mutation-replay-observation/1".to_owned(),
+            mutation_id: mutation.id.clone(),
+            registry: original_files.registry,
+            target_preimage: original_files.target_preimage,
+            mutant_artifact: original_files.mutant_artifact,
+            target_postimage,
+            witness_source: original_files.witness_source,
+            check_id: mutation.witness.clone(),
+            affected_claims: mutation.affected_claims.clone(),
+            baseline_run_index,
+            expected_failure: ExpectedFailureObservation {
+                run_index: failure_run_index,
+                allowed_exit_codes: vec![1],
+            },
+        }),
+    })
+}
+
+fn collect_python_witness<E: Executor>(
+    root: &Path,
+    witness: &str,
+    logical_root: &str,
+    environment: &BTreeMap<String, String>,
+    environment_observation: &[EnvironmentObservation],
+    executor: &mut E,
+    deadline: Deadline,
+) -> Result<(Vec<CommandObservation>, Vec<ProcessOutput>, PythonTestNode), AdapterError> {
+    let (path, _) = witness
+        .split_once("::")
+        .ok_or_else(|| AdapterError::Unit("pytest witness omitted ::".to_owned()))?;
+    let collection_path = shadow_path(root, path)?;
+    let spec = ProcessSpec {
+        program: "python3".to_owned(),
+        args: vec![
+            "-m".to_owned(),
+            "pytest".to_owned(),
+            "-p".to_owned(),
+            "no:cacheprovider".to_owned(),
+            "--rootdir".to_owned(),
+            root.to_string_lossy().into_owned(),
+            "--collect-only".to_owned(),
+            "-q".to_owned(),
+            collection_path.to_string_lossy().into_owned(),
+        ],
+    };
+    let output = executor.run(&spec, root, environment, deadline.remaining()?)?;
+    ensure_success(&spec, &output)?;
+    let discovered = parse_pytest_inventory(&output.stdout, root)?;
+    let nodes = discovered
+        .into_iter()
+        .filter(|node| python_node_relative(root, node).as_deref() == Some(witness))
+        .collect::<Vec<_>>();
+    if nodes.len() != 1 {
+        return Err(AdapterError::Inventory(format!(
+            "registered pytest witness `{witness}` resolved to {} nodes",
+            nodes.len()
+        )));
+    }
+    Ok((
+        vec![observe_mutation_command(
+            &spec,
+            environment_observation,
+            root,
+            logical_root,
+        )],
+        vec![output],
+        nodes.into_iter().next().expect("one witness"),
+    ))
+}
+
+fn python_node_relative(root: &Path, node: &PythonTestNode) -> Option<String> {
+    let (path, suffix) = node.node_id.split_once("::")?;
+    let relative = Path::new(path).strip_prefix(root).ok()?;
+    Some(format!("{}::{suffix}", relative.to_string_lossy()))
+}
+
+fn exact_pytest_witness_spec(root: &Path, node: &PythonTestNode) -> ProcessSpec {
+    ProcessSpec {
+        program: "python3".to_owned(),
+        args: vec![
+            "-m".to_owned(),
+            "pytest".to_owned(),
+            "-p".to_owned(),
+            "no:cacheprovider".to_owned(),
+            "--rootdir".to_owned(),
+            root.to_string_lossy().into_owned(),
+            "-q".to_owned(),
+            node.node_id.clone(),
+        ],
+    }
+}
+
+fn run_python_static_check<E: Executor>(
+    request: &AdapterRequest,
+    unit: &EvidenceUnitManifest,
+    shadow_root: &Path,
+    environment: &BTreeMap<String, String>,
+    executor: &mut E,
+    deadline: Deadline,
+    tool_version: &str,
+) -> Result<StaticCheckRunResult, AdapterError> {
+    if !matches!(
+        request.operation.as_str(),
+        "inventory" | "check" | "reproduce"
+    ) {
+        return Err(AdapterError::Request(
+            "static checks execute only for inventory, check, or reproduce".to_owned(),
+        ));
+    }
+    let configuration = unit
+        .operation
+        .configuration
+        .as_deref()
+        .ok_or_else(|| AdapterError::Unit("static-check omitted configuration".to_owned()))?;
+    let configuration_path = shadow_path(shadow_root, configuration)?;
+    if !configuration_path.is_file() {
+        return Err(AdapterError::UnsafePath(configuration.to_owned()));
+    }
+    for target in &unit.operation.targets {
+        let target_path = shadow_path(shadow_root, target)?;
+        if !target_path.is_file() && !target_path.is_dir() {
+            return Err(AdapterError::UnsafePath(target.clone()));
+        }
+    }
+    let spec = match unit.operation.kind {
+        OperationKind::Mypy => {
+            let mut args = vec![
+                "-m".to_owned(),
+                "mypy".to_owned(),
+                "--config-file".to_owned(),
+                configuration.to_owned(),
+                "--output".to_owned(),
+                "json".to_owned(),
+                "--no-incremental".to_owned(),
+                "--no-error-summary".to_owned(),
+            ];
+            args.extend(unit.operation.targets.clone());
+            ProcessSpec {
+                program: "python3".to_owned(),
+                args,
+            }
+        }
+        OperationKind::Pyright => ProcessSpec {
+            program: "pyright".to_owned(),
+            args: vec![
+                "--outputjson".to_owned(),
+                "--project".to_owned(),
+                configuration.to_owned(),
+            ],
+        },
+        _ => {
+            return Err(AdapterError::Internal(
+                "static-check selected an unsupported analyzer".to_owned(),
+            ));
+        }
+    };
+    let output = executor.run(&spec, shadow_root, environment, deadline.remaining()?)?;
+    if output.truncated {
+        return Err(AdapterError::Inventory(
+            "static analyzer output exceeded 8 MiB".to_owned(),
+        ));
+    }
+    match unit.operation.kind {
+        OperationKind::Mypy => validate_mypy_output(&output)?,
+        OperationKind::Pyright => validate_pyright_output(&output, unit, shadow_root)?,
+        _ => unreachable!("validated static operation"),
+    }
+    let configuration_sha256 = sha256_bytes(&fs::read(configuration_path)?);
+    let environment_observation = observe_environment(environment, &unit.environment_allowlist);
+    Ok(StaticCheckRunResult {
+        commands: vec![observe_command(&spec, &environment_observation)],
+        outputs: vec![output],
+        inventory: unit.operation.targets.clone(),
+        observation: StaticCheckObservation {
+            schema: "proofbound-static-check/1".to_owned(),
+            tool: match unit.operation.kind {
+                OperationKind::Mypy => "mypy",
+                OperationKind::Pyright => "pyright",
+                _ => unreachable!("validated static operation"),
+            }
+            .to_owned(),
+            tool_version: tool_version.to_owned(),
+            configuration_sha256,
+            targets: unit.operation.targets.clone(),
+            diagnostics: 0,
+        },
+    })
+}
+
+fn validate_mypy_output(output: &ProcessOutput) -> Result<(), AdapterError> {
+    let text = std::str::from_utf8(&output.stdout)
+        .map_err(|error| AdapterError::Inventory(format!("mypy output is not UTF-8: {error}")))?;
+    let diagnostics = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            serde_json::from_str::<Value>(line).map_err(|error| {
+                AdapterError::Inventory(format!("mypy emitted an invalid JSON line: {error}"))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if output.status != Some(0) || !diagnostics.is_empty() {
+        let first = diagnostics.first().map_or_else(
+            || "no parsed diagnostic".to_owned(),
+            |diagnostic| {
+                format!(
+                    "file={} line={} code={}",
+                    diagnostic
+                        .get("file")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?"),
+                    diagnostic.get("line").and_then(Value::as_u64).unwrap_or(0),
+                    diagnostic
+                        .get("code")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?")
+                )
+            },
+        );
+        return Err(AdapterError::ToolFailed(format!(
+            "mypy exit/diagnostic signals disagree or report violations: {first}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_pyright_output(
+    output: &ProcessOutput,
+    unit: &EvidenceUnitManifest,
+    shadow_root: &Path,
+) -> Result<(), AdapterError> {
+    let report: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| AdapterError::Inventory(format!("invalid pyright JSON: {error}")))?;
+    let summary = report
+        .get("summary")
+        .and_then(Value::as_object)
+        .ok_or_else(|| AdapterError::Inventory("pyright JSON omitted summary".to_owned()))?;
+    let count = |name: &str| summary.get(name).and_then(Value::as_u64);
+    let diagnostics = report
+        .get("generalDiagnostics")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            AdapterError::Inventory("pyright JSON omitted generalDiagnostics".to_owned())
+        })?;
+    if output.status != Some(0)
+        || count("errorCount") != Some(0)
+        || count("warningCount") != Some(0)
+        || count("filesAnalyzed").is_none_or(|value| value == 0)
+        || !diagnostics.is_empty()
+    {
+        let first = diagnostics.first().map_or_else(
+            || "no parsed diagnostic".to_owned(),
+            |diagnostic| {
+                format!(
+                    "file={} message={}",
+                    diagnostic
+                        .get("file")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?"),
+                    diagnostic
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?")
+                )
+            },
+        );
+        return Err(AdapterError::ToolFailed(format!(
+            "pyright reported violations or inconsistent status: {first}"
+        )));
+    }
+    if let Some(files) = report.get("files").and_then(Value::as_array) {
+        let mut analyzed = files
+            .iter()
+            .map(|value| {
+                let path = value.as_str().ok_or_else(|| {
+                    AdapterError::Inventory("pyright files member is not text".to_owned())
+                })?;
+                let canonical = Path::new(path).canonicalize()?;
+                let relative = canonical.strip_prefix(shadow_root).map_err(|_| {
+                    AdapterError::Inventory("pyright analyzed file escaped the project".to_owned())
+                })?;
+                Ok(relative.to_string_lossy().into_owned())
+            })
+            .collect::<Result<Vec<_>, AdapterError>>()?;
+        analyzed.sort();
+        exact_set("pyright analyzed files", &unit.operation.targets, &analyzed)?;
+    } else {
+        return Err(AdapterError::Inventory(
+            "pyright did not expose an authoritative analyzed-file inventory".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+const PYTHON_BACKEND_METADATA: &str = r#"import importlib, importlib.metadata as m, json, sys
+name=sys.argv[1]
+importlib.import_module(name)
+providers=sorted(set(m.packages_distributions().get(name.split('.')[0], [])))
+if len(providers) != 1: raise RuntimeError('backend must have exactly one providing distribution')
+dist=m.distribution(providers[0])
+print(json.dumps({'distribution':dist.metadata['Name'],'version':dist.version},sort_keys=True,separators=(',',':')))
+"#;
+
+const VERIFY_WHEEL_SCRIPT: &str = r#"import base64, csv, hashlib, io, json, pathlib, stat, sys, zipfile
+archive=pathlib.Path(sys.argv[1])
+budget=int(sys.argv[2])
+with zipfile.ZipFile(archive) as wheel:
+ infos=wheel.infolist()
+ names=[]
+ total=0
+ for info in infos:
+  name=info.filename
+  path=pathlib.PurePosixPath(name)
+  mode=(info.external_attr >> 16) & 0o170000
+  if name.startswith('/') or '..' in path.parts or '\\' in name or info.is_dir() or mode == stat.S_IFLNK: raise RuntimeError('unsafe wheel member')
+  total += info.file_size
+  if total > budget: raise RuntimeError('wheel exceeds disk budget')
+  names.append(name)
+ if len(names) != len(set(names)): raise RuntimeError('duplicate wheel member')
+ records=[name for name in names if name.endswith('.dist-info/RECORD')]
+ if len(records) != 1: raise RuntimeError('wheel must contain one RECORD')
+ rows=list(csv.reader(io.TextIOWrapper(wheel.open(records[0]),encoding='utf-8',newline='')))
+ if any(len(row) != 3 for row in rows): raise RuntimeError('invalid RECORD row')
+ entries={row[0]:(row[1],row[2]) for row in rows}
+ if len(entries) != len(rows) or set(entries) != set(names): raise RuntimeError('RECORD inventory mismatch')
+ for name in names:
+  digest,size=entries[name]
+  if name == records[0]:
+   if digest or size: raise RuntimeError('RECORD self-entry must be unhashed')
+   continue
+  data=wheel.read(name)
+  expected='sha256='+base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b'=').decode()
+  if digest != expected or size != str(len(data)): raise RuntimeError('RECORD hash mismatch')
+ print(json.dumps({'members':sorted(names)},sort_keys=True,separators=(',',':')))
+"#;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BackendMetadata {
+    distribution: String,
+    version: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WheelVerification {
+    members: Vec<String>,
+}
+
+fn run_python_distribution<E: Executor>(
+    request: &AdapterRequest,
+    unit: &EvidenceUnitManifest,
+    first_root: &Path,
+    second_root: &Path,
+    environment: &BTreeMap<String, String>,
+    executor: &mut E,
+    deadline: Deadline,
+) -> Result<DistributionRunResult, AdapterError> {
+    if !matches!(
+        request.operation.as_str(),
+        "inventory" | "check" | "reproduce"
+    ) {
+        return Err(AdapterError::Request(
+            "distribution reproduction executes only for inventory, check, or reproduce".to_owned(),
+        ));
+    }
+    let distribution = unit.distribution.as_ref().ok_or_else(|| {
+        AdapterError::Unit("distribution reproduction omitted its typed record".to_owned())
+    })?;
+    let pyproject = read_safe_file(first_root, "pyproject.toml", MAX_REQUEST_BYTES)?;
+    if read_safe_file(second_root, "pyproject.toml", MAX_REQUEST_BYTES)? != pyproject {
+        return Err(AdapterError::ToolFailed(
+            "distribution shadows have different pyproject.toml bytes".to_owned(),
+        ));
+    }
+    let manifest: toml::Value =
+        toml::from_str(std::str::from_utf8(&pyproject).map_err(|error| {
+            AdapterError::Unit(format!("pyproject.toml is not UTF-8: {error}"))
+        })?)
+        .map_err(|error| AdapterError::Unit(format!("invalid pyproject.toml: {error}")))?;
+    let backend_module = manifest
+        .get("build-system")
+        .and_then(|value| value.get("build-backend"))
+        .and_then(toml::Value::as_str)
+        .and_then(|value| value.split(':').next())
+        .filter(|value| safe_python_module(value))
+        .ok_or_else(|| {
+            AdapterError::Unit(
+                "pyproject.toml requires one importable build-system.build-backend".to_owned(),
+            )
+        })?;
+    let mut build_environment = environment.clone();
+    build_environment.insert(
+        "SOURCE_DATE_EPOCH".to_owned(),
+        distribution.source_date_epoch.to_string(),
+    );
+    let environment_observation =
+        observe_environment(&build_environment, &unit.environment_allowlist);
+    let backend_spec = ProcessSpec {
+        program: "python3".to_owned(),
+        args: vec![
+            "-c".to_owned(),
+            PYTHON_BACKEND_METADATA.to_owned(),
+            backend_module.to_owned(),
+        ],
+    };
+    let backend_output = executor.run(
+        &backend_spec,
+        first_root,
+        &build_environment,
+        deadline.remaining()?,
+    )?;
+    ensure_success(&backend_spec, &backend_output)?;
+    let backend: BackendMetadata =
+        serde_json::from_slice(&backend_output.stdout).map_err(|error| {
+            AdapterError::Inventory(format!("invalid build backend metadata: {error}"))
+        })?;
+    if backend.distribution.trim().is_empty() || backend.version.trim().is_empty() {
+        return Err(AdapterError::Inventory(
+            "build backend metadata is incomplete".to_owned(),
+        ));
+    }
+    let mut commands = vec![observe_command(&backend_spec, &environment_observation)];
+    let mut outputs = vec![backend_output];
+    let mut artifacts = Vec::new();
+    let mut digests = Vec::new();
+    let mut member_inventory = Vec::new();
+    for (index, root) in [first_root, second_root].into_iter().enumerate() {
+        let outdir = root
+            .parent()
+            .ok_or_else(|| AdapterError::Internal("shadow has no workspace".to_owned()))?
+            .join("distribution-output");
+        fs::create_dir(&outdir)?;
+        let format_flag = match distribution.format {
+            DistributionFormat::Wheel => "--wheel",
+            DistributionFormat::Sdist => "--sdist",
+            DistributionFormat::NpmPackage => unreachable!("validated Python distribution"),
+        };
+        let build_spec = ProcessSpec {
+            program: "python3".to_owned(),
+            args: vec![
+                "-m".to_owned(),
+                "build".to_owned(),
+                format_flag.to_owned(),
+                "--no-isolation".to_owned(),
+                "--outdir".to_owned(),
+                outdir.to_string_lossy().into_owned(),
+            ],
+        };
+        let build_output =
+            executor.run(&build_spec, root, &build_environment, deadline.remaining()?)?;
+        ensure_success(&build_spec, &build_output)?;
+        commands.push(observe_command(&build_spec, &environment_observation));
+        outputs.push(build_output);
+        let entries = fs::read_dir(&outdir)?.collect::<Result<Vec<_>, _>>()?;
+        if entries.len() != 1
+            || entries[0].file_name().to_string_lossy() != distribution.artifact_name
+            || entries[0].file_type()?.is_symlink()
+            || !entries[0].file_type()?.is_file()
+        {
+            return Err(AdapterError::Inventory(format!(
+                "distribution run {} did not produce exactly `{}`",
+                index + 1,
+                distribution.artifact_name
+            )));
+        }
+        let artifact_bytes = fs::read(entries[0].path())?;
+        let digest = sha256_bytes(&artifact_bytes);
+        digests.push(digest.clone());
+        artifacts.push(ArtifactObservation {
+            logical_name: format!("distribution/{}/candidate-{}", unit.id, index + 1),
+            sha256: digest,
+            size_bytes: artifact_bytes.len().try_into().unwrap_or(u64::MAX),
+        });
+        if distribution.format == DistributionFormat::Wheel {
+            let verify_spec = ProcessSpec {
+                program: "python3".to_owned(),
+                args: vec![
+                    "-c".to_owned(),
+                    VERIFY_WHEEL_SCRIPT.to_owned(),
+                    entries[0].path().to_string_lossy().into_owned(),
+                    unit.resource_budget.disk_bytes.to_string(),
+                ],
+            };
+            let verify_output = executor.run(
+                &verify_spec,
+                root,
+                &build_environment,
+                deadline.remaining()?,
+            )?;
+            ensure_success(&verify_spec, &verify_output)?;
+            let verified: WheelVerification = serde_json::from_slice(&verify_output.stdout)
+                .map_err(|error| {
+                    AdapterError::Inventory(format!("invalid wheel verification result: {error}"))
+                })?;
+            let verified_members = sorted_unique(verified.members, "wheel members")?;
+            if index == 0 {
+                member_inventory = verified_members;
+            } else if member_inventory != verified_members {
+                return Err(AdapterError::Inventory(
+                    "wheel member inventories differ between runs".to_owned(),
+                ));
+            }
+            commands.push(observe_command(&verify_spec, &environment_observation));
+            outputs.push(verify_output);
+        }
+    }
+    if digests.len() != 2
+        || digests[0] != digests[1]
+        || digests
+            .iter()
+            .any(|digest| digest != &distribution.artifact_sha256)
+    {
+        return Err(AdapterError::ToolFailed(
+            "distribution bytes are not deterministic or do not match the registered digest"
+                .to_owned(),
+        ));
+    }
+    Ok(DistributionRunResult {
+        commands,
+        outputs,
+        inventory: unit.expected_inventory.clone(),
+        generated_artifacts: artifacts,
+        observation: DistributionReproductionObservation {
+            schema: "proofbound-distribution-reproduction/1".to_owned(),
+            format: match distribution.format {
+                DistributionFormat::Wheel => "wheel",
+                DistributionFormat::Sdist => "sdist",
+                DistributionFormat::NpmPackage => unreachable!("validated Python distribution"),
+            }
+            .to_owned(),
+            run_digests: digests,
+            registered_digest: distribution.artifact_sha256.clone(),
+            source_date_epoch: distribution.source_date_epoch,
+            build_backend_name: backend.distribution,
+            build_backend_version: backend.version,
+            npm_integrity: None,
+            member_inventory,
+        },
+    })
 }
 
 fn run_python_checker<E: Executor>(
@@ -3143,6 +4291,42 @@ fn ensure_one_python_test_ran(name: &str, output: &ProcessOutput) -> Result<(), 
     Ok(())
 }
 
+fn ensure_one_python_test_failed(name: &str, output: &ProcessOutput) -> Result<(), AdapterError> {
+    if output.truncated {
+        return Err(AdapterError::Inventory(
+            "Python mutant witness output was truncated".to_owned(),
+        ));
+    }
+    if output.status != Some(1) {
+        return Err(AdapterError::ToolFailed(format!(
+            "Python mutant witness exited {:?}; exact pytest exit 1 is required",
+            output.status
+        )));
+    }
+    let text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summaries = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.contains(" failed") && !line.starts_with("FAILED "))
+        .collect::<Vec<_>>();
+    if summaries.len() != 1
+        || !summaries[0].starts_with("1 failed")
+        || summaries[0].contains(" passed")
+        || summaries[0].contains(" error")
+        || summaries[0].contains(" skipped")
+        || summaries[0].contains(" xfailed")
+    {
+        return Err(AdapterError::Inventory(format!(
+            "pytest mutant witness `{name}` did not report exactly one failing test"
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MutationRegistry {
@@ -3213,7 +4397,7 @@ fn load_mutation_registry(
     if !safe_id(&mutation.id)
         || mutation.guard.trim().is_empty()
         || mutation.guard.chars().count() > 8192
-        || !safe_symbol(&mutation.witness)
+        || !(safe_symbol(&mutation.witness) || safe_pytest_node(&mutation.witness))
         || mutation.affected_claims.is_empty()
         || mutation.affected_claims.len() > 4096
         || mutation
@@ -3275,6 +4459,8 @@ fn validate_mutation_unit(
         || !unit.operation.paths.is_empty()
         || unit.operation.inventory.is_some()
         || unit.operation.checker.is_some()
+        || unit.operation.configuration.is_some()
+        || !unit.operation.plugins.is_empty()
         || !unit.operation.arguments.is_empty()
         || !unit.outputs.is_empty()
         || unit.evaluation_mode.is_some()
@@ -3285,6 +4471,8 @@ fn validate_mutation_unit(
         || !unit.assumptions.is_empty()
         || unit.bounded_domain.is_some()
         || unit.transcription.is_some()
+        || unit.property.is_some()
+        || unit.distribution.is_some()
     {
         return Err(AdapterError::Unit(
             "mutation replay unit does not exactly match its singleton registration".to_owned(),
@@ -3404,6 +4592,7 @@ fn evidence_kind_name(kind: EvidenceKind) -> &'static str {
         EvidenceKind::PropertyTest => "property-test",
         EvidenceKind::ExampleTest => "example-test",
         EvidenceKind::MutationWitness => "mutation-witness",
+        EvidenceKind::StaticCheck => "static-check",
         EvidenceKind::Review => "review",
         EvidenceKind::Assumption => "assumption",
         EvidenceKind::Open => "open",
@@ -3952,6 +5141,21 @@ fn safe_test_tail(value: &str) -> bool {
 fn safe_pytest_suffix(value: &str) -> bool {
     !value.is_empty() && value.len() <= 2048 && value.split("::").all(safe_test_tail)
 }
+fn safe_pytest_node(value: &str) -> bool {
+    let Some((path, suffix)) = value.split_once("::") else {
+        return false;
+    };
+    path.ends_with(".py") && validate_relative_path(path).is_ok() && safe_pytest_suffix(suffix)
+}
+fn safe_python_module(value: &str) -> bool {
+    value.split('.').enumerate().all(|(index, segment)| {
+        !segment.is_empty()
+            && segment.bytes().enumerate().all(|(position, byte)| {
+                (index != 0 || position != 0 || byte.is_ascii_lowercase() || byte == b'_')
+                    && (byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+            })
+    })
+}
 fn valid_environment_name(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some('A'..='Z' | '_'))
@@ -4161,6 +5365,32 @@ else:
         .unwrap()
     }
 
+    fn python_static_unit(operation: &str) -> EvidenceUnitManifest {
+        serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/1",
+            "id": "python-types",
+            "adapter": "python-test",
+            "kind": "static-check",
+            "claims": ["CLAIM-ONE"],
+            "tier": 0,
+            "operation": {
+                "type": operation,
+                "configuration": "mypy.ini",
+                "targets": ["python/package.py"]
+            },
+            "expected_inventory": ["python/package.py"],
+            "inputs": ["mypy.ini", "python/package.py"],
+            "outputs": [],
+            "environment_allowlist": ["PATH"],
+            "resource_budget": {
+                "time_seconds": 30,
+                "disk_bytes": 1048576,
+                "memory_bytes": 1048576
+            }
+        }))
+        .unwrap()
+    }
+
     fn request(adapter: &str, operation: &str, unit: &EvidenceUnitManifest) -> AdapterRequest {
         AdapterRequest {
             schema: PROTOCOL_SCHEMA.to_owned(),
@@ -4233,6 +5463,54 @@ else:
     }
 
     #[test]
+    fn mypy_requires_agreeing_exit_and_empty_json_diagnostics() {
+        let clean = ProcessOutput {
+            status: Some(0),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            truncated: false,
+            duration_ms: 1,
+        };
+        assert!(validate_mypy_output(&clean).is_ok());
+
+        let mut forged_success = clean.clone();
+        forged_success.stdout = br#"{"file":"python/package.py","line":7,"code":"assignment"}
+"#
+        .to_vec();
+        assert!(validate_mypy_output(&forged_success).is_err());
+
+        let mut unexplained_failure = clean;
+        unexplained_failure.status = Some(1);
+        assert!(validate_mypy_output(&unexplained_failure).is_err());
+    }
+
+    #[test]
+    fn pyright_count_only_output_is_not_an_authoritative_inventory() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("python")).unwrap();
+        fs::write(root.path().join("python/package.py"), b"value: int = 1\n").unwrap();
+        let output = ProcessOutput {
+            status: Some(0),
+            stdout: canonical_json(&json!({
+                "generalDiagnostics": [],
+                "summary": {
+                    "errorCount": 0,
+                    "warningCount": 0,
+                    "filesAnalyzed": 1
+                }
+            }))
+            .unwrap(),
+            stderr: Vec::new(),
+            truncated: false,
+            duration_ms: 1,
+        };
+        let unit = python_static_unit("pyright");
+        assert!(validate_pyright_output(&output, &unit, root.path()).is_err());
+        let error = validate_unit(&request("python-test", "check", &unit), &unit).unwrap_err();
+        assert!(error.to_string().contains("reserved but unsupported"));
+    }
+
+    #[test]
     fn runner_summaries_require_exactly_one_selected_test() {
         let rust = ProcessOutput {
             status: Some(0),
@@ -4272,6 +5550,20 @@ else:
         let mut eleven = python.clone();
         eleven.stdout = b"...........                                                              [100%]\n11 passed in 0.01s\n".to_vec();
         assert!(ensure_one_python_test_ran("test_sample::test_one", &eleven).is_err());
+
+        let python_failure = ProcessOutput {
+            status: Some(1),
+            stdout: b"F                                                                        [100%]\n1 failed in 0.01s\n".to_vec(),
+            stderr: Vec::new(),
+            truncated: false,
+            duration_ms: 1,
+        };
+        assert!(ensure_one_python_test_failed("test_sample.py::test_one", &python_failure).is_ok());
+        for exit in [2, 3, 4, 5] {
+            let mut invalid = python_failure.clone();
+            invalid.status = Some(exit);
+            assert!(ensure_one_python_test_failed("test_sample.py::test_one", &invalid).is_err());
+        }
     }
 
     #[test]
@@ -5188,6 +6480,10 @@ affected_claims = ["CLAIM-ONE"]
             artifact_binding: None,
             trusted_transcription: None,
             mutation_replay: None,
+            python_plugins: Vec::new(),
+            python_property: None,
+            static_check: None,
+            distribution_reproduction: None,
         };
         let bytes = canonical_json(&observation).unwrap();
         assert_eq!(
@@ -5499,6 +6795,29 @@ affected_claims = ["CLAIM-ONE"]
         assert!(fake.seen.is_empty());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn python_identity_rejects_a_symlinked_path_directory() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let root_path = root.path().canonicalize().unwrap();
+        fs::create_dir_all(root_path.join("real/bin")).unwrap();
+        fs::write(root_path.join("real/bin/python3"), b"python").unwrap();
+        symlink(root_path.join("real"), root_path.join("linked")).unwrap();
+
+        let error = canonicalize_python_executable(root_path.join("linked/bin/python3"))
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("symlinked PATH directory"));
+        assert!(
+            canonicalize_python_executable(root_path.join("real/bin/python3"))
+                .unwrap()
+                .ends_with("real/bin/python3")
+        );
+    }
+
     #[test]
     fn fake_executor_observes_typed_argv_without_shell() {
         let mut fake = FakeExecutor::default();
@@ -5512,6 +6831,7 @@ affected_claims = ["CLAIM-ONE"]
         let environment = BTreeMap::new();
         let (tool, _, _) = tool_identity(
             TestFlavor::Rust,
+            OperationKind::CargoTest,
             Path::new("."),
             &environment,
             &[],

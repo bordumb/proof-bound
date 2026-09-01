@@ -286,6 +286,7 @@ const fn adapter_name(adapter: AdapterKind) -> &'static str {
         AdapterKind::Kani => "kani",
         AdapterKind::RustTest => "rust-test",
         AdapterKind::PythonTest => "python-test",
+        AdapterKind::NodeTest => "node-test",
         AdapterKind::CanonicalArtifact => "canonical-artifact",
         AdapterKind::SourceClosure => "source-closure",
         AdapterKind::IndependentCheck => "independent-check",
@@ -327,6 +328,7 @@ pub(crate) fn cache_identities(
         AdapterKind::CharonAeneas => &["cargo", "charon", "aeneas"],
         AdapterKind::Kani => &["cargo", "cargo-kani"],
         AdapterKind::RustTest => &["cargo", "rustc"],
+        AdapterKind::NodeTest => &["node", "npm"],
         AdapterKind::PythonTest
         | AdapterKind::CanonicalArtifact
         | AdapterKind::IndependentCheck

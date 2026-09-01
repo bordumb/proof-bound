@@ -1,0 +1,37 @@
+schema = "proofbound-project/1"
+project = "proofbound-python-inventory"
+tier = 1
+claim_manifests = ["claims/*.toml"]
+assumption_manifests = ["assumptions/*.toml"]
+evidence_units = ["evidence/*.toml"]
+translation_units = []
+model_check_units = []
+policy_manifests = []
+review_manifests = []
+
+[source]
+semantic = [
+  "README.md",
+  "assumptions/**",
+  "claims/**",
+  "evidence/**",
+  "fixtures/**",
+  "mypy.ini",
+  "mutants/**",
+  "mutations/**",
+  "pyproject.toml",
+  "requirements-dev.txt",
+  "src/**",
+  "tests/**",
+  "tools/**",
+]
+runner = []
+presentation = []
+
+[toolchains]
+python = "requirements-dev.txt"
+
+[limits]
+max_manifest_bytes = 1048576
+max_files = 2048
+max_total_bytes = 16777216

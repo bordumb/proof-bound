@@ -1,6 +1,6 @@
 # Specification 0003: TypeScript Ecosystem Support
 
-**Status:** Draft for review
+**Status:** Initial implementation specification
 
 **Version:** 0.2.0
 
@@ -10,7 +10,7 @@
 
 **Process:** Proof-Driven Development (PDD)
 
-**Depends on:** Specification 0001, version 0.11.0 or later;
+**Depends on:** Specification 0001, version 0.12.0 or later;
 Specification 0002 §7.1 (the `static-check` evidence kind) and §7.4
 (analyzer admission criteria)
 
@@ -59,11 +59,10 @@ as evidence. Every route below derives its inventory from tool metadata,
 disables lifecycle scripts, and fails closed on anything it cannot
 inventory. A zero exit status is never evidence.
 
-## 2. Amendments to Specification 0001
+## 2. Adopted amendments to Specification 0001
 
-Adopting this specification requires a Specification 0001 revision
-entry; until then it is a proposal and none of its wire versions may
-ship.
+Specification 0001 version 0.12.0 adopts this specification's typed
+routes and wire contracts as follows.
 
 1. **§10.2 adapter inventory** gains the `node-test` adapter, executable
    `proofbound-adapter-node` (§4).

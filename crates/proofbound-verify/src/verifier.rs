@@ -13,11 +13,12 @@ use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, AssumptionCategory, AssumptionFacet,
     AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode, BuiltInProfile,
     CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3, ClaimReceipt, ClosureKind,
-    CompiledRelease, EVIDENCE_SCHEMA_V3, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
-    EvidenceReceipt, Exclusion, ExecutionKind, FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphNode,
-    HashedRecord, IndependenceMode, LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2,
-    MUTATION_WITNESS_SCHEMA_V2, NodeKind, OpenObligation, POLICY_SCHEMA_V1, PolicyReceipt,
-    PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V3, ReleaseEnvelope, ReportedClaimStatus,
+    CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EdgeKind,
+    EvaluationMode, EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, ExecutionKind,
+    FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphNode, HashedRecord, IndependenceMode,
+    LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V2, NodeKind,
+    OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
+    RELEASE_ENVELOPE_SCHEMA_V3, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
     SourceClosureReceipt, TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
     TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole, TreeState, canonical_json,
     domain_hash, raw_sha256,
@@ -1310,6 +1311,24 @@ fn validate_provenance(id: &str, evidence: &EvidenceReceipt, issues: &mut Vec<Ve
     {
         evidence_issue(issues, id, "reused_from is not a canonical digest");
     }
+    if provenance.python_plugins.len() > 32
+        || !provenance
+            .python_plugins
+            .windows(2)
+            .all(|pair| pair[0].module < pair[1].module)
+        || provenance.python_plugins.iter().any(|plugin| {
+            !valid_python_module(&plugin.module)
+                || plugin.distribution.trim().is_empty()
+                || plugin.version.trim().is_empty()
+                || !valid_digest(&plugin.origin_sha256)
+        })
+    {
+        evidence_issue(
+            issues,
+            id,
+            "Python plugin provenance is not a strict bounded typed inventory",
+        );
+    }
     match canonical_json(&provenance.cache_material()) {
         Ok(bytes) => {
             let actual = domain_hash("proofbound-cache-key/1", &bytes);
@@ -1414,6 +1433,16 @@ fn valid_environment_name(name: &str) -> bool {
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
+fn valid_python_module(value: &str) -> bool {
+    value.split('.').enumerate().all(|(index, segment)| {
+        !segment.is_empty()
+            && segment.bytes().enumerate().all(|(position, byte)| {
+                (index != 0 || position != 0 || byte.is_ascii_lowercase() || byte == b'_')
+                    && (byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+            })
+    })
+}
+
 fn validate_artifact_inventory(
     evidence_id: &str,
     label: &str,
@@ -1469,6 +1498,7 @@ fn validate_evidence_shape(
         | EvidenceKind::PropertyTest
         | EvidenceKind::ExampleTest
         | EvidenceKind::MutationWitness => &[NodeKind::TestSuite, NodeKind::ModelCheckUnit],
+        EvidenceKind::StaticCheck => &[NodeKind::TestSuite],
         EvidenceKind::Review => &[NodeKind::Review],
         EvidenceKind::Assumption => &[NodeKind::Assumption],
         EvidenceKind::Open => &[NodeKind::Claim],
@@ -1509,6 +1539,7 @@ fn validate_evidence_shape(
         evidence.bounded_check.is_some(),
         evidence.exhaustive_check.is_some(),
         evidence.mutation_witness.is_some(),
+        evidence.static_check.is_some(),
     ];
     let expected_slot = match evidence.kind {
         EvidenceKind::Theorem => Some(0),
@@ -1518,6 +1549,7 @@ fn validate_evidence_shape(
         EvidenceKind::BoundedCheck => Some(4),
         EvidenceKind::ExhaustiveCheck => Some(5),
         EvidenceKind::MutationWitness => Some(6),
+        EvidenceKind::StaticCheck => Some(7),
         _ => None,
     };
     if shape
@@ -1819,7 +1851,7 @@ fn validate_evidence_shape(
                 );
             }
         }
-        EvidenceKind::PropertyTest | EvidenceKind::ExampleTest => {
+        EvidenceKind::PropertyTest => {
             if evidence.inventoried_targets.is_empty()
                 || evidence.evaluation_mode.is_some()
                 || evidence.binding_mode.is_some()
@@ -1829,6 +1861,81 @@ fn validate_evidence_shape(
                     issues,
                     id,
                     "test evidence has no inventoried target or has incompatible qualifiers",
+                );
+            }
+            if let Some(property) = &evidence.python_property {
+                let seed = format!("--hypothesis-seed={}", property.seed);
+                let plugin = evidence
+                    .provenance
+                    .python_plugins
+                    .iter()
+                    .find(|plugin| plugin.module == "_hypothesis_pytestplugin");
+                if property.schema != PYTHON_PROPERTY_SCHEMA_V1
+                    || property.framework != "hypothesis"
+                    || property.framework_version.trim().is_empty()
+                    || plugin.is_none_or(|plugin| {
+                        plugin.distribution != "hypothesis"
+                            || plugin.version != property.framework_version
+                    })
+                    || !evidence
+                        .provenance
+                        .commands
+                        .iter()
+                        .any(|command| command.args.iter().any(|argument| argument == &seed))
+                {
+                    evidence_issue(
+                        issues,
+                        id,
+                        "Python property record does not bind its framework plugin and seed",
+                    );
+                }
+            }
+        }
+        EvidenceKind::ExampleTest => {
+            if evidence.inventoried_targets.is_empty()
+                || evidence.evaluation_mode.is_some()
+                || evidence.binding_mode.is_some()
+                || evidence.independence.is_some()
+            {
+                evidence_issue(
+                    issues,
+                    id,
+                    "test evidence has no inventoried target or has incompatible qualifiers",
+                );
+            }
+            if let Some(distribution) = &evidence.distribution_reproduction
+                && !distribution_reproduction_valid(evidence, distribution)
+            {
+                evidence_issue(
+                    issues,
+                    id,
+                    "distribution reproduction does not bind two deterministic candidates",
+                );
+            }
+        }
+        EvidenceKind::StaticCheck => {
+            if evidence.evaluation_mode.is_some()
+                || evidence.binding_mode.is_some()
+                || evidence.independence.is_some()
+                || !evidence.static_check.as_ref().is_some_and(|check| {
+                    check.schema == STATIC_CHECK_SCHEMA_V1
+                        && matches!(check.tool.as_str(), "mypy" | "tsc")
+                        && !check.tool_version.trim().is_empty()
+                        && valid_digest(&check.configuration_sha256)
+                        && check.diagnostics == 0
+                        && !check.targets.is_empty()
+                        && check.targets == evidence.inventoried_targets
+                        && evidence
+                            .provenance
+                            .input_artifacts
+                            .iter()
+                            .any(|artifact| artifact.sha256 == check.configuration_sha256)
+                })
+            {
+                evidence_issue(
+                    issues,
+                    id,
+                    "static-check evidence lacks an exact zero-diagnostic analyzer record and pinned configuration",
                 );
             }
         }
@@ -1876,6 +1983,86 @@ fn validate_evidence_shape(
             "open obligation appears on the wrong evidence kind",
         );
     }
+    let ecosystem_details_valid = match evidence.kind {
+        EvidenceKind::PropertyTest => {
+            evidence.static_check.is_none() && evidence.distribution_reproduction.is_none()
+        }
+        EvidenceKind::ExampleTest => {
+            evidence.python_property.is_none() && evidence.static_check.is_none()
+        }
+        EvidenceKind::StaticCheck => {
+            evidence.python_property.is_none()
+                && evidence.distribution_reproduction.is_none()
+                && evidence.provenance.python_plugins.is_empty()
+        }
+        _ => {
+            evidence.python_property.is_none()
+                && evidence.static_check.is_none()
+                && evidence.distribution_reproduction.is_none()
+                && evidence.provenance.python_plugins.is_empty()
+        }
+    };
+    if !ecosystem_details_valid {
+        evidence_issue(
+            issues,
+            id,
+            "ecosystem detail appears on the wrong evidence kind",
+        );
+    }
+}
+
+fn distribution_reproduction_valid(
+    evidence: &EvidenceReceipt,
+    distribution: &crate::DistributionReproductionReceipt,
+) -> bool {
+    if distribution.schema != DISTRIBUTION_REPRODUCTION_SCHEMA_V1
+        || !matches!(
+            distribution.format.as_str(),
+            "wheel" | "sdist" | "npm-package"
+        )
+        || distribution.run_digests.len() != 2
+        || distribution
+            .run_digests
+            .iter()
+            .any(|digest| !valid_digest(digest) || digest != &distribution.registered_digest)
+        || distribution.run_digests[0] != distribution.run_digests[1]
+        || distribution.build_backend_name.trim().is_empty()
+        || distribution.build_backend_version.trim().is_empty()
+        || (distribution.format != "sdist" && distribution.member_inventory.is_empty())
+        || !distribution
+            .member_inventory
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+        || if distribution.format == "npm-package" {
+            distribution.source_date_epoch != 0
+                || distribution.build_backend_name != "npm"
+                || distribution
+                    .npm_integrity
+                    .as_deref()
+                    .is_none_or(|value| !value.starts_with("sha512-") || value.len() > 512)
+        } else {
+            distribution.npm_integrity.is_some()
+        }
+        || evidence.provenance.generated_artifacts.len() != 2
+    {
+        return false;
+    }
+    distribution
+        .run_digests
+        .iter()
+        .enumerate()
+        .all(|(index, digest)| {
+            let name = format!(
+                "distribution/{}/candidate-{}",
+                evidence.unit_id.trim_start_matches("unit:"),
+                index + 1
+            );
+            evidence
+                .provenance
+                .generated_artifacts
+                .iter()
+                .any(|artifact| artifact.logical_name == name && artifact.sha256 == *digest)
+        })
 }
 
 fn mutation_witness_valid(
@@ -1894,11 +2081,24 @@ fn mutation_witness_valid(
         .iter()
         .map(|artifact| artifact.logical_name.as_str())
         .collect::<BTreeSet<_>>();
-    let input_roles_are_exact = evidence.provenance.input_artifacts.len() == input_roles.len()
+    let is_node = witness.subject.starts_with("npm:");
+    let is_python = witness.subject.starts_with("python:");
+    let expected_input_count = input_roles.len() + usize::from(is_node) * 2;
+    let input_roles_are_exact = evidence.provenance.input_artifacts.len() == expected_input_count
         && input_role_names.len() == input_roles.len()
         && input_roles.iter().all(|artifact| {
             exact_artifact_count(&evidence.provenance.input_artifacts, artifact) == 1
-        });
+        })
+        && (!is_node
+            || ["package-lock.json", "package.json"].iter().all(|name| {
+                evidence
+                    .provenance
+                    .input_artifacts
+                    .iter()
+                    .filter(|artifact| artifact.logical_name == *name)
+                    .count()
+                    == 1
+            }));
     let postimage_is_exact = evidence.provenance.generated_artifacts.len() == 1
         && evidence.provenance.generated_artifacts[0] == witness.target_postimage;
     let replacement_is_exact = witness.target_preimage.logical_name
@@ -1909,8 +2109,9 @@ fn mutation_witness_valid(
     let singleton_inventory =
         evidence.inventoried_targets == BTreeSet::from([witness.mutation_id.clone()]);
     let singleton_unit = evidence.unit_id == format!("unit:{}", witness.mutation_id);
+    let expected_exit = if is_python || is_node { 1 } else { 101 };
     let expected_failure_is_exact = witness.expected_failure.allowed_exit_codes
-        == BTreeSet::from([101])
+        == BTreeSet::from([expected_exit])
         && witness.baseline_run_index < witness.expected_failure.run_index;
     let baseline_run = evidence.provenance.runs.get(witness.baseline_run_index);
     let mutant_run = evidence
@@ -1926,14 +2127,28 @@ fn mutation_witness_valid(
         baseline_command
             .zip(mutant_command)
             .is_some_and(|(baseline, mutant)| {
-                baseline.program != mutant.program
-                    && baseline.environment_allowlist == mutant.environment_allowlist
-                    && command_runs_exact_check(baseline, &witness.check_id)
-                    && command_runs_exact_check(mutant, &witness.check_id)
+                (if is_node {
+                    baseline.program == mutant.program && baseline.args == mutant.args
+                } else if is_python {
+                    python_mutation_command_runs_exact_check(
+                        baseline,
+                        "$BASELINE",
+                        &witness.check_id,
+                    ) && python_mutation_command_runs_exact_check(
+                        mutant,
+                        "$MUTANT",
+                        &witness.check_id,
+                    )
+                } else {
+                    baseline.program != mutant.program || baseline.args != mutant.args
+                }) && baseline.environment_allowlist == mutant.environment_allowlist
+                    && (is_python
+                        || (command_runs_exact_check(baseline, &witness.check_id)
+                            && command_runs_exact_check(mutant, &witness.check_id)))
             });
     let passed_run_shape = evidence.outcome != EvidenceOutcome::Passed
         || (baseline_run.is_some_and(|run| run.exit_code == Some(0))
-            && mutant_run.is_some_and(|run| run.exit_code == Some(101))
+            && mutant_run.is_some_and(|run| run.exit_code == Some(expected_exit))
             && evidence
                 .provenance
                 .runs
@@ -2014,11 +2229,73 @@ fn mutation_identity(
         .map(|bytes| domain_hash(MUTATION_IDENTITY_DOMAIN_V2, &bytes))
 }
 
+fn python_mutation_command_runs_exact_check(
+    command: &crate::CommandReceipt,
+    root: &str,
+    check_id: &str,
+) -> bool {
+    command.program == "python3"
+        && command.args
+            == [
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "--rootdir",
+                root,
+                "-q",
+                &format!("{root}/{check_id}"),
+            ]
+}
+
 fn command_runs_exact_check(command: &crate::CommandReceipt, check_id: &str) -> bool {
+    if command.args.first().map(String::as_str) == Some("run") {
+        return vitest_command_runs_exact_check(command, check_id);
+    }
+    if command.args.windows(2).any(|pair| pair == ["-m", "pytest"]) {
+        return command
+            .args
+            .last()
+            .is_some_and(|argument| argument.ends_with(check_id));
+    }
     let selector = check_id
         .split_once("::")
         .map_or(check_id, |(_, selector)| selector);
     command.args == [selector, "--exact"]
+}
+
+fn vitest_command_runs_exact_check(command: &crate::CommandReceipt, check_id: &str) -> bool {
+    let Some((file, name)) = check_id.split_once("::") else {
+        return false;
+    };
+    let expected_pattern = format!("^{}$", regex_escape(&name.replace(" > ", " ")));
+    command.args.len() >= 5
+        && command.args[..5]
+            == [
+                "run",
+                file,
+                "--reporter=json",
+                "--testNamePattern",
+                &expected_pattern,
+            ]
+        && (command.args.len() == 5
+            || (command.args.len() == 7
+                && command.args[5] == "--config"
+                && bounded_text(&command.args[6], 4096)))
+}
+
+fn regex_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(
+            character,
+            '.' | '+' | '*' | '?' | '^' | '$' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
 }
 
 fn bounded_text(value: &str, max_chars: usize) -> bool {
@@ -3636,6 +3913,7 @@ fn empirical(evidence: &EvidenceReceipt) -> bool {
             | EvidenceKind::ExampleTest
             | EvidenceKind::IndependentCheck
             | EvidenceKind::ExhaustiveCheck
+            | EvidenceKind::StaticCheck
     ) || (evidence.kind == EvidenceKind::MutationWitness
         && evidence
             .mutation_witness
