@@ -29,7 +29,7 @@ def test_changelog_covers_current_version() -> None:
 
 
 def test_set_version_updates_every_derived_declaration(tmp_path: Path) -> None:
-    (tmp_path / "crate").mkdir()
+    (tmp_path / "crate/src").mkdir(parents=True)
     (tmp_path / "docs/specs").mkdir(parents=True)
     (tmp_path / "VERSION").write_text("0.1.0\n")
     (tmp_path / "Cargo.toml").write_text(
@@ -38,19 +38,14 @@ def test_set_version_updates_every_derived_declaration(tmp_path: Path) -> None:
     (tmp_path / "crate/Cargo.toml").write_text(
         '[package]\nname = "example"\nversion.workspace = true\n'
     )
-    (tmp_path / "Cargo.lock").write_text(
-        'version = 4\n\n[[package]]\nname = "example"\nversion = "0.1.0"\n'
-    )
+    (tmp_path / "crate/src/lib.rs").write_text("pub fn example() {}\n")
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "proofbound"\nversion = "0.1.0"\n'
+        '[project]\nname = "proofbound"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n'
+        '\n[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n'
     )
     (tmp_path / "lakefile.toml").write_text('name = "proofbound"\nversion = "0.1.0"\n')
-    (tmp_path / "uv.lock").write_text(
-        'version = 1\n\n[[package]]\nname = "proofbound"\nversion = "0.1.0"\n'
-        'source = { editable = "." }\n'
-    )
     (tmp_path / "docs/specs/0001_initial_spec.md").write_text(
-        "# Specification\n\n**Version:** 0.1.0\n"
+        "# Specification\n\n**Version:** 0.11.0\n"
     )
 
     result = run_tool("tools/ci/version.py", "--root", str(tmp_path), "--set", "1.2.3")
@@ -65,7 +60,7 @@ def test_set_version_updates_every_derived_declaration(tmp_path: Path) -> None:
     ]:
         assert 'version = "1.2.3"' in (tmp_path / relative).read_text()
     assert (
-        "**Version:** 1.2.3"
+        "**Version:** 0.11.0"
         in (tmp_path / "docs/specs/0001_initial_spec.md").read_text()
     )
 

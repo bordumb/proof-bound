@@ -1101,14 +1101,6 @@ mod tests {
                 .unwrap_or_else(|| panic!("{relative} has no quoted version declaration"));
             assert_eq!(declared, expected, "{relative} is out of sync with VERSION");
         }
-        let specification = fs::read_to_string(root.join("docs/specs/0001_initial_spec.md"))
-            .expect("read normative specification");
-        assert!(
-            specification
-                .lines()
-                .any(|line| line == format!("**Version:** {expected}")),
-            "normative specification is out of sync with the Rust workspace version"
-        );
         let uv_lock = fs::read_to_string(root.join("uv.lock")).expect("read uv.lock");
         assert!(
             uv_lock.contains(&format!(

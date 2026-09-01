@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Synchronize and validate Proofbound's product version declarations."""
+"""Synchronize product manifests from VERSION and delegate lock generation."""
 
 from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
 
 
-VERSION_PATTERN = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+VERSION_PATTERN = re.compile(
+    r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+)
 
 
 class VersionError(ValueError):
@@ -49,20 +52,6 @@ def replace_toml_version(
     return "".join(lines)
 
 
-def replace_specification_version(text: str, version: str) -> str:
-    rendered, count = re.subn(
-        r"(?m)^\*\*Version:\*\* [^\n]+$",
-        f"**Version:** {version}",
-        text,
-        count=1,
-    )
-    if count != 1:
-        raise VersionError(
-            "docs/specs/0001_initial_spec.md must contain one Version header"
-        )
-    return rendered
-
-
 def workspace_package_names(root: Path) -> set[str]:
     workspace = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
     names: set[str] = set()
@@ -79,68 +68,7 @@ def workspace_package_names(root: Path) -> set[str]:
     return names
 
 
-def replace_lock_package_versions(
-    text: str, package_names: set[str], version: str, path: str
-) -> str:
-    prefix, *blocks = text.split("[[package]]")
-    found: set[str] = set()
-    rendered = [prefix]
-    for block in blocks:
-        parsed = tomllib.loads("[[package]]" + block)["package"][0]
-        name = parsed["name"]
-        if name in package_names:
-            if "source" in parsed:
-                raise VersionError(
-                    f"{path} workspace package {name} unexpectedly has a source"
-                )
-            block, count = re.subn(
-                r'(?m)^version = "[^"]+"$',
-                f'version = "{version}"',
-                block,
-                count=1,
-            )
-            if count != 1:
-                raise VersionError(f"{path} package {name} has no unique version")
-            found.add(name)
-        rendered.extend(("[[package]]", block))
-    missing = package_names - found
-    if missing:
-        raise VersionError(
-            f"{path} is missing workspace packages: {', '.join(sorted(missing))}"
-        )
-    return "".join(rendered)
-
-
-def replace_uv_version(text: str, version: str) -> str:
-    prefix, *blocks = text.split("[[package]]")
-    rendered = [prefix]
-    matches = 0
-    for block in blocks:
-        parsed = tomllib.loads("[[package]]" + block)["package"][0]
-        if parsed.get("name") == "proofbound" and parsed.get("source") == {
-            "editable": "."
-        }:
-            block, count = re.subn(
-                r'(?m)^version = "[^"]+"$',
-                f'version = "{version}"',
-                block,
-                count=1,
-            )
-            if count != 1:
-                raise VersionError(
-                    "uv.lock editable proofbound package has no unique version"
-                )
-            matches += 1
-        rendered.extend(("[[package]]", block))
-    if matches != 1:
-        raise VersionError(
-            "uv.lock must contain exactly one editable proofbound package"
-        )
-    return "".join(rendered)
-
-
-def rendered_files(root: Path, version: str) -> dict[Path, str]:
-    cargo_names = workspace_package_names(root)
+def rendered_manifests(root: Path, version: str) -> dict[Path, str]:
     transforms = {
         root / "Cargo.toml": lambda text: replace_toml_version(
             text, "[workspace.package]", version, "Cargo.toml"
@@ -151,14 +79,6 @@ def rendered_files(root: Path, version: str) -> dict[Path, str]:
         root / "lakefile.toml": lambda text: replace_toml_version(
             text, None, version, "lakefile.toml"
         ),
-        root / "Cargo.lock": lambda text: replace_lock_package_versions(
-            text, cargo_names, version, "Cargo.lock"
-        ),
-        root / "uv.lock": lambda text: replace_uv_version(text, version),
-        root
-        / "docs/specs/0001_initial_spec.md": lambda text: replace_specification_version(
-            text, version
-        ),
     }
     return {
         path: transform(path.read_text(encoding="utf-8"))
@@ -166,9 +86,9 @@ def rendered_files(root: Path, version: str) -> dict[Path, str]:
     }
 
 
-def synchronize(root: Path, version: str, check: bool) -> list[Path]:
+def synchronize_manifests(root: Path, version: str, check: bool) -> list[Path]:
     changed: list[Path] = []
-    for path, rendered in rendered_files(root, version).items():
+    for path, rendered in rendered_manifests(root, version).items():
         current = path.read_text(encoding="utf-8")
         if current == rendered:
             continue
@@ -178,14 +98,53 @@ def synchronize(root: Path, version: str, check: bool) -> list[Path]:
     return changed
 
 
+def validate_lock_versions(root: Path, version: str) -> None:
+    expected_packages = workspace_package_names(root)
+    cargo_lock = tomllib.loads((root / "Cargo.lock").read_text(encoding="utf-8"))
+    cargo_versions = {
+        package["name"]: package["version"]
+        for package in cargo_lock["package"]
+        if package["name"] in expected_packages and "source" not in package
+    }
+    missing = expected_packages - cargo_versions.keys()
+    if missing:
+        raise VersionError(
+            f"Cargo.lock is missing workspace packages: {', '.join(sorted(missing))}"
+        )
+    drifted = sorted(name for name, declared in cargo_versions.items() if declared != version)
+    if drifted:
+        raise VersionError(
+            f"Cargo.lock has stale workspace versions for: {', '.join(drifted)}"
+        )
+
+    uv_lock = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
+    editable = [
+        package
+        for package in uv_lock["package"]
+        if package.get("name") == "proofbound"
+        and package.get("source") == {"editable": "."}
+    ]
+    if len(editable) != 1 or editable[0].get("version") != version:
+        raise VersionError("uv.lock has a stale or ambiguous editable proofbound version")
+
+
+def refresh_lockfiles(root: Path) -> None:
+    subprocess.run(["cargo", "update", "--workspace", "--offline"], cwd=root, check=True)
+    subprocess.run(["uv", "lock"], cwd=root, check=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument(
-        "--check", action="store_true", help="fail if derived versions drift"
+        "--check", action="store_true", help="fail if manifests or locks drift"
     )
-    action.add_argument("--sync", action="store_true", help="synchronize from VERSION")
-    action.add_argument("--set", metavar="X.Y.Z", help="write VERSION and synchronize")
+    action.add_argument(
+        "--sync", action="store_true", help="synchronize manifests and regenerate locks"
+    )
+    action.add_argument(
+        "--set", metavar="X.Y.Z", help="write VERSION, synchronize, and regenerate locks"
+    )
     parser.add_argument("--root", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
@@ -200,25 +159,38 @@ def main() -> int:
                     "VERSION must be a single value followed by one newline"
                 )
             version = parse_version(raw)
-        changed = synchronize(root, version, args.check)
+
+        changed = synchronize_manifests(root, version, args.check)
+        if args.check:
+            if changed:
+                for path in changed:
+                    print(
+                        f"version check failed: {path.relative_to(root)} is not {version}",
+                        file=sys.stderr,
+                    )
+                print("run: python3 tools/ci/version.py --sync", file=sys.stderr)
+                return 1
+            validate_lock_versions(root, version)
+            return 0
+
         if args.set is not None:
             (root / "VERSION").write_text(f"{version}\n", encoding="utf-8")
-    except (KeyError, OSError, tomllib.TOMLDecodeError, VersionError) as error:
-        print(f"version check failed: {error}", file=sys.stderr)
-        return 1
-
-    if args.check and changed:
-        for path in changed:
-            print(
-                f"version check failed: {path.relative_to(root)} is not {version}",
-                file=sys.stderr,
-            )
-        print("run: python3 tools/ci/version.py --sync", file=sys.stderr)
-        return 1
-    if not args.check:
         for path in changed:
             print(f"updated {path.relative_to(root)} to {version}")
-    return 0
+        print("refreshing Cargo.lock with cargo update --workspace")
+        print("refreshing uv.lock with uv lock")
+        refresh_lockfiles(root)
+        validate_lock_versions(root, version)
+        return 0
+    except (
+        KeyError,
+        OSError,
+        subprocess.CalledProcessError,
+        tomllib.TOMLDecodeError,
+        VersionError,
+    ) as error:
+        print(f"version check failed: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

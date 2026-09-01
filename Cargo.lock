@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "allowance-kernel"
-version = "0.11.0"
+version = "0.0.1"
 
 [[package]]
 name = "android_system_properties"
@@ -82,7 +82,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "artifact-certificate-checker"
-version = "0.11.0"
+version = "0.0.1"
 
 [[package]]
 name = "autocfg"
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "proofbound-adapter-aeneas"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "proofbound-evidence",
  "proofbound-manifest",
@@ -467,7 +467,7 @@ dependencies = [
 
 [[package]]
 name = "proofbound-adapter-kani"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "proofbound-evidence",
  "proofbound-manifest",
@@ -482,7 +482,7 @@ dependencies = [
 
 [[package]]
 name = "proofbound-adapter-lean"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "hex",
  "proofbound-core",
@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "proofbound-adapter-test"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "proofbound-evidence",
  "proofbound-manifest",
@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "proofbound-cli"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "proofbound-core"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "proofbound-evidence"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "chrono",
  "globset",
@@ -555,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "proofbound-manifest"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "globset",
  "hex",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "proofbound-verify"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "clap",
  "hex",
@@ -986,7 +986,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.11.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",

@@ -8,7 +8,7 @@ The root `VERSION` file is the release version source of truth.
 
 ## [Unreleased]
 
-## [0.11.0] - 2026-09-01
+## [0.0.1] - 2026-09-01
 
 ### Added
 
@@ -46,5 +46,5 @@ The root `VERSION` file is the release version source of truth.
 - Cached evidence now fails closed across source, manifest, permission, tool,
   and receipt-shape drift.
 
-[Unreleased]: https://github.com/bordumb/proof-bound/compare/v0.11.0...HEAD
-[0.11.0]: https://github.com/bordumb/proof-bound/releases/tag/v0.11.0
+[Unreleased]: https://github.com/bordumb/proof-bound/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/bordumb/proof-bound/releases/tag/v0.0.1

@@ -23,8 +23,9 @@ checks version and changelog metadata, whitespace, Rust formatting, repository
 manifests and closures, and focused Python contracts before a commit is
 created. Run the same subset directly with `just fast-checks`.
 
-`VERSION` is the product-version source of truth. Bump it and synchronize all
-derived Rust, Python, Lean, lockfile, and normative-spec declarations with:
+`VERSION` is the product-version source of truth. Bump it, synchronize the
+Rust, Python, and Lean manifests, and regenerate the Cargo and uv lockfiles
+with their native package managers using:
 
 ```console
 $ just set-version 0.12.0

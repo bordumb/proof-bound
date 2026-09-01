@@ -58,6 +58,7 @@ it `promoted` and link to the authoritative document.
 
 | Note | Status | Last reviewed | Likely destination | Purpose |
 |---|---|---|---|---|
+| [First-hour experience](first-hour-experience.md) | active | 2026-09-01 | Spec 0001 revision (§12.2, §12.3) and a release-layout ADR | Ranked, acceptance-tested plan for the five fixes that gate a stranger's first hour, from install to error localization. |
 | [Language support](language-support.md) | exploring | 2026-09-01 | Product vision and Python adoption guide | Separate Proofbound's language-neutral assurance model from its currently supported evidence adapters, and define a credible Python path. |
 
 ## Note template
