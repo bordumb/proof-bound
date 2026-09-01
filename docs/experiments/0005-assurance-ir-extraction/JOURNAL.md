@@ -113,3 +113,26 @@ IR-ADV-003 now changes the sole source-derived run's command index from zero to
 one and retains `IR-PROVENANCE-RUN-ORDER` as its expected rejection. The other
 19 cases are unchanged. Results must bind revision 2 and its new digest; the
 initial positive-only result remains bound to revision 1.
+
+## 2026-09-02 — Adversarial evidence-algebra run
+
+At implementation commit `f577a55dc01e70dfcd595a45b71855ae052db58b`,
+expanded every positive projection into a canonical per-case Assurance IR
+document. Independently implemented Rust and Python validators rederive the
+registered family/detail relationship, subject and artifact joins,
+assumptions, claim attribution, cache dependency and reuse binding, run order,
+and status ceilings without executing an evidence backend.
+
+Both validators rejected all 20 adversarial revision-2 cases with the exact
+registered codes. They also retained agreement on all 20 positive cases and 15
+canonical vectors. A literal backend-schema branch discovered during the first
+local run was removed before the implementation commit: typed sampled-property
+detail now declares its required fact schemas, and the generic validator only
+checks declaration membership. Neither generic validator contains a concrete
+backend name.
+
+This is bounded evidence for Q2, Q3, and Q4. Q1 remains unanswered because the
+prototype does not yet preserve every registered projection field or implement
+reverse conversion. Q5 remains unanswered because complete versioned migration
+has not been exercised. The machine-readable result records those limits and
+must not be cited as completion of Experiment 0005.

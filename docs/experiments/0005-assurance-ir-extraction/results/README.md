@@ -16,3 +16,4 @@ corrections are new files plus an append-only journal entry.
 | Run | Status | Scope |
 |---|---|---|
 | [Initial projection parity](2026-09-01-initial-projection-parity.json) | complete, bounded | Twenty positive source projections and 15 canonical domain vectors; no preregistered adversarial execution or full status rederivation |
+| [Adversarial evidence algebra](2026-09-02-adversarial-evidence-algebra.json) | complete, bounded | Independent Rust/Python validation of 20 positive cases, all 20 corrected preregistered attacks, 15 canonical vectors, and seven exact status rederivations |

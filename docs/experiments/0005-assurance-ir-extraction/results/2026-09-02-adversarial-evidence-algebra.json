@@ -1,0 +1,91 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0005",
+  "run": "adversarial-evidence-algebra",
+  "executed_at": "2026-09-02",
+  "proofbound_commit": "git:f577a55dc01e70dfcd595a45b71855ae052db58b",
+  "corpus": {
+    "positive_path": "docs/experiments/0005-assurance-ir-extraction/corpus/cases.json",
+    "positive_sha256": "sha256:370c45f5a7a5a492c7c12218ee53be782cd6e8610a70297bd94488801dba5f32",
+    "positive_cases": 20,
+    "adversarial_path": "docs/experiments/0005-assurance-ir-extraction/corpus/adversarial-cases.json",
+    "adversarial_revision": 2,
+    "adversarial_sha256": "sha256:44b99393023f81f7100e9fe7d415d840ed8c439f09597baeb49e539bfbf72f24",
+    "adversarial_cases": 20
+  },
+  "implementations": {
+    "producer": {
+      "language": "Rust",
+      "projection_path": "crates/proofbound-ir-prototype/src/lib.rs",
+      "projection_sha256": "sha256:e7e1d05c426ed191a4855dc3f601277c48c28dbde7435c624475ae030822640c",
+      "validator_path": "crates/proofbound-ir-prototype/src/assurance.rs",
+      "validator_sha256": "sha256:644bcb07458fd23b85ddea6ed1a7cbab7ed3b7b9343bbd91f604315c2d79786d",
+      "shared_with_checker": false
+    },
+    "checker": {
+      "language": "Python",
+      "path": "python/proofbound/assurance_ir_checker.py",
+      "sha256": "sha256:91cbacd09339b90d4f812531112ebeead70f31c2236738e7d4dfef64660180ca",
+      "imports_producer_types": false,
+      "shared_with_producer": false
+    },
+    "differential_harness": {
+      "path": "python/tests/test_assurance_ir_checker.py",
+      "sha256": "sha256:7f3f7f5f4a0903fb8b134db0b9bae51ac382cc4665f32d2d1a9aa349a4b4778c"
+    }
+  },
+  "environment": {
+    "os": "Darwin 27.0.0 arm64",
+    "architecture": "arm64",
+    "rustc": "1.94.0 (4a4ef493e 2026-03-02)",
+    "python": "3.12.12",
+    "network_required": false,
+    "evidence_backends_executed": false
+  },
+  "projection": {
+    "schema": "proofbound-assurance-ir-projection/1",
+    "case_schema": "proofbound-assurance-ir-case/1",
+    "canonical_bytes": 56949,
+    "raw_sha256": "sha256:14c606db8c148c65b67781c86e66c68491a8df2da286053c2be3019a1a70a222",
+    "domain_sha256": "sha256:63402c500e41ad1a1583877d8bd50324b4975cc78f5dc089c8a951f687840a44"
+  },
+  "metrics": {
+    "positive_cases_executed": 20,
+    "positive_cases_agreed": 20,
+    "adversarial_cases_executed_by_rust": 20,
+    "adversarial_cases_rejected_by_rust_with_expected_code": 20,
+    "adversarial_cases_executed_by_python": 20,
+    "adversarial_cases_rejected_by_python_with_expected_code": 20,
+    "producer_checker_disagreements": 0,
+    "canonical_domain_vectors_executed": 15,
+    "canonical_domain_vectors_agreed": 15,
+    "generic_kernel_concrete_backend_name_hits": 0,
+    "exact_status_cases_rederived": 7,
+    "aggregate_registration_status_cases_ceiling_checked": 13
+  },
+  "checks": [
+    "Both implementations independently decode canonical JSON and reject duplicate object keys before interpretation",
+    "Both implementations independently derive family/detail compatibility, subject and artifact joins, assumptions, claim attribution, cache completeness, reuse binding, run order, and status ceilings",
+    "Required backend facts are declared by typed family detail; generic validation contains no concrete backend-name branch",
+    "Every adversarial mutation is applied independently to its valid source-derived base case",
+    "Every adversarial mutation is rejected by both implementations with its preregistered stable code"
+  ],
+  "question_outcomes": {
+    "Q1": "unanswered: the prototype does not yet project every field in the registered semantic projection or implement a lossless reverse conversion",
+    "Q2": "bounded-pass: generic validation and status derivation contain no concrete backend-name branch over this corpus",
+    "Q3": "bounded-pass: 20 positive cases, 20 adversarial cases, and 15 canonical vectors agree independently with zero false acceptance",
+    "Q4": "bounded-pass: typed family substitutions and attempted status upgrades are rejected without flattening evidence meanings",
+    "Q5": "unanswered: old-schema rejection is exercised, but complete versioned migration and reverse projection are not"
+  },
+  "limitations": [
+    "This remains a research-only case projection, not a production Proofbound wire.",
+    "The program does not yet preserve authoritative inventory, output identities, full subject identity, normalization, closures, TCB, or complete policy explanation.",
+    "Registration cases carry aggregate claim outcomes, so they use family-specific status ceilings rather than pretending one unit independently derives the complete claim status.",
+    "No evidence backend was executed; source fixtures are verified by their frozen identities.",
+    "The bounded Q2-Q4 outcomes do not resolve H1 or H2 until Q1 and Q5 are answered."
+  ],
+  "referenced_artifacts": {
+    "canonical_vectors_sha256": "sha256:99ba336f3da82baff8e48c9e4d4116d2d3a878e1e1d6b52f603f3d0c6f225a23",
+    "field_inventory_sha256": "sha256:b47b151ea98020131dc340aca412d437efc3fba9ad3b8605d8dec8affa4f8847"
+  }
+}

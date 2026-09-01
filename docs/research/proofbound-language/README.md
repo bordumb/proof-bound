@@ -6,7 +6,7 @@
 
 - **Status:** active
 - **Created:** 2026-09-01
-- **Last updated:** 2026-09-01
+- **Last updated:** 2026-09-02
 - **Current gate:** Gate 1 — shared semantics
 - **Active experiment:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md)
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
@@ -23,9 +23,11 @@ kernel boundary while retaining typed backend facts at conversion and
 invalidation boundaries.
 
 The positive semantic-projection corpus is frozen and a non-normative
-[Assurance IR `/1` draft](assurance-ir-v1.md) now makes the proposed boundary
-falsifiable. Neither is an experiment result until independent projection and
-adversarial checks execute.
+[Assurance IR `/1` draft](assurance-ir-v1.md) makes the proposed boundary
+falsifiable. Independent Rust and Python prototypes now agree on all 20
+positive cases and reject all 20 corrected preregistered attacks with their
+expected codes. The result is bounded: it does not yet provide the complete
+lossless and reversible projection required by Q1 and Q5.
 
 ## Programme map
 
@@ -68,14 +70,15 @@ adversarial checks execute.
 - Inventory revision 2 and the frozen 20-case corpus now support a concrete IR
   draft. The draft isolates backend conversion and invalidation from common
   validation and derivation.
-- The initial differential slice has executable Rust/Python agreement on all
-  20 positive source projections and 15 canonical vectors. It has not yet
-  rederived the full evidence algebra or executed the adversarial corpus, so it
-  is evidence of a workable boundary—not a pass for H1 or H2.
+- The second differential slice has executable Rust/Python agreement on all 20
+  positive source projections, all 20 preregistered adversarial cases, and 15
+  canonical vectors. It provides bounded passes for EXP-0005 Q2-Q4, while Q1
+  and Q5 remain unanswered because the projection is not yet complete or
+  reversible.
 
 ## Current decision
 
-Continue Gate 1 only. Implement two independent IR projection/checking
-prototypes and the preregistered adversarial corpus next. Do not design final
-syntax or native executable semantics until the evidence algebra and
-invalidation model satisfy their preregistered criteria.
+Continue Gate 1 only. Extend the projection to every field registered by Q1,
+then implement reverse conversion and versioned migration for Q5. Do not design
+final syntax or native executable semantics until that lossless boundary and
+the invalidation model satisfy their preregistered criteria.
