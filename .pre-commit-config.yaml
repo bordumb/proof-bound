@@ -10,3 +10,10 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
+      - id: proofbound-assurance-diff
+        name: Proofbound assurance diff
+        entry: bash tools/ci/pre-push.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
