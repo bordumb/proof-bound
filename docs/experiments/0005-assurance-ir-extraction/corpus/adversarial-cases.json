@@ -2,8 +2,9 @@
   "schema": "proofbound-research-adversarial-corpus/1",
   "experiment": "EXP-0005",
   "baseline": "git:295ad63e67bd30cc48eb8c9ee43c612de2c367c6",
-  "revision": 1,
-  "status": "preregistered-unexecuted",
+  "revision": 2,
+  "status": "preregistered-corrected-unexecuted",
+  "correction": "IR-ADV-003 originally reversed a singleton run list, which was an identity transformation. Before any adversarial execution, revision 2 replaces it with an invalid command index on that same source-derived run and preserves the registered rejection code.",
   "contract": "Each mutation is applied independently to a valid projected base case. Acceptance by either implementation is a falsifier for Q3 unless the expected result says accept.",
   "cases": [
     {
@@ -24,7 +25,7 @@
       "id": "IR-ADV-003",
       "base_case": "IR-REL-001",
       "phase": "decode",
-      "mutation": {"operation": "reverse-list", "path": "/evidence/0/provenance/runs"},
+      "mutation": {"operation": "replace", "path": "/evidence/0/provenance/runs/0/command_index", "value": 1},
       "expected": {"result": "reject", "code": "IR-PROVENANCE-RUN-ORDER"}
     },
     {

@@ -101,3 +101,15 @@ This is deliberately a boundary prototype: it does not yet materialize the full
 AssuranceProgram, rederive every status from the evidence algebra, or execute
 the 20 preregistered adversarial transformations. No EXP-0005 question is
 therefore marked passed.
+
+## 2026-09-02 — Adversarial corpus correction before execution
+
+While materializing the adversarial harness, IR-ADV-003 was found to reverse a
+singleton run list. That operation is an identity transformation and could not
+test the registered ordering invariant. No adversarial case had been executed.
+
+The adversarial corpus therefore advances to revision 2 before execution.
+IR-ADV-003 now changes the sole source-derived run's command index from zero to
+one and retains `IR-PROVENANCE-RUN-ORDER` as its expected rejection. The other
+19 cases are unchanged. Results must bind revision 2 and its new digest; the
+initial positive-only result remains bound to revision 1.

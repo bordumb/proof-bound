@@ -10,7 +10,7 @@
 | EXP-0005-A004 | `results/README.md` | scaffold | Naming and immutability contract for machine-readable run results |
 | EXP-0005-A005 | `corpus/cases.json` | frozen, revision 1, `sha256:370c45f5a7a5a492c7c12218ee53be782cd6e8610a70297bd94488801dba5f32` | Twenty exact positive registration, semantic-status, and portable-release cases |
 | EXP-0005-A006 | `../../research/proofbound-language/assurance-ir-v1.md` | research draft, `sha256:f409be37930a6203eedbd3146ae256fdbf376cba8677d7e1367b8b98159844b0` | Non-normative Assurance IR `/1` model and falsification boundary |
-| EXP-0005-A007 | `corpus/adversarial-cases.json` | preregistered, revision 1, `sha256:7781010dfbf0da56d5375a3e25ddc009fef4150af9b9b2514c61533176ab3b5a` | Twenty exact mutations and fail-closed expected results |
+| EXP-0005-A007 | `corpus/adversarial-cases.json` | preregistered, corrected before execution, revision 2, `sha256:44b99393023f81f7100e9fe7d415d840ed8c439f09597baeb49e539bfbf72f24` | Twenty exact mutations and fail-closed expected results; IR-ADV-003 correction recorded in the journal |
 | EXP-0005-A008 | `corpus/canonical-vectors.json` | preregistered, revision 1, `sha256:99ba336f3da82baff8e48c9e4d4116d2d3a878e1e1d6b52f603f3d0c6f225a23` | Canonical JSON contract, five new domains, and 15 expected hashes |
 | EXP-0005-A009 | `results/2026-09-01-initial-projection-parity.json` | immutable result, `sha256:29a272074ebd379f6db3c9c243e19b4dbd2eb5f59d26534a69bd7f1b75a6da67` | Rust/Python agreement on 20 positive projections and 15 canonical vectors |
 

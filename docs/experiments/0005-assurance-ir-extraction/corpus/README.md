@@ -9,7 +9,8 @@
 - **Status:** frozen positive and preregistered adversarial corpus; no
   projection execution yet
 - **Baseline:** `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
-- **Corpus revision:** 1
+- **Positive corpus revision:** 1
+- **Adversarial corpus revision:** 2
 - **Case count:** 20
 - **Adversarial case count:** 20
 
@@ -64,6 +65,12 @@ assumption and cache omission, stale reuse, noncanonical encoding, duplicate
 keys, old-schema reinterpretation, required-unknown omission, attribution, and
 reported-status attacks. Its exact mutations and expected rejection codes are
 frozen before either prototype is implemented.
+
+Adversarial revision 2 corrects IR-ADV-003 before adversarial execution.
+Revision 1 tried to reverse a singleton run list and therefore could not alter
+its base case. The corrected case changes that source-derived run's command
+index while preserving the original ordering invariant and expected rejection
+code.
 
 `canonical-vectors.json` freezes five new research-only domain strings and
 independent expected digests over three canonical values. These domains do not
