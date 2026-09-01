@@ -8,6 +8,15 @@ bootstrap:
 fmt:
     cargo fmt --all -- --check
 
+hooks:
+    uvx --from pre-commit==4.5.1 pre-commit install
+
+fast-checks:
+    bash tools/ci/pre-commit.sh
+
+set-version version:
+    python3 tools/ci/version.py --set "{{version}}"
+
 preflight:
     cargo xtask preflight
 

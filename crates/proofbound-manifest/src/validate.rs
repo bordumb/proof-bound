@@ -3211,6 +3211,22 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../.github/scripts/resolve-assurance-base.sh"
         ));
+        let pre_commit = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../.pre-commit-config.yaml"
+        ));
+        let fast_checks = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tools/ci/pre-commit.sh"
+        ));
+        let version_check = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tools/ci/version.py"
+        ));
+        let changelog_check = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tools/ci/changelog.py"
+        ));
         let xtask = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../xtask/src/main.rs"));
         let justfile = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../justfile"));
         let cargo_config = include_str!(concat!(
@@ -3250,6 +3266,13 @@ mod tests {
         assert!(revision_resolver.contains("refs/heads/$default_branch"));
         assert!(revision_resolver.contains("event_before"));
         assert!(!revision_resolver.contains("${head}^"));
+        assert!(pre_commit.contains("bash tools/ci/pre-commit.sh"));
+        assert!(fast_checks.contains("python3 tools/ci/version.py --check"));
+        assert!(fast_checks.contains("python3 tools/ci/changelog.py --staged"));
+        assert!(version_check.contains("Cargo.toml"));
+        assert!(version_check.contains("pyproject.toml"));
+        assert!(version_check.contains("lakefile.toml"));
+        assert!(changelog_check.contains("CHANGELOG.md"));
         assert!(xtask.contains("OsString::from(\"check\"), OsString::from(\"--fresh\")"));
         assert!(xtask.contains("Role::FinalVerifier"));
         assert!(xtask.contains("workspace_binary(root, \"proofbound-verify\")"));

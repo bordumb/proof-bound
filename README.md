@@ -18,6 +18,21 @@ $ cargo xtask preflight
 $ cargo xtask release-smoke
 ```
 
+Install the repository's fast local commit gate once with `just hooks`. It
+checks version and changelog metadata, whitespace, Rust formatting, repository
+manifests and closures, and focused Python contracts before a commit is
+created. Run the same subset directly with `just fast-checks`.
+
+`VERSION` is the product-version source of truth. Bump it and synchronize all
+derived Rust, Python, Lean, lockfile, and normative-spec declarations with:
+
+```console
+$ just set-version 0.12.0
+```
+
+Every released version also needs a dated entry in `CHANGELOG.md`; the local
+hook requires a staged version bump and changelog update to travel together.
+
 `doctor` reports optional tool capabilities before the full check. The complete
 repository gate additionally requires the pinned Kani verifier; the current
 Charon/Aeneas capability is deliberately unavailable and is represented as an
