@@ -1,13 +1,13 @@
 schema = "proofbound-project/1"
 project = "proofbound"
 tier = 3
-claim_manifests = ["claims/*.toml", "demo/allowance/claims/*.toml", "demo/artifact-certificate/claims/*.toml"]
+claim_manifests = ["claims/*.toml", "demo/allowance/claims/*.toml", "demo/artifact-certificate/claims/*.toml", "demo/trusted-transcription/claims/*.toml"]
 assumption_manifests = ["demo/allowance/proofbound/assumptions/*.toml", "demo/artifact-certificate/assumptions/*.toml"]
-evidence_units = ["proofbound/evidence/*.toml", "demo/allowance/proofbound/evidence/*.toml", "demo/artifact-certificate/evidence/*.toml"]
+evidence_units = ["proofbound/evidence/*.toml", "demo/allowance/proofbound/evidence/*.toml", "demo/artifact-certificate/evidence/*.toml", "demo/trusted-transcription/evidence/*.toml"]
 translation_units = ["demo/allowance/proofbound/translations/*.toml"]
 model_check_units = ["demo/allowance/proofbound/model-checks/*.toml"]
-policy_manifests = []
-review_manifests = []
+policy_manifests = ["demo/artifact-certificate/policies/*.toml"]
+review_manifests = ["proofbound/reviews/*.toml"]
 demo_registry = "proofbound/demos.toml"
 
 [source]
@@ -23,8 +23,9 @@ semantic = [
   "demo/*/claims/**",
   "demo/*/assumptions/**",
   "demo/*/evidence/**",
+  "demo/*/policies/**",
 ]
-runner = [".cargo/**", ".github/workflows/**", "Cargo.lock", "justfile", "rust-toolchain.toml", "lean-toolchain", "lakefile.toml", "pyproject.toml", "uv.lock", "python/**", "demo/*/python/**"]
+runner = [".cargo/**", ".github/scripts/**", ".github/workflows/**", ".pre-commit-config.yaml", "CHANGELOG.md", "Cargo.lock", "VERSION", "justfile", "rust-toolchain.toml", "lean-toolchain", "lakefile.toml", "pyproject.toml", "tools/ci/**", "uv.lock", "python/**", "demo/*/python/**"]
 presentation = ["README.md", "docs/**", "demo/*/README.md", "demo/*/FORMAT.md"]
 external_evidence = ["docs/assurance/reference-audits/**"]
 

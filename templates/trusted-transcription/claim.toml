@@ -1,0 +1,17 @@
+schema = "proofbound-claim/1"
+id = "EXAMPLE-TRANSCRIPTION-001"
+title = "Registered typed values preserve the exact source bytes"
+statement = "The committed typed values are the registered transcription of the exact source and re-encode byte-for-byte to it."
+subject = "artifact:source/values.pbtt"
+profile = "transcribed"
+tier = 1
+primary_linkage = "transcribed"
+evidence = ["transcription:trusted-values"]
+assumptions = []
+premises = []
+open_obligations = []
+out_of_scope = [
+  "No theorem establishes this transcription or byte binding.",
+  "The Python driver is trusted in distinct transcriber and re-encoder roles.",
+]
+source_roots = ["source/values.pbtt", "transcribed/values.json"]

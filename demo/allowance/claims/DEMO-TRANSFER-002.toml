@@ -15,7 +15,7 @@ evidence = [
   "theorem:accept-no-overdraft",
   "bounded-check:transfer-bounds",
   "property-test:rust-kernel-tests",
-  "mutation-witness:guard-mutations",
+  "mutation-witness:remove-source-balance-guard",
 ]
 assumptions = ["DEMO-IDENTITY-AX-001"]
 premises = ["DEMO-U64-REP-001"]
@@ -24,6 +24,7 @@ open_obligations = [
 ]
 out_of_scope = ["Concurrent balance changes outside this pure decision kernel."]
 source_roots = [
+  "demo/allowance/rust/kernel/src/decision.rs",
   "demo/allowance/rust/kernel/src/lib.rs",
   "demo/allowance/lean/ProofboundDemo/Claims/Transfer.lean",
   "demo/allowance/lean/ProofboundDemo/Transfer.lean",

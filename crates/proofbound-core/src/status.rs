@@ -9,7 +9,7 @@ use crate::{
     AssuranceGraph, BoundedDomain, CLAIM_SCHEMA_V1, ClaimDefinition, ClaimId, EdgeKind, ErrorCode,
     EvidenceId, EvidenceKind, EvidenceRecord, EvidenceStatus, FlowScope, FormalFacet, LinkageFacet,
     NodeId, NodeKind, OpenObligation, OutOfScope, PolicyDefinition, PremiseId, PremiseRecord,
-    StructuredError, TheoremAdmission, Tier,
+    Sha256Digest, StructuredError, TheoremAdmission, Tier, parse_artifact_digest_binding,
 };
 
 pub const CLAIM_STATUS_SCHEMA_V1: &str = "proofbound-claim-status/1";
@@ -185,6 +185,19 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
             ErrorCode::PbCoreInvalidEvidence,
             "claim title and exact statement must be non-empty",
             "register exact human and formal claim language",
+        ));
+    }
+    if input
+        .claim
+        .public_language
+        .as_ref()
+        .is_some_and(|language| language.trim().is_empty())
+    {
+        errors.push(claim_error(
+            claim_id,
+            ErrorCode::PbCoreInvalidEvidence,
+            "claim public language must be nonblank when present",
+            "remove public_language or register a nonblank reader-facing statement",
         ));
     }
     if input.claim.policy != input.policy.id {
@@ -462,6 +475,9 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         let mut locally_valid = true;
         if let Err(record_errors) = record.validate(claim_id) {
             errors.extend(record_errors.errors);
+            locally_valid = false;
+        }
+        if !validate_mutation_subject(record, &input.claim, claim_id, &mut errors) {
             locally_valid = false;
         }
         if !effective_tier.admits(record.kind.minimum_tier()) {
@@ -836,8 +852,60 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
                         && admitted_theorems.contains(&binding.theorem)
                         && input.policy.artifact_evaluation_admitted(record)
                     {
-                        linkage_candidates.insert(LinkageFacet::ArtifactBound);
-                        linkage_evidence.insert(record.id.clone());
+                        let parsed = evidence_catalog
+                            .get(&binding.theorem)
+                            .and_then(|theorem_record| theorem_record.theorem.as_ref())
+                            .ok_or_else(|| {
+                                format!(
+                                    "artifact binding '{}' references evidence '{}' without a compiled theorem statement",
+                                    record.id, binding.theorem
+                                )
+                            })
+                            .and_then(|theorem| {
+                                parse_artifact_digest_binding(
+                                    &theorem.statement_wire,
+                                    theorem.statement_sha256,
+                                    claim_id,
+                                )
+                                .map_err(|error| {
+                                    format!(
+                                        "artifact binding '{}' is not derived from the exact audited theorem root: {error}",
+                                        record.id
+                                    )
+                                })
+                            });
+                        match parsed {
+                            Ok(parsed)
+                                if record.binding_mode == Some(parsed.mode)
+                                    && parsed.artifact_logical_name
+                                        == binding.artifact.logical_name
+                                    && parsed.artifact_sha256 == binding.artifact.sha256 =>
+                            {
+                                linkage_candidates.insert(LinkageFacet::ArtifactBound);
+                                linkage_evidence.insert(record.id.clone());
+                            }
+                            Ok(_) => errors.push(
+                                claim_error(
+                                    claim_id,
+                                    ErrorCode::PbCoreInvalidEvidence,
+                                    format!(
+                                        "artifact binding '{}' disagrees with its audited theorem marker",
+                                        record.id
+                                    ),
+                                    "make binding mode, logical name, and digest equal the exact elaborated theorem marker",
+                                )
+                                .for_unit(record.unit_id.clone()),
+                            ),
+                            Err(message) => errors.push(
+                                claim_error(
+                                    claim_id,
+                                    ErrorCode::PbCoreInvalidEvidence,
+                                    message,
+                                    "use an exact Proofbound.Artifact.DigestBindingV1 theorem root with literal audited identity fields",
+                                )
+                                .for_unit(record.unit_id.clone()),
+                            ),
+                        }
                     }
                 }
             }
@@ -921,15 +989,19 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         &discharge_evidence,
     );
 
+    let reader_statement = input
+        .claim
+        .public_language
+        .as_ref()
+        .unwrap_or(&input.claim.statement);
     let public_statement =
         if matches!(formal, FormalFacet::BoundedChecked) || used_exhaustive_as_proof {
-            input
-                .claim
-                .registered_domain_language
-                .clone()
-                .unwrap_or_else(|| input.claim.statement.clone())
+            input.claim.registered_domain_language.as_ref().map_or_else(
+                || reader_statement.clone(),
+                |domain| format!("{} Registered finite domain: {}", reader_statement, domain),
+            )
         } else {
-            input.claim.statement.clone()
+            reader_statement.clone()
         };
 
     let exclusions = input.claim.out_of_scope.iter().cloned().collect::<Vec<_>>();
@@ -1051,7 +1123,7 @@ fn validate_evidence_graph_node(
     if let Some(transcription) = &record.trusted_transcription {
         require_node_kind(
             graph,
-            &transcription.transcriber_tcb,
+            &transcription.transcriber.tcb_node,
             &[NodeKind::TcbComponent],
             claim_id,
             "transcriber TCB component",
@@ -1059,7 +1131,7 @@ fn validate_evidence_graph_node(
         );
         require_node_kind(
             graph,
-            &transcription.reencoder_tcb,
+            &transcription.reencoder.tcb_node,
             &[NodeKind::TcbComponent],
             claim_id,
             "re-encoder TCB component",
@@ -1067,6 +1139,42 @@ fn validate_evidence_graph_node(
         );
     }
     before == errors.len()
+}
+
+fn validate_mutation_subject(
+    record: &EvidenceRecord,
+    claim: &ClaimDefinition,
+    claim_id: &ClaimId,
+    errors: &mut Vec<StructuredError>,
+) -> bool {
+    if record.kind != EvidenceKind::MutationWitness {
+        return true;
+    }
+    let Some(witness) = record.mutation_witness.as_ref() else {
+        return true;
+    };
+    let expected = NodeId::new(format!(
+        "subject:{}",
+        Sha256Digest::of_bytes(witness.subject.as_bytes())
+    ))
+    .expect("a SHA-256-derived subject node is valid");
+    if claim.subject == expected {
+        return true;
+    }
+    errors.push(
+        claim_error(
+            claim_id,
+            ErrorCode::PbCoreInvalidEvidence,
+            format!(
+                "mutation witness '{}' targets a different subject than its affected claim",
+                witness.mutation_id
+            ),
+            "bind the registered mutation subject to the exact subject of every affected claim",
+        )
+        .identities(expected.to_string(), claim.subject.to_string())
+        .for_unit(record.unit_id.clone()),
+    );
+    false
 }
 
 fn require_node_kind(
@@ -1188,6 +1296,13 @@ fn policy_blockers(
             "artifact-binding-required",
             "artifact-bound policy rejects transcription or an unbound model".into(),
             "bind canonical bytes with bytes-in-theorem or digest-theorem evidence",
+        );
+    }
+    if input.policy.requires_trusted_transcription() && linkage != LinkageFacet::Transcribed {
+        block(
+            "trusted-transcription-required",
+            "transcribed policy requires a derived external round trip".into(),
+            "supply valid trusted-transcription evidence with both exact input/output byte pairs and distinct TCB roles",
         );
     }
     if input.policy.requires_source_refinement() && linkage != LinkageFacet::Refined {

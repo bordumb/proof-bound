@@ -4,19 +4,16 @@
   "title": "Proofbound translation unit",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "id", "adapter", "packages", "start_from", "opaque", "include", "generated_dir", "handwritten_refinement", "determinism_runs", "determinism_normalization", "forbid_generated_axioms", "resource_budget", "claims"],
+  "required": ["schema", "id", "pipeline", "invocations", "generated_dir", "handwritten_refinement", "determinism_runs", "determinism_normalization", "forbid_generated_axioms", "import_mapping", "resource_budget", "claims"],
   "properties": {
-    "schema": { "const": "proofbound-translation-unit/1" },
+    "schema": { "const": "proofbound-translation-unit/3" },
     "id": { "$ref": "#/$defs/id" },
-    "adapter": { "const": "charon-aeneas" },
-    "packages": { "$ref": "#/$defs/names" },
-    "start_from": { "$ref": "#/$defs/names" },
-    "opaque": { "$ref": "#/$defs/names" },
-    "include": { "$ref": "#/$defs/names" },
+    "pipeline": { "const": "charon-aeneas" },
+    "invocations": { "type": "array", "items": { "$ref": "#/$defs/invocation" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
     "generated_dir": { "$ref": "#/$defs/path" },
     "handwritten_refinement": { "$ref": "#/$defs/path" },
     "determinism_runs": { "const": 2 },
-    "determinism_normalization": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "determinism_normalization": { "const": "pretty-printed-llbc/1" },
     "forbid_generated_axioms": { "const": true },
     "external_bridges": { "type": "array", "items": { "$ref": "#/$defs/bridge" }, "uniqueItems": true, "maxItems": 1024 },
     "template_axioms": { "type": "array", "items": { "$ref": "#/$defs/templateAxiom" }, "uniqueItems": true, "maxItems": 1024 },
@@ -27,12 +24,92 @@
   },
   "$defs": {
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
-    "path": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
-    "names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1024 }, "uniqueItems": true, "maxItems": 4096 },
-    "bridge": { "type": "object", "additionalProperties": false, "required": ["file", "reviewed_sha256"], "properties": { "file": { "$ref": "#/$defs/path" }, "module": { "type": "string", "minLength": 1 }, "reviewed_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } } },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))(?!(?:\\.git|target|\\.lake|\\.proofbound|\\.venv|__pycache__|\\.pytest_cache|\\.mypy_cache|\\.ruff_cache)(?:/|$))(?!.*\\/(?:\\.git|target|\\.lake|\\.proofbound|\\.venv|__pycache__|\\.pytest_cache|\\.mypy_cache|\\.ruff_cache)(?:/|$))[\\u0020-\\u002E\\u0030-\\u005B\\u005D-\\u007E]+(?:/[\\u0020-\\u002E\\u0030-\\u005B\\u005D-\\u007E]+)*$",
+      "description": "Portable slash-normalized relative path. Printable ASCII excludes backslash and control bytes, so maxLength is also the UTF-8 byte limit. Empty, dot, parent, doubled, trailing-slash, and Proofbound project-control components are forbidden."
+    },
+    "symbol": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" },
+    "reportRustName": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[\\u0021-\\u007E](?:[\\u0020-\\u007E]*[\\u0021-\\u007E])?$", "description": "Exact printable-ASCII rust_name emitted by Aeneas; unlike command-line selectors this may contain canonical impl/type syntax." },
+    "symbols": { "type": "array", "items": { "$ref": "#/$defs/symbol" }, "uniqueItems": true, "maxItems": 4096 },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "cargo_package", "cargo_manifest", "crate_name", "llbc_file", "start_from", "opaque", "include", "translated_closure", "outputs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "cargo_package": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$" },
+        "cargo_manifest": { "allOf": [{ "$ref": "#/$defs/path" }, { "pattern": "(?:^|/)Cargo\\.toml$" }] },
+        "crate_name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 256 },
+        "llbc_file": { "allOf": [{ "$ref": "#/$defs/path" }, { "pattern": "\\.llbc$" }] },
+        "start_from": { "allOf": [{ "$ref": "#/$defs/symbols" }, { "minItems": 1 }], "description": "Exact supported local Rust function-or-type roots selected for translation." },
+        "opaque": { "$ref": "#/$defs/symbols" },
+        "include": { "$ref": "#/$defs/symbols" },
+        "translated_closure": { "type": "array", "items": { "$ref": "#/$defs/inventoryEntry" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096, "description": "Exact supported, non-opaque local function/type closure expected in the Aeneas report. Semantic validation requires strict (kind, rust_name) order and unambiguous Rust names." },
+        "aeneas_subdir": { "$ref": "#/$defs/path", "description": "Optional Aeneas subdirectory beneath -dest. Lean produced paths include this prefix; translation.json remains at the -dest root." },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/output" }, "uniqueItems": true, "minItems": 2, "maxItems": 100000, "description": "Produced paths are relative to the Aeneas -dest root, not to aeneas_subdir." }
+      }
+    },
+    "inventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "rust_name"],
+      "properties": {
+        "kind": { "enum": ["function", "type"] },
+        "rust_name": { "$ref": "#/$defs/reportRustName" }
+      }
+    },
+    "output": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "produced", "destination"],
+          "properties": {
+            "kind": { "const": "lean-source" },
+            "produced": { "allOf": [{ "$ref": "#/$defs/path" }, { "pattern": "\\.lean$" }] },
+            "destination": { "allOf": [{ "$ref": "#/$defs/path" }, { "pattern": "\\.lean$" }] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "produced", "destination"],
+          "properties": {
+            "kind": { "const": "translation-report" },
+            "produced": { "const": "translation.json" },
+            "destination": { "allOf": [{ "$ref": "#/$defs/path" }, { "pattern": "\\.json$" }] }
+          }
+        }
+      ]
+    },
+    "bridge": { "type": "object", "additionalProperties": false, "required": ["file", "module", "reviewed_sha256"], "properties": { "file": { "$ref": "#/$defs/path" }, "module": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$" }, "reviewed_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } } },
     "templateAxiom": { "type": "object", "additionalProperties": false, "required": ["file", "count", "compiled"], "properties": { "file": { "$ref": "#/$defs/path" }, "count": { "type": "integer", "minimum": 0 }, "compiled": { "const": false } } },
-    "warning": { "type": "object", "additionalProperties": false, "required": ["artifact", "line", "kind"], "properties": { "artifact": { "$ref": "#/$defs/path" }, "line": { "type": "integer", "minimum": 1 }, "kind": { "type": "string", "minLength": 1, "maxLength": 128 } } },
-    "importMapping": { "type": "object", "additionalProperties": false, "required": ["mode"], "properties": { "mode": { "enum": ["external-source-root", "audited-rewrite"] }, "source_roots": { "type": "array", "items": { "$ref": "#/$defs/path" }, "uniqueItems": true }, "rewrite_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } } },
+    "warning": { "type": "object", "additionalProperties": false, "required": ["artifact", "line", "kind"], "properties": { "artifact": { "$ref": "#/$defs/path" }, "line": { "type": "integer", "minimum": 1 }, "kind": { "enum": ["upstream-sorry", "upstream-sorry-ax"] } } },
+    "importMapping": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "source_roots"],
+          "properties": {
+            "mode": { "const": "external-source-root" },
+            "source_roots": { "type": "array", "items": { "$ref": "#/$defs/path" }, "uniqueItems": true, "minItems": 1, "maxItems": 1024 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "rewrite_digest"],
+          "properties": {
+            "mode": { "const": "audited-rewrite" },
+            "rewrite_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          }
+        }
+      ]
+    },
     "budget": { "type": "object", "additionalProperties": false, "required": ["time_seconds", "disk_bytes", "memory_bytes"], "properties": { "time_seconds": { "type": "integer", "minimum": 1 }, "disk_bytes": { "type": "integer", "minimum": 1 }, "memory_bytes": { "type": "integer", "minimum": 1 } } }
   }
 }

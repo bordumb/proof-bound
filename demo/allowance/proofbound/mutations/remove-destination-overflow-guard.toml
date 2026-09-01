@@ -1,0 +1,14 @@
+schema = "proofbound-mutation-registry/2"
+subject = "rust:allowance-kernel::decide_transfer"
+
+[mutation]
+id = "remove-destination-overflow-guard"
+guard = "checked addition must succeed"
+target_path = "demo/allowance/rust/kernel/src/decision.rs"
+target_preimage_sha256 = "sha256:5b1b2ad3475ca2df87e429c1715d6e8bc5b434318f5712d0127945c0414336a2"
+mutant_path = "demo/allowance/proofbound/mutations/mutants/remove-destination-overflow-guard/decision.rs"
+mutant_sha256 = "sha256:22740f13f233b3ee5a855cadca8dfe94a92965a68b6ecffd0bc0fb43baad99c8"
+witness = "mutation_witnesses::destination_overflow_guard_is_enforced"
+witness_path = "demo/allowance/rust/kernel/tests/mutation_witnesses.rs"
+witness_sha256 = "sha256:a30fd502ec67b261e1b174c4a53fe90926d308526b077a66b94e66b3882729a7"
+affected_claims = ["DEMO-TRANSFER-001", "DEMO-TRANSFER-005"]

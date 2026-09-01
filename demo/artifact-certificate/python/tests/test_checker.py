@@ -52,7 +52,7 @@ def test_deterministic_fuzz_like_corpus_is_total_and_sound_when_accepted() -> No
         assert certificate.total == certificate.target
 
 
-def test_canonical_binding_report_is_explicit_and_byte_exact(
+def test_canonical_binding_report_contains_only_observed_artifact_facts(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repository = ROOT.parents[1]
@@ -63,25 +63,39 @@ def test_canonical_binding_report_is_explicit_and_byte_exact(
     output = capsys.readouterr().out
     assert not output.endswith("\n")
     report = json.loads(output)
-    assert report["schema"] == "proofbound-artifact-check-result/1"
-    assert report["theorem"] == "ProofboundArtifactDemo.Claims.publishedTotal"
+    assert set(report) == {
+        "accepted",
+        "artifact_logical_name",
+        "artifact_sha256",
+        "inventory",
+        "schema",
+    }
+    assert report == {
+        "accepted": True,
+        "artifact_logical_name": certificate,
+        "artifact_sha256": report["artifact_sha256"],
+        "inventory": ["valid-basic.pbac"],
+        "schema": "proofbound-artifact-check-result/1",
+    }
     assert report["artifact_sha256"].endswith(
         "dd7cf87ba3535aad431c473b71286fb6806fcc785fc3b39290c4a99d561dfe2d"
     )
-    assert all(
-        report[field]
-        for field in (
-            "accepted",
-            "canonical_payload",
-            "schema_bound",
-            "literal_claim_bound",
-            "digest_bound",
-            "reencoding_passed",
-            "trailing_bytes_rejected",
-        )
-    )
     decoded = inspect((repository / certificate).read_bytes())
     assert encode(decoded) == (repository / certificate).read_bytes()
+
+
+def test_independent_mode_emits_exact_canonical_inventory(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository = ROOT.parents[1]
+    monkeypatch.chdir(repository)
+    certificate = "demo/artifact-certificate/fixtures/valid-basic.pbac"
+    assert main([certificate]) == 0
+    output = capsys.readouterr().out
+    assert output == (
+        '{"accepted":true,"inventory":["valid-basic.pbac"],'
+        '"schema":"proofbound-independent-check-result/1"}'
+    )
 
 
 def test_binding_report_rejects_digest_drift(

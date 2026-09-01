@@ -112,6 +112,7 @@ impl PolicyDefinition {
 
         let matching_builtin = [
             BuiltInProfile::Ledger,
+            BuiltInProfile::Transcribed,
             BuiltInProfile::Kernel,
             BuiltInProfile::KernelWithAssumptions,
             BuiltInProfile::ArtifactBound,
@@ -125,7 +126,10 @@ impl PolicyDefinition {
             && (self.components != BTreeSet::from([profile])
                 || self.admit_exhaustive_as_proved
                 || self.require_no_assumptions
-                || !self.additional_required_evidence.is_empty())
+                || !self.additional_required_evidence.is_empty()
+                || (profile == BuiltInProfile::Transcribed
+                    && (!self.allowed_foundational_axioms.is_empty()
+                        || !self.allowed_project_axioms.is_empty())))
         {
             errors.push(StructuredError::new(
                 ErrorCode::PbCorePolicyViolation,
@@ -258,6 +262,11 @@ impl PolicyDefinition {
     #[must_use]
     pub fn requires_artifact_binding(&self) -> bool {
         self.components.contains(&BuiltInProfile::ArtifactBound)
+    }
+
+    #[must_use]
+    pub fn requires_trusted_transcription(&self) -> bool {
+        self.components.contains(&BuiltInProfile::Transcribed)
     }
 
     #[must_use]
@@ -405,6 +414,27 @@ mod tests {
         assert!(!ledger.requires_artifact_binding());
         assert!(!ledger.requires_source_refinement());
         assert!(ledger.validate().is_ok());
+    }
+
+    #[test]
+    fn transcribed_is_an_exact_tier_one_builtin_without_a_theorem_requirement() {
+        let transcribed = PolicyDefinition::built_in(
+            BuiltInProfile::Transcribed,
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .unwrap();
+        assert_eq!(transcribed.minimum_tier(), Tier::Bounded);
+        assert!(!transcribed.requires_theorem());
+        assert!(transcribed.requires_trusted_transcription());
+        assert!(!transcribed.requires_artifact_binding());
+        assert!(transcribed.validate().is_ok());
+
+        let mut redefined = transcribed;
+        redefined
+            .allowed_foundational_axioms
+            .insert("Classical.choice".into());
+        assert!(redefined.validate().is_err());
     }
 
     #[test]

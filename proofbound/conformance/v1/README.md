@@ -20,6 +20,9 @@ a one-claim synthetic assurance graph expressed with symbolic IDs. Its
 
 Evidence entries are cited and present by default, have outcome `passed` by
 default, and use symbolic `theorem_ref` and `premises` references. The optional
+theorem field `typed_binding` defaults to `true`; `false` requires an unrelated
+plain theorem statement so implementations can prove that artifact-checker
+output cannot manufacture `ARTIFACT_BOUND`. The optional
 `asserted` object represents an adversarial producer-reported status which an
 independent verifier must reject even though `expected` remains the correct
 derivation.
@@ -34,11 +37,16 @@ The corpus covers every formal and linkage facet, evidence precedence,
 explicit exhaustive-check admission, the Tier 0 `ledger` cap, assumptions and
 premises, primary-linkage selection, tier and policy blocks, failed/drifted/
 missing/unregistered evidence, and omission or status-upgrade attacks.
+It includes the security regression where passing artifact evidence cites an
+admitted but unrelated theorem and must derive `INVALID`, never
+`ARTIFACT_BOUND`. It also fixes the Tier-1 `transcribed` profile at
+`OPEN + TRANSCRIBED` without a theorem and carries an adversarial asserted
+`PROVED + ARTIFACT_BOUND` upgrade that every implementation must reject.
 
 ## Canonical release fixture
 
 `release-valid/` is a fully materialized, canonical
-`proofbound-compiled-release/1` directory. CI must verify these committed bytes
+`proofbound-compiled-release/3` directory. CI must verify these committed bytes
 in place; it must not generate or update the fixture first.
 
 From the repository root:

@@ -8,9 +8,11 @@ already happened.
 
 - `rust/src/lib.rs` is the shipping source subject.
 - `translation-unit.toml` is authoritative for package, start symbol,
-  generated destination, two-run determinism policy, and resource budget.
+  LLBC filename, complete produced-to-destination output map, two-run
+  determinism policy, and resource budget.
 - `lean/Generated/` is generator-owned and must be replaced atomically. Never
-  preserve handwritten files there.
+  preserve handwritten files, readmes, or review notes there. The manifest's
+  mapped destinations are the only files the replacement may create.
 - `lean/KernelRefinement.lean` is handwritten and stays outside the generated
   tree.
 - `representation-premise.toml` keeps the bounded Rust carrier visible when a
@@ -20,15 +22,24 @@ Replace every `EXAMPLE-*` and `YourProject.*` identity before registration.
 The example deliberately omits `external_bridges`: if a bridge is required,
 put it outside `lean/Generated/`, review it independently, and add the real
 tool-computed SHA-256 to the translation manifest. Never paste a made-up hash.
+The illustrative `Funs.lean`, `Types.lean`, and `translation.json` mappings are
+based on the pinned pilot's output shape, not an observed run of this template.
+Before registering the unit, run the pinned tools in a disposable directory
+and replace them with this crate's complete exact inventory; an extra, missing,
+renamed, or unmapped output is a hard failure.
 
 ## Verify-only workflow
 
-1. Pin full Charon and Aeneas revisions in the project translation-toolchain
-   lock.
+1. Pin the exact native Charon and Aeneas identities in the project
+   translation-toolchain lock: the line printed by `charon version`, and the
+   revision token printed by `aeneas -version`. Do not use a prefix or an
+   unobservable full source commit in a version-1 lock.
 2. Register `translation-unit.toml`, `source-refinement-evidence.toml`, the
    claim, and the representation premise in the project manifest.
-3. Run `proofbound update example-kernel-translation` deliberately and review
-   the resulting generated-code diff.
+3. Run the pinned translation once outside the registered evidence path to
+   establish the exact output map, then run
+   `proofbound update example-kernel-translation` deliberately and review the
+   resulting complete generated-tree replacement.
 4. Implement the handwritten theorem against the generated declarations.
 5. Run `proofbound check --fresh`; the adapter must translate twice, normalize
    only as declared, compare the outputs byte-for-byte, audit generated axioms,

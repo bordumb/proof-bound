@@ -30,23 +30,20 @@ jobs:
       - name: Resolve the assurance merge base
         id: revisions
         env:
+          EVENT_NAME: ${{ github.event_name }}
           EVENT_BASE: ${{ github.event.pull_request.base.sha }}
           EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           head="$(git rev-parse HEAD)"
-          candidate="$EVENT_BASE"
-          if [ -z "$candidate" ]; then
-            candidate="$EVENT_BEFORE"
-          fi
-          if [ -z "$candidate" ] || [ "$candidate" = "0000000000000000000000000000000000000000" ]; then
-            if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
-              base="$(git rev-parse HEAD^)"
-            else
-              base="$head"
-            fi
-          else
-            base="$(git merge-base "$candidate" "$head")"
-          fi
+          base="$(bash .github/scripts/resolve-assurance-base.sh \
+            "$EVENT_NAME" \
+            "$EVENT_BASE" \
+            "$EVENT_BEFORE" \
+            "$EVENT_REF" \
+            "$DEFAULT_BRANCH" \
+            "$head")"
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "head=$head" >> "$GITHUB_OUTPUT"
 

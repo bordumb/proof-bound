@@ -1,0 +1,17 @@
+schema = "proofbound-policy/1"
+id = "pbac-calibrated-artifact-native"
+extends = "artifact-bound"
+allow_project_axioms = true
+allowed_project_axioms = ["PBAC-CALIBRATION-AX-001"]
+allowed_foundational_axioms = [
+  "Classical.choice",
+  "ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness._native.native_decide.ax_1_1",
+  "Quot.sound",
+  "propext",
+]
+allow_native = true
+native_premise_count = 1
+allow_exhaustive_as_proved = false
+required_binding = "artifact-bound"
+require_registered_premises = false
+publication_allows_open = false

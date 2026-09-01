@@ -54,3 +54,4 @@ pub const EXPR_WIRE: &str = "PB-LEAN-0009";
 pub const PROVENANCE: &str = "PB-LEAN-0010";
 pub const RESOURCE: &str = "PB-LEAN-0011";
 pub const READ_ONLY: &str = "PB-LEAN-0012";
+pub const ARTIFACT_BINDING: &str = "PB-LEAN-0013";

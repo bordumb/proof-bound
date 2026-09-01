@@ -2,9 +2,9 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.5.0
+**Version:** 0.11.0
 
-**Date:** 2026-08-30
+**Date:** 2026-09-01
 
 **Project:** Proofbound
 
@@ -12,6 +12,53 @@
 
 ### Revision history
 
+- **0.11.0** — sealed singleton mutation replay: reserves evidence-unit `/3`
+  and mutation-registry `/2` for one byte-pinned full-file mutant and one exact
+  witness per evidence fate; runs the witness in independent clean and mutated
+  shadows; advances adapter observations to `/2`; and advances evidence,
+  compiled state, releases, and envelopes to `/3` so one typed exit-101
+  detection run does not reinterpret the all-zero version-2 contract (§5,
+  §10.2, §11.2.2, §11.5; ADR 0017). It also makes translation-tool readiness
+  truthful by using each native identity command and exact observable-identity
+  matching instead of a GNU-style flag or substring (§10.2, §12.2; ADR 0018),
+  and makes exact assurance-regression approval non-circular through a
+  reviewed-subject plus add-only approval-envelope protocol (§18.1; ADR 0019).
+- **0.10.0** — exact executable inventories: fixes the five adapter operation
+  response meanings; requires passed observed-process evidence to carry a
+  nonempty exact inventory and only successful, untruncated runs; closes the
+  canonical-artifact and independent-check result ABIs; verifies generators by
+  fresh `--update` reproduction; rejects duplicate raw Kani metadata keys; and
+  advances translation units to `/3` with an exact typed supported-local
+  closure (§7.1, §10.2, §11.2–11.3, §11.5; ADR 0016).
+- **0.9.0** — executable trusted transcription: introduces the closed
+  `proofbound-evidence-unit/2` transcription route and fixed Python driver ABI,
+  derives distinct transcriber and re-encoder TCB roles from observed driver
+  bytes, carries all four compared artifact identities without a checker-
+  authored success Boolean, and adds the immutable Tier 1 `transcribed`
+  profile (§7.1.1, §9.1.1, §11.2.1; ADR 0015).
+- **0.8.0** — authoritative translation manifests: replaces the flat,
+  partially advisory translation-unit format with ordered typed
+  Charon/Aeneas invocations, exact intermediate and output identities, a
+  closed produced-to-destination map, executable external-source-root
+  resolution, and explicit generated-tree ownership (§11.3; ADR 0014).
+- **0.7.0** — artifact-binding security boundary: derives
+  `ARTIFACT_BOUND` only from the exact elaborated root proposition carried by
+  an admitted theorem, removes checker-authored linkage booleans, makes the
+  complete canonical theorem statement available to the independent verifier,
+  and replaces the explicit `2-binding-preview` identities with the final
+  version-2 evidence and release envelopes (§5, §7.1, §9.4, §10.2, §10.4;
+  ADR 0012). The same versioned transition completes the deferred
+  receipt-fidelity work: exact registered bounded assumptions, nullable
+  unknown peak memory, separate internal/reader/rendered claim text, and
+  complete ordered execution provenance with an explicit distinction between
+  observed processes and compiler-internal derivations (§6.3.2, §9.7, §11.5,
+  §16;
+  ADR 0013).
+- **0.6.0** — bounded-evidence fidelity: requires the bounded receipt's solver
+  and per-harness unwind bounds to equal the registered model-check unit, with
+  exact harness/unwind key coverage and nonzero bounds (§9.7); and requires
+  bounded reader output to preserve the compiled claim property while
+  appending the explicit registered finite domain (§6.3.2).
 - **0.5.0** — bootstrap-contract reconciliation: defines the Tier 0 `ledger`
   profile as an immutable built-in (§9.1); makes every shipped project and
   claim manifest field normative (§11.1–11.2); closes the adapter observation
@@ -234,7 +281,7 @@ language never exceeds what the tier can support.
 | Tier | Adds | Requires | Strongest status |
 |---|---|---|---|
 | **0** | Claim ledger: registered claims, explicit assumptions, existing tests bound as evidence | The `proofbound` CLI only — no new toolchains | `TESTED` / `ASSUMED` / `OPEN` |
-| **1** | Bounded model checking, independent and exhaustive checks | Kani (or equivalent) | `BOUNDED_CHECKED` |
+| **1** | Trusted transcription, bounded model checking, independent and exhaustive checks | A registered transcription driver and/or Kani (or equivalent) | `OPEN` + `TRANSCRIBED`, or `BOUNDED_CHECKED` |
 | **2** | Model theorems and the compiled axiom audit | Lean toolchain | `PROVED` + `MODEL_ONLY` |
 | **3** | Source refinement and artifact binding | Charon/Aeneas, digest theorems | `PROVED` + `REFINED` / `ARTIFACT_BOUND` |
 
@@ -278,7 +325,7 @@ kinds simultaneously.
 | Evidence kind | Meaning |
 |---|---|
 | `theorem` | A proof assistant kernel accepted the named theorem. |
-| `artifact-soundness` | A theorem links acceptance of exact canonical bytes, or a digest checked inside the theorem boundary, to a formal meaning. |
+| `artifact-soundness` | A checked artifact identity matches the literal identity derived independently from an admitted theorem's exact elaborated binding proposition. |
 | `trusted-transcription` | Typed values are transcribed outside the theorem boundary and byte identity is enforced by an external round-trip; the transcriber and re-encoder are trusted components. |
 | `source-refinement` | Translated or otherwise linked production code refines formal semantics under stated representation premises. |
 | `bounded-check` | A bounded model checker established the property over the registered finite domain. |
@@ -286,7 +333,7 @@ kinds simultaneously.
 | `exhaustive-check` | Every member of an explicitly finite registered domain was evaluated. |
 | `property-test` | Generated examples exercised a property; this is empirical evidence. |
 | `example-test` | Named test cases passed. |
-| `mutation-witness` | A registered mutation of the subject was shown to violate a registered check. The strongest form is a compiled proof term witnessing the violation; the weakest is a registered, deliberately failing test. |
+| `mutation-witness` | One byte-pinned mutation of the subject was automatically installed in a fresh shadow after the same exact registered check passed on an independent clean shadow; that check then failed with its registered expected exit. The strongest form may additionally carry a compiled proof term witnessing the violation. |
 | `review` | A human review attestation exists for a precisely scoped surface. |
 | `assumption` | The claim depends on an explicit hypothesis or external premise. |
 | `open` | Required evidence is absent or incomplete. |
@@ -303,6 +350,16 @@ Two qualifiers keep the strong kinds honest:
   MUST state binding mode `external-round-trip` (Section 7.1.1). These evidence
   kinds and binding modes are not interchangeable, and the graph never
   conflates them.
+- **Binding derivation.** A checker outcome, theorem name, or Boolean assertion
+  is never a binding. Version 0.7 admits `digest-theorem` only when the exact
+  outermost elaborated statement is
+  `Proofbound.Artifact.DigestBindingV1 claimId artifactSchema logicalName
+  expectedSha256 bytes meaning`, the first four arguments are direct canonical
+  string literals, and the proposition establishes both the SHA-256 identity
+  and `meaning bytes`. The complete `lean-expr-cbor/1` statement is carried in
+  theorem evidence so both status engines recompute its identity and parse it
+  independently. `bytes-in-theorem` remains reserved but fails closed until an
+  equally exact typed proposition and portable byte comparison are specified.
 
 The status vocabulary MUST NOT compress these into a single scalar such as
 `verified`. Summary status is the three-facet composition defined in
@@ -432,7 +489,7 @@ Linkage facet, from the subject-binding evidence:
 | Binding evidence | Linkage facet |
 |---|---|
 | `source-refinement` with a named refinement theorem and registered representation premises | `REFINED` |
-| `artifact-soundness` with binding `bytes-in-theorem` or `digest-theorem` | `ARTIFACT_BOUND` |
+| `artifact-soundness` whose admitted theorem has the exact typed `DigestBindingV1` root and matching checked artifact identity (§5, §9.4) | `ARTIFACT_BOUND` |
 | `trusted-transcription` with binding `external-round-trip` (§7.1.1) | `TRANSCRIBED` |
 | no subject binding | `MODEL_ONLY` |
 
@@ -470,9 +527,18 @@ Additional rules:
   failure: it renders in `status` output so the operator can see which claim
   broke and why, and the presence of any `INVALID` claim causes a nonzero
   exit. `INVALID` overrides all other facets.
-- **Bounded language.** A `BOUNDED_CHECKED` claim must state its registered
-  finite domain in its public claim language; no unbounded language is
-  emitted for bounded evidence.
+- **Bounded language.** A `BOUNDED_CHECKED` claim's `public_statement` is the
+  derived status text, never a replacement for the claim's internal
+  `statement`. Its base text is the claim's optional `public_language` when
+  present and otherwise its internal `statement`, followed by the literal
+  separator ` Registered finite domain: ` and the registered finite-domain
+  language.
+  The property is never replaced by domain-only wording, and no unbounded
+  language is emitted for bounded evidence. The version-3 compiled claim keeps
+  `statement` and optional `public_language` as separate fields, while the
+  reported status keeps the derived `public_statement`; both status engines
+  independently reproduce this composition. The same composition applies
+  when an explicitly policy-admitted exhaustive finite check yields `PROVED`.
 - **Exhaustiveness.** `exhaustive-check` over a registered finite domain
   MAY be admitted as `PROVED` only when the policy explicitly says so and
   the domain registration is itself part of the claim closure; otherwise it
@@ -516,7 +582,7 @@ Untrusted producer (Python/Rust/other)
             |                     |
             +--- cross-check -----+
                                   v
-                   acceptance-implies-meaning theorem
+             typed digest-and-meaning public theorem
                                   |
                                   v
                          artifact-bound claim
@@ -527,9 +593,9 @@ Requirements:
 - canonical, bounded, versioned bytes;
 - rejection of trailing, oversized, ambiguous, or non-canonical inputs;
 - an independently implemented Lean decoder inside the theorem boundary;
-- a theorem connecting decoder/checker acceptance to domain meaning;
-- a digest theorem connecting the published bytes to the claim — digest
-  binding is the **default**, not an optional refinement;
+- one attributed public theorem whose exact elaborated root is the versioned
+  Proofbound digest-binding proposition and whose proposition connects the
+  same bytes to both their domain meaning and literal SHA-256 identity;
 - an independent diagnostic checker where feasible; and
 - explicit separation between search/production and trusted checking.
 
@@ -537,6 +603,37 @@ Full byte binding has real cost: embedding published bytes in the theorem
 generally requires native evaluation (which enlarges the TCB, §9.6) and grows
 generated modules. That cost is recorded in the TCB ledger and the evidence
 evaluation mode; it is not a reason to silently weaken the binding.
+
+Checker stdout is a strict, route-specific ABI. A canonical-artifact checker
+emits exactly one canonical JSON value with this closed shape (the displayed
+digest is abbreviated only for readability):
+
+```json
+{"accepted":true,"artifact_logical_name":"artifact.pbac","artifact_sha256":"sha256:<64-lowercase-hex>","inventory":["artifact.pbac"],"schema":"proofbound-artifact-check-result/1"}
+```
+
+An independent checker emits the smaller closed shape:
+
+```json
+{"accepted":true,"inventory":["registered-item"],"schema":"proofbound-independent-check-result/1"}
+```
+
+Both require `accepted = true` and a nonempty, duplicate-free exact inventory.
+Inventory strings are trim-nonempty, at most 4096 Unicode characters, and
+contain no Unicode control character. The value uses canonical key ordering
+and compact encoding with no trailing whitespace or second JSON value. Unknown,
+defaulted, claim-linkage, theorem, and binding-validity fields are forbidden.
+A nonzero exit, truncated output, false result, malformed or noncanonical JSON,
+or inventory mismatch fails before evidence admission; checker failure text is
+not part of this success ABI. `schemas/checker-result.schema.json` defines the
+two records, while exact framing and registered-set equality are enforced by
+the adapter.
+
+The artifact report's logical name and digest are independently recomputed from
+the registered checked input. A checker cannot author the claim ID, theorem
+link, binding mode, or binding-validity booleans. The compiler joins that
+identity to the typed theorem statement; the independent verifier repeats the
+join from the portable expression wire.
 
 The framework MAY generate envelope grammar, bounded parser scaffolding, error
 codes, and module boilerplate. It MUST NOT generate both independent semantic
@@ -566,6 +663,11 @@ soundness:
 - the transcriber and re-encoder join the claim's TCB inventory as
   `tcb-component` nodes; and
 - profile `artifact-bound` (§9.4) rejects it.
+
+Version 0.9 makes this route executable rather than taxonomic only. Its typed
+manifest, connected two-step ABI, artifact comparisons, and derived TCB
+identities are specified in Section 11.2.1. Neither an adapter exit status nor
+a manifest-authored Boolean can substitute for those comparisons.
 
 ### 7.2 Pattern B: translated source refinement
 
@@ -771,6 +873,23 @@ The initial built-in profiles are:
 - Explicit assumptions remain first-class and are never hidden by a passing
   test.
 
+### 9.1.1 `transcribed`
+
+- This is the built-in Tier 1 profile for the degraded binding in Section
+  7.1.1.
+- It requires passing `trusted-transcription` evidence whose binding is
+  `external-round-trip`, whose typed artifact identities form the exact
+  connected round trip in Section 11.2.1, and whose linkage derives as
+  `TRANSCRIBED`.
+- It requires no theorem and never turns transcription evidence into
+  `PROVED`. In the absence of separately admitted formal evidence, the formal
+  facet remains `OPEN` while the linkage facet is `TRANSCRIBED`.
+- It does not admit `ARTIFACT_BOUND` or `REFINED`, and it makes no claim about
+  a shipping implementation. A project needing those statements must select
+  the corresponding stronger profile and supply its distinct evidence.
+- The transcriber and re-encoder are separate TCB roles even when one pinned
+  driver file implements both operations.
+
 ### 9.2 `kernel`
 
 - Named theorem compiles.
@@ -787,11 +906,23 @@ The initial built-in profiles are:
 
 ### 9.4 `artifact-bound`
 
-- Satisfies `kernel` or `kernel-with-assumptions`.
-- The theorem binds canonical payload bytes, schema, literal claim, and digest.
-- Binding mode is `bytes-in-theorem` or `digest-theorem`;
-  `trusted-transcription` evidence does not qualify (§7.1.1).
-- Re-encoding and trailing-byte checks pass.
+- Satisfies `kernel` or `kernel-with-assumptions`; a composition with
+  `native-evaluated` must record its exact native premise and TCB.
+- The admitted theorem receipt carries the complete canonical elaborated
+  statement and its recomputed statement identity.
+- For `digest-theorem`, that statement is exactly the outermost
+  `Proofbound.Artifact.DigestBindingV1` application defined in Section 5; the
+  literal claim ID, schema, logical name, and SHA-256 identity are derived from
+  theorem content rather than checker output.
+- The derived artifact logical name and digest equal exactly one checked input
+  artifact in the separate artifact-soundness record. Version-2 provenance
+  carries that artifact's complete logical-name, digest, and byte-size identity;
+  both status engines require an exact match, including `size_bytes`.
+- `bytes-in-theorem` is not admitted in 0.7; `trusted-transcription` evidence
+  remains `TRANSCRIBED`, never `ARTIFACT_BOUND` (§7.1.1).
+- Canonical parsing, re-encoding, and trailing-byte rejection are required work
+  of the registered checker, but checker-authored booleans have no
+  status-bearing representation.
 
 ### 9.5 `source-refined`
 
@@ -812,6 +943,14 @@ The initial built-in profiles are:
 - The bounded domain is explicit.
 - All harnesses are inventoried.
 - Solver/tool version, unwind bounds, assumptions, and results are recorded.
+  The receipt's solver equals the registered solver; its harness set and
+  unwind-bound key set are identical; and every recorded unwind bound is the
+  registered nonzero bound for that harness.
+- `bounded_check.assumptions` is required even when empty. It is the exact
+  ordered list from the registered model-check unit: every member is a
+  nonblank string, duplicate exact strings are rejected, and the compiler
+  neither trims, classifies, nor substitutes entries. These execution-model
+  assumptions do not silently become project-assumption ledger IDs.
 - No unbounded claim is emitted.
 
 Projects MAY define stricter profiles. They MUST NOT redefine the meaning of a
@@ -902,14 +1041,101 @@ metadata, not source-text scanning (§17).
 Adapters communicate with the orchestrator over a versioned JSON subprocess
 protocol: requests and responses are schema-validated canonical JSON on
 stdin/stdout (`schemas/adapter-protocol.schema.json`), and evidence is
-returned either as a complete `proofbound-evidence/1` record or as a strict
-`proofbound-adapter-observation/1` execution receipt that the assurance
+returned either as a complete `proofbound-evidence/3` record or as a strict
+`proofbound-adapter-observation/2` execution receipt that the assurance
 compiler deterministically enriches with graph and source-closure identities.
 The latter prevents a tool adapter from fabricating project provenance it does
 not own. Both alternatives are closed schemas; an arbitrary JSON object is not
 an evidence boundary. An adapter is therefore any process in any language that
 speaks the protocol — future language verticals do not link against the Rust
 core, and no adapter couples to a Rust ABI.
+
+The five protocol operations have fixed response meanings; an adapter-specific
+interpretation is invalid:
+
+- `doctor` probes the registered tool identity and required capabilities. A
+  successful response has `evidence: null` and an empty `inventory`; capability
+  discovery is not assurance evidence. Charon and Aeneas are probed with their
+  native commands, exactly `charon version` and `aeneas -version`. Each probe
+  requires exit zero, bounded valid UTF-8, one nonempty stdout line terminated
+  by at most one LF, and empty stderr; CR, unknown, dirty, truncated, multiline,
+  or otherwise malformed output is incompatible rather than available. Charon
+  must report a canonical three-component numeric version with no leading
+  zeroes. Aeneas must report exactly `aeneas <revision>`, where the revision is
+  7–40 lowercase hexadecimal characters. The normalized identities are
+  compared by equality with their lock fields, never by substring or prefix.
+- `inventory` executes the authoritative discovery needed by the route and
+  compares it bidirectionally with the registration. A successful response has
+  `evidence: null` and the exact nonempty canonical inventory. It does not
+  establish that the registered claim check passed. When a route has no
+  separate metadata surface — canonical-artifact, independent-check,
+  generator, or trusted-transcription — inventory still runs and parses the
+  connected checker or reproduction needed to discover the exact set; the
+  resulting process facts are deliberately discarded rather than admitted as
+  evidence.
+- `check` performs discovery and the registered assurance action in a sealed
+  copy. Success returns `Passed` evidence plus the same exact nonempty
+  inventory and never modifies committed files.
+- `reproduce` has the same adapter execution and response contract as `check`,
+  but the orchestrator selects one exact unit and bypasses cached evidence.
+- `update` is the only write-capable operation and only for a route with an
+  explicit output allowlist. It never returns `Passed` evidence; `null` is the
+  normal result, while a route-specific `Drifted` record may be returned only
+  as non-admissible review information. An update result cannot support a
+  claim until a subsequent pinned `check` passes.
+
+Every failed response has `success: false`, `evidence: null`, an empty
+inventory, and a bounded stable diagnostic. Successful response inventories
+are strict lexical sets: trim-nonempty strings of at most 4096 Unicode
+characters, with no Unicode control character, serialized in strictly
+increasing order. Exact means equality in both directions with the registered
+or tool-derived set; a count, subset, exit status, or source-text scan is not an
+inventory.
+
+For Kani, `cargo kani list --format json` must create a fresh `kani-list.json`
+that was absent immediately before invocation. The adapter accepts only a
+bounded regular file inside the selected package, rejects duplicate raw JSON
+keys in the `standard-harnesses` object before any map representation can
+collapse them, verifies the metadata totals and tool version, and matches the
+nonempty standard-harness set exactly against the registered model-check unit.
+Contract harnesses are outside the initial profile and fail closed. `inventory`
+stops after this discovery; `check` and `reproduce` additionally run the exact
+registered harness vector with its solver and unwind configuration. Kani
+`update` is unsupported because the route owns no committed generated output.
+
+An execution observation carries the complete ordered `commands` array and an
+equally sized ordered `runs` array. Run `i` has `command_index = i` and binds
+that command's exit state, raw stdout/stderr identities, normalized-output
+identity, truncation state, and duration. A nonblank `normalization` identifier
+names the transformation used before the deterministic-result identity was
+computed. The compiler preserves these fields in `proofbound-evidence/3`
+provenance instead of selecting a representative command; it also records the
+separate typed `reproduction_command`. An unavailable memory observation is
+the explicit JSON value `null`, never an invented zero.
+
+Every adapter observation represents actual subprocess execution. When the
+assurance compiler turns one into canonical evidence, provenance has
+`execution_kind = "observed-processes"`; `commands` and `runs` are both
+nonempty and have identical length. Evidence derived wholly inside the
+assurance compiler instead has `execution_kind = "compiler-internal"` and
+both arrays are empty. Compiler-internal derivation MUST NOT fabricate a
+process command or run merely to satisfy a provenance shape. Its separate
+typed `reproduction_command`, normalization identity, configuration identity,
+timing, budget, and usage remain required so the derivation can still be
+reproduced and audited.
+
+A `Passed` observation, or a `Passed` canonical evidence/receipt record whose
+`execution_kind` is `observed-processes`, has a nonempty exact inventory. Every
+run has `output_truncated = false` and normally has `exit_code = 0`. The sole
+nonzero case is the one run named by a version-2 mutation-witness detail's
+typed `expected_failure`; its allowed exit-code set is exactly `[101]`, its
+baseline run executed the same exact check with exit zero, and every other run
+remains zero.
+`compiler-internal` evidence has no observed runs and may legitimately have an
+empty inventory; the nonempty rule must not invent targets or process facts for
+it. Failed, unavailable, and other non-passing records may preserve a partial
+or empty inventory and nonzero/truncated run facts for diagnosis, but cannot be
+admitted as successful evidence.
 
 ### 10.3 Project plugins
 
@@ -934,6 +1160,12 @@ third-party reviewers.
 - recomputes the claim graph and status facets from the receipts; and
 - rejects unsupported evidence kinds, unknown schemas, and any status
   stronger than its recomputation derives.
+
+For artifact linkage it additionally re-encodes the portable
+`lean-expr-cbor/1` statement, checks the theorem statement identity, recognizes
+only the exact typed binding at the expression root, and joins its literal
+claim/path/digest to the checked artifact identity. It does not accept an
+adapter projection or Boolean substitute for this derivation.
 
 Its trust boundary is stated, not implied: `proofbound-verify` certifies that
 the reported statuses are **receipt-consistent** — that the graph and facets
@@ -1047,10 +1279,16 @@ ordering_key = [0, 1, 2, 3, 4, 5]
 Every claim has a stable ID, exact internal `statement`, bound `subject`, trust
 `profile`, cited `evidence`, cited `assumptions`, and explicit
 `open_obligations` and `out_of_scope` lists. `public_language` is an optional
-reader-facing restatement and cannot strengthen `statement`. `tier` optionally
-lowers the project ceiling for this claim. `primary_linkage` is required when
-more than one valid linkage is present and selects one of `refined`,
-`artifact-bound`, `transcribed`, or `model-only`. `premises` names
+reader-facing restatement and cannot strengthen `statement`; it never replaces
+the internal field. The version-3 compiled release retains `statement` and,
+when supplied, `public_language` separately. Its reported claim status carries
+the independently derived `public_statement`: `public_language` when present,
+otherwise `statement`, with the bounded-domain suffix required by Section
+6.3.2 when applicable. All three values are therefore auditable without
+presenting rendered language as the registered internal proposition. `tier`
+optionally lowers the project ceiling for this claim. `primary_linkage` is
+required when more than one valid linkage is present and selects one of
+`refined`, `artifact-bound`, `transcribed`, or `model-only`. `premises` names
 representation or other dischargeable premises. `source_roots` overrides the
 project semantic patterns for the claim and therefore defines the minimum
 per-claim closure granularity from Section 11.4. `bounded_domain`, when used,
@@ -1084,32 +1322,228 @@ regenerates committed fixtures. Such a unit is `example-test` evidence only
 for its verify-only `check`/`reproduce` execution; `update` returns no evidence.
 Its non-empty `outputs` list is a literal, exact write allowlist, every output
 is also registered in `inputs` so committed drift invalidates cached checks,
-and `expected_inventory` is exactly the output list. The adapter invokes the
-program without a write switch for verification and may add the reserved
-`--update` switch only for `proofbound update UNIT` inside the orchestrator's
-sealed update shadow. A successful update response therefore carries no
-evidence record: regeneration is not assurance evidence.
+and `expected_inventory` is exactly the output list. For `inventory`, `check`,
+and `reproduce`, the adapter creates a fresh candidate project containing the
+exact registered non-output inputs and no declared output, invokes the program
+with the adapter-owned `--update` switch there, and compares the resulting
+complete path-to-bytes inventory with the committed outputs. Verification does
+not trust a program's read-only self-report about files already present. A
+no-op, missing or extra output, write outside the allowlist, symlink/path
+escape, or byte drift fails closed. Only `proofbound update UNIT` runs that
+same switch in the orchestrator's sealed update shadow for import into the
+reviewed tree. A successful update response therefore carries no evidence
+record: regeneration is not assurance evidence.
+
+### 11.2.1 Executable trusted-transcription unit
+
+Trusted transcription uses a deliberately new evidence-unit version; version
+1 is not silently reinterpreted:
+
+```toml
+schema = "proofbound-evidence-unit/2"
+id = "trusted-values"
+adapter = "trusted-transcription"
+kind = "trusted-transcription"
+claims = ["EXAMPLE-TRANSCRIPTION-001"]
+tier = 1
+binding_mode = "external-round-trip"
+expected_inventory = ["source/values.pbtt", "transcribed/values.json"]
+inputs = [
+  "python/transcription_driver.py",
+  "source/values.pbtt",
+  "transcribed/values.json",
+]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "transcription"
+
+[transcription]
+schema = "proofbound-trusted-transcription/1"
+source = "source/values.pbtt"
+committed_transcription = "transcribed/values.json"
+driver = "python/transcription_driver.py"
+source_format = "proofbound-u32-lines/1"
+transcribed_format = "proofbound-u32-json/1"
+driver_abi = "proofbound-transcription-driver/1"
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 67108864
+memory_bytes = 268435456
+```
+
+`proofbound-evidence-unit/2` is reserved for this exact route. It requires the
+adapter, evidence kind, operation, binding, and nested schemas shown above.
+Conversely, `/1` forbids the transcription block and all three new typed enum
+values; an old generic checker cannot relabel itself as trusted transcription.
+All unrelated operation fields and evidence qualifiers are absent or empty:
+there is no theorem, evaluation mode, bounded domain, configured argument,
+checker path, package, target, manifest, inventory file, premise, or
+assumption. The environment allowlist is exactly `["PATH"]`: the adapter needs
+it to resolve `python3`, hashes and binds its value in provenance, and records
+the resolved Python executable identity. No other parent environment enters
+the driver process.
+
+The three transcription paths are distinct, repository-relative exact file
+paths, not globs; each is at most 4096 printable-ASCII bytes and obeys the
+reserved-component rules of Section 11.3. The driver ends in `.py`.
+`inputs` is exactly the lexically sorted set of source, committed
+transcription, and driver. `expected_inventory` is exactly the lexically
+sorted set of source and committed transcription. `outputs` is empty because
+neither `check` nor this evidence kind owns a committed write. The two format
+identifiers are distinct, at most 128 bytes, and use the versioned grammar
+`^[a-z][a-z0-9]*(?:[-_.+][a-z0-9]+)*/[1-9][0-9]*$`.
+
+The fixed `proofbound-transcription-driver/1` ABI consists of exactly these two
+commands, in order, under the evidence unit's declared budget:
+
+```text
+python3 DRIVER transcribe --source SOURCE --output FRESH_CANDIDATE
+python3 DRIVER reencode --transcription FRESH_CANDIDATE --output FRESH_REENCODED
+```
+
+The adapter owns every argument after the driver path; the manifest cannot add
+arguments. Both commands run in one sealed shadow with the same registered
+driver. The re-encoder consumes the freshly produced candidate, not the
+committed transcription. This connected execution prevents two unrelated
+comparisons from being presented as one round trip. The adapter requires all
+of the following:
+
+1. the fresh candidate equals the committed transcription byte-for-byte; and
+2. the fresh re-encoding equals the source byte-for-byte.
+
+The observation carries a strict nested
+`proofbound-trusted-transcription/1` record containing the source, committed
+transcription, fresh candidate, fresh re-encoding, and driver artifact
+identities; both format IDs; the fixed ABI; and the distinct transcriber and
+re-encoder role identities. Its input artifacts are the exact sorted manifest
+input set. Its generated artifacts are exactly, in lexical order,
+`trusted-transcription/<unit-id>/reencoded-source` and
+`trusted-transcription/<unit-id>/transcribed-candidate`. No transcription-
+specific or driver-authored success/binding Boolean, and no TCB node ID,
+exists in the nested observation or manifest; the generic protocol outcome is
+derived from execution and comparison results.
+
+The compiler admits that observation only when every registered path, format,
+inventory member, and artifact identity matches. The canonical version-3
+evidence record then retains the five artifact identities and two derived role
+records under its nested `proofbound-trusted-transcription/1` value. Each role
+identity is independently recomputed from canonical `{abi, driver, role}`
+content under the `proofbound-transcription-tcb-role/1` digest domain. The
+compiler derives the distinct node IDs
+`tcb:trusted-transcription:<unit-id>:transcriber` and
+`tcb:trusted-transcription:<unit-id>:reencoder`, where `<unit-id>` is the
+manifest ID without a `unit:` prefix. Their TCB-ledger names are respectively
+`trusted-transcription/<unit-id>/transcriber` and
+`trusted-transcription/<unit-id>/reencoder`; each ledger version is the fixed
+ABI `proofbound-transcription-driver/1`, and its identity is the corresponding
+derived role digest. These remain separate even when one driver implements
+both roles. The independent verifier repeats the derivation and both byte-
+identity comparisons. A passing record yields only `TRANSCRIBED` linkage. It
+cannot yield `PROVED`, `ARTIFACT_BOUND`, or `REFINED`.
+
+`schemas/evidence-unit.schema.json`,
+`schemas/adapter-observation.schema.json`, `schemas/evidence.schema.json`, and
+`schemas/receipt.schema.json` are the closed machine-readable contracts for
+this route and MUST remain field-for-field consistent with this section.
+
+### 11.2.2 Sealed singleton mutation replay
+
+Mutation replay also uses a new, closed evidence-unit version; neither generic
+version 1 nor trusted-transcription version 2 is reinterpreted:
+
+```toml
+schema = "proofbound-evidence-unit/3"
+id = "remove-cap-guard"
+adapter = "rust-test"
+kind = "mutation-witness"
+claims = ["TRANSFER-CAP-001"]
+tier = 0
+expected_inventory = ["remove-cap-guard"]
+inputs = [
+  "proofbound/mutations/mutants/remove-cap-guard/decision.rs",
+  "proofbound/mutations/remove-cap-guard.toml",
+  "rust/kernel/src/decision.rs",
+  "rust/kernel/tests/mutation_witnesses.rs",
+]
+outputs = []
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+
+[mutation]
+schema = "proofbound-mutation-replay/1"
+registry = "proofbound/mutations/remove-cap-guard.toml"
+
+[operation]
+type = "cargo-test"
+package = "allowance-kernel"
+manifest = "Cargo.toml"
+
+[resource_budget]
+time_seconds = 120
+disk_bytes = 1073741824
+memory_bytes = 2147483648
+```
+
+The referenced registry is structurally singular:
+
+```toml
+schema = "proofbound-mutation-registry/2"
+subject = "rust:allowance-kernel::decide_transfer"
+
+[mutation]
+id = "remove-cap-guard"
+guard = "amount must not exceed cap"
+target_path = "rust/kernel/src/decision.rs"
+target_preimage_sha256 = "sha256:…"
+mutant_path = "proofbound/mutations/mutants/remove-cap-guard/decision.rs"
+mutant_sha256 = "sha256:…"
+witness = "mutation_witnesses::cap_guard_is_enforced"
+witness_path = "rust/kernel/tests/mutation_witnesses.rs"
+witness_sha256 = "sha256:…"
+affected_claims = ["TRANSFER-CAP-001"]
+```
+
+The unit ID, registry mutation ID, and sole expected-inventory member are
+identical. `claims` and `affected_claims` are the same nonempty strict lexical
+set. Registry, target, full-file mutant, and witness paths are distinct safe
+regular files and form the unit's exact sorted `inputs`; all three declared
+file identities match their bytes. Each affected claim names the registry
+subject and its semantic closure contains `target_path`. Across a project, a
+registry path and mutation ID belong to exactly one evidence unit. The
+operation derives its test from `witness`; checker-authored target aliases,
+additional arguments, outputs, qualifiers, or multiple mutations are invalid.
+
+For `check` and `reproduce`, the adapter creates two fresh shadows from the
+same reviewed source. It verifies the target preimage, recompiles and discovers
+the exact witness in the baseline shadow, and requires that one test to pass.
+In the second shadow it copies the registered full-file mutant bytes over the
+target, verifies the target postimage equals the mutant artifact, recompiles,
+rediscovers the same test, and requires that exact test to fail with libtest
+exit code 101. A compile failure, missing or renamed test, another exit code,
+truncated output, timeout, extra changed path, or mutation of the repository is
+not a successful witness. `inventory` performs exact registration and witness
+discovery without admitting evidence; `update` is unsupported.
 
 ### 11.3 Translation unit
 
 ```toml
-schema = "proofbound-translation-unit/1"
+schema = "proofbound-translation-unit/3"
 id = "transfer-kernel"
-adapter = "charon-aeneas"
-packages = ["allowance-kernel"]
-start_from = ["allowance_kernel::decide_transfer"]
-opaque = []
-include = []
+pipeline = "charon-aeneas"
 generated_dir = "lean/Generated/Transfer"
 handwritten_refinement = "lean/Allowance/TransferRefinement.lean"
 determinism_runs = 2
 determinism_normalization = "pretty-printed-llbc/1"
 forbid_generated_axioms = true
+claims = ["TRANSFER-001"]
 
 [[external_bridges]]
 # Hand-authored external function/type models. They live outside the
 # generator-owned tree, are declared explicitly, and are byte-pinned.
 file = "lean/Bridges/TransferExternal.lean"
+module = "Bridges.TransferExternal"
 reviewed_sha256 = "…"
 
 [[template_axioms]]
@@ -1123,34 +1557,192 @@ compiled = false
 # a new one fails the build.
 artifact = "lean/Generated/Transfer/Funs.lean"
 line = 118
+# Typed vocabulary: upstream-sorry | upstream-sorry-ax.
 kind = "upstream-sorry"
+
+[[invocations]]
+id = "allowance-kernel"
+cargo_package = "allowance-kernel"
+# This is the exact package manifest and contains the literal
+# `[package].name = "allowance-kernel"`; virtual workspace manifests do not
+# satisfy an invocation.
+cargo_manifest = "rust/kernel/Cargo.toml"
+crate_name = "allowance_kernel"
+# Relative to this invocation's isolated LLBC directory; never committed.
+llbc_file = "allowance_kernel.llbc"
+start_from = ["allowance_kernel::decide_transfer"]
+opaque = []
+include = []
+aeneas_subdir = "Transfer"
+
+[[invocations.translated_closure]]
+kind = "function"
+rust_name = "allowance_kernel::decide_transfer"
+
+[[invocations.translated_closure]]
+kind = "function"
+rust_name = "allowance_kernel::{allowance_kernel::Decision}::denied"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "allowance_kernel::Decision"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "allowance_kernel::DecisionCode"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "allowance_kernel::Request"
+
+[[invocations.outputs]]
+kind = "lean-source"
+# `produced` is relative to the Aeneas `-dest` root. Lean outputs include the
+# declared Aeneas subdirectory.
+produced = "Transfer/Funs.lean"
+destination = "lean/Generated/Transfer/Funs.lean"
+
+[[invocations.outputs]]
+kind = "lean-source"
+produced = "Transfer/Templates.lean"
+destination = "lean/Generated/Transfer/Templates.lean"
+
+[[invocations.outputs]]
+kind = "translation-report"
+# Aeneas emits its report at the `-dest` root, outside `aeneas_subdir`.
+produced = "translation.json"
+destination = "lean/Generated/Transfer/translation.json"
+
+[import_mapping]
+mode = "external-source-root"
+source_roots = ["lean"]
+
+[resource_budget]
+time_seconds = 1800
+disk_bytes = 26843545600
+memory_bytes = 8589934592
 ```
 
-The schema is deliberately wider than a package-and-symbols pair because the
-reference implementation needed every one of these fields in practice:
-start-from, opaque, and included symbol sets drive the extractor invocation;
-hand-reviewed external bridges must be byte-pinned; translator template axioms
-exist and must stay uncompiled with exact per-file counts; raw LLBC is
-nondeterministic and must be normalized before byte comparison; and upstream
-translator warnings must be inventoried so that new ones fail the build instead
-of scrolling past.
+Version 3 is deliberately breaking. Version 2 made invocations and output maps
+authoritative but recorded only selector roots, so it could prove that a root
+was present without binding the full transitive local closure emitted by the
+translator. Version 3 adds the required typed `translated_closure`; the adapter
+must reject version 2 rather than infer this security-relevant inventory.
+
+`pipeline` is the typed `charon-aeneas` pipeline. `invocations` is a non-empty,
+strictly ID-sorted sequence, and its order is execution and receipt order. Each
+invocation declares the exact Cargo package and repository-relative package
+`Cargo.toml`, whose literal `[package].name` MUST equal `cargo_package`, Rust
+crate name, run-workspace-relative `.llbc` file, start, opaque, and included
+selector inventories, the exact typed `translated_closure`, optional Aeneas
+subdirectory, and complete output map. Selector inventories are strict sorted
+sets of command-safe Rust paths. `start_from` may name a supported local
+function or local type, and every root MUST occur exactly once as a non-opaque
+local entry in the translation report. Characters that could become
+command-line syntax are inadmissible in selectors. Invocation IDs use the
+segmented lowercase grammar
+`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`. IDs and LLBC paths are unique, and a
+`start_from` symbol may occur in only one invocation in a unit. No package,
+manifest, crate, LLBC name, symbol, output path, or unit count may be inferred
+from another field or embedded in adapter source.
+
+`translated_closure` is the pre-registered complete set of supported,
+non-opaque local Rust functions and types that Aeneas is expected to report,
+including dependencies reached transitively from `start_from`. Its rows are in
+strict `(kind, rust_name)` order, use the typed kinds `function` and `type`, and
+may contain Aeneas's printable-ASCII canonical Rust names (including canonical
+impl/type syntax) because these values are never command arguments. A Rust name
+may occur in only one kind or invocation. The adapter MUST compare the full
+typed report closure bidirectionally: an empty, missing, extra, duplicate,
+cross-kind, external, opaque, or unsupported root/closure result is not
+evidence even when Charon and Aeneas exit zero. External and opaque report
+dependencies do not satisfy roots and are outside this supported-local closure;
+`opaque` and `include` remain separately typed selector controls. The portable
+adapter and receipt inventory is the globally strict-lexical vector of
+`function:<rust_name>` and `type:<rust_name>` entries derived from the
+registered rows; ordered `start_from` roots remain separately auditable.
+Version 3 does not register Aeneas global, trait-declaration, or
+trait-implementation inventories. Their report keys are closed and parsed, but
+any non-empty such category MUST fail as an unsupported capability rather than
+silently omitting generated semantics from the registered closure. Supporting
+one requires a versioned typed-inventory extension.
+
+Every invocation maps at least one `lean-source` and exactly one
+`translation-report`. Both `produced` and `destination` are safe relative
+paths. `produced` is relative to the Aeneas `-dest` root, not to an effective
+subdirectory: when `aeneas_subdir` is present, every `lean-source` produced path
+is strictly beneath that prefix, while the report remains exactly the root-level
+`translation.json`. Mapping rows are in strict `(produced, destination, kind)` order;
+produced paths within an invocation and destinations across all registered
+units are unique and pairwise prefix-disjoint. Destinations are strictly beneath
+`generated_dir` and collectively bounded by both the project's `max_files` and
+the fixed 100,000-output translation ceiling. The adapter MUST reject any
+emitted file not named by `produced`, any missing mapping, and every
+kind/extension mismatch.
+It maps bytes without content normalization: `determinism_normalization` names
+the exact pretty-printed-LLBC normalization used only for comparing the two
+LLBC reproductions. Generated Lean and translation reports are compared and
+committed byte-for-byte.
+
+Every translation path is a portable, slash-normalized sequence of non-empty
+printable-ASCII components. Backslash, control or non-ASCII bytes, absolute
+paths, `.`, `..`, doubled separators, and trailing separators are forbidden,
+as are the project-control components `.git`, `target`, `.lake`, `.proofbound`,
+`.venv`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, and `.ruff_cache`. The
+complete UTF-8 encoding is at most 4096 bytes. Printable ASCII is a deliberate
+cross-platform choice: it makes the JSON Schema character bound and the runtime
+byte bound identical. A unit has at most 4096 invocations, claims, and entries
+in each start/opaque/include list; at most 1024 source roots, external bridges,
+and template-axiom entries; and at most 4096 warning entries.
+An invocation maps at most 100,000 outputs, subject to the smaller aggregate
+limit above. Translation and exact Cargo package TOML files obey the project's
+`max_manifest_bytes`. Generated artifacts, external bridges, and their complete
+inventories are bounded by the declared disk budget and project
+`max_total_bytes`; adapters MUST NOT impose a smaller undocumented per-file
+ceiling.
+
+Hand-reviewed external bridges remain byte-pinned. Translator template axioms
+must stay uncompiled with exact per-file counts, and upstream warnings must be
+inventoried so new warnings fail rather than scroll past. Every template or
+warning artifact MUST itself be a mapped `lean-source` destination; a side
+inventory cannot smuggle an undeclared generated file into the closure.
+Bridge `module` identities are unique within a translation unit. Warning
+`kind` is the closed vocabulary `upstream-sorry` or `upstream-sorry-ax`, exactly
+the two scanners implemented by the reference adapter; accepting an
+unimplemented free-text warning kind would create an unexecutable manifest.
 
 `generated_dir` is exclusively generator-owned. A generated module MAY import
 a declared handwritten external bridge, but the bridge path MUST be outside
-`generated_dir`; translation validation rejects overlap in either direction.
-Regeneration may replace the complete generated directory, so no handwritten
-source may depend on preservation by a generator cleanup routine. External
-bridges remain separately reviewed and content-addressed by the translation
-manifest.
+`generated_dir`. `check` rejects extra, stale, missing, renamed, and changed
+files. For `update`, `generated_dir` is the explicit recursive deletion and
+atomic-replacement boundary, while mapped destinations are the exclusive
+creation/modification allowlist inside the replacement. Thus update may delete
+stale files only inside that validated non-symlink boundary, may install only
+the exact map, and never asks an adapter to write the committed tree. No
+handwritten source or review note may depend on preservation by cleanup.
 
 Out-of-tree bridges need explicit import support, because translators emit
 imports expecting external models inside their own output namespace. The
-adapter MUST provide one of two declared mechanisms: map the bridge's module
-name to its external path in the build configuration (e.g. Lake source
-roots), or apply an audited import-rewrite normalization to generated
-output — the same discipline as `determinism_normalization`, applied
-identically to both reproduction runs so byte comparison still holds. Silent
-hand-editing of generated imports is not an option.
+implemented `external-source-root` mode declares a non-empty, sorted set of
+repository-relative source roots. Every root must exist as a directory in the
+sealed shadow, may be an ancestor but not equal to or beneath `generated_dir`,
+and every bridge's required `module` MUST resolve from exactly one root as
+`<root>/<module components>.lean` to the bridge's declared `file`. These roots
+are a typed import-resolution contract; they are not extractor selectors and
+MUST NOT be passed through an invented Aeneas option. `audited-rewrite` remains
+a reserved spelling but is rejected until a typed rewrite implementation,
+digest domain, and adversarial corpus exist. Silent import rewriting or
+hand-editing generated output is not supported.
+
+A source-refinement evidence unit using this manifest has no committed
+`outputs` and no `expected_inventory`: adapters return observations from a sealed shadow, while only
+`proofbound update` owns committed writes. Its operation manifest, flattened
+ordered start inventory, claims, and resource budget MUST exactly equal the
+registered version-3 translation unit. The manifest and generated tree are
+automatic cache inputs. The handwritten refinement, every external bridge, and
+the existence or absence of every bridge-module candidate under every declared
+source root are automatic cache inputs as well. Omission from a manually
+curated input list cannot make their drift or an ambiguous new module invisible.
 
 **Inversion requirement.** In Auths Proof, the qualification manifest is a
 cross-check of hard-coded orchestration: extractor flags, symbol lists, output
@@ -1163,8 +1755,9 @@ unit counts. Adding a translation unit is a manifest change, not an
 orchestrator change. This inversion is new engineering, not extraction of
 existing machinery, and Section 15.2 grades it accordingly.
 
-Lists of packages, symbols, generated destinations, external bridges, and
-claim mappings MUST live in manifests rather than orchestration source code.
+Lists of invocations, packages, Cargo manifests, crate and LLBC identities,
+symbols, produced files, generated destinations, external bridges, and claim
+mappings MUST live in manifests rather than orchestration source code.
 
 ### 11.4 Closure reuse
 
@@ -1192,6 +1785,85 @@ aspirational refinement and MAY be added later without schema change. What is
 prohibited is the reference failure mode: a single project-global closure
 copied identically into every claim, which conveys no per-claim dependency
 information while inflating the manifest by orders of magnitude.
+
+### 11.5 Versioned evidence and release receipt semantics
+
+`proofbound-evidence/2`, `proofbound-compiled-release/2`, and
+`proofbound-release-envelope/2` are a coordinated wire transition. Version 1
+records are not silently reinterpreted under these rules.
+
+The canonical evidence record has these additional fidelity requirements:
+
+- `bounded_check.assumptions` is a required array. It preserves the registered
+  model-check unit's strings exactly and in order, including the distinction
+  between an empty array and a missing field. Every string is nonblank and
+  exact duplicates are invalid. During assurance compilation the producer
+  compares the array with the registered model; the portable release does not
+  claim to embed that complete external registration.
+- `resource_usage.peak_memory_bytes` is required and nullable. A nonnegative
+  integer is a measurement, including the legitimate measurement zero;
+  `null` means not measured. The declared memory budget remains a required
+  nonnegative integer and is not a substitute for observed usage.
+- `provenance.execution_kind` is required. For `observed-processes`,
+  `provenance.commands` preserves every observed typed command in execution
+  order; `provenance.runs` has the same nonzero length and order, and run `i`
+  has `command_index = i`. Each run carries required nullable exit status, raw
+  output identities, normalized-output identity, truncation state, and
+  duration. No command or run may be collapsed into a representative summary.
+  For `compiler-internal`, both arrays are empty because no subprocess was
+  observed; inventing a process record for an internal derivation is invalid.
+  For both kinds, `provenance.normalization` is a required nonblank identifier
+  and `provenance.reproduction_command` remains a separate required typed
+  command.
+- A `passed` record with `execution_kind = "observed-processes"` has a
+  nonempty, duplicate-free exact `inventoried_targets` set. Every retained run
+  has exit code zero and untruncated output. The condition is deliberately the
+  conjunction: a passed `compiler-internal` derivation may have an empty
+  inventory because it observed neither a process nor tool-selected targets.
+  Non-passing records may retain empty or partial inventory and failed run
+  facts for diagnosis; those facts never support claim admission.
+
+Version 3 is a second coordinated transition:
+`proofbound-adapter-observation/2`, `proofbound-evidence/3`,
+`proofbound-compiled-project/3`, `proofbound-compiled-release/3`, and
+`proofbound-release-envelope/3`. It retains every version-2 fidelity rule and
+adds a typed expected-failure binding to the closed
+`proofbound-mutation-witness/2` detail. That detail carries the exact mutation
+ID, subject and guard; registry, target-preimage, full-file-mutant,
+target-postimage, and witness-source artifact identities; check identity;
+baseline run index; one expected-failure run index; and optional proof-term
+witness. Its mutation identity is recomputed from those typed facts and the
+exact evidence claim set, not accepted as an adapter-authored Boolean.
+
+For passed mutation evidence, the baseline and mutant commands run the same
+exact check. The baseline run is earlier and exits zero; the expected-failure
+run exits exactly 101; all other runs exit zero; and no output is truncated.
+For every non-mutation passed record, `expected_failure` is absent and the
+version-2 all-zero rule remains unchanged. Version-2 evidence and receipts are
+never accepted under these version-3 rules, so a previously invalid nonzero
+run cannot acquire a new meaning without a fresh check and receipt.
+
+The version-3 compiled release keeps a claim's required internal `statement` and its
+optional `public_language` as distinct fields. Each reported claim status
+contains the required derived `public_statement` described in Section 6.3.2.
+The independent verifier recomputes that rendered field from the retained
+claim inputs and rejects substitution or drift.
+
+The producer's private compiled-state boundary is
+`proofbound-compiled-project/3`, and claim-input identities use the
+`proofbound-claim-input/3` domain. Reporting and release commands MUST reject
+older compiled state and require a fresh `proofbound check`; otherwise an
+evidence-free legacy ledger claim could be released after its internal
+statement had already been replaced by reader-facing language.
+
+The closed public schemas in `schemas/evidence.schema.json`,
+`schemas/receipt.schema.json`, and
+`schemas/adapter-observation.schema.json` are the machine-readable contracts
+and MUST remain field-for-field consistent with these rules. Cross-field rules
+that JSON Schema cannot express — exact model-registration equality, aligned
+command/run lengths and positions, and derivation of rendered language — are
+validated by the producer and, where the portable receipt contains both sides,
+independently by `proofbound-verify`.
 
 ## 12. Command-line UX
 
@@ -1221,7 +1893,12 @@ proofbound release [--output DIR]
   with one worked placeholder claim bound to an existing test, and no new
   toolchain requirements. It does not invent domain claims.
 - `doctor` verifies tools, versions, required capabilities, and reports which
-  units the host can afford (§16.3).
+  units the host can afford (§16.3). It distinguishes a missing executable
+  from a spawn/configuration failure and from an installed executable whose
+  native identity output is malformed. A valid installed identity remains
+  ready even when it differs from a project lock; the separate locked-toolchain
+  capability is then unavailable and reports the exact mismatch. Only a ready
+  tool and an available project capability can satisfy a unit.
 - `check` materializes evidence and compiles the assurance graph. It writes
   receipts and the evidence store only; it never modifies committed files,
   including generated code. Valid cached receipts are reused (§16.2), and
@@ -1350,6 +2027,7 @@ proof-bound/
 ├── templates/
 │   ├── artifact-checker/
 │   ├── rust-aeneas-refinement/
+│   ├── trusted-transcription/
 │   └── explicit-assumption/
 │
 ├── claims/                       # Proofbound's own self-assurance claims
@@ -1569,7 +2247,9 @@ Every evidence record MUST bind:
 - exact input artifact digests;
 - generated artifact digests;
 - complete tool identity;
-- command and environment allowlist;
+- every exact typed command in execution order, its aligned run record, and
+  the nonblank normalization identifier;
+- a separate exact typed reproduction command;
 - start and completion timestamps as diagnostic metadata;
 - deterministic result identity;
 - resource bounds; and
@@ -1593,6 +2273,13 @@ therefore reuses evidence:
 - A receipt is reusable when its cache key is unchanged: semantic closure
   digest, input artifact digests, toolchain identity, adapter version, and
   unit configuration digest.
+- A Cargo mutation replay additionally seals the normalized reviewed source
+  tree copied into its clean and mutant shadows: every regular-file path, byte
+  digest, and copied permission model, under the same state exclusions and
+  limits. Directories in those shadows are derived only as parents of copied
+  files. Cargo package directories are not a sufficient execution boundary
+  because Rust may consume repository-local files through explicit paths,
+  inclusions, custom targets, or build scripts.
 - Reuse is recorded in the receipt chain; `status` distinguishes "verified
   from cache" from "re-verified now."
 - `--fresh` forces re-execution of any unit.
@@ -1615,7 +2302,9 @@ therefore requires:
 - every translation, model-check, and proof unit declares an expected
   resource budget (time, disk, memory) in its manifest;
 - `doctor` reports which units the host can afford;
-- adapters report actual cost in receipts so budgets stay honest; and
+- adapters report actual cost in receipts so budgets stay honest; an unknown
+  peak-memory observation is required as `null`, while numeric zero means a
+  measured zero-byte peak; and
 - budget overruns are diagnostics, never silent truncation of coverage.
 
 ## 17. Security and failure policy
@@ -1690,11 +2379,37 @@ clean tree by verify-only steps.
 **Assurance regressions require approval, not silence.** CI runs
 `proofbound diff` against the merge base and rejects any change carrying an
 assurance regression (§12.2) unless the change includes an approval record:
-a first-class `review` node bound to the digest of the exact base and head
-revisions and enumerating the specific regressions it approves. The approval
-is itself graph evidence — reviewable, attributable, and invalidated if the
-diff it approved changes. A regression without an approval record fails; an
-approval record without a matching regression is rejected as stale.
+a first-class `review` node bound to the digest of the exact base and reviewed
+subject revisions and enumerating the specific regressions it approves.
+
+The reviewed change and its approval use two phases (ADR 0019). A subject
+commit contains the complete proposed tree and pre-registers the review
+manifest pattern. A later approval-envelope commit adds only registered review
+manifests. When checking the envelope head, `proofbound diff` resolves the
+reviewed subject as an ancestor, requires every subject-to-envelope change to
+be a newly added review manifest, computes regressions over base-to-subject,
+and matches approvals from the envelope by exact ID, claim, kind, and detail.
+Modified, deleted, or renamed reviews and any non-review byte in the envelope
+are invalid. The subject must remain in ancestry; squash or rebase integration
+therefore requires renewed approval.
+
+CI MUST select the same reviewed base independently of event delivery. A pull
+request uses its event base. A push to any non-default ref, including a tag,
+uses the merge base of the checked head and the fetched default branch, never
+the previous feature tip. A default-branch push uses its event `before`
+revision. Scheduled and release checks use the fetched default-branch merge
+base for the checked
+snapshot; a snapshot already at that tip therefore has an empty transition
+diff but still runs every fresh verification stage. Resolution MUST fail if a
+required event revision or default-branch ref is unavailable; it MUST NOT fall
+back to a narrower range that changes the identity bound by an approval.
+
+A registered review pattern MAY match no files before an approval exists.
+This exception applies only to review manifests: zero reviews grant zero
+approvals, so the boundary remains fail closed. The approval is itself graph
+evidence — reviewable, attributable, and invalidated if the diff it approved
+changes. A regression without an approval record fails; an approval record
+without a matching regression is rejected as stale.
 
 ### 18.2 Release contents and verification
 
@@ -1796,13 +2511,13 @@ experience; this ordering is the protection.
 
 - Extract canonical schemas, graph construction, faceted status derivation,
   policies, receipts, and the CLI (`doctor`, `status`, `claim`, `explain`)
-  from the two demos plus the reference-repository study; migrate both demos
-  onto the extracted core.
+  from the two original demos plus the reference-repository study; migrate
+  both original demos onto the extracted core.
 - Build `proofbound-verify` (§10.4) against the same specification with no
   shared source, plus the registered synthetic-graph corpus that
   cross-checks the two derivations.
-- Acceptance: both demos run through the shared core with no demo-specific
-  logic in core source; synthetic graph tests prove no status can be
+- Acceptance: both original demos run through the shared core with no demo-
+  specific logic in core source; synthetic graph tests prove no status can be
   upgraded by omitting evidence or assumptions — in both implementations;
   `init` produces a working Tier 0 ledger on an arbitrary existing
   repository, not only on the demos; every extracted abstraction carries a

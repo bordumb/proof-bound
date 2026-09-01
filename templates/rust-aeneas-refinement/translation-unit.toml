@@ -1,10 +1,6 @@
-schema = "proofbound-translation-unit/1"
+schema = "proofbound-translation-unit/3"
 id = "example-kernel-translation"
-adapter = "charon-aeneas"
-packages = ["proofbound-refinement-template"]
-start_from = ["proofbound_refinement_template::withdraw"]
-opaque = []
-include = []
+pipeline = "charon-aeneas"
 generated_dir = "templates/rust-aeneas-refinement/lean/Generated"
 handwritten_refinement = "templates/rust-aeneas-refinement/lean/KernelRefinement.lean"
 determinism_runs = 2
@@ -13,6 +9,42 @@ forbid_generated_axioms = true
 claims = ["EXAMPLE-KERNEL-001"]
 template_axioms = []
 warning_inventory = []
+
+[[invocations]]
+id = "example-kernel"
+cargo_package = "proofbound-refinement-template"
+cargo_manifest = "templates/rust-aeneas-refinement/rust/Cargo.toml"
+crate_name = "proofbound_refinement_template"
+llbc_file = "proofbound_refinement_template.llbc"
+start_from = ["proofbound_refinement_template::withdraw"]
+opaque = []
+include = []
+
+# These rows match the bundled example under the installed translator. Replace
+# them with the pinned report's exact supported-local closure when adopting a
+# different subject.
+[[invocations.translated_closure]]
+kind = "function"
+rust_name = "proofbound_refinement_template::withdraw"
+
+[[invocations.translated_closure]]
+kind = "type"
+rust_name = "proofbound_refinement_template::Decision"
+
+[[invocations.outputs]]
+kind = "lean-source"
+produced = "Funs.lean"
+destination = "templates/rust-aeneas-refinement/lean/Generated/Funs.lean"
+
+[[invocations.outputs]]
+kind = "lean-source"
+produced = "Types.lean"
+destination = "templates/rust-aeneas-refinement/lean/Generated/Types.lean"
+
+[[invocations.outputs]]
+kind = "translation-report"
+produced = "translation.json"
+destination = "templates/rust-aeneas-refinement/lean/Generated/translation.json"
 
 [import_mapping]
 mode = "external-source-root"

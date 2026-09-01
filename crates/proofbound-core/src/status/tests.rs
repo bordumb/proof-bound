@@ -2,13 +2,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
 use crate::{
-    ASSUMPTION_SCHEMA_V1, AdapterStrength, ArtifactBindingEvidence, AssumptionStatus, BindingMode,
-    BoundedCheckEvidence, BuiltInProfile, CacheOrigin, CommandSpec, EnvironmentId,
-    EnvironmentVariable, EnvironmentVariableName, EvidenceProvenance, ExhaustiveCheckEvidence,
+    ASSUMPTION_SCHEMA_V1, AdapterStrength, ArtifactBindingEvidence, ArtifactIdentity,
+    ArtifactLogicalName, AssumptionStatus, BindingMode, BoundedCheckEvidence, BuiltInProfile,
+    CacheOrigin, CommandSpec, EnvironmentId, EnvironmentVariable, EnvironmentVariableName,
+    EvidenceProvenance, ExecutionKind, ExecutionRun, ExhaustiveCheckEvidence, ExpectedFailure,
     GRAPH_SCHEMA_V1, GraphEdge, GraphNode, IndependenceMode, MutationWitnessEvidence,
     NativePremiseRule, POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage, Sha256Digest,
-    SourceRefinementEvidence, TheoremEvidence, ToolIdentity, TreeState,
-    TrustedTranscriptionEvidence, UnitId,
+    SourceRefinementEvidence, TRUSTED_TRANSCRIPTION_SCHEMA_V1, TheoremEvidence, ToolIdentity,
+    TranscriptionRole, TranscriptionTcbRole, TreeState, TrustedTranscriptionEvidence, UnitId,
+    transcription_role_identity,
 };
 
 fn claim_id() -> ClaimId {
@@ -17,6 +19,210 @@ fn claim_id() -> ClaimId {
 
 fn digest(label: &str) -> Sha256Digest {
     Sha256Digest::of_bytes(label)
+}
+
+fn subject_node(subject: &str) -> NodeId {
+    NodeId::new(format!(
+        "subject:{}",
+        Sha256Digest::of_bytes(subject.as_bytes())
+    ))
+    .unwrap()
+}
+
+fn bind_claim_to_subject(input: &mut ClaimEvaluationInput, subject: &str) {
+    let prior = input.claim.subject.clone();
+    let replacement = subject_node(subject);
+    input.claim.subject.clone_from(&replacement);
+    input
+        .graph
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == prior)
+        .expect("the claim subject node is registered")
+        .id = replacement;
+}
+
+fn bound_artifact() -> ArtifactIdentity {
+    ArtifactIdentity {
+        logical_name: ArtifactLogicalName::new("artifact.bin").unwrap(),
+        sha256: digest("artifact"),
+        size_bytes: 8,
+    }
+}
+
+fn named_artifact(logical_name: &str, digest_label: &str, size_bytes: u64) -> ArtifactIdentity {
+    ArtifactIdentity {
+        logical_name: ArtifactLogicalName::new(logical_name).unwrap(),
+        sha256: digest(digest_label),
+        size_bytes,
+    }
+}
+
+fn attach_trusted_transcription(record: &mut EvidenceRecord, prefix: &str) {
+    let source = named_artifact(&format!("{prefix}/source.bin"), "source-bytes", 12);
+    let committed_transcription = named_artifact(
+        &format!("{prefix}/committed.transcription"),
+        "transcribed-bytes",
+        18,
+    );
+    let transcribed_candidate = named_artifact(
+        &format!("{prefix}/candidate.transcription"),
+        "transcribed-bytes",
+        18,
+    );
+    let reencoded_source = named_artifact(
+        &format!("{prefix}/reencoded-source.bin"),
+        "source-bytes",
+        12,
+    );
+    let driver = named_artifact(
+        &format!("{prefix}/driver"),
+        &format!("driver-bytes:{prefix}"),
+        24,
+    );
+    record.inventoried_targets = BTreeSet::from([
+        source.logical_name.as_str().to_owned(),
+        committed_transcription.logical_name.as_str().to_owned(),
+    ]);
+    record.provenance.input_artifacts.extend([
+        source.clone(),
+        committed_transcription.clone(),
+        driver.clone(),
+    ]);
+    record
+        .provenance
+        .generated_artifacts
+        .extend([transcribed_candidate.clone(), reencoded_source.clone()]);
+    record.binding_mode = Some(BindingMode::ExternalRoundTrip);
+    record.trusted_transcription = Some(TrustedTranscriptionEvidence {
+        schema: TRUSTED_TRANSCRIPTION_SCHEMA_V1.into(),
+        source,
+        committed_transcription,
+        transcribed_candidate,
+        reencoded_source,
+        transcriber: TranscriptionTcbRole {
+            tcb_node: NodeId::new(format!("tcb:trusted-transcription:{prefix}:transcriber"))
+                .unwrap(),
+            role_identity: transcription_role_identity(TranscriptionRole::Transcriber, &driver),
+        },
+        reencoder: TranscriptionTcbRole {
+            tcb_node: NodeId::new(format!("tcb:trusted-transcription:{prefix}:reencoder")).unwrap(),
+            role_identity: transcription_role_identity(TranscriptionRole::Reencoder, &driver),
+        },
+        driver,
+    });
+}
+
+fn attach_mutation_witness(
+    record: &mut EvidenceRecord,
+    mutation_id: &str,
+    check_id: &str,
+    proof_term_theorem: Option<EvidenceId>,
+) {
+    record.unit_id = UnitId::new(format!("unit:{mutation_id}")).unwrap();
+    let registry = named_artifact(
+        &format!("mutations/{mutation_id}.toml"),
+        &format!("registry:{mutation_id}"),
+        64,
+    );
+    let target_preimage = named_artifact("src/lib.rs", &format!("preimage:{mutation_id}"), 128);
+    let mutant_artifact = named_artifact(
+        &format!("mutants/{mutation_id}/lib.rs"),
+        &format!("postimage:{mutation_id}"),
+        120,
+    );
+    let target_postimage = named_artifact("src/lib.rs", &format!("postimage:{mutation_id}"), 120);
+    let witness_source = named_artifact(
+        "tests/guard_witnesses.rs",
+        &format!("witness:{mutation_id}"),
+        96,
+    );
+    let selector = check_id.split_once("::").map_or(check_id, |(_, tail)| tail);
+    let baseline_command = CommandSpec {
+        program: "$BASELINE/target/debug/deps/guard_witnesses-a1".into(),
+        args: vec![selector.into(), "--exact".into()],
+        environment_allowlist: Vec::new(),
+    };
+    let mutant_command = CommandSpec {
+        program: "$MUTANT/target/debug/deps/guard_witnesses-b2".into(),
+        ..baseline_command.clone()
+    };
+    record.provenance.commands = vec![baseline_command, mutant_command];
+    record.provenance.runs = vec![
+        ExecutionRun {
+            command_index: 0,
+            exit_code: Some(0),
+            stdout_sha256: digest("baseline-stdout"),
+            stderr_sha256: digest("baseline-stderr"),
+            normalized_output_sha256: digest("baseline-normalized"),
+            output_truncated: false,
+            duration_ms: 1,
+        },
+        ExecutionRun {
+            command_index: 1,
+            exit_code: Some(101),
+            stdout_sha256: digest("mutant-stdout"),
+            stderr_sha256: digest("mutant-stderr"),
+            normalized_output_sha256: digest("mutant-normalized"),
+            output_truncated: false,
+            duration_ms: 1,
+        },
+    ];
+    record.provenance.input_artifacts.extend([
+        registry.clone(),
+        target_preimage.clone(),
+        mutant_artifact.clone(),
+        witness_source.clone(),
+    ]);
+    record
+        .provenance
+        .generated_artifacts
+        .push(target_postimage.clone());
+    record.inventoried_targets = BTreeSet::from([mutation_id.to_owned()]);
+    let mut witness = MutationWitnessEvidence {
+        schema: crate::MUTATION_WITNESS_SCHEMA_V2.into(),
+        mutation_id: mutation_id.into(),
+        subject: "rust:crate::decide".into(),
+        guard: "the registered guard remains enforced".into(),
+        mutation_sha256: digest("placeholder"),
+        registry,
+        target_preimage,
+        mutant_artifact,
+        target_postimage,
+        witness_source,
+        check_id: check_id.into(),
+        baseline_run_index: 0,
+        expected_failure: ExpectedFailure {
+            run_index: 1,
+            allowed_exit_codes: BTreeSet::from([101]),
+        },
+        proof_term_theorem,
+    };
+    witness.mutation_sha256 = witness.derived_mutation_sha256(&record.claims).unwrap();
+    record.mutation_witness = Some(witness);
+}
+
+fn lean_string(value: &str) -> serde_json::Value {
+    serde_json::json!([7, [1, value]])
+}
+
+fn lean_app(function: serde_json::Value, argument: serde_json::Value) -> serde_json::Value {
+    serde_json::json!([3, function, argument])
+}
+
+fn binding_statement(claim: &ClaimId, artifact: &ArtifactIdentity) -> serde_json::Value {
+    let mut root = serde_json::json!([2, crate::ARTIFACT_DIGEST_BINDING_MARKER_V1, []]);
+    for argument in [
+        lean_string(claim.as_str()),
+        lean_string("example-artifact/1"),
+        lean_string(artifact.logical_name.as_str()),
+        lean_string(&format!("sha256:{}", artifact.sha256)),
+        serde_json::json!([2, "Demo.bytes", []]),
+        serde_json::json!([2, "Demo.meaning", []]),
+    ] {
+        root = lean_app(root, argument);
+    }
+    serde_json::json!([crate::LEAN_STATEMENT_ENCODING_V1, root])
 }
 
 fn provenance(label: &str) -> EvidenceProvenance {
@@ -46,7 +252,18 @@ fn provenance(label: &str) -> EvidenceProvenance {
             version: "1.0.0".into(),
             identity_sha256: digest("adapter"),
         },
-        command: command.clone(),
+        execution_kind: ExecutionKind::ObservedProcesses,
+        commands: vec![command.clone()],
+        runs: vec![ExecutionRun {
+            command_index: 0,
+            exit_code: Some(0),
+            stdout_sha256: digest(&format!("stdout:{label}")),
+            stderr_sha256: digest(&format!("stderr:{label}")),
+            normalized_output_sha256: digest(&format!("normalized:{label}")),
+            output_truncated: false,
+            duration_ms: 10,
+        }],
+        normalization: "proofbound-output/1".into(),
         reproduction_command: command,
         started_unix_ms: 10,
         completed_unix_ms: 20,
@@ -78,6 +295,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
             node_id: claim_node.clone(),
             title: "A precise claim".into(),
             statement: "The registered subject has property P.".into(),
+            public_language: None,
             subject: subject_node.clone(),
             policy: policy.id.clone(),
             tier: None,
@@ -120,7 +338,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
 
 fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
     EvidenceRecord {
-        schema: crate::EVIDENCE_SCHEMA_V1.into(),
+        schema: crate::EVIDENCE_SCHEMA_V3.into(),
         id: EvidenceId::new(id).unwrap(),
         node_id: NodeId::new(node_id).unwrap(),
         unit_id: UnitId::new(format!("unit:{id}")).unwrap(),
@@ -137,7 +355,7 @@ fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: BTreeSet::new(),
+        inventoried_targets: BTreeSet::from([format!("{id}::registered")]),
         assumptions: BTreeSet::new(),
         premises: BTreeSet::new(),
         open_obligation: None,
@@ -198,10 +416,14 @@ fn example_record(id: &str) -> EvidenceRecord {
 fn theorem_record(id: &str, mode: crate::EvaluationMode) -> EvidenceRecord {
     let mut record = basic_record(id, EvidenceKind::Theorem, &format!("theorem:{id}"));
     record.evaluation_mode = Some(mode);
+    let statement_wire = binding_statement(&claim_id(), &bound_artifact());
+    let declaration = format!("Proofbound.Tests.{id}");
+    record.inventoried_targets = BTreeSet::from([declaration.clone()]);
     record.theorem = Some(TheoremEvidence {
-        declaration: format!("Proofbound.Tests.{id}"),
+        declaration,
         statement_encoding: "lean-expr-cbor/1".into(),
-        statement_sha256: digest(&format!("statement:{id}")),
+        statement_sha256: crate::lean_statement_wire_digest(&statement_wire).unwrap(),
+        statement_wire,
         attributed_claim: claim_id(),
         environment: EnvironmentId::new("lean:main").unwrap(),
         axiom_audit_passed: true,
@@ -224,11 +446,13 @@ fn domain() -> BoundedDomain {
 
 fn bounded_record(id: &str) -> EvidenceRecord {
     let mut record = basic_record(id, EvidenceKind::BoundedCheck, &format!("model:{id}"));
+    record.inventoried_targets = BTreeSet::from(["check_all".into()]);
     record.bounded_check = Some(BoundedCheckEvidence {
         domain: domain(),
         solver: "cadical 2".into(),
         harnesses: BTreeSet::from(["check_all".into()]),
-        unwind_bounds: BTreeMap::from([("loop".into(), 256)]),
+        unwind_bounds: BTreeMap::from([("check_all".into(), 256)]),
+        assumptions: vec![],
     });
     record
 }
@@ -382,8 +606,224 @@ fn exhaustive_is_tested_unless_policy_explicitly_admits_finite_proof() {
     assert_eq!(status.formal, FormalFacet::Proved);
     assert_eq!(
         status.public_statement,
-        "For every registered u8 value, P holds."
+        "The registered subject has property P. Registered finite domain: For every registered u8 value, P holds."
     );
+}
+
+#[test]
+fn bounded_public_statement_retains_property_and_registered_domain() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
+    input.claim.registered_domain_language = Some("For every registered u8 value, P holds.".into());
+    add_record(
+        &mut input,
+        bounded_record("kani"),
+        NodeKind::ModelCheckUnit,
+        true,
+    );
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::BoundedChecked);
+    assert_eq!(
+        status.public_statement,
+        "The registered subject has property P. Registered finite domain: For every registered u8 value, P holds."
+    );
+
+    input.claim.statement = "The registered subject has a different property Q.".into();
+    let changed = derive_claim_status(&input);
+    assert_ne!(changed.public_statement, status.public_statement);
+    assert!(changed.public_statement.starts_with(&input.claim.statement));
+}
+
+#[test]
+fn public_language_is_reader_facing_without_replacing_the_internal_statement() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
+    input.claim.statement = "Internal.Predicate subject".into();
+    input.claim.public_language = Some("Every registered byte has property P.".into());
+    input.claim.registered_domain_language = Some("Inputs are exactly the u8 domain.".into());
+    add_record(
+        &mut input,
+        bounded_record("kani"),
+        NodeKind::ModelCheckUnit,
+        true,
+    );
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::BoundedChecked);
+    assert_eq!(
+        status.public_statement,
+        "Every registered byte has property P. Registered finite domain: Inputs are exactly the u8 domain."
+    );
+    assert_eq!(input.claim.statement, "Internal.Predicate subject");
+    let encoded = serde_json::to_value(&input.claim).unwrap();
+    assert_eq!(encoded["statement"], "Internal.Predicate subject");
+    assert_eq!(
+        encoded["public_language"],
+        "Every registered byte has property P."
+    );
+}
+
+#[test]
+fn bounded_check_requires_exact_nonzero_unwind_inventory() {
+    let mut extra = bounded_record("kani");
+    extra
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .insert("undeclared".into(), 1);
+
+    let mut missing = bounded_record("kani");
+    missing
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .clear();
+
+    let mut zero = bounded_record("kani");
+    zero.bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .insert("check_all".into(), 0);
+
+    for record in [extra, missing, zero] {
+        let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
+        input.claim.registered_domain_language =
+            Some("For every registered u8 value, P holds.".into());
+        add_record(&mut input, record, NodeKind::ModelCheckUnit, true);
+        assert_eq!(derive_claim_status(&input).formal, FormalFacet::Invalid);
+    }
+}
+
+#[test]
+fn bounded_check_assumptions_are_nonblank_and_unique() {
+    let mut valid = bounded_record("kani");
+    valid.bounded_check.as_mut().unwrap().assumptions = vec![
+        "pointer width is 64 bits".into(),
+        "allocator succeeds".into(),
+    ];
+    assert!(valid.validate(&claim_id()).is_ok());
+
+    let mut blank = valid.clone();
+    blank
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .assumptions
+        .push("  ".into());
+    assert!(blank.validate(&claim_id()).is_err());
+
+    let mut duplicate = valid;
+    duplicate.bounded_check.as_mut().unwrap().assumptions =
+        vec!["allocator succeeds".into(), "allocator succeeds".into()];
+    assert!(duplicate.validate(&claim_id()).is_err());
+
+    let mut oversized_entry = bounded_record("kani");
+    oversized_entry.bounded_check.as_mut().unwrap().assumptions = vec!["x".repeat(4097)];
+    assert!(oversized_entry.validate(&claim_id()).is_err());
+
+    let mut oversized_inventory = bounded_record("kani");
+    oversized_inventory
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .assumptions = (0..4097)
+        .map(|index| format!("assumption {index}"))
+        .collect();
+    assert!(oversized_inventory.validate(&claim_id()).is_err());
+}
+
+#[test]
+fn unknown_peak_memory_is_distinct_from_measured_zero() {
+    let mut provenance = provenance("memory");
+    provenance.resource_budget.memory_bytes = 0;
+    provenance.resource_usage.peak_memory_bytes = None;
+    assert!(!provenance.exceeded_budget());
+    assert_eq!(
+        serde_json::to_value(&provenance.resource_usage).unwrap()["peak_memory_bytes"],
+        serde_json::Value::Null
+    );
+
+    provenance.resource_usage.peak_memory_bytes = Some(0);
+    assert!(!provenance.exceeded_budget());
+    assert_eq!(
+        serde_json::to_value(&provenance.resource_usage).unwrap()["peak_memory_bytes"],
+        0
+    );
+
+    provenance.resource_usage.peak_memory_bytes = Some(1);
+    assert!(provenance.exceeded_budget());
+}
+
+#[test]
+fn multi_command_provenance_rejects_index_drift_truncation_and_incomplete_passes() {
+    let mut valid = example_record("multi");
+    let second_command = CommandSpec {
+        program: "proof-tool".into(),
+        args: vec!["--second".into()],
+        environment_allowlist: vec![],
+    };
+    valid.provenance.commands.push(second_command);
+    valid.provenance.runs.push(ExecutionRun {
+        command_index: 1,
+        exit_code: Some(0),
+        stdout_sha256: digest("stdout:second"),
+        stderr_sha256: digest("stderr:second"),
+        normalized_output_sha256: digest("normalized:second"),
+        output_truncated: false,
+        duration_ms: 2,
+    });
+    assert!(valid.validate(&claim_id()).is_ok());
+
+    let mut wrong_index = valid.clone();
+    wrong_index.provenance.runs[1].command_index = 0;
+    assert!(wrong_index.validate(&claim_id()).is_err());
+
+    let mut truncated = valid.clone();
+    truncated.provenance.runs[1].output_truncated = true;
+    assert!(truncated.validate(&claim_id()).is_err());
+
+    let mut incomplete = valid.clone();
+    incomplete.provenance.runs[1].exit_code = None;
+    assert!(incomplete.validate(&claim_id()).is_err());
+
+    let mut nonzero = valid.clone();
+    nonzero.provenance.runs[1].exit_code = Some(1);
+    assert!(nonzero.validate(&claim_id()).is_err());
+
+    let mut empty_inventory = valid.clone();
+    empty_inventory.inventoried_targets.clear();
+    assert!(empty_inventory.validate(&claim_id()).is_err());
+
+    let mut controlled_inventory = valid.clone();
+    controlled_inventory
+        .inventoried_targets
+        .insert("tests::bad\nname".into());
+    assert!(controlled_inventory.validate(&claim_id()).is_err());
+
+    let mut missing_run = valid.clone();
+    missing_run.provenance.runs.pop();
+    assert!(missing_run.validate(&claim_id()).is_err());
+
+    let mut blank_normalization = valid.clone();
+    blank_normalization.provenance.normalization = "  ".into();
+    assert!(blank_normalization.validate(&claim_id()).is_err());
+
+    let mut oversized_normalization = valid.clone();
+    oversized_normalization.provenance.normalization = "x".repeat(1025);
+    assert!(oversized_normalization.validate(&claim_id()).is_err());
+
+    let mut shell = valid.clone();
+    shell.provenance.commands[0].program = "/bin/sh".into();
+    assert!(shell.validate(&claim_id()).is_err());
+
+    let mut duplicate_environment = valid;
+    let duplicate = duplicate_environment.provenance.commands[0].environment_allowlist[0].clone();
+    duplicate_environment.provenance.commands[0]
+        .environment_allowlist
+        .push(duplicate);
+    assert!(duplicate_environment.validate(&claim_id()).is_err());
 }
 
 #[test]
@@ -821,24 +1261,173 @@ fn trusted_transcription_never_satisfies_artifact_bound() {
         EvidenceKind::TrustedTranscription,
         "artifact:transcribed",
     );
-    transcription.binding_mode = Some(BindingMode::ExternalRoundTrip);
-    transcription.trusted_transcription = Some(TrustedTranscriptionEvidence {
-        transcriber_tcb: NodeId::new("tcb:transcriber").unwrap(),
-        reencoder_tcb: NodeId::new("tcb:reencoder").unwrap(),
-        round_trip_passed: true,
-    });
+    attach_trusted_transcription(&mut transcription, "transcription");
     add_record(&mut input, transcription, NodeKind::Artifact, true);
-    for id in ["tcb:transcriber", "tcb:reencoder"] {
-        input.graph.nodes.push(GraphNode {
-            id: NodeId::new(id).unwrap(),
-            kind: NodeKind::TcbComponent,
-            proof_environment: None,
-        });
-    }
+    register_transcription_tcb_nodes(&mut input, "transcription");
     let status = derive_claim_status(&input);
     assert_eq!(status.formal, FormalFacet::Proved);
     assert_eq!(status.linkage, Some(LinkageFacet::Transcribed));
     assert!(!status.policy.admitted);
+}
+
+fn register_transcription_tcb_nodes(input: &mut ClaimEvaluationInput, prefix: &str) {
+    for suffix in ["transcriber", "reencoder"] {
+        input.graph.nodes.push(GraphNode {
+            id: NodeId::new(format!("tcb:trusted-transcription:{prefix}:{suffix}")).unwrap(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        });
+    }
+}
+
+#[test]
+fn transcribed_profile_admits_only_derived_transcription_without_a_theorem() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "profile-transcription",
+        EvidenceKind::TrustedTranscription,
+        "artifact:profile-transcription",
+    );
+    attach_trusted_transcription(&mut transcription, "profile-transcription");
+    add_record(&mut input, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut input, "profile-transcription");
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Open);
+    assert_eq!(status.linkage, Some(LinkageFacet::Transcribed));
+    assert!(status.policy.admitted);
+}
+
+#[test]
+fn transcription_content_mismatch_fails_closed() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "mismatched-transcription",
+        EvidenceKind::TrustedTranscription,
+        "artifact:mismatched-transcription",
+    );
+    attach_trusted_transcription(&mut transcription, "mismatched-transcription");
+    transcription
+        .trusted_transcription
+        .as_mut()
+        .unwrap()
+        .transcribed_candidate
+        .size_bytes += 1;
+    add_record(&mut input, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut input, "mismatched-transcription");
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert_eq!(status.linkage, None);
+    assert!(!status.policy.admitted);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("candidate bytes do not match the committed transcription")
+    }));
+}
+
+#[test]
+fn transcription_requires_distinct_derived_tcb_roles() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "reused-role",
+        EvidenceKind::TrustedTranscription,
+        "artifact:reused-role",
+    );
+    attach_trusted_transcription(&mut transcription, "reused-role");
+    let detail = transcription.trusted_transcription.as_mut().unwrap();
+    detail.reencoder.tcb_node = detail.transcriber.tcb_node.clone();
+    detail.reencoder.role_identity = detail.transcriber.role_identity;
+    add_record(&mut input, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut input, "reused-role");
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("collapses the transcriber and re-encoder TCB roles")
+    }));
+}
+
+#[test]
+fn transcription_role_identity_is_recomputed_from_the_driver() {
+    let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "forged-role",
+        EvidenceKind::TrustedTranscription,
+        "artifact:forged-role",
+    );
+    attach_trusted_transcription(&mut transcription, "forged-role");
+    transcription
+        .trusted_transcription
+        .as_mut()
+        .unwrap()
+        .reencoder
+        .role_identity = digest("checker-authored-role");
+    add_record(&mut input, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut input, "forged-role");
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("not derived from the exact registered driver and ABI")
+    }));
+}
+
+#[test]
+fn transcription_rejects_logical_aliases_and_hidden_provenance() {
+    let mut alias = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "alias",
+        EvidenceKind::TrustedTranscription,
+        "artifact:alias",
+    );
+    attach_trusted_transcription(&mut transcription, "alias");
+    let generated = {
+        let detail = transcription.trusted_transcription.as_mut().unwrap();
+        detail.transcribed_candidate.logical_name =
+            detail.committed_transcription.logical_name.clone();
+        vec![
+            detail.transcribed_candidate.clone(),
+            detail.reencoded_source.clone(),
+        ]
+    };
+    transcription.provenance.generated_artifacts = generated;
+    add_record(&mut alias, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut alias, "alias");
+    let status = derive_claim_status(&alias);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(
+        status
+            .errors
+            .iter()
+            .any(|error| error.message.contains("aliases two artifact roles"))
+    );
+
+    let mut hidden = base_input(Tier::Bounded, builtin(BuiltInProfile::Transcribed));
+    let mut transcription = basic_record(
+        "hidden",
+        EvidenceKind::TrustedTranscription,
+        "artifact:hidden",
+    );
+    attach_trusted_transcription(&mut transcription, "hidden");
+    transcription
+        .provenance
+        .input_artifacts
+        .push(named_artifact("hidden/extra", "hidden-extra", 5));
+    add_record(&mut hidden, transcription, NodeKind::Artifact, true);
+    register_transcription_tcb_nodes(&mut hidden, "hidden");
+    let status = derive_claim_status(&hidden);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("not the exact three registered artifacts")
+    }));
 }
 
 #[test]
@@ -854,20 +1443,149 @@ fn strong_artifact_binding_produces_artifact_bound_linkage() {
     );
     artifact.evaluation_mode = Some(crate::EvaluationMode::Kernel);
     artifact.binding_mode = Some(BindingMode::DigestTheorem);
+    let artifact_identity = bound_artifact();
+    artifact
+        .provenance
+        .input_artifacts
+        .push(artifact_identity.clone());
     artifact.artifact_binding = Some(ArtifactBindingEvidence {
         theorem: theorem_id,
-        canonical_payload: true,
-        schema_bound: true,
-        literal_claim_bound: true,
-        digest_bound: true,
-        reencoding_passed: true,
-        trailing_bytes_rejected: true,
+        artifact: artifact_identity,
     });
     add_record(&mut input, artifact, NodeKind::Artifact, true);
     let status = derive_claim_status(&input);
     assert_eq!(status.formal, FormalFacet::Proved);
     assert_eq!(status.linkage, Some(LinkageFacet::ArtifactBound));
     assert!(status.policy.admitted);
+}
+
+fn add_artifact_binding(
+    input: &mut ClaimEvaluationInput,
+    theorem: EvidenceId,
+    artifact: ArtifactIdentity,
+    id: &str,
+) {
+    let mut record = basic_record(
+        id,
+        EvidenceKind::ArtifactSoundness,
+        &format!("artifact:{id}"),
+    );
+    record.evaluation_mode = Some(crate::EvaluationMode::Kernel);
+    record.binding_mode = Some(BindingMode::DigestTheorem);
+    record.provenance.input_artifacts.push(artifact.clone());
+    record.artifact_binding = Some(ArtifactBindingEvidence { theorem, artifact });
+    add_record(input, record, NodeKind::Artifact, true);
+}
+
+#[test]
+fn unrelated_theorem_cannot_smuggle_a_nested_binding_marker() {
+    let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+    let mut theorem = theorem_record("smuggled", crate::EvaluationMode::Kernel);
+    let exact_binding = theorem
+        .theorem
+        .as_ref()
+        .unwrap()
+        .statement_wire
+        .as_array()
+        .unwrap()[1]
+        .clone();
+    let wrapped = serde_json::json!([
+        crate::LEAN_STATEMENT_ENCODING_V1,
+        [3, [2, "Demo.Unrelated", []], exact_binding]
+    ]);
+    let theorem_detail = theorem.theorem.as_mut().unwrap();
+    theorem_detail.statement_sha256 = crate::lean_statement_wire_digest(&wrapped).unwrap();
+    theorem_detail.statement_wire = wrapped;
+    let theorem_id = theorem.id.clone();
+    add_record(&mut input, theorem, NodeKind::Theorem, true);
+    add_artifact_binding(
+        &mut input,
+        theorem_id,
+        bound_artifact(),
+        "smuggled-artifact",
+    );
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert_eq!(status.linkage, None);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("not derived from the exact audited theorem root")
+    }));
+}
+
+#[test]
+fn artifact_path_digest_and_claim_mismatches_fail_closed() {
+    for mismatch in ["path", "digest", "claim"] {
+        let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+        let mut theorem = theorem_record(mismatch, crate::EvaluationMode::Kernel);
+        let mut artifact = bound_artifact();
+        match mismatch {
+            "path" => {
+                artifact.logical_name = ArtifactLogicalName::new("other.bin").unwrap();
+            }
+            "digest" => artifact.sha256 = digest("different artifact"),
+            "claim" => {
+                let wire =
+                    binding_statement(&ClaimId::new("OTHER-CLAIM").unwrap(), &bound_artifact());
+                let detail = theorem.theorem.as_mut().unwrap();
+                detail.statement_sha256 = crate::lean_statement_wire_digest(&wire).unwrap();
+                detail.statement_wire = wire;
+            }
+            _ => unreachable!(),
+        }
+        let theorem_id = theorem.id.clone();
+        add_record(&mut input, theorem, NodeKind::Theorem, true);
+        add_artifact_binding(
+            &mut input,
+            theorem_id,
+            artifact,
+            &format!("artifact-{mismatch}"),
+        );
+
+        let status = derive_claim_status(&input);
+        assert_eq!(status.formal, FormalFacet::Invalid, "{mismatch}");
+        assert_eq!(status.linkage, None, "{mismatch}");
+    }
+}
+
+#[test]
+fn wire_hash_mismatch_and_ambiguous_provenance_fail_locally() {
+    let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+    let mut theorem = theorem_record("wrong-hash", crate::EvaluationMode::Kernel);
+    theorem.theorem.as_mut().unwrap().statement_sha256 = digest("not the statement");
+    let theorem_id = theorem.id.clone();
+    add_record(&mut input, theorem, NodeKind::Theorem, true);
+
+    let artifact = bound_artifact();
+    let mut record = basic_record(
+        "duplicate-input",
+        EvidenceKind::ArtifactSoundness,
+        "artifact:duplicate-input",
+    );
+    record.evaluation_mode = Some(crate::EvaluationMode::Kernel);
+    record.binding_mode = Some(BindingMode::DigestTheorem);
+    record.provenance.input_artifacts = vec![artifact.clone(), artifact.clone()];
+    record.artifact_binding = Some(ArtifactBindingEvidence {
+        theorem: theorem_id,
+        artifact,
+    });
+    add_record(&mut input, record, NodeKind::Artifact, true);
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert_eq!(status.linkage, None);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("statement wire, or axiom audit is invalid")
+    }));
+    assert!(status.errors.iter().any(|error| {
+        error
+            .message
+            .contains("does not match exactly one provenance input")
+    }));
 }
 
 #[test]
@@ -883,14 +1601,14 @@ fn multiple_linkages_are_invalid_without_an_explicit_primary() {
     );
     artifact.evaluation_mode = Some(crate::EvaluationMode::Kernel);
     artifact.binding_mode = Some(BindingMode::DigestTheorem);
+    let artifact_identity = bound_artifact();
+    artifact
+        .provenance
+        .input_artifacts
+        .push(artifact_identity.clone());
     artifact.artifact_binding = Some(ArtifactBindingEvidence {
         theorem: theorem_id,
-        canonical_payload: true,
-        schema_bound: true,
-        literal_claim_bound: true,
-        digest_bound: true,
-        reencoding_passed: true,
-        trailing_bytes_rejected: true,
+        artifact: artifact_identity,
     });
     add_record(&mut input, artifact, NodeKind::Artifact, true);
     let mut transcription = basic_record(
@@ -898,20 +1616,9 @@ fn multiple_linkages_are_invalid_without_an_explicit_primary() {
         EvidenceKind::TrustedTranscription,
         "artifact:weak",
     );
-    transcription.binding_mode = Some(BindingMode::ExternalRoundTrip);
-    transcription.trusted_transcription = Some(TrustedTranscriptionEvidence {
-        transcriber_tcb: NodeId::new("tcb:a").unwrap(),
-        reencoder_tcb: NodeId::new("tcb:b").unwrap(),
-        round_trip_passed: true,
-    });
+    attach_trusted_transcription(&mut transcription, "transcribed");
     add_record(&mut input, transcription, NodeKind::Artifact, true);
-    for id in ["tcb:a", "tcb:b"] {
-        input.graph.nodes.push(GraphNode {
-            id: NodeId::new(id).unwrap(),
-            kind: NodeKind::TcbComponent,
-            proof_environment: None,
-        });
-    }
+    register_transcription_tcb_nodes(&mut input, "transcribed");
     assert_eq!(derive_claim_status(&input).formal, FormalFacet::Invalid);
     input.claim.primary_linkage = Some(LinkageFacet::ArtifactBound);
     let resolved = derive_claim_status(&input);
@@ -1018,29 +1725,157 @@ fn qualifiers_from_another_evidence_kind_fail_closed() {
 #[test]
 fn mutation_witness_without_separate_theorem_is_empirical() {
     let mut input = base_input(Tier::Ledger, ledger_policy());
+    bind_claim_to_subject(&mut input, "rust:crate::decide");
     let mut mutation = basic_record("mutation", EvidenceKind::MutationWitness, "tests:mutation");
-    mutation.mutation_witness = Some(MutationWitnessEvidence {
-        mutation_sha256: digest("mutation"),
-        check_id: "tests::guard_removed".into(),
-        proof_term_theorem: None,
-    });
+    attach_mutation_witness(&mut mutation, "remove-guard", "tests::guard_removed", None);
     add_record(&mut input, mutation, NodeKind::TestSuite, true);
     assert_eq!(derive_claim_status(&input).formal, FormalFacet::Tested);
 }
 
 #[test]
+fn rehashed_mutation_witness_cannot_attach_to_another_claim_subject() {
+    let mut input = base_input(Tier::Ledger, ledger_policy());
+    bind_claim_to_subject(&mut input, "rust:crate::decide");
+    let mut mutation = basic_record(
+        "mutation-subject",
+        EvidenceKind::MutationWitness,
+        "tests:mutation-subject",
+    );
+    attach_mutation_witness(&mut mutation, "remove-guard", "tests::guard_removed", None);
+    let claims = mutation.claims.clone();
+    let witness = mutation.mutation_witness.as_mut().unwrap();
+    witness.subject = "rust:crate::unrelated".into();
+    witness.mutation_sha256 = witness.derived_mutation_sha256(&claims).unwrap();
+    assert!(mutation.validate(&claim_id()).is_ok());
+
+    add_record(&mut input, mutation, NodeKind::TestSuite, true);
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error.code == ErrorCode::PbCoreInvalidEvidence
+            && error.message.contains("different subject")
+    }));
+}
+
+#[test]
+fn mutation_witness_replay_is_exact_and_fail_closed() {
+    let mut valid = basic_record(
+        "mutation-exact",
+        EvidenceKind::MutationWitness,
+        "tests:mutation-exact",
+    );
+    attach_mutation_witness(
+        &mut valid,
+        "remove-guard",
+        "guard_witnesses::guard_removed",
+        None,
+    );
+    assert!(valid.validate(&claim_id()).is_ok());
+
+    let mut cases = Vec::new();
+
+    let mut wrong_exit = valid.clone();
+    wrong_exit.provenance.runs[1].exit_code = Some(1);
+    cases.push(("wrong registered exit", wrong_exit));
+
+    let mut extra_failure = valid.clone();
+    extra_failure.provenance.runs[0].exit_code = Some(101);
+    cases.push(("more than one nonzero run", extra_failure));
+
+    let mut broadened_exit = valid.clone();
+    broadened_exit
+        .mutation_witness
+        .as_mut()
+        .unwrap()
+        .expected_failure
+        .allowed_exit_codes
+        .insert(1);
+    cases.push(("broadened failure codes", broadened_exit));
+
+    let mut changed_command = valid.clone();
+    changed_command.provenance.commands[1].args[0] = "another_test".into();
+    cases.push(("different mutant witness", changed_command));
+
+    let mut replayed_baseline_binary = valid.clone();
+    replayed_baseline_binary.provenance.commands[1].program =
+        replayed_baseline_binary.provenance.commands[0]
+            .program
+            .clone();
+    cases.push((
+        "baseline binary replayed as mutant",
+        replayed_baseline_binary,
+    ));
+
+    let mut hidden_input = valid.clone();
+    hidden_input
+        .provenance
+        .input_artifacts
+        .push(named_artifact("hidden/input", "hidden-input", 1));
+    cases.push(("extra provenance input", hidden_input));
+
+    let mut changed_postimage = valid.clone();
+    changed_postimage
+        .mutation_witness
+        .as_mut()
+        .unwrap()
+        .target_postimage
+        .sha256 = digest("different-postimage");
+    cases.push(("unbound mutant postimage", changed_postimage));
+
+    let mut forged_identity = valid.clone();
+    forged_identity
+        .mutation_witness
+        .as_mut()
+        .unwrap()
+        .mutation_sha256 = digest("forged-mutation");
+    cases.push(("forged mutation identity", forged_identity));
+
+    let mut uppercase_id = valid.clone();
+    let witness = uppercase_id.mutation_witness.as_mut().unwrap();
+    witness.mutation_id = "remove-Guard".into();
+    witness.mutation_sha256 = witness
+        .derived_mutation_sha256(&uppercase_id.claims)
+        .unwrap();
+    uppercase_id.inventoried_targets = BTreeSet::from(["remove-Guard".into()]);
+    cases.push(("non-canonical mutation ID", uppercase_id));
+
+    let mut multi_inventory = valid.clone();
+    multi_inventory
+        .inventoried_targets
+        .insert("remove-another-guard".into());
+    cases.push(("multi-mutation unit", multi_inventory));
+
+    let mut mismatched_unit = valid.clone();
+    mismatched_unit.unit_id = UnitId::new("unit:another-mutation").unwrap();
+    cases.push(("unit and mutation identities differ", mismatched_unit));
+
+    for (label, record) in cases {
+        assert!(record.validate(&claim_id()).is_err(), "accepted {label}");
+    }
+}
+
+#[test]
+fn expected_nonzero_exit_is_never_available_to_other_evidence_kinds() {
+    let mut ordinary = example_record("ordinary-nonzero");
+    ordinary.provenance.runs[0].exit_code = Some(101);
+    assert!(ordinary.validate(&claim_id()).is_err());
+}
+
+#[test]
 fn proof_term_mutation_witness_is_supporting_and_cannot_prove_the_claim() {
     let mut input = base_input(Tier::Model, ledger_policy());
+    bind_claim_to_subject(&mut input, "rust:crate::decide");
     let mut mutation = basic_record(
         "proof-mutation",
         EvidenceKind::MutationWitness,
         "tests:proof-mutation",
     );
-    mutation.mutation_witness = Some(MutationWitnessEvidence {
-        mutation_sha256: digest("proof-mutation"),
-        check_id: "Lean.Mutation.guard_violation".into(),
-        proof_term_theorem: Some(EvidenceId::new("theorem:mutation-only").unwrap()),
-    });
+    attach_mutation_witness(
+        &mut mutation,
+        "proof-mutation",
+        "Lean.Mutation.guard_violation",
+        Some(EvidenceId::new("theorem:mutation-only").unwrap()),
+    );
     add_record(&mut input, mutation, NodeKind::TestSuite, true);
     assert_eq!(derive_claim_status(&input).formal, FormalFacet::Open);
 }
@@ -1136,6 +1971,8 @@ struct CorpusEvidence {
     present: bool,
     #[serde(default = "corpus_true")]
     cited: bool,
+    #[serde(default = "corpus_true")]
+    typed_binding: bool,
     #[serde(default)]
     evaluation: Option<String>,
     #[serde(default)]
@@ -1186,6 +2023,7 @@ fn read_status_corpus() -> CorpusDocument {
 fn corpus_profile(name: &str) -> BuiltInProfile {
     match name {
         "ledger" => BuiltInProfile::Ledger,
+        "transcribed" => BuiltInProfile::Transcribed,
         "kernel" => BuiltInProfile::Kernel,
         "kernel-with-assumptions" => BuiltInProfile::KernelWithAssumptions,
         "artifact-bound" => BuiltInProfile::ArtifactBound,
@@ -1284,10 +2122,20 @@ fn build_core_corpus_case(case: &CorpusCase) -> ClaimEvaluationInput {
                     .insert(format!("independent::{}", raw.id));
                 (record, NodeKind::TestSuite)
             }
-            "theorem" => (
-                theorem_record(&raw.id, corpus_evaluation(raw.evaluation.as_deref())),
-                NodeKind::Theorem,
-            ),
+            "theorem" => {
+                let mut record =
+                    theorem_record(&raw.id, corpus_evaluation(raw.evaluation.as_deref()));
+                if !raw.typed_binding {
+                    let wire = serde_json::json!([
+                        crate::LEAN_STATEMENT_ENCODING_V1,
+                        [2, "Demo.Unrelated", []]
+                    ]);
+                    let detail = record.theorem.as_mut().unwrap();
+                    detail.statement_sha256 = crate::lean_statement_wire_digest(&wire).unwrap();
+                    detail.statement_wire = wire;
+                }
+                (record, NodeKind::Theorem)
+            }
             "artifact-soundness" => {
                 let theorem = EvidenceId::new(raw.theorem_ref.as_deref().unwrap()).unwrap();
                 let mut record = basic_record(
@@ -1297,15 +2145,9 @@ fn build_core_corpus_case(case: &CorpusCase) -> ClaimEvaluationInput {
                 );
                 record.evaluation_mode = Some(corpus_evaluation(raw.evaluation.as_deref()));
                 record.binding_mode = Some(BindingMode::DigestTheorem);
-                record.artifact_binding = Some(ArtifactBindingEvidence {
-                    theorem,
-                    canonical_payload: true,
-                    schema_bound: true,
-                    literal_claim_bound: true,
-                    digest_bound: true,
-                    reencoding_passed: true,
-                    trailing_bytes_rejected: true,
-                });
+                let artifact = bound_artifact();
+                record.provenance.input_artifacts.push(artifact.clone());
+                record.artifact_binding = Some(ArtifactBindingEvidence { theorem, artifact });
                 (record, NodeKind::Artifact)
             }
             "trusted-transcription" => {
@@ -1314,15 +2156,11 @@ fn build_core_corpus_case(case: &CorpusCase) -> ClaimEvaluationInput {
                     EvidenceKind::TrustedTranscription,
                     &format!("artifact:{}", raw.id),
                 );
-                record.binding_mode = Some(BindingMode::ExternalRoundTrip);
-                record.trusted_transcription = Some(TrustedTranscriptionEvidence {
-                    transcriber_tcb: NodeId::new(format!("tcb:{}-transcriber", raw.id)).unwrap(),
-                    reencoder_tcb: NodeId::new(format!("tcb:{}-reencoder", raw.id)).unwrap(),
-                    round_trip_passed: true,
-                });
+                attach_trusted_transcription(&mut record, &raw.id);
                 for suffix in ["transcriber", "reencoder"] {
                     input.graph.nodes.push(GraphNode {
-                        id: NodeId::new(format!("tcb:{}-{suffix}", raw.id)).unwrap(),
+                        id: NodeId::new(format!("tcb:trusted-transcription:{}:{suffix}", raw.id))
+                            .unwrap(),
                         kind: NodeKind::TcbComponent,
                         proof_environment: None,
                     });

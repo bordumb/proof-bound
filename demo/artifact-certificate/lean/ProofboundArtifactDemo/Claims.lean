@@ -1,4 +1,5 @@
 import ProofboundArtifactDemo.Certificate
+import Proofbound.Artifact
 import Proofbound.Attribute
 
 /-!
@@ -48,18 +49,27 @@ theorem publishedAcceptsDigest :
     acceptsDigest publishedBytes publishedDigest = true := by
   simp [acceptsDigest, publishedAccepts, publishedDigestIsSha256]
 
-/-- The certificate-specific artifact-soundness result: exact canonical bytes
-have the registered meaning and the published digest is their SHA-256. -/
-@[proofbound_exempt "Binding theorem registered as evidence for PBAC-SUM-001; the public claim theorem is publishedTotal."]
-theorem publishedArtifactSoundness :
-    MeaningList publishedBytes ∧
-      Sha256.hash (ByteArray.mk publishedBytes.toArray) = publishedDigest :=
-  acceptsDigest_sound publishedAcceptsDigest
-
-/-- Axiom-free artifact-bound public claim. -/
-@[proofbound_claim "PBAC-SUM-001"]
+/-- Meaning helper with no project or external axioms. -/
+@[proofbound_exempt "Meaning helper consumed by the typed artifact-binding public theorem."]
 theorem publishedTotal : MeaningList publishedBytes :=
   checkList_sound publishedAccepts
+
+set_option maxRecDepth 100000 in
+/-- The only public declaration for PBAC-SUM-001. Its exact elaborated root
+contains the claim ID, artifact schema, reviewed path, digest, bytes, and
+meaning in the typed Proofbound binding proposition. -/
+@[proofbound_claim "PBAC-SUM-001"]
+theorem publishedArtifactSoundness :
+    Proofbound.Artifact.DigestBindingV1
+      "PBAC-SUM-001"
+      "proofbound-artifact-certificate/1"
+      "demo/artifact-certificate/fixtures/valid-basic.pbac"
+      "sha256:dd7cf87ba3535aad431c473b71286fb6806fcc785fc3b39290c4a99d561dfe2d"
+      (ByteArray.mk publishedBytes.toArray)
+      (fun bytes => MeaningList bytes.data.toList) := by
+  constructor
+  · native_decide
+  · exact publishedTotal
 
 /-- An intentionally abstract proposition representing facts outside the
 certificate's arithmetic model. It has no constructors. -/
@@ -74,15 +84,24 @@ def CalibratedMeaning (bytes : List UInt8) : Prop :=
 
 /-- Artifact-bound claim whose residual external premise is intentionally
 visible in the assumption manifest and Lean axiom audit. -/
-@[proofbound_claim "PBAC-CALIBRATED-001"]
+@[proofbound_exempt "Meaning helper consumed by the typed calibrated artifact-binding public theorem."]
 theorem publishedCalibratedTotal : CalibratedMeaning publishedBytes :=
   ⟨publishedTotal, providerMeasurementsAccurate⟩
 
-/-- Digest-bound version of the explicitly axiomatized claim. -/
-@[proofbound_exempt "Binding theorem registered as evidence for PBAC-CALIBRATED-001; the public claim theorem is publishedCalibratedTotal."]
+set_option maxRecDepth 100000 in
+/-- The calibrated public claim uses the same typed digest-binding root and
+retains the provider premise in its audited axiom closure. -/
+@[proofbound_claim "PBAC-CALIBRATED-001"]
 theorem publishedCalibratedArtifactSoundness :
-    CalibratedMeaning publishedBytes ∧
-      Sha256.hash (ByteArray.mk publishedBytes.toArray) = publishedDigest :=
-  ⟨publishedCalibratedTotal, publishedDigestIsSha256⟩
+    Proofbound.Artifact.DigestBindingV1
+      "PBAC-CALIBRATED-001"
+      "proofbound-artifact-certificate/1"
+      "demo/artifact-certificate/fixtures/valid-basic.pbac"
+      "sha256:dd7cf87ba3535aad431c473b71286fb6806fcc785fc3b39290c4a99d561dfe2d"
+      (ByteArray.mk publishedBytes.toArray)
+      (fun bytes => CalibratedMeaning bytes.data.toList) := by
+  constructor
+  · native_decide
+  · exact publishedCalibratedTotal
 
 end ProofboundArtifactDemo.Claims

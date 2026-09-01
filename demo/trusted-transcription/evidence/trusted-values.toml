@@ -1,0 +1,35 @@
+schema = "proofbound-evidence-unit/2"
+id = "trusted-values"
+adapter = "trusted-transcription"
+kind = "trusted-transcription"
+claims = ["DEMO-TRANSCRIPTION-001"]
+tier = 1
+binding_mode = "external-round-trip"
+expected_inventory = [
+  "demo/trusted-transcription/source/values.pbtt",
+  "demo/trusted-transcription/transcribed/values.json",
+]
+inputs = [
+  "demo/trusted-transcription/python/transcription_driver.py",
+  "demo/trusted-transcription/source/values.pbtt",
+  "demo/trusted-transcription/transcribed/values.json",
+]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "transcription"
+
+[transcription]
+schema = "proofbound-trusted-transcription/1"
+source = "demo/trusted-transcription/source/values.pbtt"
+committed_transcription = "demo/trusted-transcription/transcribed/values.json"
+driver = "demo/trusted-transcription/python/transcription_driver.py"
+source_format = "proofbound-u32-lines/1"
+transcribed_format = "proofbound-u32-json/1"
+driver_abi = "proofbound-transcription-driver/1"
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 67108864
+memory_bytes = 268435456

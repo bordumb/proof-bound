@@ -1,17 +1,22 @@
-//! Closed `proofbound-compiled-release/1` receipt format.
+//! Closed `proofbound-compiled-release/3` receipt format.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-pub const RELEASE_ENVELOPE_SCHEMA_V1: &str = "proofbound-release-envelope/1";
-pub const COMPILED_RELEASE_SCHEMA_V1: &str = "proofbound-compiled-release/1";
+pub const RELEASE_ENVELOPE_SCHEMA_V3: &str = "proofbound-release-envelope/3";
+pub const COMPILED_RELEASE_SCHEMA_V3: &str = "proofbound-compiled-release/3";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
-pub const EVIDENCE_SCHEMA_V1: &str = "proofbound-evidence/1";
+pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const CLOSURE_SCHEMA_V1: &str = "proofbound-source-closure/1";
 pub const POLICY_SCHEMA_V1: &str = "proofbound-policy/1";
+pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcription/1";
+pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
+pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
+pub const MUTATION_WITNESS_SCHEMA_V2: &str = "proofbound-mutation-witness/2";
+pub const MUTATION_IDENTITY_DOMAIN_V2: &str = "proofbound-mutation/2";
 
 /// Small canonical index stored as `<release>/release.json`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -213,7 +218,11 @@ pub struct ClaimReceipt {
     pub id: String,
     pub node_id: String,
     pub title: String,
+    /// Exact internal property registered for theorem and evidence matching.
     pub statement: String,
+    /// Optional reader-facing property language; never replaces `statement`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_language: Option<String>,
     pub subject: String,
     pub policy: String,
     /// Optional per-claim tier ceiling; absence inherits `project_tier`.
@@ -257,9 +266,8 @@ impl EvidenceKind {
     pub const fn minimum_tier(self) -> Tier {
         match self {
             Self::Theorem => Tier::Model,
-            Self::ArtifactSoundness | Self::TrustedTranscription | Self::SourceRefinement => {
-                Tier::Bound
-            }
+            Self::ArtifactSoundness | Self::SourceRefinement => Tier::Bound,
+            Self::TrustedTranscription => Tier::Bounded,
             Self::BoundedCheck | Self::IndependentCheck | Self::ExhaustiveCheck => Tier::Bounded,
             _ => Tier::Ledger,
         }
@@ -300,6 +308,7 @@ pub enum BindingMode {
 pub struct TheoremReceipt {
     pub declaration: String,
     pub statement_encoding: String,
+    pub statement_wire: serde_json::Value,
     pub statement_sha256: String,
     pub attributed_claim: String,
     pub proof_environment: String,
@@ -311,24 +320,47 @@ pub struct TheoremReceipt {
     pub project_axioms: BTreeSet<String>,
 }
 
+/// Exact identity of an artifact checked by a binding evidence unit.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactIdentityReceipt {
+    pub logical_name: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactBindingReceipt {
     pub theorem_evidence: String,
-    pub canonical_payload: bool,
-    pub schema_bound: bool,
-    pub literal_claim_bound: bool,
-    pub digest_bound: bool,
-    pub reencoding_passed: bool,
-    pub trailing_bytes_rejected: bool,
+    pub artifact: ArtifactIdentityReceipt,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranscriptionRole {
+    Transcriber,
+    Reencoder,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranscriptionTcbRoleReceipt {
+    pub tcb_node: String,
+    pub role_identity: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrustedTranscriptionReceipt {
-    pub transcriber_tcb_node: String,
-    pub reencoder_tcb_node: String,
-    pub round_trip_passed: bool,
+    pub schema: String,
+    pub source: ArtifactIdentityReceipt,
+    pub committed_transcription: ArtifactIdentityReceipt,
+    pub transcribed_candidate: ArtifactIdentityReceipt,
+    pub reencoded_source: ArtifactIdentityReceipt,
+    pub driver: ArtifactIdentityReceipt,
+    pub transcriber: TranscriptionTcbRoleReceipt,
+    pub reencoder: TranscriptionTcbRoleReceipt,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -367,6 +399,8 @@ pub struct BoundedCheckReceipt {
     pub harnesses: BTreeSet<String>,
     #[serde(default)]
     pub unwind_bounds: BTreeMap<String, u64>,
+    /// Exact solver assumptions reported for this bounded execution.
+    pub assumptions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -379,9 +413,27 @@ pub struct ExhaustiveCheckReceipt {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MutationWitnessReceipt {
+    pub schema: String,
+    pub mutation_id: String,
+    pub subject: String,
+    pub guard: String,
     pub mutation_sha256: String,
+    pub registry: ArtifactIdentityReceipt,
+    pub target_preimage: ArtifactIdentityReceipt,
+    pub mutant_artifact: ArtifactIdentityReceipt,
+    pub target_postimage: ArtifactIdentityReceipt,
+    pub witness_source: ArtifactIdentityReceipt,
     pub check_id: String,
+    pub baseline_run_index: usize,
+    pub expected_failure: ExpectedFailureReceipt,
     pub proof_term_witness: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpectedFailureReceipt {
+    pub run_index: usize,
+    pub allowed_exit_codes: BTreeSet<i32>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -407,13 +459,53 @@ pub struct ToolIdentity {
     pub identity_sha256: String,
 }
 
+/// One environment variable admitted to a typed command.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentReceipt {
+    pub name: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub value_sha256: Option<String>,
+    pub secret: bool,
+}
+
+/// One exact process invocation in adapter execution order.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandReceipt {
+    pub program: String,
+    pub args: Vec<String>,
+    pub environment_allowlist: Vec<EnvironmentReceipt>,
+}
+
+/// Captured outcome for exactly one indexed command.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionRunReceipt {
+    pub command_index: usize,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub exit_code: Option<i32>,
+    pub stdout_sha256: String,
+    pub stderr_sha256: String,
+    pub normalized_output_sha256: String,
+    pub output_truncated: bool,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecutionKind {
+    ObservedProcesses,
+    CompilerInternal,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CacheKeyMaterial {
     pub semantic_closure: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_closures: Vec<ClosureReference>,
-    pub input_artifacts: BTreeMap<String, String>,
+    pub input_artifacts: Vec<ArtifactIdentityReceipt>,
     pub tool: ToolIdentity,
     pub adapter: ToolIdentity,
     pub unit_configuration_sha256: String,
@@ -428,15 +520,16 @@ pub struct EvidenceProvenance {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_closures: Vec<ClosureReference>,
     #[serde(default)]
-    pub input_artifacts: BTreeMap<String, String>,
+    pub input_artifacts: Vec<ArtifactIdentityReceipt>,
     #[serde(default)]
-    pub generated_artifacts: BTreeMap<String, String>,
+    pub generated_artifacts: Vec<ArtifactIdentityReceipt>,
     pub tool: ToolIdentity,
     pub adapter: ToolIdentity,
-    pub command: Vec<String>,
-    pub reproduction_command: Vec<String>,
-    #[serde(default)]
-    pub environment_allowlist: BTreeSet<String>,
+    pub execution_kind: ExecutionKind,
+    pub commands: Vec<CommandReceipt>,
+    pub runs: Vec<ExecutionRunReceipt>,
+    pub normalization: String,
+    pub reproduction_command: CommandReceipt,
     pub started_unix_ms: u64,
     pub completed_unix_ms: u64,
     pub deterministic_result_sha256: String,
@@ -445,7 +538,25 @@ pub struct EvidenceProvenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reused_from: Option<String>,
     pub resource_budget: ResourceMeasure,
-    pub actual_cost: ResourceMeasure,
+    pub actual_cost: ActualCostReceipt,
+}
+
+/// Measured adapter cost; `None` means peak memory was not measured.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActualCostReceipt {
+    pub time_ms: u64,
+    pub disk_bytes: u64,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub memory_bytes: Option<u64>,
+}
+
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 impl EvidenceProvenance {
@@ -586,6 +697,7 @@ pub struct PremiseReceipt {
 #[serde(rename_all = "kebab-case")]
 pub enum BuiltInProfile {
     Ledger,
+    Transcribed,
     Kernel,
     KernelWithAssumptions,
     ArtifactBound,
@@ -599,6 +711,7 @@ impl BuiltInProfile {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Ledger => "ledger",
+            Self::Transcribed => "transcribed",
             Self::Kernel => "kernel",
             Self::KernelWithAssumptions => "kernel-with-assumptions",
             Self::ArtifactBound => "artifact-bound",
@@ -612,7 +725,7 @@ impl BuiltInProfile {
     pub const fn minimum_tier(self) -> Tier {
         match self {
             Self::Ledger => Tier::Ledger,
-            Self::Bounded => Tier::Bounded,
+            Self::Bounded | Self::Transcribed => Tier::Bounded,
             Self::Kernel | Self::KernelWithAssumptions | Self::NativeEvaluated => Tier::Model,
             Self::ArtifactBound | Self::SourceRefined => Tier::Bound,
         }
@@ -712,6 +825,7 @@ pub enum AssumptionFacet {
 #[serde(deny_unknown_fields)]
 pub struct ReportedClaimStatus {
     pub claim_id: String,
+    pub public_statement: String,
     pub formal: FormalFacet,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linkage: Option<LinkageFacet>,

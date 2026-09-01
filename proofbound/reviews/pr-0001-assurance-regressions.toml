@@ -1,0 +1,260 @@
+schema = "proofbound-review/1"
+id = "PR-0001-ASSURANCE-REGRESSIONS"
+reviewer = "OpenAI Codex (GPT-5)"
+statement = "Reviewed the exact assurance regressions introduced by PR #1. This unsigned implementation review acknowledges intentional migrations and does not claim independent human review."
+scope = "Exact merge-base-to-subject regressions after preserving documentation-only registered TCB bytes: singleton mutation migration, translation-unit v1-to-v3 migration, and explicit PBAC native-evaluation trust and assumptions."
+reviewed_at = "2026-09-01T00:45:30Z"
+base_revision = "sha256:e682afc1e21e3cdb7c4b7fb059b8bc84af5469dbff13d7e7fad88583481bf48d"
+head_revision = "sha256:773b6d6cb1cd7e15c69d238a0e3db667b44cfedf37993de2ccead031601b03c1"
+
+[[regressions]]
+id = "sha256:e97b880199c735206d90a23c87d00fb9ab063c802e49af11adcd74d8659ed3e9"
+claim_id = "DEMO-TRANSFER-001"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation mutation-witness:guard-mutations"
+
+[[regressions]]
+id = "sha256:9121bdf15e3fbe17eb97c3c0495acf646d4ed9c3ff9eb1d2b7a1091ca9d2bf1a"
+claim_id = "DEMO-TRANSFER-001"
+kind = "mutation-coverage-removed"
+detail = "registered evidence unit guard-mutations was removed at demo/allowance/proofbound/evidence/guard-mutations.toml"
+
+[[regressions]]
+id = "sha256:db3db019a1f26851ee58e6026c97ad5c58529761cff942ce5c0ae992a16acd4b"
+claim_id = "DEMO-TRANSFER-001"
+kind = "source-closure-weakened"
+detail = "translation manifest at demo/allowance/proofbound/translations/transfer-kernel.toml changed schema from proofbound-translation-unit/1 to proofbound-translation-unit/3; its invocation and output closures are not statically comparable"
+
+[[regressions]]
+id = "sha256:f6bde935cd339650e200cc47afe9d48adfdaa2de5b8313ac1113f96b30b858b4"
+claim_id = "DEMO-TRANSFER-002"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation mutation-witness:guard-mutations"
+
+[[regressions]]
+id = "sha256:6cdc3d419189d0b70922bc625a418e376da670f990380231f855c38cb664c551"
+claim_id = "DEMO-TRANSFER-002"
+kind = "mutation-coverage-removed"
+detail = "registered evidence unit guard-mutations was removed at demo/allowance/proofbound/evidence/guard-mutations.toml"
+
+[[regressions]]
+id = "sha256:7428521a2a280039937f57fef83c7f065f6781f08f1ed3db05cba089db8ff1a6"
+claim_id = "DEMO-TRANSFER-002"
+kind = "source-closure-weakened"
+detail = "translation manifest at demo/allowance/proofbound/translations/transfer-kernel.toml changed schema from proofbound-translation-unit/1 to proofbound-translation-unit/3; its invocation and output closures are not statically comparable"
+
+[[regressions]]
+id = "sha256:3140bb41201a66ac432a01a348d4d715194b3821b4cb5701743c25d7d25a69e7"
+claim_id = "DEMO-TRANSFER-003"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation mutation-witness:guard-mutations"
+
+[[regressions]]
+id = "sha256:9efb429100d58f4dc066fe6531b007f452af2a5956dcef55cee5a2d7d3b52478"
+claim_id = "DEMO-TRANSFER-003"
+kind = "mutation-coverage-removed"
+detail = "registered evidence unit guard-mutations was removed at demo/allowance/proofbound/evidence/guard-mutations.toml"
+
+[[regressions]]
+id = "sha256:9b9877de0853f9cb4fbfd02f0c2b6678fb69ef08043a672f1f5abd2fa345aa5f"
+claim_id = "DEMO-TRANSFER-003"
+kind = "source-closure-weakened"
+detail = "translation manifest at demo/allowance/proofbound/translations/transfer-kernel.toml changed schema from proofbound-translation-unit/1 to proofbound-translation-unit/3; its invocation and output closures are not statically comparable"
+
+[[regressions]]
+id = "sha256:4d9ded8337194e431cb68d884a20a771960b9a5dab2e20ff99696e28688956ac"
+claim_id = "DEMO-TRANSFER-004"
+kind = "source-closure-weakened"
+detail = "translation manifest at demo/allowance/proofbound/translations/transfer-kernel.toml changed schema from proofbound-translation-unit/1 to proofbound-translation-unit/3; its invocation and output closures are not statically comparable"
+
+[[regressions]]
+id = "sha256:9ac044f53869dbd83e9f668d991ebad232ea595f6ee03347743850d87b4d0b48"
+claim_id = "DEMO-TRANSFER-005"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation mutation-witness:guard-mutations"
+
+[[regressions]]
+id = "sha256:43fa0e80b555c4ad9e657088ec54e28ed05461b7fc2cf3567edd4bb0ad32f7b3"
+claim_id = "DEMO-TRANSFER-005"
+kind = "mutation-coverage-removed"
+detail = "registered evidence unit guard-mutations was removed at demo/allowance/proofbound/evidence/guard-mutations.toml"
+
+[[regressions]]
+id = "sha256:d596bad3f9893aa8758eab58fa445bf1c3fa9067ccbf20716f829fe6d88dc244"
+claim_id = "DEMO-TRANSFER-005"
+kind = "source-closure-weakened"
+detail = "translation manifest at demo/allowance/proofbound/translations/transfer-kernel.toml changed schema from proofbound-translation-unit/1 to proofbound-translation-unit/3; its invocation and output closures are not statically comparable"
+
+[[regressions]]
+id = "sha256:efa78fc5458c07403b525d19b8df85dbb0485b2273b1eb617233a6fd2c94c8c8"
+claim_id = "EXAMPLE-KERNEL-001"
+kind = "source-closure-weakened"
+detail = "translation manifest at templates/rust-aeneas-refinement/translation-unit.toml changed schema from proofbound-translation-unit/1 to proofbound-translation-unit/3; its invocation and output closures are not statically comparable"
+
+[[regressions]]
+id = "sha256:34444ce9b1330f51aad2b230f667a9ed37bf74a8dd6ad927a2be04d70b0df741"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "enlarged-tcb"
+detail = "claim added foundational axiom Quot.sound"
+
+[[regressions]]
+id = "sha256:a3644845370dc97f5a61c81fc981efe995790f2106e1363cf0c6dc54cd4b1b89"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "enlarged-tcb"
+detail = "claim added foundational axiom ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness._native.native_decide.ax_1_1"
+
+[[regressions]]
+id = "sha256:ae5f152922020399351e7759d67e2b8407487c8f39e55373bc46b9c0e3645b3c"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "enlarged-tcb"
+detail = "evidence unit pbac-calibrated-theorem adapter or typed command changed"
+
+[[regressions]]
+id = "sha256:bb900b6f00f45e63b953a609461eeed2738c597bcb97f93cc8a2b03053beca78"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "enlarged-tcb"
+detail = "claim added foundational axiom Classical.choice"
+
+[[regressions]]
+id = "sha256:f07882d69cfea945eb8e26b0d65369dff78613708cd873270e17c04b8f9213e3"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "enlarged-tcb"
+detail = "claim added foundational axiom propext"
+
+[[regressions]]
+id = "sha256:7f9f0b00f94d683d5738b91f33c85cc0cede6384031033d0aaa3b1b137e0a228"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "evaluation-downgrade"
+detail = "evidence unit pbac-calibrated-theorem evaluation changed from kernel to Some(Native)"
+
+[[regressions]]
+id = "sha256:237ffd22c238af0747e7279325a75ad840766ccae184b4723062919083151794"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "formal-downgrade"
+detail = "evidence unit pbac-calibrated-artifact theorem inventory changed"
+
+[[regressions]]
+id = "sha256:2f3e31d1cc7ad7656ad18eabf5dc68fc9cc205e9b07061efbeadbf14c4228cde"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "formal-downgrade"
+detail = "evidence unit pbac-calibrated-theorem theorem inventory changed"
+
+[[regressions]]
+id = "sha256:451f7eac66cf13270bfd451f88c61d9ef8b8fa411187543eb49038d5eaab80d1"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "formal-downgrade"
+detail = "trust profile changed from artifact-bound to pbac-calibrated-artifact-native; profiles are not statically orderable"
+
+[[regressions]]
+id = "sha256:6a8e652c2e7f3591c3c7a1cf7ad2fef69a21c859d45bc72b13256cb8e444beb2"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "formal-downgrade"
+detail = "formal declaration or canonical theorem-statement identity changed"
+
+[[regressions]]
+id = "sha256:1baa7e6c345211022acded12ea3fa1855bf38c868107f6046720feebba4b7e0b"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "new-assumption"
+detail = "new assumption manifest PBAC-NATIVE-SHA256-001 at demo/artifact-certificate/assumptions/PBAC-NATIVE-SHA256-001.toml"
+
+[[regressions]]
+id = "sha256:2ce5f53d4ec4ec09b4334458fb4f00bd56b9e055012d0aa1542e2ffaf8fd3035"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "new-assumption"
+detail = "evidence unit pbac-calibrated-theorem added assumption PBAC-NATIVE-SHA256-001"
+
+[[regressions]]
+id = "sha256:af42e0c9fffeda913682802275a7ccc8bee8ca40d758aa0d1517434208078704"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "new-assumption"
+detail = "claim added explicit assumption PBAC-NATIVE-SHA256-001"
+
+[[regressions]]
+id = "sha256:c30cb1bee0d03d3dfc794bfc540478d000a59aaf288d5c9749dcdd8ac2e0b146"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "new-assumption"
+detail = "evidence unit pbac-calibrated-artifact added assumption PBAC-NATIVE-SHA256-001"
+
+[[regressions]]
+id = "sha256:6c2975787d6963007b9056042c1ee1d7470976a5dca2338b0d9792d578aa5042"
+claim_id = "PBAC-SUM-001"
+kind = "enlarged-tcb"
+detail = "evidence unit pbac-sum-theorem adapter or typed command changed"
+
+[[regressions]]
+id = "sha256:75a2bf833b412b0a7bb1e8bcaa06aa26cb2a285aee3e100c315489e9984ea7c2"
+claim_id = "PBAC-SUM-001"
+kind = "enlarged-tcb"
+detail = "claim added foundational axiom Classical.choice"
+
+[[regressions]]
+id = "sha256:9054ee0182639c20c5285e19a083e1320d3b667c9e49589bff735805523a6d11"
+claim_id = "PBAC-SUM-001"
+kind = "enlarged-tcb"
+detail = "claim added foundational axiom ProofboundArtifactDemo.Claims.publishedArtifactSoundness._native.native_decide.ax_1_1"
+
+[[regressions]]
+id = "sha256:c4842d301a3e15038bb0956904b56366a977ff25377eafb31ed6dbabefa3f1d8"
+claim_id = "PBAC-SUM-001"
+kind = "enlarged-tcb"
+detail = "claim added foundational axiom Quot.sound"
+
+[[regressions]]
+id = "sha256:dd27061b52aebc8c652582368436569cf0810a8f9be16ead717451ea54e919eb"
+claim_id = "PBAC-SUM-001"
+kind = "enlarged-tcb"
+detail = "claim added foundational axiom propext"
+
+[[regressions]]
+id = "sha256:2d87b3570907fb9770c07709564eb195c28bc86bc41741559dac4acf22c526a9"
+claim_id = "PBAC-SUM-001"
+kind = "evaluation-downgrade"
+detail = "evidence unit pbac-sum-theorem evaluation changed from kernel to Some(Native)"
+
+[[regressions]]
+id = "sha256:64fdcb5d90f35acb6eccf2cb1d7918a72e28c77b2f62e62151f410b9726eac56"
+claim_id = "PBAC-SUM-001"
+kind = "formal-downgrade"
+detail = "evidence unit pbac-sum-theorem theorem inventory changed"
+
+[[regressions]]
+id = "sha256:70bf59aea1027dc5af21498882281cbedeff2ae65dc9cc31ff17c7b326ecc511"
+claim_id = "PBAC-SUM-001"
+kind = "formal-downgrade"
+detail = "formal declaration or canonical theorem-statement identity changed"
+
+[[regressions]]
+id = "sha256:941bb4ca735abce69a448d948efb645bf3c44433818d77b38ff68692adc12ec1"
+claim_id = "PBAC-SUM-001"
+kind = "formal-downgrade"
+detail = "trust profile changed from artifact-bound to pbac-artifact-native; profiles are not statically orderable"
+
+[[regressions]]
+id = "sha256:9f1cd3d009b6d620057421e52fd970d76fe9edcb13f599af5f1d55edf47264f2"
+claim_id = "PBAC-SUM-001"
+kind = "formal-downgrade"
+detail = "evidence unit pbac-sum-artifact theorem inventory changed"
+
+[[regressions]]
+id = "sha256:3a40141df0722a81b8c8247ba6c4a1da69e327a430a5693f566cfe9f1c2fc580"
+claim_id = "PBAC-SUM-001"
+kind = "new-assumption"
+detail = "evidence unit pbac-sum-artifact added assumption PBAC-NATIVE-SHA256-001"
+
+[[regressions]]
+id = "sha256:3b8f2c738b1707132d3670956d24d22af92bc32c95d0ac494a303d10a9224684"
+claim_id = "PBAC-SUM-001"
+kind = "new-assumption"
+detail = "claim added explicit assumption PBAC-NATIVE-SHA256-001"
+
+[[regressions]]
+id = "sha256:d9b15858502209e5b97c0a4576a51f2532f0a2713cae8355906aee5dc38a1d3a"
+claim_id = "PBAC-SUM-001"
+kind = "new-assumption"
+detail = "evidence unit pbac-sum-theorem added assumption PBAC-NATIVE-SHA256-001"
+
+[[regressions]]
+id = "sha256:e7264a88c2076615ac0fe4cd2b54fa46c525f61b6bf19ed1b6d66cf6c303e5cd"
+claim_id = "PBAC-SUM-001"
+kind = "new-assumption"
+detail = "new assumption manifest PBAC-NATIVE-SHA256-001 at demo/artifact-certificate/assumptions/PBAC-NATIVE-SHA256-001.toml"

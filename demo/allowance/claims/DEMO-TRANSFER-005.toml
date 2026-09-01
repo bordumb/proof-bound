@@ -13,7 +13,11 @@ tier = 0
 primary_linkage = "model-only"
 evidence = [
   "property-test:rust-kernel-tests",
-  "mutation-witness:guard-mutations",
+  "mutation-witness:remove-authorization-guard",
+  "mutation-witness:remove-cap-guard",
+  "mutation-witness:remove-destination-overflow-guard",
+  "mutation-witness:remove-positive-amount-guard",
+  "mutation-witness:remove-source-balance-guard",
 ]
 assumptions = []
 premises = ["DEMO-U64-REP-001"]
@@ -23,6 +27,7 @@ open_obligations = [
 ]
 out_of_scope = ["Correctness of the Charon, Aeneas, Rust, and Lean toolchains beyond their recorded TCB identities."]
 source_roots = [
+  "demo/allowance/rust/kernel/src/decision.rs",
   "demo/allowance/rust/kernel/src/lib.rs",
   "demo/allowance/lean/ProofboundDemo/Claims/Refinement.lean",
   "demo/allowance/lean/ProofboundDemo/Bridges/Kernel.lean",

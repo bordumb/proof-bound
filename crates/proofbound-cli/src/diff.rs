@@ -8,8 +8,8 @@ use anyhow::{Context, Result, bail};
 use proofbound_evidence::{canonical_json, domain_hash};
 use proofbound_manifest::{
     AssumptionManifest, BindingMode, BoundedDomain, ClaimManifest, EvaluationMode, EvidenceKind,
-    EvidenceUnitManifest, ModelCheckUnitManifest, PolicyManifest, ProjectBundle, ProjectManifest,
-    RegressionKind, ReviewManifest, TranslationUnitManifest,
+    EvidenceUnitManifest, ModelCheckUnitManifest, MutationRegistry, PolicyManifest, ProjectBundle,
+    ProjectManifest, RegressionKind, ReviewManifest, TranslationUnitManifest,
 };
 use serde::Serialize;
 
@@ -46,7 +46,9 @@ pub fn diff_revisions(root: &Path, range: &str, json: bool) -> Result<()> {
         bail!("PB-DIFF-0001: range must contain exactly BASE..HEAD");
     }
     let base_revision = git_text(root, &["rev-parse", "--verify", base])?;
-    let head_revision = git_text(root, &["rev-parse", "--verify", head])?;
+    let requested_head_revision = git_text(root, &["rev-parse", "--verify", head])?;
+    let base_digest = domain_hash("proofbound-revision/1", base_revision.as_bytes());
+    let head_revision = resolve_reviewed_head(root, &base_digest, &requested_head_revision)?;
     let names = git_text(
         root,
         &[
@@ -110,7 +112,6 @@ pub fn diff_revisions(root: &Path, range: &str, json: bool) -> Result<()> {
             }
         }
     }
-    let base_digest = domain_hash("proofbound-revision/1", base_revision.as_bytes());
     let head_digest = domain_hash("proofbound-revision/1", head_revision.as_bytes());
     apply_approvals(root, &base_digest, &head_digest, &mut regressions)?;
     let report = DiffReport {
@@ -150,6 +151,134 @@ pub fn diff_revisions(root: &Path, range: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
+fn resolve_reviewed_head(root: &Path, base_digest: &str, requested_head: &str) -> Result<String> {
+    // Approval records are loaded from the checked-out tree. For an arbitrary
+    // historical range there is no trustworthy relationship between that tree
+    // and the requested head, so only the exact checkout can carry approvals.
+    if git_text(root, &["rev-parse", "HEAD"])? != requested_head {
+        return Ok(requested_head.to_owned());
+    }
+
+    let bundle = ProjectBundle::load(root)?;
+    if bundle.reviews.is_empty() {
+        return Ok(requested_head.to_owned());
+    }
+
+    let mut ancestor_by_identity = BTreeMap::new();
+    for revision in git_text(root, &["rev-list", requested_head])?.lines() {
+        let identity = domain_hash("proofbound-revision/1", revision.as_bytes());
+        if ancestor_by_identity
+            .insert(identity, revision.to_owned())
+            .is_some()
+        {
+            bail!("PB-DIFF-0005: revision identity collision");
+        }
+    }
+
+    let mut candidates = BTreeSet::new();
+    for (_, review) in bundle.reviews.values() {
+        if review.base_revision != base_digest {
+            continue;
+        }
+        if let Some(revision) = ancestor_by_identity.get(&review.head_revision)
+            && revision != requested_head
+        {
+            candidates.insert(revision.clone());
+        }
+    }
+
+    let mut valid = Vec::new();
+    for candidate in candidates {
+        if is_exact_review_envelope(root, &bundle, base_digest, &candidate, requested_head)? {
+            valid.push(candidate);
+        }
+    }
+    match valid.as_slice() {
+        [] => Ok(requested_head.to_owned()),
+        [candidate] => Ok(candidate.clone()),
+        _ => bail!("PB-DIFF-0003: approval envelope has ambiguous reviewed heads"),
+    }
+}
+
+fn is_exact_review_envelope(
+    root: &Path,
+    bundle: &ProjectBundle,
+    base_digest: &str,
+    reviewed_head: &str,
+    envelope_head: &str,
+) -> Result<bool> {
+    let reviewed_identity = domain_hash("proofbound-revision/1", reviewed_head.as_bytes());
+    let reviews_by_path = bundle
+        .reviews
+        .values()
+        .map(|(path, review)| {
+            let relative = path.strip_prefix(&bundle.root).with_context(|| {
+                format!(
+                    "PB-DIFF-0005: review path {} escapes the project",
+                    path.display()
+                )
+            })?;
+            let relative = relative
+                .to_str()
+                .context("PB-DIFF-0005: review path is not valid UTF-8")?;
+            Ok((relative.replace('\\', "/"), review))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let names = git_text(
+        root,
+        &[
+            "diff",
+            "--name-status",
+            "--no-renames",
+            reviewed_head,
+            envelope_head,
+        ],
+    )?;
+    Ok(exact_review_envelope_changes(
+        &names,
+        &reviews_by_path,
+        base_digest,
+        &reviewed_identity,
+    ))
+}
+
+fn exact_review_envelope_changes(
+    names: &str,
+    reviews_by_path: &BTreeMap<String, &ReviewManifest>,
+    base_digest: &str,
+    reviewed_identity: &str,
+) -> bool {
+    let matching_paths = reviews_by_path
+        .iter()
+        .filter_map(|(path, review)| {
+            (review.base_revision == base_digest && review.head_revision == reviewed_identity)
+                .then_some(path.clone())
+        })
+        .collect::<BTreeSet<_>>();
+    if matching_paths.is_empty() || names.is_empty() {
+        return false;
+    }
+    let mut changed_paths = BTreeSet::new();
+    for line in names.lines() {
+        let mut fields = line.splitn(2, '\t');
+        let status = fields.next().unwrap_or_default();
+        let path = fields.next().unwrap_or_default();
+        if status != "A" || path.is_empty() {
+            return false;
+        }
+        let Some(review) = reviews_by_path.get(path) else {
+            return false;
+        };
+        if review.base_revision != base_digest || review.head_revision != reviewed_identity {
+            return false;
+        }
+        if !changed_paths.insert(path.to_owned()) {
+            return false;
+        }
+    }
+    changed_paths == matching_paths
+}
+
 fn compare_manifest_path(
     root: &Path,
     base_revision: &str,
@@ -166,6 +295,19 @@ fn compare_manifest_path(
     let new_text = git_file(root, head_revision, path).ok();
     let old_schema = old_text.as_deref().and_then(manifest_schema);
     let new_schema = new_text.as_deref().and_then(manifest_schema);
+    reject_review_manifest_change(old_schema.as_deref(), new_schema.as_deref(), path)?;
+    if old_schema.as_deref().is_some_and(is_translation_schema)
+        || new_schema.as_deref().is_some_and(is_translation_schema)
+    {
+        return compare_translation_manifest_change(
+            old_text.as_deref(),
+            old_schema.as_deref(),
+            new_text.as_deref(),
+            new_schema.as_deref(),
+            path,
+            regressions,
+        );
+    }
     let schema = old_schema.as_deref().or(new_schema.as_deref());
     match schema {
         Some("proofbound-claim/1") => compare_claim_manifests(
@@ -180,7 +322,17 @@ fn compare_manifest_path(
             path,
             regressions,
         ),
-        Some("proofbound-evidence-unit/1") => compare_evidence_manifests(
+        Some(
+            "proofbound-evidence-unit/1"
+            | "proofbound-evidence-unit/2"
+            | "proofbound-evidence-unit/3",
+        ) => compare_evidence_manifests(
+            parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
+            parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
+            path,
+            regressions,
+        ),
+        Some("proofbound-mutation-registry/2") => compare_mutation_registries(
             parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
             parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
             path,
@@ -210,12 +362,6 @@ fn compare_manifest_path(
                 .collect::<BTreeSet<_>>();
             compare_policy_manifests(old.as_ref(), new.as_ref(), path, &claims, regressions)
         }
-        Some("proofbound-translation-unit/1") => compare_translation_manifests(
-            parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
-            parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
-            path,
-            regressions,
-        ),
         Some("proofbound-project/1") => compare_project_manifests(
             parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
             parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
@@ -229,6 +375,86 @@ fn compare_manifest_path(
         ),
         _ => Ok(()),
     }
+}
+
+fn is_translation_schema(schema: &str) -> bool {
+    matches!(
+        schema,
+        "proofbound-translation-unit/1"
+            | "proofbound-translation-unit/2"
+            | "proofbound-translation-unit/3"
+    )
+}
+
+fn compare_translation_manifest_change(
+    old_text: Option<&str>,
+    old_schema: Option<&str>,
+    new_text: Option<&str>,
+    new_schema: Option<&str>,
+    path: &str,
+    regressions: &mut Vec<Regression>,
+) -> Result<()> {
+    match (old_schema, new_schema) {
+        (Some("proofbound-translation-unit/3"), Some("proofbound-translation-unit/3")) => {
+            compare_translation_manifests(
+                parse_at_schema(old_text, old_schema, path)?,
+                parse_at_schema(new_text, new_schema, path)?,
+                path,
+                regressions,
+            )
+        }
+        (None, Some("proofbound-translation-unit/3")) => compare_translation_manifests(
+            None,
+            parse_at_schema(new_text, new_schema, path)?,
+            path,
+            regressions,
+        ),
+        (Some("proofbound-translation-unit/3"), None) => compare_translation_manifests(
+            parse_at_schema(old_text, old_schema, path)?,
+            None,
+            path,
+            regressions,
+        ),
+        _ => {
+            let old_identity = old_text
+                .map(|text| translation_identity(text, path))
+                .transpose()?;
+            let new_identity = new_text
+                .map(|text| translation_identity(text, path))
+                .transpose()?;
+            let claims = old_identity
+                .iter()
+                .flat_map(|(_, claims)| claims)
+                .chain(new_identity.iter().flat_map(|(_, claims)| claims))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            if old_identity.is_some() {
+                add_for_claims(
+                    regressions,
+                    &claims,
+                    RegressionKind::SourceClosureWeakened,
+                    format!(
+                        "translation manifest at {path} changed schema from {} to {}; its invocation and output closures are not statically comparable",
+                        old_schema.unwrap_or("missing"),
+                        new_schema.unwrap_or("missing")
+                    ),
+                )?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn translation_identity(text: &str, path: &str) -> Result<(String, Vec<String>)> {
+    #[derive(serde::Deserialize)]
+    struct Identity {
+        id: String,
+        claims: Vec<String>,
+    }
+
+    let identity: Identity = toml::from_str(text)
+        .with_context(|| format!("PB-DIFF-0005: changed translation manifest {path} is invalid"))?;
+    Ok((identity.id, identity.claims))
 }
 
 fn compare_claim_manifests(
@@ -487,6 +713,17 @@ fn compare_evidence_manifests(
         .union(&string_set(&new.claims))
         .cloned()
         .collect::<BTreeSet<_>>();
+    if old.schema != new.schema || old.id != new.id {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::FormalDowngrade,
+            format!(
+                "evidence unit {} changed its schema or stable identity at {path}",
+                old.id
+            ),
+        )?;
+    }
     for claim in removed_strings(&old.claims, &new.claims) {
         add_regression(
             regressions,
@@ -596,6 +833,28 @@ fn compare_evidence_manifests(
             format!("evidence unit {} adapter or typed command changed", old.id),
         )?;
     }
+    if old.transcription != new.transcription {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::LinkageDowngrade,
+            format!(
+                "evidence unit {} changed its exact trusted-transcription source, committed bytes, driver, ABI, or format registration",
+                old.id
+            ),
+        )?;
+    }
+    if old.mutation != new.mutation {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::MutationCoverageRemoved,
+            format!(
+                "evidence unit {} changed its sealed singleton mutation registry",
+                old.id
+            ),
+        )?;
+    }
     if binding_rank(new.binding_mode) < binding_rank(old.binding_mode) {
         add_for_claims(
             regressions,
@@ -622,6 +881,45 @@ fn compare_evidence_manifests(
             old.bounded_domain.as_ref(),
             new.bounded_domain.as_ref(),
             regressions,
+        )?;
+    }
+    Ok(())
+}
+
+fn compare_mutation_registries(
+    old: Option<MutationRegistry>,
+    new: Option<MutationRegistry>,
+    path: &str,
+    regressions: &mut Vec<Regression>,
+) -> Result<()> {
+    let Some(old) = old.as_ref() else {
+        return Ok(());
+    };
+    let old_claims = string_set(&old.mutation.affected_claims);
+    let Some(new) = new.as_ref() else {
+        return add_for_claims(
+            regressions,
+            &old_claims,
+            RegressionKind::MutationCoverageRemoved,
+            format!(
+                "sealed mutation registry {} was removed at {path}",
+                old.mutation.id
+            ),
+        );
+    };
+    let claims = old_claims
+        .union(&string_set(&new.mutation.affected_claims))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if old != new {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::MutationCoverageRemoved,
+            format!(
+                "sealed mutation registry {} changed its subject, guard, byte identities, witness, or affected claims at {path}",
+                old.mutation.id
+            ),
         )?;
     }
     Ok(())
@@ -790,6 +1088,17 @@ fn compare_translation_manifests(
             format!("translation unit {} was removed at {path}", old.id),
         );
     };
+    if old.id != new.id {
+        add_for_claims(
+            regressions,
+            &claims,
+            RegressionKind::LinkageDowngrade,
+            format!(
+                "translation unit identity changed from {} to {} at {path}",
+                old.id, new.id
+            ),
+        )?;
+    }
     for claim in removed_strings(&old.claims, &new.claims) {
         add_regression(
             regressions,
@@ -802,43 +1111,29 @@ fn compare_translation_manifests(
         .union(&string_set(&new.claims))
         .cloned()
         .collect::<BTreeSet<_>>();
-    for symbol in removed_strings(&old.start_from, &new.start_from) {
-        add_for_claims(
-            regressions,
-            &all_claims,
-            RegressionKind::LinkageDowngrade,
-            format!("translation unit {} removed source symbol {symbol}", old.id),
-        )?;
-    }
-    if old.handwritten_refinement != new.handwritten_refinement
+    if old.invocations != new.invocations
+        || old.generated_dir != new.generated_dir
+        || old.handwritten_refinement != new.handwritten_refinement
         || old.import_mapping != new.import_mapping
         || old.determinism_runs != new.determinism_runs
         || old.determinism_normalization != new.determinism_normalization
+        || old.resource_budget != new.resource_budget
     {
         add_for_claims(
             regressions,
             &all_claims,
             RegressionKind::SourceClosureWeakened,
             format!(
-                "translation unit {} changed its refinement or deterministic source binding",
+                "translation unit {} changed its exact invocation, output, refinement, import, budget, or deterministic source binding",
                 old.id
             ),
         )?;
     }
     if (old.forbid_generated_axioms && !new.forbid_generated_axioms)
-        || old.adapter != new.adapter
-        || !old
-            .external_bridges
-            .iter()
-            .all(|item| new.external_bridges.contains(item))
-        || !old
-            .template_axioms
-            .iter()
-            .all(|item| new.template_axioms.contains(item))
-        || !old
-            .warning_inventory
-            .iter()
-            .all(|item| new.warning_inventory.contains(item))
+        || old.pipeline != new.pipeline
+        || old.external_bridges != new.external_bridges
+        || old.template_axioms != new.template_axioms
+        || old.warning_inventory != new.warning_inventory
     {
         add_for_claims(
             regressions,
@@ -1132,6 +1427,19 @@ fn manifest_schema(text: &str) -> Option<String> {
     value.get("schema")?.as_str().map(str::to_owned)
 }
 
+fn reject_review_manifest_change(
+    old_schema: Option<&str>,
+    new_schema: Option<&str>,
+    path: &str,
+) -> Result<()> {
+    if old_schema == Some("proofbound-review/1") || new_schema == Some("proofbound-review/1") {
+        bail!(
+            "PB-DIFF-0003: review manifests are immutable and may be added only in an exact approval envelope: {path}"
+        );
+    }
+    Ok(())
+}
+
 fn parse_at_schema<T: serde::de::DeserializeOwned>(
     text: Option<&str>,
     schema: Option<&str>,
@@ -1305,6 +1613,60 @@ mod tests {
         .unwrap()
     }
 
+    fn translation() -> TranslationUnitManifest {
+        serde_json::from_value(json!({
+            "schema": "proofbound-translation-unit/3",
+            "id": "kernel-translation",
+            "pipeline": "charon-aeneas",
+            "invocations": [{
+                "id": "kernel",
+                "cargo_package": "kernel",
+                "cargo_manifest": "crates/kernel/Cargo.toml",
+                "crate_name": "kernel",
+                "llbc_file": "proofbound/generated/kernel.llbc",
+                "start_from": ["kernel::decide"],
+                "opaque": [],
+                "include": [],
+                "translated_closure": [
+                    {"kind": "function", "rust_name": "kernel::decide"}
+                ],
+                "aeneas_subdir": "Kernel",
+                "outputs": [
+                    {
+                        "kind": "lean-source",
+                        "produced": "Kernel/Funs.lean",
+                        "destination": "lean/Generated/Kernel/Funs.lean"
+                    },
+                    {
+                        "kind": "translation-report",
+                        "produced": "Kernel/translation.json",
+                        "destination": "lean/Generated/Kernel/translation.json"
+                    }
+                ]
+            }],
+            "generated_dir": "lean/Generated",
+            "handwritten_refinement": "lean/KernelRefinement.lean",
+            "determinism_runs": 2,
+            "determinism_normalization": "pretty-printed-llbc/1",
+            "forbid_generated_axioms": true,
+            "external_bridges": [],
+            "template_axioms": [],
+            "warning_inventory": [],
+            "import_mapping": {
+                "mode": "external-source-root",
+                "source_roots": ["lean"],
+                "rewrite_digest": null
+            },
+            "resource_budget": {
+                "time_seconds": 60,
+                "disk_bytes": 1000000,
+                "memory_bytes": 1000000
+            },
+            "claims": ["TEST-CLAIM-001"]
+        }))
+        .unwrap()
+    }
+
     #[test]
     fn exact_set_comparisons_detect_same_count_replacements() {
         let old = claim();
@@ -1321,6 +1683,147 @@ mod tests {
         assert!(kinds.contains(&RegressionKind::UndischargedPremise));
         assert!(kinds.contains(&RegressionKind::MutationCoverageRemoved));
         assert!(kinds.contains(&RegressionKind::SourceClosureWeakened));
+    }
+
+    #[test]
+    fn translation_diff_detects_same_count_invocation_and_tcb_replacements() {
+        let old = translation();
+        let mut new = old.clone();
+        new.invocations[0].outputs[0].produced = "Kernel/Replacement.lean".into();
+        new.external_bridges
+            .push(proofbound_manifest::ExternalBridge {
+                file: "lean/Bridge.lean".into(),
+                module: Some("Bridge".into()),
+                reviewed_sha256: format!("sha256:{}", "11".repeat(32)),
+            });
+        let mut regressions = Vec::new();
+        compare_translation_manifests(
+            Some(old),
+            Some(new),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::SourceClosureWeakened)
+        );
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::EnlargedTcb)
+        );
+    }
+
+    #[test]
+    fn translation_diff_detects_same_count_typed_closure_replacement() {
+        let old = translation();
+        let mut new = old.clone();
+        new.invocations[0].translated_closure[0].rust_name = "kernel::different".to_owned();
+        let mut regressions = Vec::new();
+        compare_translation_manifests(
+            Some(old),
+            Some(new),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::SourceClosureWeakened)
+        );
+    }
+
+    #[test]
+    fn translation_identity_change_does_not_hide_other_regressions() {
+        let old = translation();
+        let mut new = old.clone();
+        new.id = "replacement-translation".to_owned();
+        new.invocations[0].outputs[0].produced = "Kernel/Replacement.lean".to_owned();
+        new.external_bridges
+            .push(proofbound_manifest::ExternalBridge {
+                file: "lean/Bridge.lean".to_owned(),
+                module: Some("Bridge".to_owned()),
+                reviewed_sha256: format!("sha256:{}", "11".repeat(32)),
+            });
+        let mut regressions = Vec::new();
+        compare_translation_manifests(
+            Some(old),
+            Some(new),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        let kinds = regressions
+            .iter()
+            .map(|regression| regression.kind)
+            .collect::<Vec<_>>();
+        assert!(kinds.contains(&RegressionKind::LinkageDowngrade));
+        assert!(kinds.contains(&RegressionKind::SourceClosureWeakened));
+        assert!(kinds.contains(&RegressionKind::EnlargedTcb));
+    }
+
+    #[test]
+    fn translation_v1_to_v2_migration_is_never_silent() {
+        let old = r#"
+schema = "proofbound-translation-unit/1"
+id = "kernel-translation"
+claims = ["TEST-CLAIM-001"]
+"#;
+        let new = r#"
+schema = "proofbound-translation-unit/2"
+id = "kernel-translation"
+claims = ["TEST-CLAIM-001"]
+"#;
+        let mut regressions = Vec::new();
+        compare_translation_manifest_change(
+            Some(old),
+            Some("proofbound-translation-unit/1"),
+            Some(new),
+            Some("proofbound-translation-unit/2"),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert_eq!(regressions.len(), 1);
+        assert_eq!(regressions[0].kind, RegressionKind::SourceClosureWeakened);
+        assert!(regressions[0].detail.contains("changed schema"));
+    }
+
+    #[test]
+    fn translation_v2_to_v3_closure_migration_is_never_silent() {
+        let old = r#"
+schema = "proofbound-translation-unit/2"
+id = "kernel-translation"
+claims = ["TEST-CLAIM-001"]
+"#;
+        let new = r#"
+schema = "proofbound-translation-unit/3"
+id = "kernel-translation"
+claims = ["TEST-CLAIM-001"]
+"#;
+        let mut regressions = Vec::new();
+        compare_translation_manifest_change(
+            Some(old),
+            Some("proofbound-translation-unit/2"),
+            Some(new),
+            Some("proofbound-translation-unit/3"),
+            "proofbound/translations/kernel.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert_eq!(regressions.len(), 1);
+        assert_eq!(regressions[0].kind, RegressionKind::SourceClosureWeakened);
+        assert!(regressions[0].detail.contains("changed schema"));
+        assert!(regressions[0].detail.contains("/2"));
+        assert!(regressions[0].detail.contains("/3"));
     }
 
     #[test]
@@ -1373,6 +1876,166 @@ mod tests {
             regressions
                 .iter()
                 .any(|item| item.detail.contains("inventoried target"))
+        );
+    }
+
+    #[test]
+    fn trusted_transcription_registration_changes_are_never_silent() {
+        let mut old = evidence();
+        old.schema = "proofbound-evidence-unit/2".into();
+        old.id = "registered-transcription".into();
+        old.adapter = proofbound_manifest::AdapterKind::TrustedTranscription;
+        old.kind = EvidenceKind::TrustedTranscription;
+        old.tier = 1;
+        old.operation.kind = proofbound_manifest::OperationKind::Transcription;
+        old.operation.manifest = None;
+        old.operation.targets.clear();
+        old.evaluation_mode = None;
+        old.binding_mode = Some(BindingMode::ExternalRoundTrip);
+        old.theorem = None;
+        old.expected_inventory = vec!["fixtures/source.bin".into(), "fixtures/value.txt".into()];
+        old.inputs = vec![
+            "fixtures/source.bin".into(),
+            "fixtures/value.txt".into(),
+            "scripts/driver.py".into(),
+        ];
+        old.transcription = Some(
+            serde_json::from_value(json!({
+                "schema": "proofbound-trusted-transcription/1",
+                "source": "fixtures/source.bin",
+                "committed_transcription": "fixtures/value.txt",
+                "driver": "scripts/driver.py",
+                "source_format": "subject-bytes/1",
+                "transcribed_format": "subject-text/1",
+                "driver_abi": "proofbound-transcription-driver/1"
+            }))
+            .unwrap(),
+        );
+        let mut new = old.clone();
+        new.transcription.as_mut().unwrap().driver = "scripts/replacement.py".into();
+        new.inputs[2] = "scripts/replacement.py".into();
+
+        let mut regressions = Vec::new();
+        compare_evidence_manifests(
+            Some(old),
+            Some(new),
+            "proofbound/evidence/transcription.toml",
+            &mut regressions,
+        )
+        .unwrap();
+
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::LinkageDowngrade)
+        );
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::SourceClosureWeakened)
+        );
+    }
+
+    #[test]
+    fn mutation_unit_registration_changes_are_never_silent() {
+        let mut old = evidence();
+        old.schema = "proofbound-evidence-unit/3".into();
+        old.id = "remove-cap-guard".into();
+        old.adapter = proofbound_manifest::AdapterKind::RustTest;
+        old.kind = EvidenceKind::MutationWitness;
+        old.tier = 1;
+        old.operation.kind = proofbound_manifest::OperationKind::CargoTest;
+        old.operation.manifest = None;
+        old.operation.targets = vec!["cap_guard_is_enforced".into()];
+        old.theorem = None;
+        old.evaluation_mode = None;
+        old.expected_inventory = vec!["remove-cap-guard".into()];
+        old.mutation = Some(
+            serde_json::from_value(json!({
+                "schema": "proofbound-mutation-replay/1",
+                "registry": "proofbound/mutations/remove-cap-guard.toml"
+            }))
+            .unwrap(),
+        );
+        let mut new = old.clone();
+        new.mutation.as_mut().unwrap().registry = "proofbound/mutations/replacement.toml".into();
+
+        let mut regressions = Vec::new();
+        compare_evidence_manifests(
+            Some(old.clone()),
+            Some(new),
+            "proofbound/evidence/remove-cap-guard.toml",
+            &mut regressions,
+        )
+        .unwrap();
+        assert!(regressions.iter().any(|item| {
+            item.kind == RegressionKind::MutationCoverageRemoved
+                && item.detail.contains("sealed singleton mutation")
+        }));
+
+        regressions.clear();
+        compare_evidence_manifests(
+            Some(old),
+            None,
+            "proofbound/evidence/remove-cap-guard.toml",
+            &mut regressions,
+        )
+        .unwrap();
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::MutationCoverageRemoved)
+        );
+    }
+
+    #[test]
+    fn mutation_registry_changes_are_never_silent() {
+        let old: MutationRegistry = serde_json::from_value(json!({
+            "schema": "proofbound-mutation-registry/2",
+            "subject": "rust:allowance_kernel::decide_transfer",
+            "mutation": {
+                "id": "remove-cap-guard",
+                "guard": "cap guard",
+                "target_path": "rust/kernel/src/decision.rs",
+                "target_preimage_sha256": format!("sha256:{}", "11".repeat(32)),
+                "mutant_path": "proofbound/mutations/mutants/remove-cap-guard.rs",
+                "mutant_sha256": format!("sha256:{}", "22".repeat(32)),
+                "witness": "cap_guard_is_enforced",
+                "witness_path": "rust/kernel/tests/mutation_witnesses.rs",
+                "witness_sha256": format!("sha256:{}", "33".repeat(32)),
+                "affected_claims": ["TEST-CLAIM-001"]
+            }
+        }))
+        .unwrap();
+        let mut changed = old.clone();
+        changed.mutation.mutant_sha256 = format!("sha256:{}", "44".repeat(32));
+
+        let mut regressions = Vec::new();
+        compare_mutation_registries(
+            Some(old.clone()),
+            Some(changed),
+            "proofbound/mutations/remove-cap-guard.toml",
+            &mut regressions,
+        )
+        .unwrap();
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::MutationCoverageRemoved)
+        );
+
+        regressions.clear();
+        compare_mutation_registries(
+            Some(old),
+            None,
+            "proofbound/mutations/remove-cap-guard.toml",
+            &mut regressions,
+        )
+        .unwrap();
+        assert!(
+            regressions
+                .iter()
+                .any(|item| item.kind == RegressionKind::MutationCoverageRemoved)
         );
     }
 
@@ -1446,6 +2109,91 @@ mod tests {
                 "head",
                 &mut duplicate_regressions,
                 &[&review, &second],
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn approval_envelope_allows_only_new_exact_review_records() {
+        let review = ReviewManifest {
+            schema: "proofbound-review/1".into(),
+            id: "TEST-REVIEW-001".into(),
+            reviewer: "Reviewer".into(),
+            statement: "Exact approval".into(),
+            scope: "One reviewed revision".into(),
+            reviewed_at: "2026-09-01T00:00:00Z".into(),
+            base_revision: "base".into(),
+            head_revision: "subject".into(),
+            regressions: Vec::new(),
+            signature: None,
+        };
+        let path = "proofbound/reviews/pr-0001.toml".to_owned();
+        let reviews = BTreeMap::from([(path.clone(), &review)]);
+
+        assert!(exact_review_envelope_changes(
+            &format!("A\t{path}"),
+            &reviews,
+            "base",
+            "subject",
+        ));
+        assert!(!exact_review_envelope_changes(
+            &format!("M\t{path}"),
+            &reviews,
+            "base",
+            "subject",
+        ));
+        assert!(!exact_review_envelope_changes(
+            &format!("A\t{path}\nA\tREADME.md"),
+            &reviews,
+            "base",
+            "subject",
+        ));
+        assert!(!exact_review_envelope_changes(
+            &format!("A\t{path}"),
+            &reviews,
+            "base",
+            "different-subject",
+        ));
+
+        let mut second = review.clone();
+        second.id = "TEST-REVIEW-002".into();
+        let reviews = BTreeMap::from([
+            (path.clone(), &review),
+            ("proofbound/reviews/pr-0002.toml".into(), &second),
+        ]);
+        assert!(!exact_review_envelope_changes(
+            &format!("A\t{path}"),
+            &reviews,
+            "base",
+            "subject",
+        ));
+    }
+
+    #[test]
+    fn review_manifests_cannot_change_outside_an_approval_envelope() {
+        assert!(reject_review_manifest_change(None, None, "ordinary.toml").is_ok());
+        assert!(
+            reject_review_manifest_change(
+                None,
+                Some("proofbound-review/1"),
+                "proofbound/reviews/new.toml",
+            )
+            .is_err()
+        );
+        assert!(
+            reject_review_manifest_change(
+                Some("proofbound-review/1"),
+                Some("proofbound-review/1"),
+                "proofbound/reviews/modified.toml",
+            )
+            .is_err()
+        );
+        assert!(
+            reject_review_manifest_change(
+                Some("proofbound-review/1"),
+                None,
+                "proofbound/reviews/deleted.toml",
             )
             .is_err()
         );

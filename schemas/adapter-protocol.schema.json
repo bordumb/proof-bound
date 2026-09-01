@@ -36,13 +36,18 @@
             { "type": "null" }
           ]
         },
-        "inventory": { "type": "array", "items": { "type": "string" }, "uniqueItems": true, "maxItems": 100000 },
+        "inventory": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 },
         "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" }, "maxItems": 4096 }
       },
       "allOf": [
         {
           "if": { "properties": { "success": { "const": false } }, "required": ["success"] },
-          "then": { "properties": { "evidence": { "type": "null" } } }
+          "then": {
+            "properties": {
+              "evidence": { "type": "null" },
+              "inventory": { "maxItems": 0 }
+            }
+          }
         }
       ]
     },
@@ -55,6 +60,15 @@
         "path": { "type": "string", "maxLength": 4096 },
         "remediation": { "type": "string", "maxLength": 8192 }
       }
+    },
+    "inventoryItem": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "allOf": [
+        { "pattern": "\\S" },
+        { "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" }
+      ]
     }
   }
 }

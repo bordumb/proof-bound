@@ -1,0 +1,14 @@
+schema = "proofbound-mutation-registry/2"
+subject = "rust:allowance-kernel::decide_transfer"
+
+[mutation]
+id = "remove-source-balance-guard"
+guard = "checked subtraction must succeed"
+target_path = "demo/allowance/rust/kernel/src/decision.rs"
+target_preimage_sha256 = "sha256:5b1b2ad3475ca2df87e429c1715d6e8bc5b434318f5712d0127945c0414336a2"
+mutant_path = "demo/allowance/proofbound/mutations/mutants/remove-source-balance-guard/decision.rs"
+mutant_sha256 = "sha256:007bb626826ebd4979bb247956a3cf5903006f31eb74bafc37c8ea17af82d04d"
+witness = "mutation_witnesses::source_balance_guard_is_enforced"
+witness_path = "demo/allowance/rust/kernel/tests/mutation_witnesses.rs"
+witness_sha256 = "sha256:a30fd502ec67b261e1b174c4a53fe90926d308526b077a66b94e66b3882729a7"
+affected_claims = ["DEMO-TRANSFER-001", "DEMO-TRANSFER-002", "DEMO-TRANSFER-005"]

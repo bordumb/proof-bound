@@ -65,7 +65,7 @@ enum Phase {
 impl Phase {
     const fn banners(self) -> &'static [&'static str] {
         match self {
-            Self::SyntaxPrecheck => &["cheap precheck · Rust formatting"],
+            Self::SyntaxPrecheck => &["cheap precheck · release metadata and formatting"],
             Self::Environment => &["locked environment bootstrap"],
             Self::Stage01 => &["§18 stage 1/12 · manifest/schema validation"],
             Self::Stage02 => &["§18 stage 2/12 · source-closure validation"],
@@ -627,6 +627,18 @@ fn preflight_steps() -> Vec<ProcessStep> {
     vec![
         step(
             Phase::SyntaxPrecheck,
+            "check root version synchronization",
+            "python3",
+            ["tools/ci/version.py", "--check"],
+        ),
+        step(
+            Phase::SyntaxPrecheck,
+            "check changelog release metadata",
+            "python3",
+            ["tools/ci/changelog.py"],
+        ),
+        step(
+            Phase::SyntaxPrecheck,
             "check workspace Rust formatting",
             "cargo",
             ["fmt", "--all", "--", "--check"],
@@ -1063,6 +1075,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn all_product_versions_match() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let expected = fs::read_to_string(root.join("VERSION"))
+            .expect("read root VERSION")
+            .trim()
+            .to_owned();
+        assert_eq!(
+            expected,
+            env!("CARGO_PKG_VERSION"),
+            "the Rust workspace version is out of sync with VERSION"
+        );
+        for relative in ["Cargo.toml", "pyproject.toml", "lakefile.toml"] {
+            let manifest = fs::read_to_string(root.join(relative)).unwrap();
+            let declared = manifest
+                .lines()
+                .find_map(|line| {
+                    line.trim()
+                        .strip_prefix("version = \"")
+                        .and_then(|value| value.strip_suffix('"'))
+                })
+                .unwrap_or_else(|| panic!("{relative} has no quoted version declaration"));
+            assert_eq!(declared, expected, "{relative} is out of sync with VERSION");
+        }
+        let uv_lock = fs::read_to_string(root.join("uv.lock")).expect("read uv.lock");
+        assert!(
+            uv_lock.contains(&format!(
+                "name = \"proofbound\"\nversion = \"{expected}\"\nsource = {{ editable = \".\" }}"
+            )),
+            "uv.lock is out of sync with the Rust workspace version"
+        );
+    }
+
+    #[test]
     fn ci_runs_release_smoke_before_one_fresh_check_and_verifier_last() {
         let root = Path::new("/checkout/proof-bound");
         let scratch = Path::new("/tmp/xtask-test");
@@ -1142,6 +1190,8 @@ mod tests {
         assert!(!rendered.contains("cargo kani"));
         assert!(!rendered.contains(" reproduce "));
         assert!(rendered.contains("uv sync --frozen"));
+        assert!(rendered.contains("python3 tools/ci/version.py --check"));
+        assert!(rendered.contains("python3 tools/ci/changelog.py"));
         assert!(rendered.contains("cargo clippy --workspace --all-targets --locked"));
         assert!(rendered.contains("cargo test --workspace --locked"));
         assert!(rendered.contains("uv run --frozen pytest -q"));

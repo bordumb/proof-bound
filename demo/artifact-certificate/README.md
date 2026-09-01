@@ -50,28 +50,27 @@ and a maximum-entry boundary example.
 
 | Claim | Formal declaration | Project axioms | Binding evaluation |
 |---|---|---|---|
-| `PBAC-SUM-001` | `ProofboundArtifactDemo.Claims.publishedTotal` | none | native SHA-256 |
-| `PBAC-CALIBRATED-001` | `ProofboundArtifactDemo.Claims.publishedCalibratedTotal` | `providerMeasurementsAccurate` | native SHA-256 |
+| `PBAC-SUM-001` | `ProofboundArtifactDemo.Claims.publishedArtifactSoundness` | none | native SHA-256, explicit premise |
+| `PBAC-CALIBRATED-001` | `ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness` | `providerMeasurementsAccurate` | native SHA-256, explicit premise |
 
 `publishedTotal` and the generic `checkList_sound` theorem are kernel-checked
-and axiom-free. `publishedAccepts` also reduces in the kernel. The literal
-SHA-256 computation is the one deliberately native step:
-`publishedDigestIsSha256` uses `native_decide`. Consequently the theorem units
-say `evaluation_mode = "kernel"` while the artifact-soundness units say
-`evaluation_mode = "native"`; the binding is not silently presented as pure
-kernel evaluation.
+meaning helpers. The attributed public declarations instead have the exact
+outer type `Proofbound.Artifact.DigestBindingV1`: their elaborated statements
+contain literal claim ID, artifact schema, logical path, digest, byte value,
+and meaning. The SHA-256 field uses `native_decide`, so both the theorem and
+artifact-soundness units say `evaluation_mode = "native"`. The custom policies
+compose `artifact-bound` with `native-evaluated`, and the first-class
+`PBAC-NATIVE-SHA256-001` assumption makes the enlarged trust boundary visible.
 
 The manifests keep the evidence taxonomy split: each claim cites one `theorem`
-unit for its public kernel-checked theorem and one distinct
-`artifact-soundness` unit for the native byte/digest binding. The latter runs
-the Python checker with a claim-specific committed `*.binding.json`
-expectation. Its canonical JSON report names the exact `unit.theorem`, actual
-artifact digest, claim and artifact inventories, and explicit results for
-canonical payload, schema, literal claim, digest, re-encoding, and
-trailing-byte rejection. The orchestrator accepts that report only when the
-named theorem resolves uniquely to the separately cited theorem evidence
-record. Thus the formal and linkage facets do not derive from a conflated
-record or fabricated default flags.
+unit for the typed public theorem and one distinct `artifact-soundness` unit
+for checking the external bytes. The latter runs the Python checker with a
+claim-specific committed `*.binding.json` expectation. Its canonical JSON
+report contains only success, exact artifact identity, and inventory. It still
+fails unless parsing, canonical re-encoding, and trailing-byte rejection all
+succeed, but it cannot name a theorem or assert binding booleans. Core and the
+standalone verifier independently parse the theorem statement wire and join
+its literal path/digest to the adapter-recomputed artifact identity.
 
 The second claim says more than certificate arithmetic can establish. Its
 external-provider premise is therefore a real Lean axiom and a first-class
@@ -112,11 +111,11 @@ PYTHONPATH=demo/artifact-certificate/python python3 -m artifact_certificate.chec
 
 ## Compiled attribution and pre-core note
 
-Both public theorems carry the root `proofbound_claim` attribute. Every other
+Both typed binding theorems carry the root `proofbound_claim` attribute. Every other
 theorem on `ProofboundArtifactDemo.Claims` carries a reviewed
 `proofbound_exempt` reason. The compiled audit discovers both claims, reports no
-axioms for `PBAC-SUM-001`, reports exactly
-`ProofboundArtifactDemo.Claims.providerMeasurementsAccurate` for
+unclassified axioms, reports the exact native-evaluation axiom on each claim,
+reports `ProofboundArtifactDemo.Claims.providerMeasurementsAccurate` only for
 `PBAC-CALIBRATED-001`, and rejects any unattributed theorem on that surface.
 
 The claim, assumption, and evidence-unit TOML records conform directly to the

@@ -123,7 +123,7 @@ impl ProjectBundle {
             limits,
             |value: &PolicyManifest| value.id.clone(),
         )?;
-        let reviews = load_collection(
+        let reviews = load_optional_collection(
             &root,
             &project.review_manifests,
             limits,
@@ -210,7 +210,34 @@ where
     T: DeserializeOwned,
     F: Fn(&T) -> String,
 {
-    let paths = expand_patterns(root, patterns, limits.max_files)?;
+    load_collection_with_policy(root, patterns, limits, EmptyPatternPolicy::Reject, id)
+}
+
+fn load_optional_collection<T, F>(
+    root: &Path,
+    patterns: &[String],
+    limits: ManifestLimits,
+    id: F,
+) -> Result<BTreeMap<String, (PathBuf, T)>, ManifestError>
+where
+    T: DeserializeOwned,
+    F: Fn(&T) -> String,
+{
+    load_collection_with_policy(root, patterns, limits, EmptyPatternPolicy::Allow, id)
+}
+
+fn load_collection_with_policy<T, F>(
+    root: &Path,
+    patterns: &[String],
+    limits: ManifestLimits,
+    empty_pattern_policy: EmptyPatternPolicy,
+    id: F,
+) -> Result<BTreeMap<String, (PathBuf, T)>, ManifestError>
+where
+    T: DeserializeOwned,
+    F: Fn(&T) -> String,
+{
+    let paths = expand_patterns(root, patterns, limits.max_files, empty_pattern_policy)?;
     let mut values: BTreeMap<String, (PathBuf, T)> = BTreeMap::new();
     for path in paths {
         let value: T = load_toml(&path, limits)?;
@@ -227,10 +254,17 @@ where
     Ok(values)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EmptyPatternPolicy {
+    Reject,
+    Allow,
+}
+
 fn expand_patterns(
     root: &Path,
     patterns: &[String],
     max_files: usize,
+    empty_pattern_policy: EmptyPatternPolicy,
 ) -> Result<Vec<PathBuf>, ManifestError> {
     let mut matched = BTreeSet::new();
     for pattern in patterns {
@@ -278,7 +312,7 @@ fn expand_patterns(
                 return Err(ManifestError::TooManyFiles(max_files));
             }
         }
-        if this_pattern == 0 {
+        if this_pattern == 0 && empty_pattern_policy == EmptyPatternPolicy::Reject {
             return Err(ManifestError::NoMatches(pattern.clone()));
         }
     }
@@ -350,7 +384,78 @@ mod tests {
     #[test]
     fn traversal_glob_is_rejected() {
         let temp = tempfile::tempdir().unwrap();
-        let error = expand_patterns(temp.path(), &["../*.toml".to_owned()], 10).unwrap_err();
+        let error = expand_patterns(
+            temp.path(),
+            &["../*.toml".to_owned()],
+            10,
+            EmptyPatternPolicy::Reject,
+        )
+        .unwrap_err();
         assert!(matches!(error, ManifestError::UnsafePath(_)));
+    }
+
+    #[test]
+    fn review_patterns_may_be_registered_before_the_first_review() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("claims")).unwrap();
+        fs::write(
+            temp.path().join("claims/TEST-CLAIM-001.toml"),
+            r#"schema = "proofbound-claim/1"
+id = "TEST-CLAIM-001"
+title = "Test claim"
+statement = "The test claim remains explicitly open."
+subject = "test:claim"
+profile = "ledger"
+tier = 0
+evidence = []
+assumptions = []
+open_obligations = ["No evidence is registered."]
+out_of_scope = []
+source_roots = []
+"#,
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("proofbound.toml"),
+            r#"schema = "proofbound-project/1"
+project = "test-project"
+tier = 0
+claim_manifests = ["claims/*.toml"]
+review_manifests = ["reviews/*.toml"]
+
+[source]
+semantic = ["claims/**"]
+runner = []
+presentation = []
+"#,
+        )
+        .unwrap();
+
+        let bundle = ProjectBundle::load(temp.path()).unwrap();
+        assert!(bundle.reviews.is_empty());
+        assert_eq!(bundle.claims.len(), 1);
+    }
+
+    #[test]
+    fn non_review_patterns_still_require_a_match() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(
+            temp.path().join("proofbound.toml"),
+            r#"schema = "proofbound-project/1"
+project = "test-project"
+tier = 0
+claim_manifests = ["claims/*.toml"]
+review_manifests = ["reviews/*.toml"]
+
+[source]
+semantic = ["claims/**"]
+runner = []
+presentation = []
+"#,
+        )
+        .unwrap();
+
+        let error = ProjectBundle::load(temp.path()).unwrap_err();
+        assert!(matches!(error, ManifestError::NoMatches(pattern) if pattern == "claims/*.toml"));
     }
 }

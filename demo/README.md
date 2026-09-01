@@ -1,7 +1,7 @@
 # Proofbound demonstrations
 
-The two demos show different ways to bind public language to evidence while
-keeping the remaining trust boundary visible. Neither demo treats a passing
+The three demos show different ways to bind public language to evidence while
+keeping the remaining trust boundary visible. None of them treats a passing
 test, a bounded check, or a theorem over a handwritten model as proof about
 shipping code by itself.
 
@@ -64,3 +64,13 @@ uv run --frozen cargo run -q -p proofbound-cli -- claim PBAC-SUM-001 --graph
 does not update committed fixtures, generated Lean, manifests, schemas, or
 receipts. Deliberate regeneration belongs to `proofbound update`, followed by
 review of the diff and the same verify-only gates used in CI.
+
+## Trusted transcription
+
+[`trusted-transcription/`](trusted-transcription/) exercises the deliberately
+weaker external-round-trip route. A registered Python driver produces typed
+JSON from exact source bytes, the adapter compares the fresh candidate with
+the committed transcription, and that same fresh candidate re-encodes to the
+source byte-for-byte. The result is `TRANSCRIBED`, never `PROVED`,
+`ARTIFACT_BOUND`, or `REFINED`; the driver remains visible as two distinct TCB
+roles.

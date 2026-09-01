@@ -1,4 +1,9 @@
-use std::{collections::BTreeSet, fs, path::Path, process::Command};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+    process::Command,
+};
 
 use proofbound_verify::*;
 use tempfile::TempDir;
@@ -7,8 +12,144 @@ fn digest(label: &str) -> String {
     raw_sha256(label.as_bytes())
 }
 
+fn named_artifact(
+    logical_name: &str,
+    digest_label: &str,
+    size_bytes: u64,
+) -> ArtifactIdentityReceipt {
+    ArtifactIdentityReceipt {
+        logical_name: logical_name.into(),
+        sha256: digest(digest_label),
+        size_bytes,
+    }
+}
+
+#[derive(serde::Serialize)]
+struct TranscriptionRoleMaterial<'a> {
+    abi: &'static str,
+    driver: &'a ArtifactIdentityReceipt,
+    role: TranscriptionRole,
+}
+
+fn transcription_role_identity(
+    role: TranscriptionRole,
+    driver: &ArtifactIdentityReceipt,
+) -> String {
+    domain_hash(
+        TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
+        &canonical_json(&TranscriptionRoleMaterial {
+            abi: TRANSCRIPTION_DRIVER_ABI_V1,
+            driver,
+            role,
+        })
+        .unwrap(),
+    )
+}
+
+fn trusted_transcription(
+    prefix: &str,
+    closure: &str,
+) -> (TrustedTranscriptionReceipt, EvidenceProvenance) {
+    let source = named_artifact(&format!("{prefix}/source.bin"), "source-bytes", 12);
+    let committed_transcription = named_artifact(
+        &format!("{prefix}/committed.transcription"),
+        "transcribed-bytes",
+        18,
+    );
+    let transcribed_candidate = named_artifact(
+        &format!("{prefix}/candidate.transcription"),
+        "transcribed-bytes",
+        18,
+    );
+    let reencoded_source = named_artifact(
+        &format!("{prefix}/reencoded-source.bin"),
+        "source-bytes",
+        12,
+    );
+    let driver = named_artifact(
+        &format!("{prefix}/driver"),
+        &format!("driver-bytes:{prefix}"),
+        24,
+    );
+    let mut provenance = provenance(closure);
+    provenance.input_artifacts = vec![
+        source.clone(),
+        committed_transcription.clone(),
+        driver.clone(),
+    ];
+    provenance.input_artifacts.sort();
+    provenance.generated_artifacts = vec![transcribed_candidate.clone(), reencoded_source.clone()];
+    provenance.generated_artifacts.sort();
+    provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&provenance.cache_material()).unwrap(),
+    );
+    (
+        TrustedTranscriptionReceipt {
+            schema: TRUSTED_TRANSCRIPTION_SCHEMA_V1.into(),
+            source,
+            committed_transcription,
+            transcribed_candidate,
+            reencoded_source,
+            transcriber: TranscriptionTcbRoleReceipt {
+                tcb_node: format!("tcb:trusted-transcription:{prefix}:transcriber"),
+                role_identity: transcription_role_identity(TranscriptionRole::Transcriber, &driver),
+            },
+            reencoder: TranscriptionTcbRoleReceipt {
+                tcb_node: format!("tcb:trusted-transcription:{prefix}:reencoder"),
+                role_identity: transcription_role_identity(TranscriptionRole::Reencoder, &driver),
+            },
+            driver,
+        },
+        provenance,
+    )
+}
+
+fn trusted_transcription_inventory(detail: &TrustedTranscriptionReceipt) -> BTreeSet<String> {
+    BTreeSet::from([
+        detail.source.logical_name.clone(),
+        detail.committed_transcription.logical_name.clone(),
+    ])
+}
+
+fn string_literal(value: &str) -> serde_json::Value {
+    serde_json::json!([7, [1, value]])
+}
+
+fn application(function: serde_json::Value, argument: serde_json::Value) -> serde_json::Value {
+    serde_json::json!([3, function, argument])
+}
+
+fn plain_statement(declaration: &str) -> serde_json::Value {
+    serde_json::json!(["lean-expr-cbor/1", [2, declaration, []]])
+}
+
+fn binding_statement(claim: &str, logical_name: &str, sha256: &str) -> serde_json::Value {
+    let mut root = serde_json::json!([2, "Proofbound.Artifact.DigestBindingV1", []]);
+    for argument in [
+        string_literal(claim),
+        string_literal("synthetic-artifact/1"),
+        string_literal(logical_name),
+        string_literal(sha256),
+        serde_json::json!([2, "Synthetic.bytes", []]),
+        serde_json::json!([2, "Synthetic.meaning", []]),
+    ] {
+        root = application(root, argument);
+    }
+    serde_json::json!(["lean-expr-cbor/1", root])
+}
+
 fn graph_hash(graph: &AssuranceGraph) -> String {
     domain_hash(GRAPH_SCHEMA_V1, &canonical_json(graph).unwrap())
+}
+
+fn subject_node(subject: &str) -> String {
+    format!(
+        "subject:{}",
+        raw_sha256(subject.as_bytes())
+            .strip_prefix("sha256:")
+            .unwrap()
+    )
 }
 
 fn closure_record() -> HashedRecord<SourceClosureReceipt> {
@@ -47,9 +188,27 @@ fn provenance(closure: &str) -> EvidenceProvenance {
         generated_artifacts: Default::default(),
         tool,
         adapter,
-        command: vec!["synthetic-runner".into(), "check".into()],
-        reproduction_command: vec!["synthetic-runner".into(), "check".into()],
-        environment_allowlist: Default::default(),
+        execution_kind: ExecutionKind::ObservedProcesses,
+        commands: vec![CommandReceipt {
+            program: "synthetic-runner".into(),
+            args: vec!["check".into()],
+            environment_allowlist: Vec::new(),
+        }],
+        runs: vec![ExecutionRunReceipt {
+            command_index: 0,
+            exit_code: Some(0),
+            stdout_sha256: digest("stdout"),
+            stderr_sha256: digest("stderr"),
+            normalized_output_sha256: digest("normalized output"),
+            output_truncated: false,
+            duration_ms: 1,
+        }],
+        normalization: "synthetic-output/1".into(),
+        reproduction_command: CommandReceipt {
+            program: "synthetic-runner".into(),
+            args: vec!["check".into()],
+            environment_allowlist: Vec::new(),
+        },
         started_unix_ms: 100,
         completed_unix_ms: 101,
         deterministic_result_sha256: digest("result"),
@@ -61,10 +220,10 @@ fn provenance(closure: &str) -> EvidenceProvenance {
             disk_bytes: 1_000,
             memory_bytes: 1_000,
         },
-        actual_cost: ResourceMeasure {
+        actual_cost: ActualCostReceipt {
             time_ms: 1,
             disk_bytes: 1,
-            memory_bytes: 1,
+            memory_bytes: Some(1),
         },
     };
     value.cache_key = domain_hash(
@@ -76,7 +235,7 @@ fn provenance(closure: &str) -> EvidenceProvenance {
 
 fn hash_evidence(record: EvidenceReceipt) -> HashedRecord<EvidenceReceipt> {
     HashedRecord {
-        sha256: domain_hash(EVIDENCE_SCHEMA_V1, &canonical_json(&record).unwrap()),
+        sha256: domain_hash(EVIDENCE_SCHEMA_V3, &canonical_json(&record).unwrap()),
         record,
     }
 }
@@ -111,7 +270,7 @@ fn base_release() -> CompiledRelease {
         mutual_theorem_groups: Vec::new(),
     };
     let test = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V1.into(),
+        schema: EVIDENCE_SCHEMA_V3.into(),
         unit_id: "unit:test".into(),
         node_id: "test:t".into(),
         kind: EvidenceKind::ExampleTest,
@@ -139,6 +298,7 @@ fn base_release() -> CompiledRelease {
         node_id: "claim:c".into(),
         title: "Synthetic claim".into(),
         statement: "The registered example passes.".into(),
+        public_language: None,
         subject: "subject:s".into(),
         policy: "ledger-ci".into(),
         tier: None,
@@ -152,6 +312,7 @@ fn base_release() -> CompiledRelease {
     };
     let status = ReportedClaimStatus {
         claim_id: "c".into(),
+        public_statement: claim.statement.clone(),
         formal: FormalFacet::Tested,
         linkage: Some(LinkageFacet::ModelOnly),
         assumption: AssumptionFacet::None,
@@ -160,7 +321,7 @@ fn base_release() -> CompiledRelease {
         policy_admitted: true,
     };
     CompiledRelease {
-        schema: COMPILED_RELEASE_SCHEMA_V1.into(),
+        schema: COMPILED_RELEASE_SCHEMA_V3.into(),
         project: "synthetic".into(),
         project_revision: "rev-1".into(),
         project_tier: Tier::Ledger,
@@ -189,6 +350,113 @@ fn base_release() -> CompiledRelease {
     }
 }
 
+fn mutation_release() -> CompiledRelease {
+    let mut release = base_release();
+    let registry = named_artifact("mutations/remove-guard.toml", "mutation registry", 64);
+    let target_preimage = named_artifact("src/lib.rs", "target preimage", 128);
+    let mutant_artifact = named_artifact("mutants/remove-guard/lib.rs", "target postimage", 120);
+    let target_postimage = named_artifact("src/lib.rs", "target postimage", 120);
+    let witness_source = named_artifact("tests/guard_witnesses.rs", "witness source", 96);
+    let claims = BTreeSet::from(["c".into()]);
+    let identity_material = serde_json::json!({
+        "check_id": "guard_witnesses::guard_is_enforced",
+        "claims": claims,
+        "guard": "the registered guard remains enforced",
+        "mutant_artifact": mutant_artifact,
+        "mutation_id": "remove-guard",
+        "registry": registry,
+        "subject": "rust:crate::decide",
+        "target_postimage": target_postimage,
+        "target_preimage": target_preimage,
+        "witness_source": witness_source,
+    });
+    let mutation_sha256 = domain_hash(
+        MUTATION_IDENTITY_DOMAIN_V2,
+        &canonical_json(&identity_material).unwrap(),
+    );
+    release.closures[0].record.members = vec![ClosureMember {
+        path: target_preimage.logical_name.clone(),
+        sha256: target_preimage.sha256.clone(),
+        size_bytes: target_preimage.size_bytes,
+    }];
+    release.closures[0].sha256 = domain_hash(
+        CLOSURE_SCHEMA_V1,
+        &canonical_json(&release.closures[0].record).unwrap(),
+    );
+    release.claims[0].subject = subject_node("rust:crate::decide");
+    release.graph.nodes[1]
+        .id
+        .clone_from(&release.claims[0].subject);
+    release.graph_sha256 = graph_hash(&release.graph);
+    let record = &mut release.evidence[0].record;
+    record.unit_id = "unit:remove-guard".into();
+    record.kind = EvidenceKind::MutationWitness;
+    record.claim_ids = claims;
+    record.inventoried_targets = BTreeSet::from(["remove-guard".into()]);
+    record.provenance.semantic_closure = release.closures[0].sha256.clone();
+    record.provenance.input_artifacts = vec![
+        registry.clone(),
+        target_preimage.clone(),
+        mutant_artifact.clone(),
+        witness_source.clone(),
+    ];
+    record.provenance.input_artifacts.sort();
+    record.provenance.generated_artifacts = vec![target_postimage.clone()];
+    record.provenance.commands = vec![
+        CommandReceipt {
+            program: "/baseline/target/debug/deps/guard_witnesses-a1".into(),
+            args: vec!["guard_is_enforced".into(), "--exact".into()],
+            environment_allowlist: Vec::new(),
+        },
+        CommandReceipt {
+            program: "/mutant/target/debug/deps/guard_witnesses-b2".into(),
+            args: vec!["guard_is_enforced".into(), "--exact".into()],
+            environment_allowlist: Vec::new(),
+        },
+    ];
+    record.provenance.runs = vec![
+        ExecutionRunReceipt {
+            command_index: 0,
+            exit_code: Some(0),
+            stdout_sha256: digest("baseline stdout"),
+            stderr_sha256: digest("baseline stderr"),
+            normalized_output_sha256: digest("baseline normalized"),
+            output_truncated: false,
+            duration_ms: 1,
+        },
+        ExecutionRunReceipt {
+            command_index: 1,
+            exit_code: Some(101),
+            stdout_sha256: digest("mutant stdout"),
+            stderr_sha256: digest("mutant stderr"),
+            normalized_output_sha256: digest("mutant normalized"),
+            output_truncated: false,
+            duration_ms: 1,
+        },
+    ];
+    record.mutation_witness = Some(MutationWitnessReceipt {
+        schema: MUTATION_WITNESS_SCHEMA_V2.into(),
+        mutation_id: "remove-guard".into(),
+        subject: "rust:crate::decide".into(),
+        guard: "the registered guard remains enforced".into(),
+        mutation_sha256,
+        registry,
+        target_preimage,
+        mutant_artifact,
+        target_postimage,
+        witness_source,
+        check_id: "guard_witnesses::guard_is_enforced".into(),
+        baseline_run_index: 0,
+        expected_failure: ExpectedFailureReceipt {
+            run_index: 1,
+            allowed_exit_codes: BTreeSet::from([101]),
+        },
+        proof_term_witness: false,
+    });
+    recache_and_rehash_first_evidence(&mut release);
+    release
+}
+
 fn theorem_release() -> CompiledRelease {
     let mut release = base_release();
     release.project_tier = Tier::Model;
@@ -197,8 +465,9 @@ fn theorem_release() -> CompiledRelease {
         kind: NodeKind::Theorem,
         proof_environment: Some("lean:synthetic".into()),
     };
+    let statement_wire = plain_statement("Synthetic.statement");
     let theorem = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V1.into(),
+        schema: EVIDENCE_SCHEMA_V3.into(),
         unit_id: "unit:theorem".into(),
         node_id: "theorem:t".into(),
         kind: EvidenceKind::Theorem,
@@ -209,7 +478,8 @@ fn theorem_release() -> CompiledRelease {
         theorem: Some(TheoremReceipt {
             declaration: "Synthetic.theorem".into(),
             statement_encoding: "lean-expr-cbor/1".into(),
-            statement_sha256: digest("elaborated theorem"),
+            statement_sha256: lean_statement_wire_digest(&statement_wire).unwrap(),
+            statement_wire,
             attributed_claim: "c".into(),
             proof_environment: "lean:synthetic".into(),
             axiom_audit_passed: true,
@@ -224,7 +494,7 @@ fn theorem_release() -> CompiledRelease {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: BTreeSet::from(["Synthetic.theorem".into()]),
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -253,7 +523,7 @@ fn bounded_release() -> CompiledRelease {
     record.node_id = "model-check:m".into();
     record.unit_id = "unit:bounded".into();
     record.kind = EvidenceKind::BoundedCheck;
-    record.inventoried_targets.clear();
+    record.inventoried_targets = BTreeSet::from(["check_all".into()]);
     record.bounded_check = Some(BoundedCheckReceipt {
         domain: BoundedDomain {
             id: "domain:tiny".into(),
@@ -263,10 +533,11 @@ fn bounded_release() -> CompiledRelease {
         },
         solver: "kani 1.0".into(),
         harnesses: BTreeSet::from(["check_all".into()]),
-        unwind_bounds: Default::default(),
+        unwind_bounds: BTreeMap::from([("check_all".into(), 1)]),
+        assumptions: Vec::new(),
     });
     release.evidence[0].sha256 = domain_hash(
-        EVIDENCE_SCHEMA_V1,
+        EVIDENCE_SCHEMA_V3,
         &canonical_json(&release.evidence[0].record).unwrap(),
     );
     release.claims[0].cited_evidence.remove(&old);
@@ -275,6 +546,13 @@ fn bounded_release() -> CompiledRelease {
         .insert(release.evidence[0].sha256.clone());
     release.claims[0].registered_domain_language =
         Some("For every input in the registered two-bit domain".into());
+    release.reported_statuses[0].public_statement = bounded_public_statement_for_test(
+        &release.claims[0].statement,
+        release.claims[0]
+            .registered_domain_language
+            .as_deref()
+            .unwrap(),
+    );
     release.claims[0].policy = "bounded".into();
     release.policies[0].id = "bounded".into();
     release.policies[0].components = BTreeSet::from([BuiltInProfile::Bounded]);
@@ -283,24 +561,62 @@ fn bounded_release() -> CompiledRelease {
     release
 }
 
+fn rehash_first_evidence(release: &mut CompiledRelease) {
+    let old = release.evidence[0].sha256.clone();
+    let replacement = domain_hash(
+        EVIDENCE_SCHEMA_V3,
+        &canonical_json(&release.evidence[0].record).unwrap(),
+    );
+    release.evidence[0].sha256.clone_from(&replacement);
+    for claim in &mut release.claims {
+        if claim.cited_evidence.remove(&old) {
+            claim.cited_evidence.insert(replacement.clone());
+        }
+    }
+}
+
+fn recache_and_rehash_first_evidence(release: &mut CompiledRelease) {
+    let provenance = &mut release.evidence[0].record.provenance;
+    provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&provenance.cache_material()).unwrap(),
+    );
+    rehash_first_evidence(release);
+}
+
 fn tcb_ledger_value(release: &CompiledRelease) -> serde_json::Value {
-    let components = release
-        .evidence
-        .iter()
-        .flat_map(|evidence| {
-            [
-                &evidence.record.provenance.tool,
-                &evidence.record.provenance.adapter,
-            ]
-        })
-        .map(|identity| {
-            (
+    let mut components = BTreeSet::new();
+    for evidence in &release.evidence {
+        for identity in [
+            &evidence.record.provenance.tool,
+            &evidence.record.provenance.adapter,
+        ] {
+            components.insert((
                 identity.name.clone(),
                 identity.version.clone(),
                 identity.identity_sha256.clone(),
-            )
-        })
-        .collect::<BTreeSet<_>>();
+            ));
+        }
+        if let Some(transcription) = &evidence.record.trusted_transcription {
+            let unit = evidence
+                .record
+                .unit_id
+                .strip_prefix("unit:")
+                .unwrap_or(&evidence.record.unit_id);
+            components.extend([
+                (
+                    format!("trusted-transcription/{unit}/transcriber"),
+                    TRANSCRIPTION_DRIVER_ABI_V1.into(),
+                    transcription.transcriber.role_identity.clone(),
+                ),
+                (
+                    format!("trusted-transcription/{unit}/reencoder"),
+                    TRANSCRIPTION_DRIVER_ABI_V1.into(),
+                    transcription.reencoder.role_identity.clone(),
+                ),
+            ]);
+        }
+    }
     serde_json::json!({
         "schema": "proofbound-tcb-ledger/1",
         "components": components.into_iter().map(|(name, version, identity_sha256)| {
@@ -365,6 +681,142 @@ fn valid_closed_receipt_is_consistent_in_memory_and_on_disk() {
 }
 
 #[test]
+fn mutation_replay_is_singleton_hash_bound_and_truthful() {
+    verify_compiled_release(&mutation_release()).unwrap();
+
+    let assert_invalid = |release: &CompiledRelease| {
+        let error = verify_compiled_release(release).unwrap_err();
+        assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    };
+
+    let mut wrong_exit = mutation_release();
+    wrong_exit.evidence[0].record.provenance.runs[1].exit_code = Some(1);
+    rehash_first_evidence(&mut wrong_exit);
+    assert_invalid(&wrong_exit);
+
+    let mut broadened_exit = mutation_release();
+    broadened_exit.evidence[0]
+        .record
+        .mutation_witness
+        .as_mut()
+        .unwrap()
+        .expected_failure
+        .allowed_exit_codes
+        .insert(1);
+    rehash_first_evidence(&mut broadened_exit);
+    assert_invalid(&broadened_exit);
+
+    let mut replayed_baseline_binary = mutation_release();
+    let baseline_program = replayed_baseline_binary.evidence[0]
+        .record
+        .provenance
+        .commands[0]
+        .program
+        .clone();
+    replayed_baseline_binary.evidence[0]
+        .record
+        .provenance
+        .commands[1]
+        .program = baseline_program;
+    rehash_first_evidence(&mut replayed_baseline_binary);
+    assert_invalid(&replayed_baseline_binary);
+
+    let mut wrong_selector = mutation_release();
+    wrong_selector.evidence[0].record.provenance.commands[1].args[0] = "another_test".into();
+    rehash_first_evidence(&mut wrong_selector);
+    assert_invalid(&wrong_selector);
+
+    let mut extra_input = mutation_release();
+    extra_input.evidence[0]
+        .record
+        .provenance
+        .input_artifacts
+        .push(named_artifact("hidden-input", "hidden", 1));
+    extra_input.evidence[0]
+        .record
+        .provenance
+        .input_artifacts
+        .sort();
+    recache_and_rehash_first_evidence(&mut extra_input);
+    assert_invalid(&extra_input);
+
+    let mut extra_mutation = mutation_release();
+    extra_mutation.evidence[0]
+        .record
+        .inventoried_targets
+        .insert("remove-another-guard".into());
+    rehash_first_evidence(&mut extra_mutation);
+    assert_invalid(&extra_mutation);
+
+    let mut wrong_unit = mutation_release();
+    wrong_unit.evidence[0].record.unit_id = "unit:shared-mutations".into();
+    rehash_first_evidence(&mut wrong_unit);
+    assert_invalid(&wrong_unit);
+
+    let mut unrelated_semantic_closure = mutation_release();
+    let unrelated_record = SourceClosureReceipt {
+        schema: CLOSURE_SCHEMA_V1.into(),
+        kind: ClosureKind::Semantic,
+        members: vec![ClosureMember {
+            path: "src/unrelated.rs".into(),
+            sha256: digest("unrelated source"),
+            size_bytes: 77,
+        }],
+    };
+    let unrelated_digest = domain_hash(
+        CLOSURE_SCHEMA_V1,
+        &canonical_json(&unrelated_record).unwrap(),
+    );
+    unrelated_semantic_closure.closures.push(HashedRecord {
+        sha256: unrelated_digest.clone(),
+        record: unrelated_record,
+    });
+    unrelated_semantic_closure.evidence[0]
+        .record
+        .provenance
+        .semantic_closure = unrelated_digest;
+    recache_and_rehash_first_evidence(&mut unrelated_semantic_closure);
+    assert_invalid(&unrelated_semantic_closure);
+
+    let mut wrong_claim_subject = mutation_release();
+    wrong_claim_subject.claims[0].subject = subject_node("rust:crate::unrelated");
+    wrong_claim_subject.graph.nodes[1]
+        .id
+        .clone_from(&wrong_claim_subject.claims[0].subject);
+    wrong_claim_subject.graph_sha256 = graph_hash(&wrong_claim_subject.graph);
+    assert_invalid(&wrong_claim_subject);
+
+    let mut postimage_smuggling = mutation_release();
+    postimage_smuggling.evidence[0]
+        .record
+        .mutation_witness
+        .as_mut()
+        .unwrap()
+        .target_postimage
+        .sha256 = digest("unregistered postimage");
+    rehash_first_evidence(&mut postimage_smuggling);
+    assert_invalid(&postimage_smuggling);
+
+    let mut forged_identity = mutation_release();
+    forged_identity.evidence[0]
+        .record
+        .mutation_witness
+        .as_mut()
+        .unwrap()
+        .mutation_sha256 = digest("forged mutation identity");
+    rehash_first_evidence(&mut forged_identity);
+    assert_invalid(&forged_identity);
+
+    let mut broadened_claims = mutation_release();
+    broadened_claims.evidence[0]
+        .record
+        .claim_ids
+        .insert("smuggled-claim".into());
+    rehash_first_evidence(&mut broadened_claims);
+    assert_invalid(&broadened_claims);
+}
+
+#[test]
 fn illegal_edge_endpoint_kinds_are_rejected_independently() {
     let mut release = base_release();
     release.graph.nodes.push(GraphNode {
@@ -415,6 +867,30 @@ fn committed_release_fixture_is_canonical_and_verifies_in_place() {
 }
 
 #[test]
+fn empty_additional_closures_have_one_canonical_optional_shape() {
+    let release = base_release();
+    assert!(
+        release.evidence[0]
+            .record
+            .provenance
+            .additional_closures
+            .is_empty()
+    );
+    let value = serde_json::to_value(&release).unwrap();
+    assert!(
+        value["evidence"][0]["record"]["provenance"]
+            .get("additional_closures")
+            .is_none()
+    );
+
+    let directory = write_release(&release);
+    assert_eq!(
+        verify_release_dir(directory.path()).unwrap().verdict,
+        "receipt-consistent"
+    );
+}
+
+#[test]
 fn standalone_cli_honors_release_and_exit_contract() {
     let directory = write_release(&base_release());
     let output = Command::new(env!("CARGO_BIN_EXE_proofbound-verify"))
@@ -432,6 +908,7 @@ fn standalone_cli_honors_release_and_exit_contract() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("claim c: TESTED · MODEL_ONLY · NONE"));
+    assert!(stdout.contains("  The registered example passes."));
     assert!(stdout.contains("not proved / out of scope [c]"));
     assert!(stdout.contains("open obligations:"));
 
@@ -507,7 +984,7 @@ fn bounded_and_exhaustive_precedence_is_recomputed() {
         domain,
     });
     exhaustive.evidence[0].sha256 = domain_hash(
-        EVIDENCE_SCHEMA_V1,
+        EVIDENCE_SCHEMA_V3,
         &canonical_json(&exhaustive.evidence[0].record).unwrap(),
     );
     exhaustive.claims[0].cited_evidence.remove(&old);
@@ -518,10 +995,18 @@ fn bounded_and_exhaustive_precedence_is_recomputed() {
     exhaustive.policies[0].id = "finite-ci".into();
     exhaustive.policies[0].components.clear();
     exhaustive.reported_statuses[0].formal = FormalFacet::Tested;
+    exhaustive.reported_statuses[0].public_statement = exhaustive.claims[0].statement.clone();
     verify_compiled_release(&exhaustive).unwrap();
 
     exhaustive.policies[0].admit_exhaustive_as_proved = true;
     exhaustive.reported_statuses[0].formal = FormalFacet::Proved;
+    exhaustive.reported_statuses[0].public_statement = bounded_public_statement_for_test(
+        &exhaustive.claims[0].statement,
+        exhaustive.claims[0]
+            .registered_domain_language
+            .as_deref()
+            .unwrap(),
+    );
     verify_compiled_release(&exhaustive).unwrap();
 }
 
@@ -532,6 +1017,45 @@ fn bounded_language_cannot_be_silently_omitted() {
     let error = verify_compiled_release(&release).unwrap_err();
     assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
     assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+}
+
+#[test]
+fn bounded_unwind_inventory_is_exact_and_nonzero() {
+    let mut extra = bounded_release();
+    extra.evidence[0]
+        .record
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .insert("undeclared".into(), 1);
+    rehash_first_evidence(&mut extra);
+    let error = verify_compiled_release(&extra).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut missing = bounded_release();
+    missing.evidence[0]
+        .record
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .clear();
+    rehash_first_evidence(&mut missing);
+    let error = verify_compiled_release(&missing).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut zero = bounded_release();
+    zero.evidence[0]
+        .record
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .unwind_bounds
+        .insert("check_all".into(), 0);
+    rehash_first_evidence(&mut zero);
+    let error = verify_compiled_release(&zero).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
 }
 
 #[test]
@@ -568,9 +1092,9 @@ fn strict_parser_rejects_unknown_enums() {
     let payload = canonical_json(&value).unwrap();
     fs::write(directory.path().join("compiled-receipt.json"), &payload).unwrap();
     let envelope = ReleaseEnvelope {
-        schema: RELEASE_ENVELOPE_SCHEMA_V1.into(),
+        schema: RELEASE_ENVELOPE_SCHEMA_V3.into(),
         payload: "compiled-receipt.json".into(),
-        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V1, &payload),
+        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V3, &payload),
     };
     fs::write(
         directory.path().join("release.json"),
@@ -592,7 +1116,7 @@ fn invalid_digest_and_drifted_evidence_are_rejected() {
     let old = drifted.evidence[0].sha256.clone();
     drifted.evidence[0].record.outcome = EvidenceOutcome::Drifted;
     drifted.evidence[0].sha256 = domain_hash(
-        EVIDENCE_SCHEMA_V1,
+        EVIDENCE_SCHEMA_V3,
         &canonical_json(&drifted.evidence[0].record).unwrap(),
     );
     drifted.claims[0].cited_evidence.remove(&old);
@@ -620,7 +1144,7 @@ fn unresolved_assumption_cannot_be_omitted_from_output() {
         },
     ]);
     let review = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V1.into(),
+        schema: EVIDENCE_SCHEMA_V3.into(),
         unit_id: "unit:review".into(),
         node_id: "review:a".into(),
         kind: EvidenceKind::Review,
@@ -636,7 +1160,7 @@ fn unresolved_assumption_cannot_be_omitted_from_output() {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: BTreeSet::from(["review:runtime-host".into()]),
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -810,19 +1334,45 @@ fn add_binding_paths(release: &mut CompiledRelease) {
             proof_environment: None,
         },
         GraphNode {
-            id: "tcb:transcriber".into(),
+            id: "tcb:trusted-transcription:transcription:transcriber".into(),
             kind: NodeKind::TcbComponent,
             proof_environment: None,
         },
         GraphNode {
-            id: "tcb:reencoder".into(),
+            id: "tcb:trusted-transcription:transcription:reencoder".into(),
             kind: NodeKind::TcbComponent,
             proof_environment: None,
         },
     ]);
+    let artifact_identity = ArtifactIdentityReceipt {
+        logical_name: "artifact.bin".into(),
+        sha256: digest("artifact bytes"),
+        size_bytes: 14,
+    };
+    let statement_wire = binding_statement(
+        "c",
+        &artifact_identity.logical_name,
+        &artifact_identity.sha256,
+    );
+    let theorem_detail = release.evidence[0]
+        .record
+        .theorem
+        .as_mut()
+        .expect("theorem release contains theorem detail");
+    theorem_detail.statement_sha256 = lean_statement_wire_digest(&statement_wire).unwrap();
+    theorem_detail.statement_wire = statement_wire;
+    rehash_first_evidence(release);
     let theorem = release.evidence[0].sha256.clone();
+    let mut artifact_provenance = provenance(&release.closures[0].sha256);
+    artifact_provenance
+        .input_artifacts
+        .push(artifact_identity.clone());
+    artifact_provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&artifact_provenance.cache_material()).unwrap(),
+    );
     let artifact = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V1.into(),
+        schema: EVIDENCE_SCHEMA_V3.into(),
         unit_id: "unit:artifact".into(),
         node_id: "artifact:a".into(),
         kind: EvidenceKind::ArtifactSoundness,
@@ -833,12 +1383,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         theorem: None,
         artifact_binding: Some(ArtifactBindingReceipt {
             theorem_evidence: theorem,
-            canonical_payload: true,
-            schema_bound: true,
-            literal_claim_bound: true,
-            digest_bound: true,
-            reencoding_passed: true,
-            trailing_bytes_rejected: true,
+            artifact: artifact_identity,
         }),
         trusted_transcription: None,
         source_refinement: None,
@@ -846,14 +1391,17 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: BTreeSet::from(["artifact.bin".into()]),
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
-        provenance: provenance(&release.closures[0].sha256),
+        provenance: artifact_provenance,
     });
+    let (trusted_transcription, transcription_provenance) =
+        trusted_transcription("transcription", &release.closures[0].sha256);
+    let transcription_inventory = trusted_transcription_inventory(&trusted_transcription);
     let transcription = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V1.into(),
+        schema: EVIDENCE_SCHEMA_V3.into(),
         unit_id: "unit:transcription".into(),
         node_id: "artifact:a".into(),
         kind: EvidenceKind::TrustedTranscription,
@@ -863,27 +1411,157 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         binding_mode: Some(BindingMode::ExternalRoundTrip),
         theorem: None,
         artifact_binding: None,
-        trusted_transcription: Some(TrustedTranscriptionReceipt {
-            transcriber_tcb_node: "tcb:transcriber".into(),
-            reencoder_tcb_node: "tcb:reencoder".into(),
-            round_trip_passed: true,
-        }),
+        trusted_transcription: Some(trusted_transcription),
         source_refinement: None,
         bounded_check: None,
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: Default::default(),
+        inventoried_targets: transcription_inventory,
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
-        provenance: provenance(&release.closures[0].sha256),
+        provenance: transcription_provenance,
     });
     release.claims[0]
         .cited_evidence
         .extend([artifact.sha256.clone(), transcription.sha256.clone()]);
     release.evidence.extend([artifact, transcription]);
     release.graph_sha256 = graph_hash(&release.graph);
+}
+
+fn artifact_bound_release() -> CompiledRelease {
+    let mut release = theorem_release();
+    add_binding_paths(&mut release);
+    let transcription = release
+        .evidence
+        .pop()
+        .expect("binding helper appends transcription evidence");
+    release.claims[0]
+        .cited_evidence
+        .remove(&transcription.sha256);
+    release.claims[0].primary_linkage = None;
+    release.policies[0].components = BTreeSet::from([BuiltInProfile::ArtifactBound]);
+    release.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
+    release
+}
+
+fn transcribed_release() -> CompiledRelease {
+    let mut release = base_release();
+    release.project_tier = Tier::Bounded;
+    release.graph.nodes[3] = GraphNode {
+        id: "artifact:transcription".into(),
+        kind: NodeKind::Artifact,
+        proof_environment: None,
+    };
+    release.graph.nodes.extend([
+        GraphNode {
+            id: "tcb:trusted-transcription:transcription:transcriber".into(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        },
+        GraphNode {
+            id: "tcb:trusted-transcription:transcription:reencoder".into(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        },
+    ]);
+    let (detail, provenance) = trusted_transcription("transcription", &release.closures[0].sha256);
+    let transcription_inventory = trusted_transcription_inventory(&detail);
+    let transcription = hash_evidence(EvidenceReceipt {
+        schema: EVIDENCE_SCHEMA_V3.into(),
+        unit_id: "unit:transcription".into(),
+        node_id: "artifact:transcription".into(),
+        kind: EvidenceKind::TrustedTranscription,
+        claim_ids: BTreeSet::from(["c".into()]),
+        outcome: EvidenceOutcome::Passed,
+        evaluation_mode: None,
+        binding_mode: Some(BindingMode::ExternalRoundTrip),
+        theorem: None,
+        artifact_binding: None,
+        trusted_transcription: Some(detail),
+        source_refinement: None,
+        bounded_check: None,
+        exhaustive_check: None,
+        mutation_witness: None,
+        independence: None,
+        inventoried_targets: transcription_inventory,
+        assumptions: Default::default(),
+        premises: Default::default(),
+        open_obligation: None,
+        provenance,
+    });
+    release.claims[0].cited_evidence = BTreeSet::from([transcription.sha256.clone()]);
+    release.evidence = vec![transcription];
+    release.claims[0].policy = "transcribed".into();
+    release.policies[0].id = "transcribed".into();
+    release.policies[0].components = BTreeSet::from([BuiltInProfile::Transcribed]);
+    release.reported_statuses[0].formal = FormalFacet::Open;
+    release.reported_statuses[0].linkage = Some(LinkageFacet::Transcribed);
+    release.reported_statuses[0].policy_admitted = true;
+    release.graph_sha256 = graph_hash(&release.graph);
+    release
+}
+
+fn rehash_evidence_at(release: &mut CompiledRelease, index: usize) {
+    let old = release.evidence[index].sha256.clone();
+    let replacement = domain_hash(
+        EVIDENCE_SCHEMA_V3,
+        &canonical_json(&release.evidence[index].record).unwrap(),
+    );
+    release.evidence[index].sha256.clone_from(&replacement);
+    for claim in &mut release.claims {
+        if claim.cited_evidence.remove(&old) {
+            claim.cited_evidence.insert(replacement.clone());
+        }
+    }
+    for wrapper in &mut release.evidence {
+        if let Some(binding) = &mut wrapper.record.artifact_binding
+            && binding.theorem_evidence == old
+        {
+            binding.theorem_evidence.clone_from(&replacement);
+        }
+        if let Some(refinement) = &mut wrapper.record.source_refinement
+            && refinement.refinement_theorem_evidence == old
+        {
+            refinement
+                .refinement_theorem_evidence
+                .clone_from(&replacement);
+        }
+    }
+    for premise in &mut release.premises {
+        if premise.theorem_evidence.as_deref() == Some(&old) {
+            premise.theorem_evidence = Some(replacement.clone());
+        }
+        if let Some(discharge) = &mut premise.discharge
+            && discharge.theorem_evidence == old
+        {
+            discharge.theorem_evidence.clone_from(&replacement);
+        }
+    }
+    for assumption in &mut release.assumptions {
+        if assumption.review_evidence.remove(&old) {
+            assumption.review_evidence.insert(replacement.clone());
+        }
+    }
+}
+
+fn replace_binding_theorem_statement(
+    release: &mut CompiledRelease,
+    statement_wire: serde_json::Value,
+    replace_digest: bool,
+) {
+    let theorem = release.evidence[0]
+        .record
+        .theorem
+        .as_mut()
+        .expect("artifact fixture contains a theorem");
+    if replace_digest {
+        theorem.statement_sha256 = lean_statement_wire_digest(&statement_wire).unwrap();
+    }
+    theorem.statement_wire = statement_wire;
+    rehash_evidence_at(release, 0);
+    rehash_evidence_at(release, 1);
 }
 
 #[test]
@@ -896,6 +1574,429 @@ fn multiple_binding_paths_require_an_exact_primary_selection() {
     ambiguous.claims[0].primary_linkage = Some(LinkageFacet::ArtifactBound);
     ambiguous.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
     verify_compiled_release(&ambiguous).unwrap();
+}
+
+#[test]
+fn checker_authored_plain_theorem_cannot_smuggle_artifact_bound_status() {
+    let mut release = artifact_bound_release();
+    replace_binding_theorem_statement(
+        &mut release,
+        plain_statement("Synthetic.unboundStatement"),
+        true,
+    );
+
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("exact audited theorem root"))
+    );
+}
+
+#[test]
+fn artifact_binding_rejects_wrong_claim_path_and_digest_literals() {
+    let baseline = artifact_bound_release();
+    let artifact = baseline.evidence[1]
+        .record
+        .artifact_binding
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    let attacks = [
+        binding_statement("other-claim", &artifact.logical_name, &artifact.sha256),
+        binding_statement("c", "other-artifact.bin", &artifact.sha256),
+        binding_statement("c", &artifact.logical_name, &digest("other artifact")),
+    ];
+
+    for statement in attacks {
+        let mut release = baseline.clone();
+        replace_binding_theorem_statement(&mut release, statement, true);
+        let error = verify_compiled_release(&release).unwrap_err();
+        assert!(
+            codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence),
+            "attack must invalidate artifact linkage: {:?}",
+            error.issues
+        );
+    }
+}
+
+#[test]
+fn artifact_binding_rejects_a_forged_size_even_when_name_and_digest_match() {
+    let mut release = artifact_bound_release();
+    release.evidence[1]
+        .record
+        .artifact_binding
+        .as_mut()
+        .unwrap()
+        .artifact
+        .size_bytes += 1;
+    rehash_evidence_at(&mut release, 1);
+
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+}
+
+#[test]
+fn artifact_provenance_inventories_are_sorted_with_unique_logical_names() {
+    let artifact_a = ArtifactIdentityReceipt {
+        logical_name: "a.bin".into(),
+        sha256: digest("a"),
+        size_bytes: 1,
+    };
+    let artifact_b = ArtifactIdentityReceipt {
+        logical_name: "b.bin".into(),
+        sha256: digest("b"),
+        size_bytes: 1,
+    };
+
+    let mut unsorted = base_release();
+    unsorted.evidence[0].record.provenance.input_artifacts =
+        vec![artifact_b.clone(), artifact_a.clone()];
+    unsorted.evidence[0].record.provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&unsorted.evidence[0].record.provenance.cache_material()).unwrap(),
+    );
+    rehash_first_evidence(&mut unsorted);
+    let error = verify_compiled_release(&unsorted).unwrap_err();
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("artifact inventory must be strictly sorted and unique")
+    }));
+
+    let mut duplicate = base_release();
+    duplicate.evidence[0].record.provenance.generated_artifacts = vec![
+        artifact_a.clone(),
+        ArtifactIdentityReceipt {
+            sha256: digest("different a"),
+            ..artifact_a
+        },
+    ];
+    duplicate.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts
+        .sort();
+    duplicate.evidence[0].record.provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&duplicate.evidence[0].record.provenance.cache_material()).unwrap(),
+    );
+    rehash_first_evidence(&mut duplicate);
+    let error = verify_compiled_release(&duplicate).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("repeats logical name 'a.bin'"))
+    );
+}
+
+#[test]
+fn unknown_peak_memory_is_distinct_from_measured_zero_and_is_required() {
+    let mut unknown = base_release();
+    unknown.evidence[0]
+        .record
+        .provenance
+        .actual_cost
+        .memory_bytes = None;
+    rehash_first_evidence(&mut unknown);
+    verify_compiled_release(&unknown).unwrap();
+
+    let mut measured_zero = unknown.clone();
+    measured_zero.evidence[0]
+        .record
+        .provenance
+        .actual_cost
+        .memory_bytes = Some(0);
+    rehash_first_evidence(&mut measured_zero);
+    verify_compiled_release(&measured_zero).unwrap();
+    assert_ne!(unknown.evidence[0].sha256, measured_zero.evidence[0].sha256);
+
+    let mut missing = serde_json::to_value(&unknown.evidence[0].record.provenance).unwrap();
+    missing["actual_cost"]
+        .as_object_mut()
+        .unwrap()
+        .remove("memory_bytes");
+    assert!(serde_json::from_value::<EvidenceProvenance>(missing).is_err());
+}
+
+#[test]
+fn command_run_order_coverage_completion_and_output_are_fail_closed() {
+    let mut complete = base_release();
+    complete.evidence[0]
+        .record
+        .provenance
+        .commands
+        .push(CommandReceipt {
+            program: "synthetic-runner".into(),
+            args: vec!["cross-check".into()],
+            environment_allowlist: Vec::new(),
+        });
+    complete.evidence[0]
+        .record
+        .provenance
+        .runs
+        .push(ExecutionRunReceipt {
+            command_index: 1,
+            exit_code: Some(0),
+            stdout_sha256: digest("second stdout"),
+            stderr_sha256: digest("second stderr"),
+            normalized_output_sha256: digest("second normalized output"),
+            output_truncated: false,
+            duration_ms: 2,
+        });
+    rehash_first_evidence(&mut complete);
+    verify_compiled_release(&complete).unwrap();
+
+    let mut reordered = complete.clone();
+    reordered.evidence[0].record.provenance.runs.swap(0, 1);
+    rehash_first_evidence(&mut reordered);
+    let error = verify_compiled_release(&reordered).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("exact command order"))
+    );
+
+    let mut omitted = complete.clone();
+    omitted.evidence[0].record.provenance.runs.pop();
+    rehash_first_evidence(&mut omitted);
+    let error = verify_compiled_release(&omitted).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("without omission"))
+    );
+
+    let mut truncated = complete.clone();
+    truncated.evidence[0].record.provenance.runs[0].output_truncated = true;
+    rehash_first_evidence(&mut truncated);
+    let error = verify_compiled_release(&truncated).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("truncated output"))
+    );
+
+    let mut incomplete = complete.clone();
+    incomplete.evidence[0].record.provenance.runs[0].exit_code = None;
+    rehash_first_evidence(&mut incomplete);
+    let error = verify_compiled_release(&incomplete).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("registered exit expectation"))
+    );
+
+    let mut nonzero = complete.clone();
+    nonzero.evidence[0].record.provenance.runs[0].exit_code = Some(1);
+    rehash_first_evidence(&mut nonzero);
+    let error = verify_compiled_release(&nonzero).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("registered exit expectation"))
+    );
+
+    let mut empty_inventory = complete;
+    empty_inventory.evidence[0]
+        .record
+        .inventoried_targets
+        .clear();
+    rehash_first_evidence(&mut empty_inventory);
+    let error = verify_compiled_release(&empty_inventory).unwrap_err();
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("nonempty bounded exact target inventory")
+    }));
+}
+
+#[test]
+fn compiler_internal_provenance_cannot_fabricate_process_execution() {
+    let mut internal = base_release();
+    internal.evidence[0].record.provenance.execution_kind = ExecutionKind::CompilerInternal;
+    internal.evidence[0].record.provenance.commands.clear();
+    internal.evidence[0].record.provenance.runs.clear();
+    rehash_first_evidence(&mut internal);
+    verify_compiled_release(&internal).unwrap();
+
+    let mut fabricated = internal.clone();
+    fabricated.evidence[0].record.provenance.commands = vec![CommandReceipt {
+        program: "invented-review-process".into(),
+        args: vec!["check".into()],
+        environment_allowlist: Vec::new(),
+    }];
+    fabricated.evidence[0].record.provenance.runs = vec![ExecutionRunReceipt {
+        command_index: 0,
+        exit_code: Some(0),
+        stdout_sha256: digest("invented stdout"),
+        stderr_sha256: digest("invented stderr"),
+        normalized_output_sha256: digest("invented output"),
+        output_truncated: false,
+        duration_ms: 0,
+    }];
+    rehash_first_evidence(&mut fabricated);
+    let error = verify_compiled_release(&fabricated).unwrap_err();
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("compiler-internal provenance must not fabricate")
+    }));
+
+    let mut missing = internal;
+    missing.evidence[0].record.provenance.execution_kind = ExecutionKind::ObservedProcesses;
+    rehash_first_evidence(&mut missing);
+    let error = verify_compiled_release(&missing).unwrap_err();
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("observed-process provenance must retain")
+    }));
+}
+
+#[test]
+fn command_environment_names_are_unique_per_command() {
+    let mut release = base_release();
+    let environment = EnvironmentReceipt {
+        name: "PROOFBOUND_MODE".into(),
+        value_sha256: Some(digest("strict")),
+        secret: false,
+    };
+    release.evidence[0].record.provenance.commands[0].environment_allowlist =
+        vec![environment.clone(), environment];
+    rehash_first_evidence(&mut release);
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("repeats name 'PROOFBOUND_MODE'"))
+    );
+}
+
+#[test]
+fn internal_and_public_claim_language_survive_independently() {
+    let mut release = base_release();
+    release.claims[0].statement = "Internal theorem property P.".into();
+    release.claims[0].public_language = Some("Reader-facing property P.".into());
+    release.reported_statuses[0].public_statement = "Reader-facing property P.".into();
+    verify_compiled_release(&release).unwrap();
+
+    let mut substituted = release.clone();
+    substituted.reported_statuses[0].public_statement = substituted.claims[0].statement.clone();
+    let error = verify_compiled_release(&substituted).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+
+    let mut bounded = bounded_release();
+    bounded.claims[0].statement = "Internal bounded property P.".into();
+    bounded.claims[0].public_language = Some("Reader-facing bounded property P.".into());
+    bounded.reported_statuses[0].public_statement = bounded_public_statement_for_test(
+        bounded.claims[0].public_language.as_deref().unwrap(),
+        bounded.claims[0]
+            .registered_domain_language
+            .as_deref()
+            .unwrap(),
+    );
+    verify_compiled_release(&bounded).unwrap();
+    assert!(
+        bounded.reported_statuses[0]
+            .public_statement
+            .starts_with("Reader-facing bounded property P.")
+    );
+    assert!(
+        !bounded.reported_statuses[0]
+            .public_statement
+            .contains("Internal bounded property P.")
+    );
+}
+
+#[test]
+fn bounded_model_assumptions_are_retained_and_strict() {
+    let mut valid = bounded_release();
+    valid.evidence[0]
+        .record
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .assumptions = vec!["--object-bits=8".into()];
+    rehash_first_evidence(&mut valid);
+    verify_compiled_release(&valid).unwrap();
+
+    for assumptions in [
+        vec!["".into()],
+        vec!["--object-bits=8".into(), "--object-bits=8".into()],
+        vec!["x".repeat(4097)],
+        (0..4097)
+            .map(|index| format!("assumption-{index}"))
+            .collect(),
+    ] {
+        let mut malformed = bounded_release();
+        malformed.evidence[0]
+            .record
+            .bounded_check
+            .as_mut()
+            .unwrap()
+            .assumptions = assumptions;
+        rehash_first_evidence(&mut malformed);
+        let error = verify_compiled_release(&malformed).unwrap_err();
+        assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    }
+
+    let mut missing = serde_json::to_value(
+        bounded_release().evidence[0]
+            .record
+            .bounded_check
+            .clone()
+            .unwrap(),
+    )
+    .unwrap();
+    missing.as_object_mut().unwrap().remove("assumptions");
+    assert!(serde_json::from_value::<BoundedCheckReceipt>(missing).is_err());
+}
+
+#[test]
+fn nested_artifact_marker_cannot_confer_binding() {
+    let mut release = artifact_bound_release();
+    let exact_root = release.evidence[0]
+        .record
+        .theorem
+        .as_ref()
+        .unwrap()
+        .statement_wire[1]
+        .clone();
+    let nested = serde_json::json!([
+        "lean-expr-cbor/1",
+        [3, [2, "Synthetic.Wrapper", []], exact_root]
+    ]);
+    replace_binding_theorem_statement(&mut release, nested, true);
+
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+}
+
+#[test]
+fn theorem_statement_wire_must_match_its_recorded_digest() {
+    let mut release = artifact_bound_release();
+    let replacement = plain_statement("Synthetic.tamperedStatement");
+    replace_binding_theorem_statement(&mut release, replacement, false);
+
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("canonical statement wire"))
+    );
 }
 
 #[test]
@@ -916,6 +2017,267 @@ fn known_status_upgrade_attacks_are_rejected() {
     transcription_as_binding.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
     let error = verify_compiled_release(&transcription_as_binding).unwrap_err();
     assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+}
+
+#[test]
+fn transcribed_profile_accepts_only_open_transcribed_status() {
+    let release = transcribed_release();
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.claims[0].formal, FormalFacet::Open);
+    assert_eq!(report.claims[0].linkage, Some(LinkageFacet::Transcribed));
+    assert!(report.claims[0].policy_admitted);
+
+    let mut redefined = release.clone();
+    redefined.policies[0].require_no_assumptions = true;
+    let error = verify_compiled_release(&redefined).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidPolicy));
+
+    let mut upgraded = release;
+    upgraded.reported_statuses[0].formal = FormalFacet::Proved;
+    upgraded.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
+    let error = verify_compiled_release(&upgraded).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+}
+
+#[test]
+fn trusted_transcription_recomputes_both_byte_equalities() {
+    let mut candidate_mismatch = transcribed_release();
+    let generated = {
+        let detail = candidate_mismatch.evidence[0]
+            .record
+            .trusted_transcription
+            .as_mut()
+            .unwrap();
+        detail.transcribed_candidate.size_bytes += 1;
+        vec![
+            detail.transcribed_candidate.clone(),
+            detail.reencoded_source.clone(),
+        ]
+    };
+    candidate_mismatch.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts = generated;
+    candidate_mismatch.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts
+        .sort();
+    recache_and_rehash_first_evidence(&mut candidate_mismatch);
+    let error = verify_compiled_release(&candidate_mismatch).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("candidate bytes do not match the committed transcription")
+    }));
+
+    let mut reencoded_mismatch = transcribed_release();
+    let generated = {
+        let detail = reencoded_mismatch.evidence[0]
+            .record
+            .trusted_transcription
+            .as_mut()
+            .unwrap();
+        detail.reencoded_source.sha256 = digest("mismatched re-encoding");
+        vec![
+            detail.transcribed_candidate.clone(),
+            detail.reencoded_source.clone(),
+        ]
+    };
+    reencoded_mismatch.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts = generated;
+    reencoded_mismatch.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts
+        .sort();
+    recache_and_rehash_first_evidence(&mut reencoded_mismatch);
+    let error = verify_compiled_release(&reencoded_mismatch).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(error.issues.iter().any(|issue| {
+        issue
+            .message
+            .contains("re-encoded source bytes do not match the registered source")
+    }));
+}
+
+#[test]
+fn trusted_transcription_rejects_aliasing_and_hidden_provenance() {
+    let mut alias = transcribed_release();
+    let generated = {
+        let detail = alias.evidence[0]
+            .record
+            .trusted_transcription
+            .as_mut()
+            .unwrap();
+        detail.transcribed_candidate.logical_name =
+            detail.committed_transcription.logical_name.clone();
+        vec![
+            detail.transcribed_candidate.clone(),
+            detail.reencoded_source.clone(),
+        ]
+    };
+    alias.evidence[0].record.provenance.generated_artifacts = generated;
+    alias.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts
+        .sort();
+    recache_and_rehash_first_evidence(&mut alias);
+    let error = verify_compiled_release(&alias).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("aliases two artifact roles"))
+    );
+
+    let mut extra = transcribed_release();
+    extra.evidence[0]
+        .record
+        .provenance
+        .input_artifacts
+        .push(named_artifact("hidden/input", "hidden", 6));
+    extra.evidence[0].record.provenance.input_artifacts.sort();
+    recache_and_rehash_first_evidence(&mut extra);
+    let error = verify_compiled_release(&extra).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("exactly three input artifacts"))
+    );
+}
+
+#[test]
+fn trusted_transcription_rejects_missing_reused_or_forged_tcb_roles() {
+    let mut missing = transcribed_release();
+    missing
+        .graph
+        .nodes
+        .retain(|node| node.id != "tcb:trusted-transcription:transcription:reencoder");
+    missing.graph_sha256 = graph_hash(&missing.graph);
+    let error = verify_compiled_release(&missing).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut reused = transcribed_release();
+    let transcriber_node = reused.evidence[0]
+        .record
+        .trusted_transcription
+        .as_ref()
+        .unwrap()
+        .transcriber
+        .tcb_node
+        .clone();
+    reused.evidence[0]
+        .record
+        .trusted_transcription
+        .as_mut()
+        .unwrap()
+        .reencoder
+        .tcb_node = transcriber_node;
+    rehash_first_evidence(&mut reused);
+    let error = verify_compiled_release(&reused).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut forged = transcribed_release();
+    forged.evidence[0]
+        .record
+        .trusted_transcription
+        .as_mut()
+        .unwrap()
+        .reencoder
+        .role_identity = digest("checker-authored-role");
+    rehash_first_evidence(&mut forged);
+    let error = verify_compiled_release(&forged).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("not derived from the exact driver"))
+    );
+}
+
+#[test]
+fn trusted_transcription_wire_rejects_legacy_and_forged_booleans() {
+    let release = transcribed_release();
+    let mut forged = serde_json::to_value(&release).unwrap();
+    forged["evidence"][0]["record"]["trusted_transcription"]
+        .as_object_mut()
+        .unwrap()
+        .insert("round_trip_passed".into(), true.into());
+    assert!(serde_json::from_value::<CompiledRelease>(forged).is_err());
+
+    let mut legacy = serde_json::to_value(&release).unwrap();
+    legacy["evidence"][0]["record"]["trusted_transcription"] = serde_json::json!({
+        "transcriber_tcb_node": "tcb:transcriber",
+        "reencoder_tcb_node": "tcb:reencoder",
+        "round_trip_passed": true
+    });
+    assert!(serde_json::from_value::<CompiledRelease>(legacy).is_err());
+}
+
+#[test]
+fn unit_scoped_transcription_tcb_roles_allow_distinct_drivers() {
+    let mut release = transcribed_release();
+    let (detail, provenance) =
+        trusted_transcription("transcription-two", &release.closures[0].sha256);
+    release.graph.nodes.extend([
+        GraphNode {
+            id: "artifact:transcription-two".into(),
+            kind: NodeKind::Artifact,
+            proof_environment: None,
+        },
+        GraphNode {
+            id: "tcb:trusted-transcription:transcription-two:transcriber".into(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        },
+        GraphNode {
+            id: "tcb:trusted-transcription:transcription-two:reencoder".into(),
+            kind: NodeKind::TcbComponent,
+            proof_environment: None,
+        },
+    ]);
+    let second_inventory = trusted_transcription_inventory(&detail);
+    let second = hash_evidence(EvidenceReceipt {
+        schema: EVIDENCE_SCHEMA_V3.into(),
+        unit_id: "unit:transcription-two".into(),
+        node_id: "artifact:transcription-two".into(),
+        kind: EvidenceKind::TrustedTranscription,
+        claim_ids: BTreeSet::from(["c".into()]),
+        outcome: EvidenceOutcome::Passed,
+        evaluation_mode: None,
+        binding_mode: Some(BindingMode::ExternalRoundTrip),
+        theorem: None,
+        artifact_binding: None,
+        trusted_transcription: Some(detail),
+        source_refinement: None,
+        bounded_check: None,
+        exhaustive_check: None,
+        mutation_witness: None,
+        independence: None,
+        inventoried_targets: second_inventory,
+        assumptions: Default::default(),
+        premises: Default::default(),
+        open_obligation: None,
+        provenance,
+    });
+    release.claims[0]
+        .cited_evidence
+        .insert(second.sha256.clone());
+    release.evidence.push(second);
+    release.graph_sha256 = graph_hash(&release.graph);
+
+    verify_compiled_release(&release).unwrap();
+    let directory = write_release(&release);
+    verify_release_dir(directory.path()).unwrap();
 }
 
 #[test]
@@ -1024,9 +2386,9 @@ fn write_payload_at(directory: &Path, release: &CompiledRelease) {
     let payload = canonical_json(release).unwrap();
     fs::write(directory.join("compiled-receipt.json"), &payload).unwrap();
     let envelope = ReleaseEnvelope {
-        schema: RELEASE_ENVELOPE_SCHEMA_V1.into(),
+        schema: RELEASE_ENVELOPE_SCHEMA_V3.into(),
         payload: "compiled-receipt.json".into(),
-        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V1, &payload),
+        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V3, &payload),
     };
     fs::write(
         directory.join("release.json"),
@@ -1084,6 +2446,8 @@ struct RawEvidence {
     evaluation: Option<String>,
     #[serde(default)]
     theorem_ref: Option<String>,
+    #[serde(default = "raw_true")]
+    typed_binding: bool,
     #[serde(default)]
     premises: Vec<String>,
 }
@@ -1130,6 +2494,7 @@ fn load_raw_corpus() -> RawCorpus {
 fn raw_profile(profile: &str) -> BuiltInProfile {
     match profile {
         "ledger" => BuiltInProfile::Ledger,
+        "transcribed" => BuiltInProfile::Transcribed,
         "kernel" => BuiltInProfile::Kernel,
         "kernel-with-assumptions" => BuiltInProfile::KernelWithAssumptions,
         "artifact-bound" => BuiltInProfile::ArtifactBound,
@@ -1174,7 +2539,7 @@ fn empty_raw_record(
     node_id: String,
 ) -> EvidenceReceipt {
     EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V1.into(),
+        schema: EVIDENCE_SCHEMA_V3.into(),
         unit_id: format!("unit:{}", raw.id),
         node_id,
         kind,
@@ -1190,7 +2555,11 @@ fn empty_raw_record(
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
-        inventoried_targets: BTreeSet::new(),
+        inventoried_targets: if raw.outcome == "passed" {
+            BTreeSet::from([format!("{}::registered", raw.id)])
+        } else {
+            BTreeSet::new()
+        },
         assumptions: BTreeSet::new(),
         premises: raw.premises.iter().cloned().collect(),
         open_obligation: None,
@@ -1271,8 +2640,10 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                     },
                     solver: "corpus-solver 1".into(),
                     harnesses: BTreeSet::from(["check_all".into()]),
-                    unwind_bounds: Default::default(),
+                    unwind_bounds: BTreeMap::from([("check_all".into(), 1)]),
+                    assumptions: Vec::new(),
                 });
+                record.inventoried_targets = BTreeSet::from(["check_all".into()]);
                 (record, NodeKind::ModelCheckUnit)
             }
             "exhaustive-check" => {
@@ -1314,10 +2685,19 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                     format!("theorem:{}", raw.id),
                 );
                 record.evaluation_mode = Some(raw_evaluation(raw.evaluation.as_deref()));
+                let statement_wire = if raw.typed_binding {
+                    let artifact_sha256 = digest("corpus artifact");
+                    binding_statement("c", "corpus-artifact.bin", &artifact_sha256)
+                } else {
+                    plain_statement(&format!("Corpus.Unrelated.{}", raw.id))
+                };
+                let declaration = format!("Corpus.{}", raw.id);
+                record.inventoried_targets = BTreeSet::from([declaration.clone()]);
                 record.theorem = Some(TheoremReceipt {
-                    declaration: format!("Corpus.{}", raw.id),
+                    declaration,
                     statement_encoding: "lean-expr-cbor/1".into(),
-                    statement_sha256: digest(&format!("statement:{}", raw.id)),
+                    statement_sha256: lean_statement_wire_digest(&statement_wire).unwrap(),
+                    statement_wire,
                     attributed_claim: "c".into(),
                     proof_environment: "lean:corpus".into(),
                     axiom_audit_passed: true,
@@ -1341,14 +2721,19 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                 );
                 record.evaluation_mode = Some(raw_evaluation(raw.evaluation.as_deref()));
                 record.binding_mode = Some(BindingMode::DigestTheorem);
+                let artifact = ArtifactIdentityReceipt {
+                    logical_name: "corpus-artifact.bin".into(),
+                    sha256: digest("corpus artifact"),
+                    size_bytes: 15,
+                };
+                record.provenance.input_artifacts.push(artifact.clone());
+                record.provenance.cache_key = domain_hash(
+                    "proofbound-cache-key/1",
+                    &canonical_json(&record.provenance.cache_material()).unwrap(),
+                );
                 record.artifact_binding = Some(ArtifactBindingReceipt {
                     theorem_evidence: theorem,
-                    canonical_payload: true,
-                    schema_bound: true,
-                    literal_claim_bound: true,
-                    digest_bound: true,
-                    reencoding_passed: true,
-                    trailing_bytes_rejected: true,
+                    artifact,
                 });
                 (record, NodeKind::Artifact)
             }
@@ -1360,14 +2745,14 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                     format!("artifact:{}", raw.id),
                 );
                 record.binding_mode = Some(BindingMode::ExternalRoundTrip);
-                record.trusted_transcription = Some(TrustedTranscriptionReceipt {
-                    transcriber_tcb_node: format!("tcb:{}-transcriber", raw.id),
-                    reencoder_tcb_node: format!("tcb:{}-reencoder", raw.id),
-                    round_trip_passed: true,
-                });
+                let (detail, provenance) =
+                    trusted_transcription(&raw.id, &release.closures[0].sha256);
+                record.inventoried_targets = trusted_transcription_inventory(&detail);
+                record.trusted_transcription = Some(detail);
+                record.provenance = provenance;
                 for suffix in ["transcriber", "reencoder"] {
                     release.graph.nodes.push(GraphNode {
-                        id: format!("tcb:{}-{suffix}", raw.id),
+                        id: format!("tcb:trusted-transcription:{}:{suffix}", raw.id),
                         kind: NodeKind::TcbComponent,
                         proof_environment: None,
                     });
@@ -1424,6 +2809,7 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
             cited: false,
             evaluation: None,
             theorem_ref: None,
+            typed_binding: true,
             premises: Vec::new(),
         };
         let review_node = format!("review:{}", raw.id);
@@ -1480,15 +2866,35 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
         });
     }
     release.graph_sha256 = graph_hash(&release.graph);
-    release.reported_statuses = vec![raw_reported_status(
-        case.asserted.as_ref().unwrap_or(&case.expected),
-    )];
+    let mut reported = raw_reported_status(case.asserted.as_ref().unwrap_or(&case.expected));
+    if case.expected.formal == "BOUNDED_CHECKED"
+        || (case.expected.formal == "PROVED"
+            && case.policy.admit_exhaustive_as_proved
+            && case
+                .evidence
+                .iter()
+                .any(|evidence| evidence.kind == "exhaustive-check"))
+    {
+        reported.public_statement = bounded_public_statement_for_test(
+            &release.claims[0].statement,
+            release.claims[0]
+                .registered_domain_language
+                .as_deref()
+                .expect("bounded corpus case registers a domain"),
+        );
+    }
+    release.reported_statuses = vec![reported];
     release
+}
+
+fn bounded_public_statement_for_test(property: &str, domain: &str) -> String {
+    format!("{property} Registered finite domain: {domain}")
 }
 
 fn raw_reported_status(status: &RawStatus) -> ReportedClaimStatus {
     ReportedClaimStatus {
         claim_id: "c".into(),
+        public_statement: "The registered example passes.".into(),
         formal: match status.formal.as_str() {
             "PROVED" => FormalFacet::Proved,
             "BOUNDED_CHECKED" => FormalFacet::BoundedChecked,

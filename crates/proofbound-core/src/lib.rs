@@ -10,6 +10,7 @@ pub mod evidence;
 pub mod graph;
 pub mod ids;
 pub mod policy;
+pub mod statement_wire;
 pub mod status;
 pub mod types;
 
@@ -19,5 +20,6 @@ pub use evidence::*;
 pub use graph::*;
 pub use ids::*;
 pub use policy::*;
+pub use statement_wire::*;
 pub use status::*;
 pub use types::*;

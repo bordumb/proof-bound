@@ -13,6 +13,7 @@ tier = 3
 refinement_theorem = "ProofboundDemo.Claims.Refinement.decideTransfer_refines"
 premises = ["DEMO-U64-REP-001"]
 inputs = [
+  "demo/allowance/rust/kernel/Cargo.toml",
   "demo/allowance/rust/kernel/src/lib.rs",
   "demo/allowance/lean/ProofboundDemo/Claims/Refinement.lean",
   "demo/allowance/lean/ProofboundDemo/Bridges/Kernel.lean",

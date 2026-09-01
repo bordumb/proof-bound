@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fs, path::Path, process::Command};
+use std::{collections::BTreeMap, fs, io, path::Path, process::Command, str};
 
 use anyhow::{Context, Result};
 use proofbound_manifest::{AdapterKind, ProjectBundle, ResourceBudget};
@@ -9,6 +9,29 @@ struct ToolProbe {
     tool: &'static str,
     available: bool,
     identity: String,
+    // Keep proofbound-doctor/1's public JSON shape stable. Failed identities
+    // carry the same classification used by the human renderer.
+    #[serde(skip)]
+    state: ToolState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ToolState {
+    Ready,
+    Unavailable,
+    Misconfigured,
+    Incompatible,
+}
+
+impl ToolState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Unavailable => "unavailable",
+            Self::Misconfigured => "misconfigured",
+            Self::Incompatible => "incompatible",
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -62,18 +85,19 @@ struct UnitRequirement {
 
 pub fn doctor(root: &Path, json: bool) -> Result<()> {
     let bundle = ProjectBundle::load(root).context("manifest validation failed")?;
+    let executor = ProcessProbeExecutor;
     let tools = vec![
-        probe("git", "git", &["--version"]),
-        probe("rustc", "rustc", &["--version"]),
-        probe("cargo", "cargo", &["--version"]),
-        probe("lean", "lean", &["--version"]),
-        probe("lake", "lake", &["--version"]),
-        probe("python3", "python3", &["--version"]),
+        probe_standard(&executor, "git", "git", &["--version"]),
+        probe_standard(&executor, "rustc", "rustc", &["--version"]),
+        probe_standard(&executor, "cargo", "cargo", &["--version"]),
+        probe_standard(&executor, "lean", "lean", &["--version"]),
+        probe_standard(&executor, "lake", "lake", &["--version"]),
+        probe_standard(&executor, "python3", "python3", &["--version"]),
         // Kani is a Cargo subcommand; there is intentionally no `kani`
         // executable in a standard installation.
-        probe("kani", "cargo", &["kani", "--version"]),
-        probe("charon", "charon", &["--version"]),
-        probe("aeneas", "aeneas", &["--version"]),
+        probe_standard(&executor, "kani", "cargo", &["kani", "--version"]),
+        probe_charon(&executor),
+        probe_aeneas(&executor),
     ];
     let capabilities = vec![translation_lock_capability(root, &bundle, &tools)];
     let host_capacity = HostCapacity {
@@ -96,17 +120,21 @@ pub fn doctor(root: &Path, json: bool) -> Result<()> {
     } else {
         println!("Proofbound doctor");
         for tool in &report.tools {
-            let marker = if tool.available { "ok" } else { "missing" };
-            println!("  {marker:7} {:12} {}", tool.tool, tool.identity);
+            println!(
+                "  {:12} {:12} {}",
+                tool.state.label(),
+                tool.tool,
+                tool.identity
+            );
         }
         for capability in &report.capabilities {
             let marker = if capability.available {
-                "ok"
+                "ready"
             } else {
-                "missing"
+                "unavailable"
             };
             println!(
-                "  {marker:7} {:28} {}",
+                "  {marker:12} {:28} {}",
                 capability.capability, capability.detail
             );
         }
@@ -140,7 +168,8 @@ fn collect_requirements(bundle: &ProjectBundle) -> Vec<UnitRequirement> {
             AdapterKind::Kani => vec!["cargo", "kani"],
             AdapterKind::PythonTest
             | AdapterKind::CanonicalArtifact
-            | AdapterKind::IndependentCheck => vec!["python3"],
+            | AdapterKind::IndependentCheck
+            | AdapterKind::TrustedTranscription => vec!["python3"],
             AdapterKind::RustTest => vec!["cargo", "rustc"],
             AdapterKind::SourceClosure | AdapterKind::HumanReview => vec!["git"],
         };
@@ -256,28 +285,206 @@ fn print_capacity(label: &str, probe: &CapacityProbe) {
     }
 }
 
-fn probe(tool: &'static str, program: &str, args: &[&str]) -> ToolProbe {
-    match Command::new(program).args(args).output() {
-        Ok(output) if output.status.success() => {
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            ToolProbe {
-                tool,
-                available: true,
-                identity: truncate(if stdout.is_empty() { stderr } else { stdout }),
-            }
-        }
-        Ok(output) => ToolProbe {
-            tool,
-            available: false,
-            identity: truncate(String::from_utf8_lossy(&output.stderr).trim().to_owned()),
-        },
-        Err(error) => ToolProbe {
-            tool,
-            available: false,
-            identity: error.to_string(),
-        },
+const MAX_TOOL_IDENTITY_BYTES: usize = 2048;
+
+struct ProbeOutput {
+    success: bool,
+    exit_code: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+trait ProbeExecutor {
+    fn execute(&self, program: &str, args: &[&str]) -> io::Result<ProbeOutput>;
+}
+
+struct ProcessProbeExecutor;
+
+impl ProbeExecutor for ProcessProbeExecutor {
+    fn execute(&self, program: &str, args: &[&str]) -> io::Result<ProbeOutput> {
+        let output = Command::new(program).args(args).output()?;
+        Ok(ProbeOutput {
+            success: output.status.success(),
+            exit_code: output.status.code(),
+            stdout: output.stdout,
+            stderr: output.stderr,
+        })
     }
+}
+
+fn probe_standard(
+    executor: &dyn ProbeExecutor,
+    tool: &'static str,
+    program: &str,
+    args: &[&str],
+) -> ToolProbe {
+    let output = match executor.execute(program, args) {
+        Ok(output) => output,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return failed_tool_probe(tool, ToolState::Unavailable, "executable not found");
+        }
+        Err(error) => {
+            return failed_tool_probe(
+                tool,
+                ToolState::Misconfigured,
+                &format!("could not execute '{program}': {error}"),
+            );
+        }
+    };
+    if !output.success {
+        return incompatible_exit_probe(tool, &output);
+    }
+
+    // Generic version commands retain proofbound-doctor/1's permissive,
+    // cross-platform behavior. Only the security-sensitive native translation
+    // probes below use the canonical-line grammar.
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    ready_tool_probe(
+        tool,
+        truncate(if stdout.is_empty() { stderr } else { stdout }),
+    )
+}
+
+fn probe_charon(executor: &dyn ProbeExecutor) -> ToolProbe {
+    probe_with_parser(executor, "charon", "charon", &["version"], |stdout| {
+        let identity = parse_single_line_stdout(stdout)?;
+        if !is_numeric_semver(identity) {
+            return Err("expected a numeric semantic version such as '0.1.225'".to_owned());
+        }
+        Ok(identity.to_owned())
+    })
+}
+
+fn probe_aeneas(executor: &dyn ProbeExecutor) -> ToolProbe {
+    probe_with_parser(executor, "aeneas", "aeneas", &["-version"], |stdout| {
+        let identity = parse_single_line_stdout(stdout)?;
+        let Some(revision) = identity.strip_prefix("aeneas ") else {
+            return Err("expected 'aeneas <hex-revision>'".to_owned());
+        };
+        if !(7..=40).contains(&revision.len())
+            || !revision
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            return Err("expected 'aeneas <7-to-40-character lowercase hex revision>'".to_owned());
+        }
+        Ok(revision.to_owned())
+    })
+}
+
+fn probe_with_parser<F>(
+    executor: &dyn ProbeExecutor,
+    tool: &'static str,
+    program: &str,
+    args: &[&str],
+    parser: F,
+) -> ToolProbe
+where
+    F: FnOnce(&[u8]) -> std::result::Result<String, String>,
+{
+    let output = match executor.execute(program, args) {
+        Ok(output) => output,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return failed_tool_probe(tool, ToolState::Unavailable, "executable not found");
+        }
+        Err(error) => {
+            return failed_tool_probe(
+                tool,
+                ToolState::Misconfigured,
+                &format!("could not execute '{program}': {error}"),
+            );
+        }
+    };
+    if !output.success {
+        return incompatible_exit_probe(tool, &output);
+    }
+    if !output.stderr.is_empty() {
+        return failed_tool_probe(
+            tool,
+            ToolState::Incompatible,
+            &format!(
+                "successful probe wrote to stderr: {}",
+                diagnostic_text(&output.stderr, &[])
+            ),
+        );
+    }
+    match parser(&output.stdout) {
+        Ok(identity) => ready_tool_probe(tool, identity),
+        Err(error) => failed_tool_probe(tool, ToolState::Incompatible, &error),
+    }
+}
+
+fn incompatible_exit_probe(tool: &'static str, output: &ProbeOutput) -> ToolProbe {
+    let status = output
+        .exit_code
+        .map_or_else(|| "signal".to_owned(), |code| code.to_string());
+    let diagnostic = diagnostic_text(&output.stderr, &output.stdout);
+    let detail = if diagnostic.is_empty() {
+        format!("probe exited with status {status}")
+    } else {
+        format!("probe exited with status {status}: {diagnostic}")
+    };
+    failed_tool_probe(tool, ToolState::Incompatible, &detail)
+}
+
+fn parse_single_line_stdout(stdout: &[u8]) -> std::result::Result<&str, String> {
+    if stdout.len() > MAX_TOOL_IDENTITY_BYTES {
+        return Err(format!(
+            "stdout exceeds the {MAX_TOOL_IDENTITY_BYTES}-byte identity limit"
+        ));
+    }
+    let text = str::from_utf8(stdout).map_err(|_| "stdout is not valid UTF-8".to_owned())?;
+    let line = text.strip_suffix('\n').unwrap_or(text);
+    if line.is_empty() {
+        return Err("stdout does not contain an identity".to_owned());
+    }
+    if line.contains(['\n', '\r']) {
+        return Err("stdout must contain exactly one line".to_owned());
+    }
+    if line.trim() != line || line.chars().any(char::is_control) {
+        return Err("stdout identity contains whitespace padding or control characters".to_owned());
+    }
+    Ok(line)
+}
+
+fn is_numeric_semver(value: &str) -> bool {
+    let mut components = value.split('.');
+    let valid_component = |component: &str| {
+        !component.is_empty()
+            && component.bytes().all(|byte| byte.is_ascii_digit())
+            && (component == "0" || !component.starts_with('0'))
+    };
+    let valid = components.by_ref().take(3).all(valid_component);
+    valid && components.next().is_none() && value.matches('.').count() == 2
+}
+
+fn ready_tool_probe(tool: &'static str, identity: String) -> ToolProbe {
+    ToolProbe {
+        tool,
+        available: true,
+        identity,
+        state: ToolState::Ready,
+    }
+}
+
+fn failed_tool_probe(tool: &'static str, state: ToolState, detail: &str) -> ToolProbe {
+    debug_assert_ne!(state, ToolState::Ready);
+    ToolProbe {
+        tool,
+        available: false,
+        identity: truncate(format!("{}: {detail}", state.label())),
+        state,
+    }
+}
+
+fn diagnostic_text(preferred: &[u8], fallback: &[u8]) -> String {
+    let bytes = if preferred.is_empty() {
+        fallback
+    } else {
+        preferred
+    };
+    truncate(String::from_utf8_lossy(bytes).trim().to_owned())
 }
 
 fn truncate(value: String) -> String {
@@ -334,17 +541,8 @@ fn translation_lock_capability(
         ("charon", lock.charon_revision.as_str()),
         ("aeneas", lock.aeneas_revision.as_str()),
     ] {
-        let Some(identity) = tools
-            .iter()
-            .find(|probe| probe.tool == tool && probe.available)
-            .map(|probe| probe.identity.as_str())
-        else {
-            return failure(format!("{tool} is unavailable"));
-        };
-        if !identity.contains(pin) {
-            return failure(format!(
-                "{tool} identity does not contain pinned revision '{pin}'"
-            ));
+        if let Err(detail) = require_exact_tool_identity(tools, tool, pin) {
+            return failure(detail);
         }
     }
     let rust_path = bundle
@@ -383,6 +581,26 @@ fn translation_lock_capability(
             lock.charon_revision, lock.aeneas_revision
         ),
     }
+}
+
+fn require_exact_tool_identity(
+    tools: &[ToolProbe],
+    tool: &str,
+    pin: &str,
+) -> std::result::Result<(), String> {
+    let Some(probe) = tools.iter().find(|probe| probe.tool == tool) else {
+        return Err(format!("{tool} was not probed"));
+    };
+    if probe.state != ToolState::Ready || !probe.available {
+        return Err(format!("{tool} is not ready ({})", probe.identity));
+    }
+    if probe.identity != pin {
+        return Err(format!(
+            "{tool} observable identity '{}' does not exactly match pinned identity '{pin}'",
+            probe.identity
+        ));
+    }
+    Ok(())
 }
 
 fn concrete_revision(value: &str) -> bool {
@@ -625,7 +843,213 @@ fn unknown_capacity(method: &'static str, detail: &str) -> CapacityProbe {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, collections::VecDeque};
+
     use super::*;
+
+    #[derive(Default)]
+    struct FakeProbeExecutor {
+        calls: RefCell<Vec<(String, Vec<String>)>>,
+        responses: RefCell<VecDeque<io::Result<ProbeOutput>>>,
+    }
+
+    impl FakeProbeExecutor {
+        fn with_response(response: io::Result<ProbeOutput>) -> Self {
+            Self {
+                calls: RefCell::new(Vec::new()),
+                responses: RefCell::new(VecDeque::from([response])),
+            }
+        }
+
+        fn calls(&self) -> Vec<(String, Vec<String>)> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl ProbeExecutor for FakeProbeExecutor {
+        fn execute(&self, program: &str, args: &[&str]) -> io::Result<ProbeOutput> {
+            self.calls.borrow_mut().push((
+                program.to_owned(),
+                args.iter().map(|argument| (*argument).to_owned()).collect(),
+            ));
+            self.responses
+                .borrow_mut()
+                .pop_front()
+                .expect("fake probe response")
+        }
+    }
+
+    fn probe_output(success: bool, exit_code: i32, stdout: &[u8], stderr: &[u8]) -> ProbeOutput {
+        ProbeOutput {
+            success,
+            exit_code: Some(exit_code),
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
+
+    fn successful_probe(stdout: &[u8]) -> io::Result<ProbeOutput> {
+        Ok(probe_output(true, 0, stdout, b""))
+    }
+
+    #[test]
+    fn charon_uses_its_real_version_command_and_parses_exact_identity() {
+        let executor = FakeProbeExecutor::with_response(successful_probe(b"0.1.225\n"));
+
+        let result = probe_charon(&executor);
+
+        assert_eq!(result.state, ToolState::Ready);
+        assert!(result.available);
+        assert_eq!(result.identity, "0.1.225");
+        assert_eq!(
+            executor.calls(),
+            vec![("charon".to_owned(), vec!["version".to_owned()])]
+        );
+    }
+
+    #[test]
+    fn aeneas_uses_its_real_version_command_and_parses_exact_identity() {
+        let executor = FakeProbeExecutor::with_response(successful_probe(b"aeneas 3a8586fa\n"));
+
+        let result = probe_aeneas(&executor);
+
+        assert_eq!(result.state, ToolState::Ready);
+        assert!(result.available);
+        assert_eq!(result.identity, "3a8586fa");
+        assert_eq!(
+            executor.calls(),
+            vec![("aeneas".to_owned(), vec!["-version".to_owned()])]
+        );
+    }
+
+    #[test]
+    fn standard_probe_preserves_stderr_fallback_and_crlf_compatibility() {
+        let executor =
+            FakeProbeExecutor::with_response(Ok(probe_output(true, 0, b"", b"Python 3.12.11\r\n")));
+
+        let result = probe_standard(&executor, "python3", "python3", &["--version"]);
+
+        assert_eq!(result.state, ToolState::Ready);
+        assert!(result.available);
+        assert_eq!(result.identity, "Python 3.12.11");
+        assert_eq!(
+            executor.calls(),
+            vec![("python3".to_owned(), vec!["--version".to_owned()])]
+        );
+    }
+
+    #[test]
+    fn probe_failures_have_distinct_stable_classifications() {
+        let unavailable = FakeProbeExecutor::with_response(Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "not found",
+        )));
+        let misconfigured = FakeProbeExecutor::with_response(Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "permission denied",
+        )));
+        let incompatible = FakeProbeExecutor::with_response(Ok(probe_output(
+            false,
+            2,
+            b"",
+            b"unsupported option\n",
+        )));
+
+        let unavailable = probe_charon(&unavailable);
+        let misconfigured = probe_charon(&misconfigured);
+        let incompatible = probe_charon(&incompatible);
+
+        assert_eq!(unavailable.state, ToolState::Unavailable);
+        assert_eq!(unavailable.identity, "unavailable: executable not found");
+        assert_eq!(misconfigured.state, ToolState::Misconfigured);
+        assert!(misconfigured.identity.starts_with("misconfigured: "));
+        assert_eq!(incompatible.state, ToolState::Incompatible);
+        assert_eq!(
+            incompatible.identity,
+            "incompatible: probe exited with status 2: unsupported option"
+        );
+        assert!(!unavailable.available);
+        assert!(!misconfigured.available);
+        assert!(!incompatible.available);
+
+        let json = serde_json::to_value(&misconfigured).unwrap();
+        assert_eq!(json["available"], false);
+        assert_eq!(json["identity"], misconfigured.identity);
+        assert!(
+            json.get("state").is_none(),
+            "doctor/1 shape must stay stable"
+        );
+    }
+
+    #[test]
+    fn successful_probe_requires_silent_stderr() {
+        let executor =
+            FakeProbeExecutor::with_response(Ok(probe_output(true, 0, b"0.1.225\n", b"warning\n")));
+
+        let result = probe_charon(&executor);
+
+        assert_eq!(result.state, ToolState::Incompatible);
+        assert!(result.identity.contains("wrote to stderr"));
+    }
+
+    #[test]
+    fn strict_identity_parser_rejects_invalid_utf8_multiline_padding_and_oversize() {
+        for stdout in [
+            vec![0xff],
+            b"0.1.225\nextra\n".to_vec(),
+            b"0.1.225\r\n".to_vec(),
+            b"0.1.225\r".to_vec(),
+            b" 0.1.225\n".to_vec(),
+            vec![b'1'; MAX_TOOL_IDENTITY_BYTES + 1],
+        ] {
+            let executor = FakeProbeExecutor::with_response(successful_probe(&stdout));
+            let result = probe_charon(&executor);
+            assert_eq!(result.state, ToolState::Incompatible);
+            assert!(!result.available);
+        }
+    }
+
+    #[test]
+    fn charon_rejects_unknown_dirty_extra_and_malformed_identities() {
+        for stdout in [
+            b"unknown\n".as_slice(),
+            b"0.1.225-dirty\n".as_slice(),
+            b"charon 0.1.225\n".as_slice(),
+            b"0.1\n".as_slice(),
+            b"01.1.225\n".as_slice(),
+        ] {
+            let executor = FakeProbeExecutor::with_response(successful_probe(stdout));
+            let result = probe_charon(&executor);
+            assert_eq!(result.state, ToolState::Incompatible, "{stdout:?}");
+        }
+    }
+
+    #[test]
+    fn aeneas_rejects_unknown_dirty_extra_and_malformed_identities() {
+        for stdout in [
+            b"aeneas unknown\n".as_slice(),
+            b"aeneas 3a8586fa-dirty\n".as_slice(),
+            b"aeneas 3a8586fa extra\n".as_slice(),
+            b"Aeneas 3a8586fa\n".as_slice(),
+            b"aeneas ABCDEF12\n".as_slice(),
+            b"aeneas abc123\n".as_slice(),
+        ] {
+            let executor = FakeProbeExecutor::with_response(successful_probe(stdout));
+            let result = probe_aeneas(&executor);
+            assert_eq!(result.state, ToolState::Incompatible, "{stdout:?}");
+        }
+    }
+
+    #[test]
+    fn translation_lock_identity_matching_is_exact() {
+        let tools = [ready_tool_probe("aeneas", "3a8586fa".to_owned())];
+        let superstring = [ready_tool_probe("aeneas", "build-3a8586fa".to_owned())];
+
+        assert!(require_exact_tool_identity(&tools, "aeneas", "3a8586fa").is_ok());
+        assert!(require_exact_tool_identity(&tools, "aeneas", "3a8586f").is_err());
+        assert!(require_exact_tool_identity(&tools, "aeneas", "aeneas 3a8586fa").is_err());
+        assert!(require_exact_tool_identity(&superstring, "aeneas", "3a8586fa").is_err());
+    }
 
     #[test]
     fn parses_posix_disk_capacity() {
@@ -667,6 +1091,7 @@ mod tests {
             tool: "cargo",
             available: true,
             identity: "cargo test".to_owned(),
+            state: ToolState::Ready,
         }];
         let host = HostCapacity {
             disk_available: CapacityProbe {

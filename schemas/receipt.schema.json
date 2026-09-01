@@ -9,13 +9,31 @@
   "$defs": {
     "id": { "type": "string", "minLength": 1, "maxLength": 512 },
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "inventoryItem": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "allOf": [
+        { "pattern": "\\S" },
+        { "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" }
+      ]
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["logical_name", "sha256", "size_bytes"],
+      "properties": {
+        "logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "sha256": { "$ref": "#/$defs/digest" },
+        "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
     "ids": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true, "maxItems": 100000 },
     "releaseEnvelope": {
       "type": "object",
       "additionalProperties": false,
       "required": ["schema", "payload", "payload_sha256"],
       "properties": {
-        "schema": { "const": "proofbound-release-envelope/1" },
+        "schema": { "const": "proofbound-release-envelope/3" },
         "payload": { "const": "compiled-receipt.json" },
         "payload_sha256": { "$ref": "#/$defs/digest" }
       }
@@ -25,7 +43,7 @@
       "additionalProperties": false,
       "required": ["schema", "project", "project_revision", "project_tier", "tree_state", "graph", "graph_sha256", "claims", "evidence", "assumptions", "premises", "policies", "closures", "sealed_files", "reported_statuses"],
       "properties": {
-        "schema": { "const": "proofbound-compiled-release/1" },
+        "schema": { "const": "proofbound-compiled-release/3" },
         "project": { "type": "string", "minLength": 1, "maxLength": 128 },
         "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
         "project_tier": { "type": "integer", "minimum": 0, "maximum": 3 },
@@ -52,6 +70,7 @@
         "node_id": { "$ref": "#/$defs/id" },
         "title": { "type": "string" },
         "statement": { "type": "string" },
+        "public_language": { "type": "string", "minLength": 1, "pattern": "\\S" },
         "subject": { "$ref": "#/$defs/id" },
         "policy": { "$ref": "#/$defs/id" },
         "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
@@ -78,7 +97,7 @@
       "additionalProperties": false,
       "required": ["schema", "unit_id", "node_id", "kind", "claim_ids", "outcome", "inventoried_targets", "assumptions", "premises", "provenance"],
       "properties": {
-        "schema": { "const": "proofbound-evidence/1" },
+        "schema": { "const": "proofbound-evidence/3" },
         "unit_id": { "$ref": "#/$defs/id" },
         "node_id": { "$ref": "#/$defs/id" },
         "kind": { "$ref": "#/$defs/evidenceKind" },
@@ -94,41 +113,123 @@
         "exhaustive_check": { "$ref": "#/$defs/exhaustiveCheckReceipt" },
         "mutation_witness": { "$ref": "#/$defs/mutationWitnessReceipt" },
         "independence": { "enum": ["independent", "common-origin"] },
-        "inventoried_targets": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "inventoried_targets": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 },
         "assumptions": { "$ref": "#/$defs/ids" },
         "premises": { "$ref": "#/$defs/ids" },
         "open_obligation": { "$ref": "#/$defs/openObligation" },
         "provenance": { "$ref": "#/$defs/evidenceProvenance" }
       },
       "allOf": [
+        {
+          "if": {
+            "required": ["outcome", "provenance"],
+            "properties": {
+              "outcome": { "const": "passed" },
+              "provenance": {
+                "required": ["execution_kind"],
+                "properties": { "execution_kind": { "const": "observed-processes" } }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "inventoried_targets": { "minItems": 1 },
+              "provenance": {
+                "properties": {
+                  "runs": {
+                    "items": {
+                      "properties": {
+                        "output_truncated": { "const": false }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["outcome", "kind", "provenance"],
+            "properties": {
+              "outcome": { "const": "passed" },
+              "kind": { "not": { "const": "mutation-witness" } },
+              "provenance": {
+                "required": ["execution_kind"],
+                "properties": { "execution_kind": { "const": "observed-processes" } }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "provenance": {
+                "properties": {
+                  "runs": { "items": { "properties": { "exit_code": { "const": 0 } } } }
+                }
+              }
+            }
+          }
+        },
         { "if": { "properties": { "kind": { "const": "theorem" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "theorem"] } },
         { "if": { "properties": { "kind": { "const": "artifact-soundness" } }, "required": ["kind"] }, "then": { "required": ["evaluation_mode", "binding_mode", "artifact_binding"] } },
-        { "if": { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] }, "then": { "required": ["binding_mode", "trusted_transcription"] } },
+        { "if": { "properties": { "kind": { "const": "trusted-transcription" } }, "required": ["kind"] }, "then": { "required": ["binding_mode", "trusted_transcription"], "properties": { "binding_mode": { "const": "external-round-trip" } } } },
         { "if": { "properties": { "kind": { "const": "source-refinement" } }, "required": ["kind"] }, "then": { "required": ["source_refinement"] } },
         { "if": { "properties": { "kind": { "const": "bounded-check" } }, "required": ["kind"] }, "then": { "required": ["bounded_check"] } },
         { "if": { "properties": { "kind": { "const": "exhaustive-check" } }, "required": ["kind"] }, "then": { "required": ["exhaustive_check"] } },
-        { "if": { "properties": { "kind": { "const": "mutation-witness" } }, "required": ["kind"] }, "then": { "required": ["mutation_witness"] } },
+        {
+          "if": { "properties": { "kind": { "const": "mutation-witness" } }, "required": ["kind"] },
+          "then": {
+            "required": ["mutation_witness"],
+            "properties": {
+              "inventoried_targets": { "minItems": 1, "maxItems": 1 },
+              "provenance": {
+                "properties": {
+                  "input_artifacts": { "minItems": 4, "maxItems": 4 },
+                  "generated_artifacts": { "minItems": 1, "maxItems": 1 }
+                }
+              }
+            }
+          },
+          "else": { "not": { "required": ["mutation_witness"] } }
+        },
         { "if": { "properties": { "kind": { "const": "open" } }, "required": ["kind"] }, "then": { "required": ["open_obligation"] } }
       ]
     },
     "theoremReceipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["declaration", "statement_encoding", "statement_sha256", "attributed_claim", "proof_environment", "axiom_audit_passed", "contains_sorry_ax", "foundational_axioms", "project_axioms"],
+      "required": ["declaration", "statement_encoding", "statement_wire", "statement_sha256", "attributed_claim", "proof_environment", "axiom_audit_passed", "contains_sorry_ax", "foundational_axioms", "project_axioms"],
       "properties": {
-        "declaration": { "type": "string" }, "statement_encoding": { "const": "lean-expr-cbor/1" }, "statement_sha256": { "$ref": "#/$defs/digest" }, "attributed_claim": { "$ref": "#/$defs/id" }, "proof_environment": { "$ref": "#/$defs/id" }, "axiom_audit_passed": { "type": "boolean" }, "contains_sorry_ax": { "type": "boolean" }, "foundational_axioms": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "project_axioms": { "$ref": "#/$defs/ids" }
+        "declaration": { "type": "string" }, "statement_encoding": { "const": "lean-expr-cbor/1" }, "statement_wire": { "type": "array", "minItems": 2, "maxItems": 2 }, "statement_sha256": { "$ref": "#/$defs/digest" }, "attributed_claim": { "$ref": "#/$defs/id" }, "proof_environment": { "$ref": "#/$defs/id" }, "axiom_audit_passed": { "type": "boolean" }, "contains_sorry_ax": { "type": "boolean" }, "foundational_axioms": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "project_axioms": { "$ref": "#/$defs/ids" }
       }
     },
     "artifactBindingReceipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["theorem_evidence", "canonical_payload", "schema_bound", "literal_claim_bound", "digest_bound", "reencoding_passed", "trailing_bytes_rejected"],
+      "required": ["theorem_evidence", "artifact"],
       "properties": {
-        "theorem_evidence": { "$ref": "#/$defs/digest" }, "canonical_payload": { "type": "boolean" }, "schema_bound": { "type": "boolean" }, "literal_claim_bound": { "type": "boolean" }, "digest_bound": { "type": "boolean" }, "reencoding_passed": { "type": "boolean" }, "trailing_bytes_rejected": { "type": "boolean" }
+        "theorem_evidence": { "$ref": "#/$defs/digest" }, "artifact": { "$ref": "#/$defs/artifact" }
       }
     },
     "trustedTranscriptionReceipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["transcriber_tcb_node", "reencoder_tcb_node", "round_trip_passed"],
-      "properties": { "transcriber_tcb_node": { "$ref": "#/$defs/id" }, "reencoder_tcb_node": { "$ref": "#/$defs/id" }, "round_trip_passed": { "type": "boolean" } }
+      "required": ["schema", "source", "committed_transcription", "transcribed_candidate", "reencoded_source", "driver", "transcriber", "reencoder"],
+      "properties": {
+        "schema": { "const": "proofbound-trusted-transcription/1" },
+        "source": { "$ref": "#/$defs/artifact" },
+        "committed_transcription": { "$ref": "#/$defs/artifact" },
+        "transcribed_candidate": { "$ref": "#/$defs/artifact" },
+        "reencoded_source": { "$ref": "#/$defs/artifact" },
+        "driver": { "$ref": "#/$defs/artifact" },
+        "transcriber": { "$ref": "#/$defs/transcriptionRole" },
+        "reencoder": { "$ref": "#/$defs/transcriptionRole" }
+      }
+    },
+    "transcriptionRole": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tcb_node", "role_identity"],
+      "properties": {
+        "tcb_node": { "$ref": "#/$defs/id" },
+        "role_identity": { "$ref": "#/$defs/digest" }
+      }
     },
     "sourceRefinementReceipt": {
       "type": "object", "additionalProperties": false,
@@ -142,8 +243,8 @@
     },
     "boundedCheckReceipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["domain", "solver", "harnesses", "unwind_bounds"],
-      "properties": { "domain": { "$ref": "#/$defs/boundedDomain" }, "solver": { "type": "string" }, "harnesses": { "$ref": "#/$defs/ids" }, "unwind_bounds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } } }
+      "required": ["domain", "solver", "harnesses", "unwind_bounds", "assumptions"],
+      "properties": { "domain": { "$ref": "#/$defs/boundedDomain" }, "solver": { "type": "string", "minLength": 1 }, "harnesses": { "$ref": "#/$defs/ids" }, "unwind_bounds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "minProperties": 1 }, "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" }, "uniqueItems": true, "maxItems": 4096 } }
     },
     "exhaustiveCheckReceipt": {
       "type": "object", "additionalProperties": false,
@@ -152,15 +253,48 @@
     },
     "mutationWitnessReceipt": {
       "type": "object", "additionalProperties": false,
-      "required": ["mutation_sha256", "check_id", "proof_term_witness"],
-      "properties": { "mutation_sha256": { "$ref": "#/$defs/digest" }, "check_id": { "type": "string" }, "proof_term_witness": { "type": "boolean" } }
+      "required": ["schema", "mutation_id", "subject", "guard", "mutation_sha256", "registry", "target_preimage", "mutant_artifact", "target_postimage", "witness_source", "check_id", "baseline_run_index", "expected_failure", "proof_term_witness"],
+      "properties": {
+        "schema": { "const": "proofbound-mutation-witness/2" },
+        "mutation_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,255}$" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" },
+        "guard": { "type": "string", "minLength": 1, "maxLength": 8192, "pattern": "\\S" },
+        "mutation_sha256": { "$ref": "#/$defs/digest" },
+        "registry": { "$ref": "#/$defs/artifact" },
+        "target_preimage": { "$ref": "#/$defs/artifact" },
+        "mutant_artifact": { "$ref": "#/$defs/artifact" },
+        "target_postimage": { "$ref": "#/$defs/artifact" },
+        "witness_source": { "$ref": "#/$defs/artifact" },
+        "check_id": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" },
+        "baseline_run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "expected_failure": { "$ref": "#/$defs/expectedFailureReceipt" },
+        "proof_term_witness": { "type": "boolean" }
+      }
+    },
+    "expectedFailureReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_index", "allowed_exit_codes"],
+      "properties": {
+        "run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "allowed_exit_codes": { "const": [101] }
+      }
     },
     "evidenceProvenance": {
       "type": "object", "additionalProperties": false,
-      "required": ["project_revision", "tree_state", "semantic_closure", "input_artifacts", "generated_artifacts", "tool", "adapter", "command", "reproduction_command", "environment_allowlist", "started_unix_ms", "completed_unix_ms", "deterministic_result_sha256", "unit_configuration_sha256", "cache_key", "resource_budget", "actual_cost"],
+      "required": ["project_revision", "tree_state", "semantic_closure", "input_artifacts", "generated_artifacts", "tool", "adapter", "execution_kind", "commands", "runs", "normalization", "reproduction_command", "started_unix_ms", "completed_unix_ms", "deterministic_result_sha256", "unit_configuration_sha256", "cache_key", "resource_budget", "actual_cost"],
       "properties": {
-        "project_revision": { "type": "string", "minLength": 1 }, "tree_state": { "enum": ["clean", "dirty"] }, "semantic_closure": { "$ref": "#/$defs/digest" }, "additional_closures": { "type": "array", "items": { "$ref": "#/$defs/closureReference" }, "uniqueItems": true, "maxItems": 4096 }, "input_artifacts": { "$ref": "#/$defs/artifactMap" }, "generated_artifacts": { "$ref": "#/$defs/artifactMap" }, "tool": { "$ref": "#/$defs/tool" }, "adapter": { "$ref": "#/$defs/tool" }, "command": { "$ref": "#/$defs/command" }, "reproduction_command": { "$ref": "#/$defs/command" }, "environment_allowlist": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "started_unix_ms": { "type": "integer", "minimum": 0 }, "completed_unix_ms": { "type": "integer", "minimum": 0 }, "deterministic_result_sha256": { "$ref": "#/$defs/digest" }, "unit_configuration_sha256": { "$ref": "#/$defs/digest" }, "cache_key": { "$ref": "#/$defs/digest" }, "reused_from": { "$ref": "#/$defs/digest" }, "resource_budget": { "$ref": "#/$defs/resource" }, "actual_cost": { "$ref": "#/$defs/resource" }
-      }
+        "project_revision": { "type": "string", "minLength": 1 }, "tree_state": { "enum": ["clean", "dirty"] }, "semantic_closure": { "$ref": "#/$defs/digest" }, "additional_closures": { "type": "array", "items": { "$ref": "#/$defs/closureReference" }, "uniqueItems": true, "maxItems": 4096 }, "input_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "uniqueItems": true, "maxItems": 100000 }, "generated_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "uniqueItems": true, "maxItems": 100000 }, "tool": { "$ref": "#/$defs/tool" }, "adapter": { "$ref": "#/$defs/tool" }, "execution_kind": { "enum": ["observed-processes", "compiler-internal"] }, "commands": { "type": "array", "items": { "$ref": "#/$defs/command" }, "maxItems": 4096 }, "runs": { "type": "array", "items": { "$ref": "#/$defs/run" }, "maxItems": 4096 }, "normalization": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" }, "reproduction_command": { "$ref": "#/$defs/command" }, "started_unix_ms": { "type": "integer", "minimum": 0 }, "completed_unix_ms": { "type": "integer", "minimum": 0 }, "deterministic_result_sha256": { "$ref": "#/$defs/digest" }, "unit_configuration_sha256": { "$ref": "#/$defs/digest" }, "cache_key": { "$ref": "#/$defs/digest" }, "reused_from": { "$ref": "#/$defs/digest" }, "resource_budget": { "$ref": "#/$defs/resource" }, "actual_cost": { "$ref": "#/$defs/actualCost" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "execution_kind": { "const": "observed-processes" } }, "required": ["execution_kind"] },
+          "then": { "properties": { "commands": { "minItems": 1 }, "runs": { "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "execution_kind": { "const": "compiler-internal" } }, "required": ["execution_kind"] },
+          "then": { "properties": { "commands": { "maxItems": 0 }, "runs": { "maxItems": 0 } } }
+        }
+      ]
     },
     "closureReference": {
       "type": "object", "additionalProperties": false,
@@ -173,11 +307,30 @@
       "required": ["name", "version", "identity_sha256"],
       "properties": { "name": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 }, "identity_sha256": { "$ref": "#/$defs/digest" } }
     },
-    "command": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 4096 },
+    "environment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "value_sha256", "secret"],
+      "properties": { "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 256 }, "value_sha256": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "secret": { "type": "boolean" } }
+    },
+    "command": {
+      "type": "object", "additionalProperties": false,
+      "required": ["program", "args", "environment_allowlist"],
+      "properties": { "program": { "type": "string", "minLength": 1, "maxLength": 4096 }, "args": { "type": "array", "items": { "type": "string", "maxLength": 4096 }, "maxItems": 4096 }, "environment_allowlist": { "type": "array", "items": { "$ref": "#/$defs/environment" }, "maxItems": 256 } }
+    },
+    "run": {
+      "type": "object", "additionalProperties": false,
+      "required": ["command_index", "exit_code", "stdout_sha256", "stderr_sha256", "normalized_output_sha256", "output_truncated", "duration_ms"],
+      "properties": { "command_index": { "type": "integer", "minimum": 0 }, "exit_code": { "type": ["integer", "null"], "minimum": -2147483648, "maximum": 2147483647 }, "stdout_sha256": { "$ref": "#/$defs/digest" }, "stderr_sha256": { "$ref": "#/$defs/digest" }, "normalized_output_sha256": { "$ref": "#/$defs/digest" }, "output_truncated": { "type": "boolean" }, "duration_ms": { "type": "integer", "minimum": 0 } }
+    },
     "resource": {
       "type": "object", "additionalProperties": false,
       "required": ["time_ms", "disk_bytes", "memory_bytes"],
       "properties": { "time_ms": { "type": "integer", "minimum": 0 }, "disk_bytes": { "type": "integer", "minimum": 0 }, "memory_bytes": { "type": "integer", "minimum": 0 } }
+    },
+    "actualCost": {
+      "type": "object", "additionalProperties": false,
+      "required": ["time_ms", "disk_bytes", "memory_bytes"],
+      "properties": { "time_ms": { "type": "integer", "minimum": 0 }, "disk_bytes": { "type": "integer", "minimum": 0 }, "memory_bytes": { "type": ["integer", "null"], "minimum": 0 } }
     },
     "openObligation": {
       "type": "object", "additionalProperties": false,
@@ -246,13 +399,13 @@
     },
     "reportedStatus": {
       "type": "object", "additionalProperties": false,
-      "required": ["claim_id", "formal", "assumption", "assumptions", "undischarged_premises", "policy_admitted"],
-      "properties": { "claim_id": { "$ref": "#/$defs/id" }, "formal": { "enum": ["PROVED", "BOUNDED_CHECKED", "TESTED", "OPEN", "INVALID"] }, "linkage": { "$ref": "#/$defs/linkage" }, "assumption": { "enum": ["NONE", "ASSUMED"] }, "assumptions": { "$ref": "#/$defs/ids" }, "undischarged_premises": { "$ref": "#/$defs/ids" }, "policy_admitted": { "type": "boolean" } }
+      "required": ["claim_id", "public_statement", "formal", "assumption", "assumptions", "undischarged_premises", "policy_admitted"],
+      "properties": { "claim_id": { "$ref": "#/$defs/id" }, "public_statement": { "type": "string", "minLength": 1, "pattern": "\\S" }, "formal": { "enum": ["PROVED", "BOUNDED_CHECKED", "TESTED", "OPEN", "INVALID"] }, "linkage": { "$ref": "#/$defs/linkage" }, "assumption": { "enum": ["NONE", "ASSUMED"] }, "assumptions": { "$ref": "#/$defs/ids" }, "undischarged_premises": { "$ref": "#/$defs/ids" }, "policy_admitted": { "type": "boolean" } }
     },
     "digests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "uniqueItems": true, "maxItems": 100000 },
     "assumptionCategory": { "enum": ["mathematical-hypothesis", "representation-premise", "translator-tcb", "compiler-tcb", "runtime-environment", "external-provider", "cryptographic-library", "human-attestation", "native-evaluation"] },
     "evidenceKind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "review", "assumption", "open"] },
-    "profile": { "enum": ["ledger", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] },
+    "profile": { "enum": ["ledger", "transcribed", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] },
     "linkage": { "enum": ["REFINED", "ARTIFACT_BOUND", "TRANSCRIBED", "MODEL_ONLY"] }
   }
 }

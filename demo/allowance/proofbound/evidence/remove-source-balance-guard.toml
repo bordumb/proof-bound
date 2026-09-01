@@ -1,0 +1,29 @@
+schema = "proofbound-evidence-unit/3"
+id = "remove-source-balance-guard"
+adapter = "rust-test"
+kind = "mutation-witness"
+claims = ["DEMO-TRANSFER-001", "DEMO-TRANSFER-002", "DEMO-TRANSFER-005"]
+tier = 0
+expected_inventory = ["remove-source-balance-guard"]
+inputs = [
+  "demo/allowance/proofbound/mutations/mutants/remove-source-balance-guard/decision.rs",
+  "demo/allowance/proofbound/mutations/remove-source-balance-guard.toml",
+  "demo/allowance/rust/kernel/src/decision.rs",
+  "demo/allowance/rust/kernel/tests/mutation_witnesses.rs",
+]
+outputs = []
+environment_allowlist = ["CARGO_HOME", "PATH", "RUSTUP_HOME"]
+
+[mutation]
+schema = "proofbound-mutation-replay/1"
+registry = "demo/allowance/proofbound/mutations/remove-source-balance-guard.toml"
+
+[operation]
+type = "cargo-test"
+package = "allowance-kernel"
+manifest = "Cargo.toml"
+
+[resource_budget]
+time_seconds = 120
+disk_bytes = 1073741824
+memory_bytes = 2147483648

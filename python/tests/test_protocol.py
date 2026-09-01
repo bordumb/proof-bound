@@ -26,7 +26,7 @@ def test_failed_response_cannot_carry_evidence() -> None:
     value = {
         "adapter": "python-test",
         "diagnostics": [],
-        "evidence": {"schema": "proofbound-adapter-observation/1"},
+        "evidence": {"schema": "proofbound-adapter-observation/2"},
         "inventory": [],
         "type": "response",
         "request_id": "a" * 32,
@@ -42,7 +42,7 @@ def test_response_inventory_is_sorted_and_unique() -> None:
         "a" * 32,
         "python-test",
         True,
-        {"schema": "proofbound-adapter-observation/1"},
+        {"schema": "proofbound-adapter-observation/2"},
         ("a", "b"),
         (),
     )

@@ -164,8 +164,6 @@ def _load_binding(path: Path) -> dict[str, object]:
     value = json.loads(path.read_bytes(), object_pairs_hook=unique_object)
     required = {
         "schema",
-        "theorem",
-        "claims",
         "artifact_logical_name",
         "artifact_sha256",
         "inventory",
@@ -175,7 +173,7 @@ def _load_binding(path: Path) -> dict[str, object]:
         raise ValueError("binding expectation has missing or unknown fields")
     if value["schema"] != "pbac-binding-expectation/1":
         raise ValueError("unsupported binding expectation schema")
-    for field in ("theorem", "artifact_logical_name"):
+    for field in ("artifact_logical_name",):
         if not isinstance(value[field], str) or not value[field]:
             raise ValueError(f"binding expectation {field} must be non-empty text")
     digest = value["artifact_sha256"]
@@ -186,7 +184,7 @@ def _load_binding(path: Path) -> dict[str, object]:
         or any(char not in "0123456789abcdef" for char in digest[7:])
     ):
         raise ValueError("binding expectation digest is not canonical SHA-256")
-    for field in ("claims", "inventory"):
+    for field in ("inventory",):
         items = value[field]
         if (
             not isinstance(items, list)
@@ -232,17 +230,9 @@ def _artifact_binding_report(
     return {
         "schema": "proofbound-artifact-check-result/1",
         "accepted": True,
-        "theorem": binding["theorem"],
-        "claims": binding["claims"],
         "artifact_logical_name": artifact_name,
         "artifact_sha256": actual_digest,
         "inventory": binding["inventory"],
-        "canonical_payload": True,
-        "schema_bound": True,
-        "literal_claim_bound": True,
-        "digest_bound": True,
-        "reencoding_passed": reencoding_passed,
-        "trailing_bytes_rejected": trailing_bytes_rejected,
     }
 
 
@@ -272,29 +262,27 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        certificate = inspect_path(args.certificate)
-    except OSError as error:
-        print(
+        inspect_path(args.certificate)
+    except OSError:
+        sys.stdout.write(
             json.dumps(
                 {
-                    "schema": "pbac-check-result/1",
+                    "schema": "proofbound-independent-check-result/1",
                     "accepted": False,
-                    "code": "PBAC_E_IO",
-                    "message": str(error),
+                    "inventory": [],
                 },
                 sort_keys=True,
                 separators=(",", ":"),
             )
         )
         return 3
-    except Rejection as error:
-        print(
+    except Rejection:
+        sys.stdout.write(
             json.dumps(
                 {
-                    "schema": "pbac-check-result/1",
+                    "schema": "proofbound-independent-check-result/1",
                     "accepted": False,
-                    "code": error.code,
-                    "offset": error.offset,
+                    "inventory": [],
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -302,13 +290,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    print(
+    sys.stdout.write(
         json.dumps(
             {
-                "schema": "pbac-check-result/1",
+                "schema": "proofbound-independent-check-result/1",
                 "accepted": True,
-                "entries": len(certificate.entries),
-                "target": certificate.target,
+                "inventory": [args.certificate.name],
             },
             sort_keys=True,
             separators=(",", ":"),

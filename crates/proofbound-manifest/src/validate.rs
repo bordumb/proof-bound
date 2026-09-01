@@ -1,16 +1,25 @@
 use std::{
     collections::BTreeSet,
+    fs,
     path::{Component, Path, PathBuf},
 };
 
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
-    AdapterKind, AssumptionCategory, BindingMode, EvidenceKind, OperationKind, ProjectBundle,
+    AdapterKind, AssumptionCategory, BindingMode, EvidenceKind, ImportMappingMode,
+    MAX_ADAPTER_INVENTORY_ITEM_CHARS, MAX_ADAPTER_INVENTORY_ITEMS, MAX_TRANSLATION_CLAIMS,
+    MAX_TRANSLATION_EXTERNAL_BRIDGES, MAX_TRANSLATION_INVOCATIONS, MAX_TRANSLATION_MAPPED_OUTPUTS,
+    MAX_TRANSLATION_PATH_BYTES, MAX_TRANSLATION_SOURCE_ROOTS, MAX_TRANSLATION_SYMBOLS,
+    MAX_TRANSLATION_TEMPLATE_AXIOMS, MAX_TRANSLATION_WARNINGS, OperationKind, ProjectBundle,
+    TRANSLATION_RESERVED_PATH_COMPONENTS, TranslationOutputKind, TranslationPipeline,
+    canonical_adapter_inventory,
 };
 
 const BUILTIN_PROFILES: &[&str] = &[
     "ledger",
+    "transcribed",
     "kernel",
     "kernel-with-assumptions",
     "artifact-bound",
@@ -18,6 +27,13 @@ const BUILTIN_PROFILES: &[&str] = &[
     "native-evaluated",
     "bounded",
 ];
+
+const MAX_REVIEWER_CHARS: usize = 512;
+const MAX_REVIEW_STATEMENT_CHARS: usize = 16_384;
+const MAX_REVIEW_SCOPE_CHARS: usize = 8_192;
+const MAX_REVIEW_SIGNATURE_CHARS: usize = 16_384;
+const MAX_REVIEW_REGRESSIONS: usize = 4_096;
+const MAX_REGRESSION_DETAIL_CHARS: usize = 8_192;
 
 #[derive(Debug, Error)]
 pub enum SemanticError {
@@ -75,6 +91,12 @@ pub enum SemanticError {
     UnsafePath { owner: String, path: String },
     #[error("demo registry contains duplicate demo {0}")]
     DuplicateDemo(String),
+    #[error("review {review} in {path}: {message}")]
+    InvalidReview {
+        review: String,
+        path: PathBuf,
+        message: String,
+    },
 }
 
 pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
@@ -225,6 +247,7 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     }
 
     validate_evidence(bundle)?;
+    validate_mutation_replays(bundle)?;
     validate_translations(bundle)?;
     validate_model_checks(bundle)?;
     validate_policies(bundle)?;
@@ -236,7 +259,7 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
 fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     let mut known_refs = BTreeSet::new();
     for (id, (path, unit)) in &bundle.evidence_units {
-        schema(path, &unit.schema, "proofbound-evidence-unit/1")?;
+        validate_evidence_schema(path, unit)?;
         local_id(id, path)?;
         if unit.tier > bundle.project.tier {
             return Err(SemanticError::TierExceeded {
@@ -291,6 +314,15 @@ fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
         if let Some(path_value) = &unit.operation.checker {
             relative_path(id, path_value)?;
         }
+        if let Some(transcription) = &unit.transcription {
+            for path_value in [
+                &transcription.source,
+                &transcription.committed_transcription,
+                &transcription.driver,
+            ] {
+                transcription_path(id, path_value)?;
+            }
+        }
     }
     for (id, (_, unit)) in &bundle.translation_units {
         let reference = format!("translation:{id}");
@@ -332,6 +364,56 @@ fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     Ok(())
 }
 
+fn validate_evidence_schema(
+    path: &Path,
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    match unit.schema.as_str() {
+        "proofbound-evidence-unit/1"
+            if unit.transcription.is_none()
+                && unit.mutation.is_none()
+                && unit.adapter != AdapterKind::TrustedTranscription
+                && unit.kind != EvidenceKind::TrustedTranscription
+                && unit.kind != EvidenceKind::MutationWitness
+                && unit.operation.kind != OperationKind::Transcription =>
+        {
+            Ok(())
+        }
+        "proofbound-evidence-unit/2"
+            if unit.transcription.is_some()
+                && unit.mutation.is_none()
+                && unit.adapter == AdapterKind::TrustedTranscription
+                && unit.kind == EvidenceKind::TrustedTranscription
+                && unit.operation.kind == OperationKind::Transcription =>
+        {
+            Ok(())
+        }
+        "proofbound-evidence-unit/3"
+            if unit.transcription.is_none()
+                && unit.mutation.is_some()
+                && unit.adapter == AdapterKind::RustTest
+                && unit.kind == EvidenceKind::MutationWitness
+                && unit.operation.kind == OperationKind::CargoTest =>
+        {
+            Ok(())
+        }
+        "proofbound-evidence-unit/1"
+        | "proofbound-evidence-unit/2"
+        | "proofbound-evidence-unit/3" => {
+            Err(SemanticError::EvidenceQualifier {
+                unit: unit.id.clone(),
+                message: "evidence-unit/1 excludes trusted transcription and mutation replay; evidence-unit/2 is reserved for typed trusted transcription; evidence-unit/3 is reserved for typed singleton mutation replay"
+                    .to_owned(),
+            })
+        }
+        _ => Err(SemanticError::Schema {
+            path: path.to_owned(),
+            expected: "proofbound-evidence-unit/1, proofbound-evidence-unit/2, or proofbound-evidence-unit/3",
+            actual: unit.schema.clone(),
+        }),
+    }
+}
+
 fn evidence_references(kind: EvidenceKind, id: &str) -> Vec<String> {
     let prefixes: &[&str] = match kind {
         EvidenceKind::Theorem => &["theorem"],
@@ -364,6 +446,8 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
             message: "resource budgets must be nonzero".to_owned(),
         });
     }
+    validate_executable_route(unit)?;
+    validate_registered_evidence_inventory(unit)?;
     match unit.kind {
         EvidenceKind::Theorem | EvidenceKind::ArtifactSoundness
             if unit.evaluation_mode.is_none() =>
@@ -431,53 +515,988 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
             message: "bounded evidence requires a finite domain".to_owned(),
         });
     }
-    let operation_ok = matches!(
-        (unit.adapter, unit.operation.kind),
-        (AdapterKind::RustTest, OperationKind::CargoTest)
-            | (AdapterKind::PythonTest, OperationKind::Pytest)
-            | (AdapterKind::PythonTest, OperationKind::Generator)
-            | (AdapterKind::Lean, OperationKind::LeanAudit)
-            | (AdapterKind::Kani, OperationKind::Kani)
-            | (AdapterKind::CharonAeneas, OperationKind::Translation)
-            | (AdapterKind::CanonicalArtifact, OperationKind::ArtifactCheck)
-            | (
-                AdapterKind::IndependentCheck,
-                OperationKind::IndependentCheck
-            )
-            | (AdapterKind::HumanReview, OperationKind::Review)
-            | (AdapterKind::SourceClosure, OperationKind::Closure)
-    );
-    if !operation_ok {
+    if unit.kind == EvidenceKind::TrustedTranscription {
+        validate_transcription_qualifiers(unit)?;
+    } else if unit.transcription.is_some() {
         return Err(SemanticError::EvidenceQualifier {
             unit: unit.id.clone(),
-            message: "adapter and typed operation do not match".to_owned(),
+            message: "only trusted-transcription evidence may declare [transcription]".to_owned(),
+        });
+    }
+    if unit.kind != EvidenceKind::MutationWitness && unit.mutation.is_some() {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "only mutation-witness evidence may declare [mutation]".to_owned(),
         });
     }
     Ok(())
 }
 
-fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
-    for (id, (path, unit)) in &bundle.translation_units {
-        schema(path, &unit.schema, "proofbound-translation-unit/1")?;
-        local_id(id, path)?;
-        if unit.adapter != "charon-aeneas"
-            || unit.determinism_runs != 2
-            || !unit.forbid_generated_axioms
-        {
-            return Err(SemanticError::Translation { unit: id.clone(), message: "adapter must be charon-aeneas, determinism_runs must be 2, and generated axioms must be forbidden".to_owned() });
+fn validate_executable_route(unit: &crate::EvidenceUnitManifest) -> Result<(), SemanticError> {
+    let route = (unit.adapter, unit.operation.kind, unit.kind);
+    let supported = matches!(
+        route,
+        (
+            AdapterKind::Lean,
+            OperationKind::LeanAudit,
+            EvidenceKind::Theorem
+        ) | (
+            AdapterKind::CharonAeneas,
+            OperationKind::Translation,
+            EvidenceKind::SourceRefinement
+        ) | (
+            AdapterKind::Kani,
+            OperationKind::Kani,
+            EvidenceKind::BoundedCheck
+        ) | (
+            AdapterKind::RustTest,
+            OperationKind::CargoTest,
+            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest | EvidenceKind::MutationWitness
+        ) | (
+            AdapterKind::PythonTest,
+            OperationKind::Pytest,
+            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest
+        ) | (
+            AdapterKind::PythonTest,
+            OperationKind::Generator,
+            EvidenceKind::ExampleTest
+        ) | (
+            AdapterKind::CanonicalArtifact,
+            OperationKind::ArtifactCheck,
+            EvidenceKind::ArtifactSoundness
+        ) | (
+            AdapterKind::IndependentCheck,
+            OperationKind::IndependentCheck,
+            EvidenceKind::IndependentCheck
+        ) | (
+            AdapterKind::TrustedTranscription,
+            OperationKind::Transcription,
+            EvidenceKind::TrustedTranscription
+        )
+    );
+    if supported {
+        Ok(())
+    } else {
+        Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "adapter, typed operation, and evidence kind do not form a supported executable route; human review and source closure are compiler-internal"
+                .to_owned(),
+        })
+    }
+}
+
+fn validate_registered_evidence_inventory(
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    if unit.adapter == AdapterKind::CharonAeneas {
+        if unit.expected_inventory.is_empty() {
+            return Ok(());
         }
-        relative_path(id, &unit.generated_dir)?;
-        relative_path(id, &unit.handwritten_refinement)?;
-        if overlaps(&unit.generated_dir, &unit.handwritten_refinement) {
-            return Err(SemanticError::Translation {
-                unit: id.clone(),
-                message: "handwritten refinement overlaps generator-owned directory".to_owned(),
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "Charon/Aeneas expected_inventory must be empty because the referenced translation-unit/3 typed closure is authoritative"
+                .to_owned(),
+        });
+    }
+    validate_inventory(&unit.expected_inventory, true).map_err(|message| {
+        SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: format!("expected_inventory {message}"),
+        }
+    })?;
+    Ok(())
+}
+
+fn validate_inventory(inventory: &[String], require_nonempty: bool) -> Result<Vec<String>, String> {
+    if (require_nonempty && inventory.is_empty()) || inventory.len() > MAX_ADAPTER_INVENTORY_ITEMS {
+        return Err(format!(
+            "must contain {} through {MAX_ADAPTER_INVENTORY_ITEMS} entries",
+            usize::from(require_nonempty)
+        ));
+    }
+    if inventory.iter().any(|item| {
+        item.trim().is_empty()
+            || item.chars().count() > MAX_ADAPTER_INVENTORY_ITEM_CHARS
+            || item.chars().any(char::is_control)
+    }) {
+        return Err(format!(
+            "entries must be nonblank, control-free, and at most {MAX_ADAPTER_INVENTORY_ITEM_CHARS} characters"
+        ));
+    }
+    let canonical = canonical_adapter_inventory(inventory);
+    if canonical.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err("must not contain duplicate target identities".to_owned());
+    }
+    Ok(canonical)
+}
+
+fn validate_transcription_qualifiers(
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    let transcription =
+        unit.transcription
+            .as_ref()
+            .ok_or_else(|| SemanticError::EvidenceQualifier {
+                unit: unit.id.clone(),
+                message: "trusted-transcription requires the typed [transcription] block"
+                    .to_owned(),
+            })?;
+    let paths = [
+        transcription.source.as_str(),
+        transcription.committed_transcription.as_str(),
+        transcription.driver.as_str(),
+    ];
+    if paths.iter().collect::<BTreeSet<_>>().len() != paths.len() {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message:
+                "transcription source, committed transcription, and driver paths must be distinct"
+                    .to_owned(),
+        });
+    }
+    if Path::new(&transcription.driver)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("py")
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "proofbound-transcription-driver/1 requires a registered .py driver"
+                .to_owned(),
+        });
+    }
+    if !valid_format_id(&transcription.source_format)
+        || !valid_format_id(&transcription.transcribed_format)
+        || transcription.source_format == transcription.transcribed_format
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message:
+                "source_format and transcribed_format must be distinct versioned format identifiers"
+                    .to_owned(),
+        });
+    }
+
+    let mut exact_inputs = paths
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    exact_inputs.sort();
+    if unit.inputs != exact_inputs {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "trusted-transcription inputs must be the exact sorted source, committed-transcription, and driver path set"
+                .to_owned(),
+        });
+    }
+    let mut exact_inventory = vec![
+        transcription.source.clone(),
+        transcription.committed_transcription.clone(),
+    ];
+    exact_inventory.sort();
+    if unit.expected_inventory != exact_inventory {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "trusted-transcription expected_inventory must be the exact sorted source and committed-transcription path set"
+                .to_owned(),
+        });
+    }
+    if !unit.outputs.is_empty()
+        || unit.environment_allowlist != ["PATH"]
+        || unit.evaluation_mode.is_some()
+        || unit.theorem.is_some()
+        || unit.refinement_theorem.is_some()
+        || !unit.premises.is_empty()
+        || !unit.assumptions.is_empty()
+        || unit.bounded_domain.is_some()
+        || unit.mutation.is_some()
+        || unit.operation.package.is_some()
+        || !unit.operation.targets.is_empty()
+        || !unit.operation.paths.is_empty()
+        || unit.operation.manifest.is_some()
+        || unit.operation.inventory.is_some()
+        || unit.operation.checker.is_some()
+        || !unit.operation.arguments.is_empty()
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "trusted-transcription admits only its typed block, exact inputs/inventory, PATH environment, claims, tier, binding, operation type, and budget"
+                .to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn valid_format_id(value: &str) -> bool {
+    if value.len() > 128 {
+        return false;
+    }
+    let Some((name, version)) = value.split_once('/') else {
+        return false;
+    };
+    !name.contains('/')
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && name.split(['-', '_', '.', '+']).all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+        && version
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_digit() && byte != b'0')
+        && version.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn validate_mutation_replays(bundle: &ProjectBundle) -> Result<(), SemanticError> {
+    let mut registries = BTreeSet::new();
+    let mut mutations = BTreeSet::new();
+
+    for (unit_id, (_, unit)) in &bundle.evidence_units {
+        let Some(replay) = unit.mutation.as_ref() else {
+            continue;
+        };
+        let fail = |message: String| SemanticError::EvidenceQualifier {
+            unit: unit_id.clone(),
+            message,
+        };
+
+        if unit.schema != "proofbound-evidence-unit/3"
+            || unit.adapter != AdapterKind::RustTest
+            || unit.operation.kind != OperationKind::CargoTest
+            || unit.kind != EvidenceKind::MutationWitness
+            || unit.evaluation_mode.is_some()
+            || unit.binding_mode.is_some()
+            || unit.theorem.is_some()
+            || unit.refinement_theorem.is_some()
+            || !unit.premises.is_empty()
+            || !unit.assumptions.is_empty()
+            || !unit.outputs.is_empty()
+            || unit.bounded_domain.is_some()
+            || unit.transcription.is_some()
+            || unit.operation.package.as_deref().is_none_or(str::is_empty)
+            || unit.operation.manifest.as_deref().is_none_or(str::is_empty)
+            || !unit.operation.targets.is_empty()
+            || !unit.operation.paths.is_empty()
+            || unit.operation.inventory.is_some()
+            || unit.operation.checker.is_some()
+            || !unit.operation.arguments.is_empty()
+        {
+            return Err(fail(
+                "evidence-unit/3 admits only the typed Rust mutation replay route, exact registration inputs, claims, inventory, environment, and budget"
+                    .to_owned(),
+            ));
+        }
+        mutation_path(unit_id, &replay.registry)?;
+        if Path::new(&replay.registry)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("toml")
+        {
+            return Err(fail("mutation registry must be a .toml file".to_owned()));
+        }
+        if !registries.insert(replay.registry.clone()) {
+            return Err(fail(format!(
+                "mutation registry {} is referenced by more than one evidence unit",
+                replay.registry
+            )));
+        }
+
+        let registry_path = bundle.root.join(&replay.registry);
+        let registry_bytes = read_exact_mutation_file(bundle, unit_id, &replay.registry)?;
+        if registry_bytes.len() as u64 > bundle.project.limits.max_manifest_bytes {
+            return Err(fail(format!(
+                "mutation registry exceeds {} bytes",
+                bundle.project.limits.max_manifest_bytes
+            )));
+        }
+        let registry_text = std::str::from_utf8(&registry_bytes)
+            .map_err(|error| fail(format!("mutation registry is not UTF-8: {error}")))?;
+        let registry: crate::MutationRegistry = toml::from_str(registry_text)
+            .map_err(|error| fail(format!("invalid mutation registry: {error}")))?;
+        let mutation = &registry.mutation;
+
+        if registry.subject.trim().is_empty()
+            || registry.subject.chars().count() > 4096
+            || mutation.guard.trim().is_empty()
+            || mutation.guard.chars().count() > 8192
+        {
+            return Err(fail(
+                "mutation subject and guard must be nonblank and bounded".to_owned(),
+            ));
+        }
+        local_id(&mutation.id, &registry_path)?;
+        if unit.id != mutation.id || !mutations.insert(mutation.id.clone()) {
+            return Err(fail(
+                "each mutation id must equal its globally unique evidence-unit id".to_owned(),
+            ));
+        }
+        if unit.expected_inventory != [mutation.id.as_str()] {
+            return Err(fail(
+                "mutation expected_inventory must be the exact singleton mutation id".to_owned(),
+            ));
+        }
+        if mutation.affected_claims.is_empty()
+            || !mutation
+                .affected_claims
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+            || unit.claims != mutation.affected_claims
+        {
+            return Err(fail(
+                "unit claims and mutation affected_claims must be the same nonempty strict lexical set"
+                    .to_owned(),
+            ));
+        }
+        if mutation.witness.chars().count() > 1024 || !valid_rust_path(&mutation.witness) {
+            return Err(fail(
+                "mutation witness must be one exact bounded Rust test identity".to_owned(),
+            ));
+        }
+
+        let exact_paths = [
+            replay.registry.as_str(),
+            mutation.target_path.as_str(),
+            mutation.mutant_path.as_str(),
+            mutation.witness_path.as_str(),
+        ];
+        for path in exact_paths {
+            mutation_path(unit_id, path)?;
+        }
+        if exact_paths.into_iter().collect::<BTreeSet<_>>().len() != exact_paths.len() {
+            return Err(fail(
+                "registry, target, full-file mutant, and witness paths must be distinct".to_owned(),
+            ));
+        }
+        let mut expected_inputs = exact_paths
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        expected_inputs.sort();
+        if unit.inputs != expected_inputs {
+            return Err(fail(
+                "mutation inputs must be the exact sorted registry, target, mutant, and witness path set"
+                    .to_owned(),
+            ));
+        }
+
+        for (path, expected) in [
+            (
+                mutation.target_path.as_str(),
+                mutation.target_preimage_sha256.as_str(),
+            ),
+            (
+                mutation.mutant_path.as_str(),
+                mutation.mutant_sha256.as_str(),
+            ),
+            (
+                mutation.witness_path.as_str(),
+                mutation.witness_sha256.as_str(),
+            ),
+        ] {
+            digest_sha256(expected, &registry_path)?;
+            let bytes = read_exact_mutation_file(bundle, unit_id, path)?;
+            let actual = format!("sha256:{}", hex::encode(Sha256::digest(&bytes)));
+            if actual != expected {
+                return Err(fail(format!(
+                    "registered identity for {path} is {expected}, found {actual}"
+                )));
+            }
+        }
+
+        for claim_id in &mutation.affected_claims {
+            let Some((_, claim)) = bundle.claims.get(claim_id) else {
+                return Err(SemanticError::MissingReference {
+                    owner: mutation.id.clone(),
+                    kind: "claim",
+                    id: claim_id.clone(),
+                });
+            };
+            if claim.subject != registry.subject {
+                return Err(fail(format!(
+                    "affected claim {claim_id} subject does not equal the mutation subject"
+                )));
+            }
+            if !claim.source_roots.contains(&mutation.target_path) {
+                return Err(fail(format!(
+                    "affected claim {claim_id} does not include the mutation target in source_roots"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn mutation_path(owner: &str, value: &str) -> Result<(), SemanticError> {
+    transcription_path(owner, value)?;
+    if Path::new(value)
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_none()
+    {
+        return Err(SemanticError::UnsafePath {
+            owner: owner.to_owned(),
+            path: value.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn read_exact_mutation_file(
+    bundle: &ProjectBundle,
+    unit_id: &str,
+    relative: &str,
+) -> Result<Vec<u8>, SemanticError> {
+    mutation_path(unit_id, relative)?;
+    let path = bundle.root.join(relative);
+    let mut current = bundle.root.clone();
+    for component in Path::new(relative).components() {
+        current.push(component.as_os_str());
+        let metadata =
+            fs::symlink_metadata(&current).map_err(|error| SemanticError::EvidenceQualifier {
+                unit: unit_id.to_owned(),
+                message: format!("cannot inspect mutation path {relative}: {error}"),
+            })?;
+        if metadata.file_type().is_symlink() {
+            return Err(SemanticError::UnsafePath {
+                owner: unit_id.to_owned(),
+                path: relative.to_owned(),
             });
         }
+    }
+    let metadata = fs::metadata(&path).map_err(|error| SemanticError::EvidenceQualifier {
+        unit: unit_id.to_owned(),
+        message: format!("cannot inspect mutation file {relative}: {error}"),
+    })?;
+    if !metadata.is_file() || metadata.len() > bundle.project.limits.max_total_bytes {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit_id.to_owned(),
+            message: format!("mutation path {relative} is not a bounded regular file"),
+        });
+    }
+    fs::read(&path).map_err(|error| SemanticError::EvidenceQualifier {
+        unit: unit_id.to_owned(),
+        message: format!("cannot read mutation file {relative}: {error}"),
+    })
+}
+
+fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
+    let mut generated_directories = Vec::<String>::new();
+    for (id, (_, unit)) in &bundle.translation_units {
+        translation_path(id, &unit.generated_dir)?;
+        if Path::new(&unit.generated_dir).components().count() < 2 {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "generated_dir must have at least two path components".to_owned(),
+            });
+        }
+        if generated_directories
+            .iter()
+            .any(|existing| overlaps(existing, &unit.generated_dir))
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "generated_dir overlaps another translation unit's ownership boundary"
+                    .to_owned(),
+            });
+        }
+        generated_directories.push(unit.generated_dir.clone());
+    }
+    let mut destinations = BTreeSet::<String>::new();
+    let mut llbc_files = BTreeSet::new();
+    for (id, (path, unit)) in &bundle.translation_units {
+        schema(path, &unit.schema, "proofbound-translation-unit/3")?;
+        local_id(id, path)?;
+        if unit.pipeline != TranslationPipeline::CharonAeneas
+            || unit.determinism_runs != 2
+            || unit.determinism_normalization != "pretty-printed-llbc/1"
+            || !unit.forbid_generated_axioms
+            || unit.resource_budget.time_seconds == 0
+            || unit.resource_budget.disk_bytes == 0
+            || unit.resource_budget.memory_bytes == 0
+        {
+            return Err(SemanticError::Translation { unit: id.clone(), message: "pipeline must be charon-aeneas, determinism_runs must be 2, normalization must be pretty-printed-llbc/1, generated axioms must be forbidden, and every budget must be nonzero".to_owned() });
+        }
+        translation_path(id, &unit.handwritten_refinement)?;
+        if generated_directories
+            .iter()
+            .any(|generated| overlaps(generated, &unit.handwritten_refinement))
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "handwritten refinement overlaps a generator-owned directory".to_owned(),
+            });
+        }
+        if unit.invocations.is_empty() || unit.invocations.len() > MAX_TRANSLATION_INVOCATIONS {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!(
+                    "invocations must contain between 1 and {MAX_TRANSLATION_INVOCATIONS} entries"
+                ),
+            });
+        }
+        if !unit
+            .invocations
+            .windows(2)
+            .all(|pair| pair[0].id < pair[1].id)
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "invocations must be in strict lexical id order".to_owned(),
+            });
+        }
+        let generated_dir = Path::new(&unit.generated_dir);
+        let mut lean_destinations = BTreeSet::<String>::new();
+        let mut start_symbols = BTreeSet::<String>::new();
+        let mut translated_symbols = BTreeSet::<String>::new();
+        for invocation in &unit.invocations {
+            local_id(&invocation.id, path)?;
+            if !valid_cargo_package(&invocation.cargo_package) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!("invocation {} has an invalid cargo_package", invocation.id),
+                });
+            }
+            translation_path(id, &invocation.cargo_manifest)?;
+            if Path::new(&invocation.cargo_manifest)
+                .file_name()
+                .and_then(|value| value.to_str())
+                != Some("Cargo.toml")
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} cargo_manifest must name Cargo.toml",
+                        invocation.id
+                    ),
+                });
+            }
+            if generated_directories
+                .iter()
+                .any(|generated| overlaps(generated, &invocation.cargo_manifest))
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} cargo_manifest overlaps generated_dir",
+                        invocation.id
+                    ),
+                });
+            }
+            validate_exact_package_manifest(
+                &bundle.root,
+                id,
+                &invocation.cargo_manifest,
+                &invocation.cargo_package,
+                bundle.project.limits.max_manifest_bytes,
+            )?;
+            if !valid_rust_identifier(&invocation.crate_name) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} has an invalid Rust crate_name",
+                        invocation.id
+                    ),
+                });
+            }
+            translation_path(id, &invocation.llbc_file)?;
+            if Path::new(&invocation.llbc_file)
+                .extension()
+                .and_then(|value| value.to_str())
+                != Some("llbc")
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} llbc_file must have the .llbc extension",
+                        invocation.id
+                    ),
+                });
+            }
+            if !llbc_files.insert(&invocation.llbc_file) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} repeats llbc_file {}",
+                        invocation.id, invocation.llbc_file
+                    ),
+                });
+            }
+            if let Some(subdir) = &invocation.aeneas_subdir {
+                translation_path(id, subdir)?;
+            }
+            for (name, values, allow_empty) in [
+                ("start_from", &invocation.start_from, false),
+                ("opaque", &invocation.opaque, true),
+                ("include", &invocation.include, true),
+            ] {
+                if (!allow_empty && values.is_empty())
+                    || values.len() > MAX_TRANSLATION_SYMBOLS
+                    || values
+                        .iter()
+                        .any(|value| value.len() > 1024 || !valid_rust_path(value))
+                    || !values.windows(2).all(|pair| pair[0] < pair[1])
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} {name} must be in strict lexical order",
+                            invocation.id
+                        ),
+                    });
+                }
+            }
+            for symbol in &invocation.start_from {
+                if !start_symbols.insert(symbol.clone()) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "start_from symbol {symbol} is repeated across invocations"
+                        ),
+                    });
+                }
+            }
+            if invocation.translated_closure.is_empty()
+                || invocation.translated_closure.len() > MAX_TRANSLATION_SYMBOLS
+                || !invocation
+                    .translated_closure
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1])
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} translated_closure must contain between 1 and {MAX_TRANSLATION_SYMBOLS} entries in strict kind/name order",
+                        invocation.id
+                    ),
+                });
+            }
+            let mut invocation_translated_symbols = BTreeSet::new();
+            for entry in &invocation.translated_closure {
+                if !valid_translation_report_name(&entry.rust_name) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} translated_closure has an invalid Rust path {}",
+                            invocation.id, entry.rust_name
+                        ),
+                    });
+                }
+                if !invocation_translated_symbols.insert(entry.rust_name.clone()) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} translated_closure ambiguously categorizes {} more than once",
+                            invocation.id, entry.rust_name
+                        ),
+                    });
+                }
+                if !translated_symbols.insert(entry.rust_name.clone()) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "translated closure symbol {} is repeated across invocations",
+                            entry.rust_name
+                        ),
+                    });
+                }
+                if invocation.opaque.contains(&entry.rust_name) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} translated_closure contains opaque symbol {}",
+                            invocation.id, entry.rust_name
+                        ),
+                    });
+                }
+            }
+            for root in &invocation.start_from {
+                if !invocation_translated_symbols.contains(root) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} start_from root {} is absent from translated_closure",
+                            invocation.id, root
+                        ),
+                    });
+                }
+            }
+            let symbol_count =
+                invocation.start_from.len() + invocation.opaque.len() + invocation.include.len();
+            let distinct_symbols = invocation
+                .start_from
+                .iter()
+                .chain(&invocation.opaque)
+                .chain(&invocation.include)
+                .collect::<BTreeSet<_>>()
+                .len();
+            if distinct_symbols != symbol_count {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} repeats a symbol across start_from, opaque, and include",
+                        invocation.id
+                    ),
+                });
+            }
+            if invocation.outputs.is_empty()
+                || invocation.outputs.len() > MAX_TRANSLATION_MAPPED_OUTPUTS
+            {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} outputs must contain between 1 and {MAX_TRANSLATION_MAPPED_OUTPUTS} entries",
+                        invocation.id,
+                    ),
+                });
+            }
+            if !invocation.outputs.windows(2).all(|pair| {
+                (&pair[0].produced, &pair[0].destination, pair[0].kind)
+                    < (&pair[1].produced, &pair[1].destination, pair[1].kind)
+            }) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} outputs must be in strict produced/destination/kind order",
+                        invocation.id
+                    ),
+                });
+            }
+            let mut produced = BTreeSet::<String>::new();
+            let mut lean_sources = 0_usize;
+            let mut translation_reports = 0_usize;
+            for output in &invocation.outputs {
+                translation_path(id, &output.produced)?;
+                translation_path(id, &output.destination)?;
+                if produced
+                    .iter()
+                    .any(|existing| overlaps(existing, &output.produced))
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "invocation {} has duplicate or prefix-overlapping produced output {}",
+                            invocation.id, output.produced
+                        ),
+                    });
+                }
+                produced.insert(output.produced.clone());
+                if destinations
+                    .iter()
+                    .any(|existing| overlaps(existing, &output.destination))
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "destination {} is duplicate or prefix-overlaps another destination",
+                            output.destination
+                        ),
+                    });
+                }
+                destinations.insert(output.destination.clone());
+                let destination = Path::new(&output.destination);
+                if destination == generated_dir || !destination.starts_with(generated_dir) {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "destination {} is not strictly beneath generated_dir",
+                            output.destination
+                        ),
+                    });
+                }
+                let expected_extension = match output.kind {
+                    TranslationOutputKind::LeanSource => {
+                        if let Some(subdir) = invocation.aeneas_subdir.as_deref() {
+                            let produced = Path::new(&output.produced);
+                            let subdir = Path::new(subdir);
+                            if produced == subdir || !produced.starts_with(subdir) {
+                                return Err(SemanticError::Translation {
+                                    unit: id.clone(),
+                                    message: format!(
+                                        "invocation {} lean-source {} must be strictly inside aeneas_subdir {}",
+                                        invocation.id,
+                                        output.produced,
+                                        subdir.display()
+                                    ),
+                                });
+                            }
+                        }
+                        lean_sources += 1;
+                        lean_destinations.insert(output.destination.clone());
+                        "lean"
+                    }
+                    TranslationOutputKind::TranslationReport => {
+                        if output.produced != "translation.json" {
+                            return Err(SemanticError::Translation {
+                                unit: id.clone(),
+                                message: format!(
+                                    "invocation {} translation report must be the root-level Aeneas output translation.json",
+                                    invocation.id
+                                ),
+                            });
+                        }
+                        translation_reports += 1;
+                        "json"
+                    }
+                };
+                if [output.produced.as_str(), output.destination.as_str()]
+                    .into_iter()
+                    .any(|value| {
+                        Path::new(value)
+                            .extension()
+                            .and_then(|extension| extension.to_str())
+                            != Some(expected_extension)
+                    })
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: format!(
+                            "{} output {} must use the .{expected_extension} extension",
+                            match output.kind {
+                                TranslationOutputKind::LeanSource => "lean-source",
+                                TranslationOutputKind::TranslationReport => "translation-report",
+                            },
+                            output.produced
+                        ),
+                    });
+                }
+            }
+            if lean_sources == 0 || translation_reports != 1 {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "invocation {} must map at least one lean-source and exactly one translation-report",
+                        invocation.id
+                    ),
+                });
+            }
+        }
+        let translated_inventory = unit.canonical_translated_closure_inventory();
+        validate_inventory(&translated_inventory, true).map_err(|message| {
+            SemanticError::Translation {
+                unit: id.clone(),
+                message: format!("translated_closure inventory {message}"),
+            }
+        })?;
+        let mapped_output_limit = bundle
+            .project
+            .limits
+            .max_files
+            .min(MAX_TRANSLATION_MAPPED_OUTPUTS);
+        if destinations.len() > mapped_output_limit {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!(
+                    "{} mapped outputs exceed the effective limit {} (project max_files {}, fixed translation maximum {})",
+                    destinations.len(),
+                    mapped_output_limit,
+                    bundle.project.limits.max_files,
+                    MAX_TRANSLATION_MAPPED_OUTPUTS,
+                ),
+            });
+        }
+        match unit.import_mapping.mode {
+            ImportMappingMode::ExternalSourceRoot => {
+                if unit.import_mapping.source_roots.is_empty()
+                    || unit.import_mapping.source_roots.len() > MAX_TRANSLATION_SOURCE_ROOTS
+                    || !unit
+                        .import_mapping
+                        .source_roots
+                        .windows(2)
+                        .all(|pair| pair[0] < pair[1])
+                    || unit.import_mapping.rewrite_digest.is_some()
+                {
+                    return Err(SemanticError::Translation {
+                        unit: id.clone(),
+                        message: "external-source-root requires nonempty, strictly sorted source_roots and forbids rewrite_digest".to_owned(),
+                    });
+                }
+                for root in &unit.import_mapping.source_roots {
+                    translation_path(id, root)?;
+                    let root_path = Path::new(root);
+                    if generated_directories.iter().any(|generated| {
+                        root_path == Path::new(generated)
+                            || root_path.starts_with(Path::new(generated))
+                    }) {
+                        return Err(SemanticError::Translation {
+                            unit: id.clone(),
+                            message: format!(
+                                "external source root {root} must not be inside generated_dir"
+                            ),
+                        });
+                    }
+                }
+            }
+            ImportMappingMode::AuditedRewrite => {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: "audited-rewrite is reserved but unsupported until a typed rewrite implementation exists".to_owned(),
+                });
+            }
+        }
+        if unit.claims.is_empty()
+            || unit.claims.len() > MAX_TRANSLATION_CLAIMS
+            || !unit.claims.windows(2).all(|pair| pair[0] < pair[1])
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "claims must be in strict lexical order".to_owned(),
+            });
+        }
+        if unit.external_bridges.len() > MAX_TRANSLATION_EXTERNAL_BRIDGES {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!(
+                    "external_bridges exceeds {MAX_TRANSLATION_EXTERNAL_BRIDGES} entries"
+                ),
+            });
+        }
+        if !unit
+            .external_bridges
+            .windows(2)
+            .all(|pair| pair[0].file < pair[1].file)
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "external_bridges must be in strict file order".to_owned(),
+            });
+        }
+        let mut bridge_modules = BTreeSet::<String>::new();
         for bridge in &unit.external_bridges {
-            relative_path(id, &bridge.file)?;
+            translation_path(id, &bridge.file)?;
             digest_sha256(&bridge.reviewed_sha256, path)?;
-            if overlaps(&unit.generated_dir, &bridge.file) {
+            let Some(module) = bridge.module.as_deref() else {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "external bridge {} requires a valid module for external-source-root resolution",
+                        bridge.file
+                    ),
+                });
+            };
+            if module.len() > 1024 || !valid_lean_module(module) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "external bridge {} requires a valid module for external-source-root resolution",
+                        bridge.file
+                    ),
+                });
+            }
+            if !bridge_modules.insert(module.to_owned()) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!("external bridge module {module} is declared more than once"),
+                });
+            }
+            if generated_directories
+                .iter()
+                .any(|generated| overlaps(generated, &bridge.file))
+            {
                 return Err(SemanticError::Translation {
                     unit: id.clone(),
                     message: format!(
@@ -486,19 +1505,111 @@ fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                     ),
                 });
             }
+            let module_path = format!("{}.lean", module.replace('.', "/"));
+            let matching_roots = unit
+                .import_mapping
+                .source_roots
+                .iter()
+                .filter(|root| {
+                    Path::new(root.as_str()).join(&module_path) == Path::new(&bridge.file)
+                })
+                .count();
+            if matching_roots != 1 {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "external bridge {} must resolve from exactly one declared source root",
+                        bridge.file
+                    ),
+                });
+            }
+        }
+        if unit.template_axioms.len() > MAX_TRANSLATION_TEMPLATE_AXIOMS {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!(
+                    "template_axioms exceeds {MAX_TRANSLATION_TEMPLATE_AXIOMS} entries"
+                ),
+            });
+        }
+        if !unit
+            .template_axioms
+            .windows(2)
+            .all(|pair| pair[0].file < pair[1].file)
+        {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "template_axioms must be in strict file order".to_owned(),
+            });
         }
         for template in &unit.template_axioms {
-            relative_path(id, &template.file)?;
+            translation_path(id, &template.file)?;
             if template.compiled {
                 return Err(SemanticError::Translation {
                     unit: id.clone(),
                     message: format!("template {} is marked compiled", template.file),
                 });
             }
-            if !overlaps(&unit.generated_dir, &template.file) {
+            let template_path = Path::new(&template.file);
+            if template_path == generated_dir || !template_path.starts_with(generated_dir) {
                 return Err(SemanticError::Translation {
                     unit: id.clone(),
                     message: format!("template {} is outside generated_dir", template.file),
+                });
+            }
+            if !lean_destinations.contains(&template.file) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "template {} is not a declared lean-source destination",
+                        template.file
+                    ),
+                });
+            }
+        }
+        if unit.warning_inventory.len() > MAX_TRANSLATION_WARNINGS {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: format!("warning_inventory exceeds {MAX_TRANSLATION_WARNINGS} entries"),
+            });
+        }
+        if !unit.warning_inventory.windows(2).all(|pair| {
+            (&pair[0].artifact, pair[0].line, &pair[0].kind)
+                < (&pair[1].artifact, pair[1].line, &pair[1].kind)
+        }) {
+            return Err(SemanticError::Translation {
+                unit: id.clone(),
+                message: "warning_inventory must be in strict artifact/line/kind order".to_owned(),
+            });
+        }
+        for warning in &unit.warning_inventory {
+            translation_path(id, &warning.artifact)?;
+            if warning.line == 0 {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "warning artifact {} requires a positive line",
+                        warning.artifact
+                    ),
+                });
+            }
+            let warning_path = Path::new(&warning.artifact);
+            if warning_path == generated_dir || !warning_path.starts_with(generated_dir) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "warning artifact {} is outside generated_dir",
+                        warning.artifact
+                    ),
+                });
+            }
+            if !lean_destinations.contains(&warning.artifact) {
+                return Err(SemanticError::Translation {
+                    unit: id.clone(),
+                    message: format!(
+                        "warning artifact {} is not a declared lean-source destination",
+                        warning.artifact
+                    ),
                 });
             }
         }
@@ -512,7 +1623,101 @@ fn validate_translations(bundle: &ProjectBundle) -> Result<(), SemanticError> {
             }
         }
     }
+    validate_translation_evidence(bundle)?;
     Ok(())
+}
+
+fn validate_translation_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
+    for (evidence_id, (_, evidence)) in &bundle.evidence_units {
+        if evidence.adapter != AdapterKind::CharonAeneas
+            || evidence.operation.kind != OperationKind::Translation
+        {
+            continue;
+        }
+        let Some(manifest) = evidence.operation.manifest.as_deref() else {
+            return Err(SemanticError::Translation {
+                unit: evidence_id.clone(),
+                message: "translation evidence requires operation.manifest".to_owned(),
+            });
+        };
+        let manifest_path = bundle.root.join(manifest);
+        let Some((_, translation)) = bundle
+            .translation_units
+            .values()
+            .find(|(path, _)| path == &manifest_path)
+        else {
+            return Err(SemanticError::Translation {
+                unit: evidence_id.clone(),
+                message: format!(
+                    "operation.manifest {manifest} is not a registered translation unit"
+                ),
+            });
+        };
+        let targets = translation
+            .invocations
+            .iter()
+            .flat_map(|invocation| invocation.start_from.iter().cloned())
+            .collect::<Vec<_>>();
+        if !evidence.outputs.is_empty()
+            || !evidence.expected_inventory.is_empty()
+            || evidence.operation.targets != targets
+            || evidence.claims != translation.claims
+            || evidence.resource_budget != translation.resource_budget
+            || !evidence.inputs.iter().any(|input| input == manifest)
+        {
+            return Err(SemanticError::Translation {
+                unit: evidence_id.clone(),
+                message: "translation evidence must have no committed outputs or secondary expected_inventory and must exactly match the registered manifest, flattened start inventory, claims, and budget".to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn valid_rust_identifier(value: &str) -> bool {
+    value.len() <= 256
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+        && value
+            .bytes()
+            .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+}
+
+fn valid_rust_path(value: &str) -> bool {
+    value.split("::").all(valid_rust_identifier)
+}
+
+fn valid_translation_report_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 1024
+        && value.trim() == value
+        && value
+            .bytes()
+            .all(|byte| byte == b' ' || byte.is_ascii_graphic())
+}
+
+fn valid_lean_module(value: &str) -> bool {
+    value.split('.').all(|part| {
+        part.bytes()
+            .next()
+            .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+            && part
+                .bytes()
+                .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+    })
+}
+
+fn valid_cargo_package(value: &str) -> bool {
+    value.len() <= 256
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+        && value.bytes().all(|byte| {
+            byte == b'_' || byte == b'.' || byte == b'-' || byte.is_ascii_alphanumeric()
+        })
 }
 
 fn validate_model_checks(bundle: &ProjectBundle) -> Result<(), SemanticError> {
@@ -575,6 +1780,13 @@ fn validate_policies(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                     "artifact-bound extension must retain artifact binding",
                 ));
             }
+            "transcribed" if policy.required_binding != "transcribed" => {
+                return Err(weak(
+                    id,
+                    &policy.extends,
+                    "transcribed extensions must retain trusted-transcription binding",
+                ));
+            }
             "source-refined"
                 if policy.required_binding != "source-refined"
                     || !policy.require_registered_premises =>
@@ -602,11 +1814,44 @@ fn validate_reviews(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     for (id, (path, review)) in &bundle.reviews {
         schema(path, &review.schema, "proofbound-review/1")?;
         stable_id(id, path)?;
+        review_text(id, path, "reviewer", &review.reviewer, MAX_REVIEWER_CHARS)?;
+        review_text(
+            id,
+            path,
+            "statement",
+            &review.statement,
+            MAX_REVIEW_STATEMENT_CHARS,
+        )?;
+        review_text(id, path, "scope", &review.scope, MAX_REVIEW_SCOPE_CHARS)?;
+        if let Some(signature) = &review.signature {
+            review_text(id, path, "signature", signature, MAX_REVIEW_SIGNATURE_CHARS)?;
+        }
+        if !is_rfc3339_date_time(&review.reviewed_at) {
+            return Err(invalid_review(
+                id,
+                path,
+                "reviewed_at must be an RFC 3339 date-time with an explicit offset",
+            ));
+        }
         digest_sha256(&review.base_revision, path)?;
         digest_sha256(&review.head_revision, path)?;
+        if review.regressions.is_empty() || review.regressions.len() > MAX_REVIEW_REGRESSIONS {
+            return Err(invalid_review(
+                id,
+                path,
+                &format!("regressions must contain between 1 and {MAX_REVIEW_REGRESSIONS} entries"),
+            ));
+        }
         let mut regression_ids = BTreeSet::new();
         for regression in &review.regressions {
             digest_sha256(&regression.id, path)?;
+            review_text(
+                id,
+                path,
+                "regression detail",
+                &regression.detail,
+                MAX_REGRESSION_DETAIL_CHARS,
+            )?;
             if !regression_ids.insert(&regression.id) {
                 return Err(SemanticError::DuplicateId {
                     id: regression.id.clone(),
@@ -614,16 +1859,133 @@ fn validate_reviews(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                     second: path.clone(),
                 });
             }
-            if !bundle.claims.contains_key(&regression.claim_id) {
-                return Err(SemanticError::MissingReference {
-                    owner: id.clone(),
-                    kind: "claim",
-                    id: regression.claim_id.clone(),
-                });
-            }
+            // Assurance diff scans every claim manifest in the compared
+            // repository, including reusable templates that are not members of
+            // the active root bundle. The diff engine independently requires an
+            // exact regression match; bundle validation therefore enforces the
+            // claim-ID grammar without incorrectly excluding template claims.
+            stable_id(&regression.claim_id, path)?;
         }
     }
     Ok(())
+}
+
+fn review_text(
+    review: &str,
+    path: &Path,
+    field: &str,
+    value: &str,
+    max_chars: usize,
+) -> Result<(), SemanticError> {
+    let chars = value.chars().count();
+    if chars == 0 || chars > max_chars {
+        return Err(invalid_review(
+            review,
+            path,
+            &format!("{field} must contain between 1 and {max_chars} Unicode characters"),
+        ));
+    }
+    Ok(())
+}
+
+fn invalid_review(review: &str, path: &Path, message: &str) -> SemanticError {
+    SemanticError::InvalidReview {
+        review: review.to_owned(),
+        path: path.to_owned(),
+        message: message.to_owned(),
+    }
+}
+
+fn is_rfc3339_date_time(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() < 20
+        || bytes.get(4) != Some(&b'-')
+        || bytes.get(7) != Some(&b'-')
+        || !matches!(bytes.get(10), Some(b'T' | b't'))
+        || bytes.get(13) != Some(&b':')
+        || bytes.get(16) != Some(&b':')
+    {
+        return false;
+    }
+
+    let Some(year) = decimal(&bytes[0..4]) else {
+        return false;
+    };
+    let Some(month) = decimal(&bytes[5..7]) else {
+        return false;
+    };
+    let Some(day) = decimal(&bytes[8..10]) else {
+        return false;
+    };
+    let Some(hour) = decimal(&bytes[11..13]) else {
+        return false;
+    };
+    let Some(minute) = decimal(&bytes[14..16]) else {
+        return false;
+    };
+    let Some(second) = decimal(&bytes[17..19]) else {
+        return false;
+    };
+    if !(1..=12).contains(&month)
+        || day == 0
+        || day > days_in_month(year, month)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return false;
+    }
+
+    let mut offset = 19;
+    if bytes.get(offset) == Some(&b'.') {
+        offset += 1;
+        let fraction_start = offset;
+        while bytes.get(offset).is_some_and(u8::is_ascii_digit) {
+            offset += 1;
+        }
+        if offset == fraction_start {
+            return false;
+        }
+    }
+
+    match bytes.get(offset) {
+        Some(b'Z' | b'z') => offset + 1 == bytes.len(),
+        Some(b'+' | b'-') => {
+            if bytes.len() != offset + 6 || bytes.get(offset + 3) != Some(&b':') {
+                return false;
+            }
+            let Some(offset_hour) = decimal(&bytes[offset + 1..offset + 3]) else {
+                return false;
+            };
+            let Some(offset_minute) = decimal(&bytes[offset + 4..offset + 6]) else {
+                return false;
+            };
+            offset_hour <= 23 && offset_minute <= 59
+        }
+        _ => false,
+    }
+}
+
+fn decimal(bytes: &[u8]) -> Option<u32> {
+    bytes.iter().try_fold(0_u32, |value, byte| {
+        if byte.is_ascii_digit() {
+            Some(value * 10 + u32::from(*byte - b'0'))
+        } else {
+            None
+        }
+    })
+}
+
+const fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year.is_multiple_of(400) || (year.is_multiple_of(4) && !year.is_multiple_of(100)) => {
+            29
+        }
+        2 => 28,
+        _ => 0,
+    }
 }
 
 fn validate_demos(bundle: &ProjectBundle) -> Result<(), SemanticError> {
@@ -717,10 +2079,13 @@ fn stable_id(id: &str, path: &Path) -> Result<(), SemanticError> {
 fn local_id(id: &str, path: &Path) -> Result<(), SemanticError> {
     let valid = id.len() <= 128
         && !id.is_empty()
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        && id.as_bytes().first().is_some_and(u8::is_ascii_lowercase);
+        && id.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && id.split('-').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        });
     if valid {
         Ok(())
     } else {
@@ -765,6 +2130,109 @@ fn relative_path(owner: &str, value: &str) -> Result<(), SemanticError> {
     }
 }
 
+fn translation_path(owner: &str, value: &str) -> Result<(), SemanticError> {
+    if value.len() > MAX_TRANSLATION_PATH_BYTES
+        || value.contains('\\')
+        || value.chars().any(char::is_control)
+        || value.bytes().any(|byte| !(b' '..=b'~').contains(&byte))
+        || value
+            .split('/')
+            .any(|component| component.is_empty() || matches!(component, "." | ".."))
+        || value
+            .split('/')
+            .any(|component| TRANSLATION_RESERVED_PATH_COMPONENTS.contains(&component))
+    {
+        return Err(SemanticError::UnsafePath {
+            owner: owner.to_owned(),
+            path: value.to_owned(),
+        });
+    }
+    relative_path(owner, value)
+}
+
+fn transcription_path(owner: &str, value: &str) -> Result<(), SemanticError> {
+    translation_path(owner, value)?;
+    if value
+        .bytes()
+        .any(|byte| matches!(byte, b'*' | b'?' | b'[' | b']' | b'{' | b'}'))
+    {
+        return Err(SemanticError::UnsafePath {
+            owner: owner.to_owned(),
+            path: value.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_exact_package_manifest(
+    root: &Path,
+    unit: &str,
+    relative: &str,
+    expected_package: &str,
+    max_bytes: u64,
+) -> Result<(), SemanticError> {
+    let mut candidate = root.to_path_buf();
+    for component in Path::new(relative).components() {
+        let Component::Normal(component) = component else {
+            return Err(SemanticError::UnsafePath {
+                owner: unit.to_owned(),
+                path: relative.to_owned(),
+            });
+        };
+        candidate.push(component);
+        let metadata =
+            fs::symlink_metadata(&candidate).map_err(|error| SemanticError::Translation {
+                unit: unit.to_owned(),
+                message: format!("cannot read package manifest {relative}: {error}"),
+            })?;
+        if metadata.file_type().is_symlink() {
+            return Err(SemanticError::Translation {
+                unit: unit.to_owned(),
+                message: format!("package manifest {relative} crosses a symlink"),
+            });
+        }
+    }
+    let metadata =
+        fs::symlink_metadata(&candidate).map_err(|error| SemanticError::Translation {
+            unit: unit.to_owned(),
+            message: format!("cannot read package manifest {relative}: {error}"),
+        })?;
+    if !metadata.is_file() || metadata.len() > max_bytes {
+        return Err(SemanticError::Translation {
+            unit: unit.to_owned(),
+            message: format!(
+                "package manifest {relative} must be a regular file no larger than project max_manifest_bytes {max_bytes}"
+            ),
+        });
+    }
+    let bytes = fs::read(&candidate).map_err(|error| SemanticError::Translation {
+        unit: unit.to_owned(),
+        message: format!("cannot read package manifest {relative}: {error}"),
+    })?;
+    let text = std::str::from_utf8(&bytes).map_err(|error| SemanticError::Translation {
+        unit: unit.to_owned(),
+        message: format!("package manifest {relative} is not UTF-8: {error}"),
+    })?;
+    let manifest: toml::Value =
+        toml::from_str(text).map_err(|error| SemanticError::Translation {
+            unit: unit.to_owned(),
+            message: format!("package manifest {relative} is invalid TOML: {error}"),
+        })?;
+    let actual = manifest
+        .get("package")
+        .and_then(|package| package.get("name"))
+        .and_then(toml::Value::as_str);
+    if actual != Some(expected_package) {
+        return Err(SemanticError::Translation {
+            unit: unit.to_owned(),
+            message: format!(
+                "package manifest {relative} must contain literal [package].name = {expected_package:?}"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn overlaps(left: &str, right: &str) -> bool {
     let left = Path::new(left);
     let right = Path::new(right);
@@ -783,11 +2251,415 @@ fn weak(policy: &str, base: &str, message: &str) -> SemanticError {
 mod tests {
     use super::*;
 
+    fn repository_bundle() -> crate::ProjectBundle {
+        let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let root = crate_dir.parent().and_then(|path| path.parent()).unwrap();
+        crate::ProjectBundle::load(root).unwrap()
+    }
+
+    fn review() -> crate::ReviewManifest {
+        crate::ReviewManifest {
+            schema: "proofbound-review/1".to_owned(),
+            id: "TEST-REVIEW-001".to_owned(),
+            reviewer: "Security reviewer".to_owned(),
+            statement: "I reviewed and approve the exact registered regression.".to_owned(),
+            scope: "One exact assurance regression.".to_owned(),
+            reviewed_at: "2026-09-01T12:34:56.123+01:00".to_owned(),
+            base_revision: format!("sha256:{}", "11".repeat(32)),
+            head_revision: format!("sha256:{}", "22".repeat(32)),
+            regressions: vec![crate::ApprovedRegression {
+                id: format!("sha256:{}", "33".repeat(32)),
+                claim_id: "PB-SELF-MANIFEST-001".to_owned(),
+                kind: crate::RegressionKind::FormalDowngrade,
+                detail: "An exact registered downgrade.".to_owned(),
+            }],
+            signature: None,
+        }
+    }
+
+    fn bundle_with_review() -> crate::ProjectBundle {
+        let mut bundle = repository_bundle();
+        let review = review();
+        bundle.reviews.insert(
+            review.id.clone(),
+            (bundle.root.join("proofbound/reviews/test.toml"), review),
+        );
+        bundle
+    }
+
     #[test]
-    fn path_rules_reject_parent_and_absolute() {
-        assert!(relative_path("x", "../secret").is_err());
-        assert!(relative_path("x", "/secret").is_err());
-        assert!(relative_path("x", "claims/*.toml").is_ok());
+    fn review_fields_match_their_public_schema_bounds() {
+        let bundle = bundle_with_review();
+        assert!(validate_reviews(&bundle).is_ok());
+
+        let mut boundary = bundle_with_review();
+        let review = &mut boundary.reviews.get_mut("TEST-REVIEW-001").unwrap().1;
+        review.reviewer = "界".repeat(MAX_REVIEWER_CHARS);
+        review.statement = "界".repeat(MAX_REVIEW_STATEMENT_CHARS);
+        review.scope = "界".repeat(MAX_REVIEW_SCOPE_CHARS);
+        assert!(validate_reviews(&boundary).is_ok());
+
+        for (field, value, expected) in [
+            ("reviewer", String::new(), "reviewer must contain"),
+            (
+                "reviewer",
+                "r".repeat(MAX_REVIEWER_CHARS + 1),
+                "reviewer must contain",
+            ),
+            ("statement", String::new(), "statement must contain"),
+            (
+                "statement",
+                "s".repeat(MAX_REVIEW_STATEMENT_CHARS + 1),
+                "statement must contain",
+            ),
+            ("scope", String::new(), "scope must contain"),
+            (
+                "scope",
+                "界".repeat(MAX_REVIEW_SCOPE_CHARS + 1),
+                "scope must contain",
+            ),
+        ] {
+            let mut bundle = bundle_with_review();
+            let review = &mut bundle.reviews.get_mut("TEST-REVIEW-001").unwrap().1;
+            match field {
+                "reviewer" => review.reviewer = value,
+                "statement" => review.statement = value,
+                "scope" => review.scope = value,
+                _ => unreachable!(),
+            }
+            let error = validate_reviews(&bundle).unwrap_err().to_string();
+            assert!(error.contains(expected), "{field}: {error}");
+        }
+    }
+
+    #[test]
+    fn review_requires_a_bounded_nonempty_regression_set() {
+        let mut bundle = bundle_with_review();
+        bundle
+            .reviews
+            .get_mut("TEST-REVIEW-001")
+            .unwrap()
+            .1
+            .regressions
+            .clear();
+        let error = validate_reviews(&bundle).unwrap_err().to_string();
+        assert!(error.contains("regressions must contain between 1 and 4096"));
+
+        let mut bundle = bundle_with_review();
+        let review = &mut bundle.reviews.get_mut("TEST-REVIEW-001").unwrap().1;
+        let regression = review.regressions[0].clone();
+        review
+            .regressions
+            .resize(MAX_REVIEW_REGRESSIONS + 1, regression);
+        let error = validate_reviews(&bundle).unwrap_err().to_string();
+        assert!(error.contains("regressions must contain between 1 and 4096"));
+    }
+
+    #[test]
+    fn review_claim_ids_may_name_valid_template_claims_outside_the_root_bundle() {
+        let mut bundle = bundle_with_review();
+        bundle
+            .reviews
+            .get_mut("TEST-REVIEW-001")
+            .unwrap()
+            .1
+            .regressions[0]
+            .claim_id = "EXAMPLE-KERNEL-001".to_owned();
+        assert!(validate_reviews(&bundle).is_ok());
+
+        bundle
+            .reviews
+            .get_mut("TEST-REVIEW-001")
+            .unwrap()
+            .1
+            .regressions[0]
+            .claim_id = "not-a-stable-claim-id".to_owned();
+        assert!(validate_reviews(&bundle).is_err());
+    }
+
+    #[test]
+    fn review_signature_and_regression_detail_match_public_schema_bounds() {
+        let mut boundary = bundle_with_review();
+        let review = &mut boundary.reviews.get_mut("TEST-REVIEW-001").unwrap().1;
+        review.signature = Some("界".repeat(MAX_REVIEW_SIGNATURE_CHARS));
+        review.regressions[0].detail = "界".repeat(MAX_REGRESSION_DETAIL_CHARS);
+        assert!(validate_reviews(&boundary).is_ok());
+
+        for signature in [String::new(), "s".repeat(MAX_REVIEW_SIGNATURE_CHARS + 1)] {
+            let mut bundle = bundle_with_review();
+            bundle
+                .reviews
+                .get_mut("TEST-REVIEW-001")
+                .unwrap()
+                .1
+                .signature = Some(signature);
+            let error = validate_reviews(&bundle).unwrap_err().to_string();
+            assert!(error.contains("signature must contain"), "{error}");
+        }
+
+        for detail in [String::new(), "d".repeat(MAX_REGRESSION_DETAIL_CHARS + 1)] {
+            let mut bundle = bundle_with_review();
+            bundle
+                .reviews
+                .get_mut("TEST-REVIEW-001")
+                .unwrap()
+                .1
+                .regressions[0]
+                .detail = detail;
+            let error = validate_reviews(&bundle).unwrap_err().to_string();
+            assert!(error.contains("regression detail must contain"), "{error}");
+        }
+    }
+
+    #[test]
+    fn reviewed_at_requires_a_real_rfc3339_date_time() {
+        for valid in [
+            "2026-09-01T00:00:00Z",
+            "2026-09-01t12:34:56.123z",
+            "2000-02-29T23:59:60-00:00",
+            "2026-09-01T12:34:56+23:59",
+        ] {
+            assert!(is_rfc3339_date_time(valid), "should accept {valid}");
+        }
+        for invalid in [
+            "",
+            "/026-09-01T12:34:56Z",
+            "2026-09-01",
+            "2026-09-01 12:34:56Z",
+            "2026-09-01T12:34:56",
+            "2026-02-29T12:34:56Z",
+            "2026-13-01T12:34:56Z",
+            "2026-09-31T12:34:56Z",
+            "2026-09-01T24:00:00Z",
+            "2026-09-01T12:60:00Z",
+            "2026-09-01T12:34:61Z",
+            "2026-09-01T12:34:56.Z",
+            "2026-09-01T12:34:56+24:00",
+            "2026-09-01T12:34:56+01:60",
+            "2026-09-01T12:34:56Ztrailing",
+        ] {
+            assert!(!is_rfc3339_date_time(invalid), "should reject {invalid}");
+        }
+
+        let mut bundle = bundle_with_review();
+        bundle
+            .reviews
+            .get_mut("TEST-REVIEW-001")
+            .unwrap()
+            .1
+            .reviewed_at = "2026-09-01T12:34:56".to_owned();
+        let error = validate_reviews(&bundle).unwrap_err().to_string();
+        assert!(error.contains("reviewed_at must be an RFC 3339 date-time"));
+    }
+
+    #[test]
+    fn path_rules_are_portable_component_normal_and_byte_bounded() {
+        for invalid in [
+            "../secret",
+            "/secret",
+            "./secret",
+            "claims//one.toml",
+            "claims/",
+            "claims\\one.toml",
+            "claims/one\n.toml",
+            "claims/café.toml",
+            ".git/objects",
+            "lean/target/Funs.lean",
+        ] {
+            assert!(
+                translation_path("x", invalid).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
+        assert!(translation_path("x", &"a".repeat(MAX_TRANSLATION_PATH_BYTES + 1)).is_err());
+        assert!(translation_path("x", &"a".repeat(MAX_TRANSLATION_PATH_BYTES)).is_ok());
+        assert!(translation_path("x", "claims/*.toml").is_ok());
+    }
+
+    #[test]
+    fn local_ids_use_the_public_segmented_grammar() {
+        let path = Path::new("translation.toml");
+        for invalid in ["", "A", "a--b", "a-", "a_b", "a.b"] {
+            assert!(local_id(invalid, path).is_err(), "accepted {invalid:?}");
+        }
+        for valid in ["a", "a-b", "a1-b2"] {
+            assert!(local_id(valid, path).is_ok(), "rejected {valid:?}");
+        }
+    }
+
+    #[test]
+    fn executable_evidence_routes_are_closed_over_adapter_operation_and_kind() {
+        let bundle = repository_bundle();
+        let mut unit = bundle.evidence_units["manifest-workspace"].1.clone();
+        let supported = [
+            (
+                AdapterKind::Lean,
+                OperationKind::LeanAudit,
+                EvidenceKind::Theorem,
+            ),
+            (
+                AdapterKind::CharonAeneas,
+                OperationKind::Translation,
+                EvidenceKind::SourceRefinement,
+            ),
+            (
+                AdapterKind::Kani,
+                OperationKind::Kani,
+                EvidenceKind::BoundedCheck,
+            ),
+            (
+                AdapterKind::RustTest,
+                OperationKind::CargoTest,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::RustTest,
+                OperationKind::CargoTest,
+                EvidenceKind::PropertyTest,
+            ),
+            (
+                AdapterKind::RustTest,
+                OperationKind::CargoTest,
+                EvidenceKind::MutationWitness,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Pytest,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Pytest,
+                EvidenceKind::PropertyTest,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Generator,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::CanonicalArtifact,
+                OperationKind::ArtifactCheck,
+                EvidenceKind::ArtifactSoundness,
+            ),
+            (
+                AdapterKind::IndependentCheck,
+                OperationKind::IndependentCheck,
+                EvidenceKind::IndependentCheck,
+            ),
+            (
+                AdapterKind::TrustedTranscription,
+                OperationKind::Transcription,
+                EvidenceKind::TrustedTranscription,
+            ),
+        ];
+        for (adapter, operation, kind) in supported {
+            unit.adapter = adapter;
+            unit.operation.kind = operation;
+            unit.kind = kind;
+            assert!(
+                validate_executable_route(&unit).is_ok(),
+                "rejected supported route {adapter:?}/{operation:?}/{kind:?}"
+            );
+        }
+
+        let unsupported = [
+            (
+                AdapterKind::Lean,
+                OperationKind::LeanAudit,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::CharonAeneas,
+                OperationKind::Translation,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::Kani,
+                OperationKind::Kani,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::RustTest,
+                OperationKind::CargoTest,
+                EvidenceKind::ExhaustiveCheck,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Pytest,
+                EvidenceKind::ExhaustiveCheck,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Generator,
+                EvidenceKind::PropertyTest,
+            ),
+            (
+                AdapterKind::CanonicalArtifact,
+                OperationKind::ArtifactCheck,
+                EvidenceKind::IndependentCheck,
+            ),
+            (
+                AdapterKind::IndependentCheck,
+                OperationKind::IndependentCheck,
+                EvidenceKind::ExampleTest,
+            ),
+            (
+                AdapterKind::HumanReview,
+                OperationKind::Review,
+                EvidenceKind::Review,
+            ),
+            (
+                AdapterKind::SourceClosure,
+                OperationKind::Closure,
+                EvidenceKind::Review,
+            ),
+        ];
+        for (adapter, operation, kind) in unsupported {
+            unit.adapter = adapter;
+            unit.operation.kind = operation;
+            unit.kind = kind;
+            assert!(
+                validate_executable_route(&unit).is_err(),
+                "accepted unsupported route {adapter:?}/{operation:?}/{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn registered_inventory_is_bounded_unique_and_canonicalized_as_a_set() {
+        let canonical = validate_inventory(&["z".to_owned(), "a".to_owned()], true).unwrap();
+        assert_eq!(canonical, ["a", "z"]);
+        assert!(validate_inventory(&[], false).unwrap().is_empty());
+        assert!(validate_inventory(&[], true).is_err());
+        assert!(
+            validate_inventory(&["z".to_owned(), "a".to_owned(), "z".to_owned()], true).is_err()
+        );
+        assert!(validate_inventory(&["\u{2003}".to_owned()], true).is_err());
+        assert!(validate_inventory(&["target\u{7f}smuggled".to_owned()], true).is_err());
+        assert!(validate_inventory(&["target\u{85}smuggled".to_owned()], true).is_err());
+        assert!(validate_inventory(&["x".repeat(MAX_ADAPTER_INVENTORY_ITEM_CHARS)], true).is_ok());
+        assert!(
+            validate_inventory(&["x".repeat(MAX_ADAPTER_INVENTORY_ITEM_CHARS + 1)], true).is_err()
+        );
+        assert!(
+            validate_inventory(
+                &vec!["target".to_owned(); MAX_ADAPTER_INVENTORY_ITEMS + 1],
+                true
+            )
+            .is_err()
+        );
+
+        let bundle = repository_bundle();
+        let mut unit = bundle.evidence_units["manifest-workspace"].1.clone();
+        unit.expected_inventory = vec!["z".to_owned(), "a".to_owned()];
+        validate_registered_evidence_inventory(&unit).unwrap();
+        assert_eq!(unit.canonical_expected_inventory(), ["a", "z"]);
+
+        unit.adapter = AdapterKind::CharonAeneas;
+        assert!(validate_registered_evidence_inventory(&unit).is_err());
+        unit.expected_inventory.clear();
+        validate_registered_evidence_inventory(&unit).unwrap();
     }
 
     #[test]
@@ -820,6 +2692,8 @@ mod tests {
             outputs: vec![],
             environment_allowlist: vec![],
             bounded_domain: None,
+            transcription: None,
+            mutation: None,
             resource_budget: crate::ResourceBudget {
                 time_seconds: 1,
                 disk_bytes: 1,
@@ -827,6 +2701,125 @@ mod tests {
             },
         };
         assert!(validate_unit_qualifiers(&unit).is_err());
+    }
+
+    #[test]
+    fn trusted_transcription_v2_is_closed_and_exactly_inventoried() {
+        let bundle = repository_bundle();
+        let (path, registered) = bundle.evidence_units.get("trusted-values").unwrap();
+        assert_eq!(registered.schema, "proofbound-evidence-unit/2");
+        validate_evidence_schema(path, registered).unwrap();
+        validate_unit_qualifiers(registered).unwrap();
+
+        let mut legacy = registered.clone();
+        legacy.schema = "proofbound-evidence-unit/1".to_owned();
+        assert!(validate_evidence_schema(path, &legacy).is_err());
+
+        let mut reordered_inventory = registered.clone();
+        reordered_inventory.expected_inventory.reverse();
+        assert!(validate_unit_qualifiers(&reordered_inventory).is_err());
+
+        let mut extra_input = registered.clone();
+        extra_input.inputs.push("unregistered-helper.py".to_owned());
+        assert!(validate_unit_qualifiers(&extra_input).is_err());
+
+        let mut smuggled_argument = registered.clone();
+        smuggled_argument
+            .operation
+            .arguments
+            .push("--trust-me".to_owned());
+        assert!(validate_unit_qualifiers(&smuggled_argument).is_err());
+
+        let mut missing_path = registered.clone();
+        missing_path.environment_allowlist.clear();
+        assert!(validate_unit_qualifiers(&missing_path).is_err());
+    }
+
+    #[test]
+    fn trusted_transcription_requires_distinct_versioned_formats_and_exact_paths() {
+        let bundle = repository_bundle();
+        let (_, registered) = bundle.evidence_units.get("trusted-values").unwrap();
+
+        let mut same_format = registered.clone();
+        let transcription = same_format.transcription.as_mut().unwrap();
+        transcription.transcribed_format = transcription.source_format.clone();
+        assert!(validate_unit_qualifiers(&same_format).is_err());
+
+        let mut globbed_source = registered.clone();
+        globbed_source.transcription.as_mut().unwrap().source =
+            "demo/trusted-transcription/source/*.pbtt".to_owned();
+        assert!(
+            transcription_path(
+                "trusted-values",
+                &globbed_source.transcription.as_ref().unwrap().source
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn mutation_replay_v3_is_singleton_bidirectional_and_byte_pinned() {
+        let mut bundle = repository_bundle();
+        let mutation_units = bundle
+            .evidence_units
+            .values()
+            .filter(|(_, unit)| unit.schema == "proofbound-evidence-unit/3")
+            .map(|(_, unit)| unit.id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(mutation_units.len(), 5);
+        validate_mutation_replays(&bundle).unwrap();
+
+        let unit = bundle.evidence_units.get_mut("remove-cap-guard").unwrap();
+        unit.1.claims = vec!["DEMO-TRANSFER-005".to_owned()];
+        let error = validate_mutation_replays(&bundle).unwrap_err().to_string();
+        assert!(error.contains("affected_claims"), "{error}");
+
+        let unit = bundle.evidence_units.get_mut("remove-cap-guard").unwrap();
+        unit.1.claims = vec![
+            "DEMO-TRANSFER-003".to_owned(),
+            "DEMO-TRANSFER-005".to_owned(),
+        ];
+        unit.1.expected_inventory.push("shared-fate".to_owned());
+        let error = validate_mutation_replays(&bundle).unwrap_err().to_string();
+        assert!(error.contains("exact singleton"), "{error}");
+    }
+
+    #[test]
+    fn mutation_replay_rejects_registry_reuse_and_target_claim_drift() {
+        let mut bundle = repository_bundle();
+        let reused = bundle.evidence_units["remove-cap-guard"]
+            .1
+            .mutation
+            .as_ref()
+            .unwrap()
+            .registry
+            .clone();
+        bundle
+            .evidence_units
+            .get_mut("remove-authorization-guard")
+            .unwrap()
+            .1
+            .mutation
+            .as_mut()
+            .unwrap()
+            .registry = reused;
+        let error = validate_mutation_replays(&bundle).unwrap_err().to_string();
+        assert!(
+            error.contains("referenced by more than one evidence unit")
+                || error.contains("globally unique evidence-unit id"),
+            "{error}"
+        );
+
+        let mut bundle = repository_bundle();
+        bundle
+            .claims
+            .get_mut("DEMO-TRANSFER-003")
+            .unwrap()
+            .1
+            .source_roots
+            .retain(|path| path != "demo/allowance/rust/kernel/src/decision.rs");
+        let error = validate_mutation_replays(&bundle).unwrap_err().to_string();
+        assert!(error.contains("source_roots"), "{error}");
     }
 
     #[test]
@@ -838,10 +2831,401 @@ mod tests {
     }
 
     #[test]
+    fn translation_v3_rejects_reserved_rewrite_and_selector_injection() {
+        let mut bundle = repository_bundle();
+        let (_, translation) = bundle.translation_units.get_mut("transfer-kernel").unwrap();
+        translation.import_mapping.mode = ImportMappingMode::AuditedRewrite;
+        translation.import_mapping.source_roots.clear();
+        translation.import_mapping.rewrite_digest = Some(format!("sha256:{}", "01".repeat(32)));
+        assert!(validate_translations(&bundle).is_err());
+
+        let mut bundle = repository_bundle();
+        bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .start_from = vec!["allowance_kernel::decide_transfer,--include".to_owned()];
+        assert!(validate_translations(&bundle).is_err());
+    }
+
+    #[test]
+    fn translation_v3_requires_an_exact_typed_translated_closure() {
+        let bundle = repository_bundle();
+        let translation = &bundle.translation_units["transfer-kernel"].1;
+        assert_eq!(
+            translation.canonical_translated_closure_inventory(),
+            [
+                "function:allowance_kernel::decide_transfer",
+                "function:allowance_kernel::decision::decide_transfer",
+                "function:allowance_kernel::{allowance_kernel::Decision}::denied",
+                "type:allowance_kernel::Decision",
+                "type:allowance_kernel::DecisionCode",
+                "type:allowance_kernel::Request",
+            ]
+        );
+
+        let mut empty = repository_bundle();
+        empty
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .translated_closure
+            .clear();
+        assert!(validate_translations(&empty).is_err());
+
+        let mut unordered = repository_bundle();
+        unordered
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .translated_closure
+            .reverse();
+        assert!(validate_translations(&unordered).is_err());
+
+        let mut missing_root = repository_bundle();
+        missing_root
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .translated_closure
+            .remove(0);
+        let error = validate_translations(&missing_root)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("start_from root"), "{error}");
+
+        let mut ambiguous_kind = repository_bundle();
+        let invocation = &mut ambiguous_kind
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0];
+        invocation
+            .translated_closure
+            .push(crate::TranslationInventoryEntry {
+                kind: crate::TranslationInventoryKind::Type,
+                rust_name: "allowance_kernel::decide_transfer".to_owned(),
+            });
+        invocation.translated_closure.sort();
+        let error = validate_translations(&ambiguous_kind)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("ambiguously categorizes"), "{error}");
+    }
+
+    #[test]
+    fn translation_v3_rejects_prefix_collisions_and_reused_llbc_paths() {
+        let mut bundle = repository_bundle();
+        let invocation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0];
+        invocation.outputs.insert(
+            1,
+            crate::TranslationOutputMapping {
+                kind: TranslationOutputKind::LeanSource,
+                produced: "Funs.lean/Nested.lean".to_owned(),
+                destination: "demo/allowance/lean/Generated/Allowance/Funs.lean/Nested.lean"
+                    .to_owned(),
+            },
+        );
+        assert!(validate_translations(&bundle).is_err());
+
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let mut duplicate = translation.invocations[0].clone();
+        duplicate.id = "second-kernel".to_owned();
+        translation.invocations.push(duplicate);
+        assert!(validate_translations(&bundle).is_err());
+    }
+
+    #[test]
+    fn translation_v3_rejects_repeated_starts_across_invocations() {
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let mut duplicate = translation.invocations[0].clone();
+        duplicate.id = "second-kernel".to_owned();
+        duplicate.llbc_file = "second_kernel.llbc".to_owned();
+        for output in &mut duplicate.outputs {
+            output.destination = output
+                .destination
+                .replace("Generated/Allowance/", "Generated/Allowance/Second/");
+        }
+        translation.invocations.push(duplicate);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("repeated across invocations"), "{error}");
+    }
+
+    #[test]
+    fn translation_v3_subdir_layout_keeps_lean_below_it_and_report_at_root() {
+        let mut bundle = repository_bundle();
+        let invocation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0];
+        invocation.aeneas_subdir = Some("Transfer".to_owned());
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("strictly inside aeneas_subdir"), "{error}");
+
+        let mut bundle = repository_bundle();
+        let invocation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0];
+        invocation.aeneas_subdir = Some("Transfer".to_owned());
+        for output in &mut invocation.outputs {
+            if output.kind == TranslationOutputKind::LeanSource {
+                output.produced = format!("Transfer/{}", output.produced);
+            }
+        }
+        let _ = invocation;
+        assert!(validate_translations(&bundle).is_ok());
+
+        let report = bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .outputs
+            .iter_mut()
+            .find(|output| output.kind == TranslationOutputKind::TranslationReport)
+            .unwrap();
+        report.produced = "Transfer/translation.json".to_owned();
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("root-level"), "{error}");
+    }
+
+    #[test]
+    fn translation_v3_rejects_duplicate_external_bridge_modules() {
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        translation
+            .import_mapping
+            .source_roots
+            .push("z-external-root".to_owned());
+        let mut duplicate = translation.external_bridges[0].clone();
+        duplicate.file = "z-external-root/ProofboundDemo/Bridges/Kernel.lean".to_owned();
+        translation.external_bridges.push(duplicate);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(
+            error.contains("module") && error.contains("more than once"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn translation_v3_requires_a_literal_matching_package_manifest() {
+        let mut bundle = repository_bundle();
+        bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .invocations[0]
+            .cargo_package = "different-package".to_owned();
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("literal [package].name"), "{error}");
+    }
+
+    #[test]
+    fn translation_side_inventories_must_name_mapped_lean_outputs() {
+        let mut bundle = repository_bundle();
+        bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .warning_inventory
+            .push(crate::WarningInventory {
+                artifact: "demo/allowance/lean/Generated/Allowance/Undeclared.lean".to_owned(),
+                line: 1,
+                kind: crate::TranslationWarningKind::UpstreamSorry,
+            });
+        assert!(validate_translations(&bundle).is_err());
+
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        translation.warning_inventory.push(crate::WarningInventory {
+            artifact: translation.invocations[0].outputs[0].destination.clone(),
+            line: 0,
+            kind: crate::TranslationWarningKind::UpstreamSorry,
+        });
+        assert!(validate_translations(&bundle).is_err());
+    }
+
+    #[test]
+    fn translation_roots_and_output_counts_are_fail_closed() {
+        let mut bundle = repository_bundle();
+        bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1
+            .import_mapping
+            .source_roots = vec!["demo/allowance/lean/ProofboundDemo".to_owned()];
+        assert!(validate_translations(&bundle).is_err());
+
+        let mut bundle = repository_bundle();
+        bundle.project.limits.max_files = 2;
+        assert!(validate_translations(&bundle).is_err());
+    }
+
+    #[test]
+    fn translation_inventory_ceilings_are_fail_closed() {
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let invocation = translation.invocations[0].clone();
+        translation
+            .invocations
+            .resize(MAX_TRANSLATION_INVOCATIONS + 1, invocation);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("invocations must contain"), "{error}");
+
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let bridge = translation.external_bridges[0].clone();
+        translation
+            .external_bridges
+            .resize(MAX_TRANSLATION_EXTERNAL_BRIDGES + 1, bridge);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("external_bridges exceeds"), "{error}");
+
+        let mut bundle = repository_bundle();
+        let translation = &mut bundle
+            .translation_units
+            .get_mut("transfer-kernel")
+            .unwrap()
+            .1;
+        let warning = crate::WarningInventory {
+            artifact: translation.invocations[0].outputs[0].destination.clone(),
+            line: 1,
+            kind: crate::TranslationWarningKind::UpstreamSorry,
+        };
+        translation
+            .warning_inventory
+            .resize(MAX_TRANSLATION_WARNINGS + 1, warning);
+        let error = validate_translations(&bundle).unwrap_err().to_string();
+        assert!(error.contains("warning_inventory exceeds"), "{error}");
+    }
+
+    #[test]
+    fn translation_evidence_is_an_exact_manifest_cross_check() {
+        let mut bundle = repository_bundle();
+        let translation = &bundle.translation_units["transfer-kernel"].1;
+        let manifest = "demo/allowance/proofbound/translations/transfer-kernel.toml";
+        let targets = translation
+            .invocations
+            .iter()
+            .flat_map(|invocation| invocation.start_from.iter().cloned())
+            .collect::<Vec<_>>();
+        let mut evidence = bundle.evidence_units.values().next().unwrap().1.clone();
+        evidence.id = "translation-cross-check".to_owned();
+        evidence.adapter = AdapterKind::CharonAeneas;
+        evidence.operation.kind = OperationKind::Translation;
+        evidence.operation.manifest = Some(manifest.to_owned());
+        evidence.operation.targets = targets;
+        evidence.claims = translation.claims.clone();
+        evidence.resource_budget = translation.resource_budget;
+        evidence.outputs.clear();
+        evidence.expected_inventory.clear();
+        evidence.inputs.push(manifest.to_owned());
+        bundle.evidence_units.insert(
+            evidence.id.clone(),
+            (bundle.root.join("translation-cross-check.toml"), evidence),
+        );
+        assert!(validate_translation_evidence(&bundle).is_ok());
+
+        bundle
+            .evidence_units
+            .get_mut("translation-cross-check")
+            .unwrap()
+            .1
+            .expected_inventory
+            .push("duplicated-authority".to_owned());
+        assert!(validate_translation_evidence(&bundle).is_err());
+        bundle
+            .evidence_units
+            .get_mut("translation-cross-check")
+            .unwrap()
+            .1
+            .expected_inventory
+            .clear();
+
+        bundle
+            .evidence_units
+            .get_mut("translation-cross-check")
+            .unwrap()
+            .1
+            .outputs
+            .push("demo/allowance/lean/Generated/Allowance".to_owned());
+        assert!(validate_translation_evidence(&bundle).is_err());
+    }
+
+    #[test]
     fn ci_workflow_registers_every_verify_only_stage_and_final_verifier() {
         let workflow = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../.github/workflows/ci.yml"
+        ));
+        let revision_resolver = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../.github/scripts/resolve-assurance-base.sh"
+        ));
+        let pre_commit = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../.pre-commit-config.yaml"
+        ));
+        let fast_checks = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tools/ci/pre-commit.sh"
+        ));
+        let version_check = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tools/ci/version.py"
+        ));
+        let changelog_check = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tools/ci/changelog.py"
         ));
         let xtask = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../xtask/src/main.rs"));
         let justfile = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../justfile"));
@@ -877,6 +3261,18 @@ mod tests {
         assert!(workflow.contains(
             "--diff \"${{ steps.revisions.outputs.base }}..${{ steps.revisions.outputs.head }}\""
         ));
+        assert!(workflow.contains("resolve-assurance-base.sh"));
+        assert!(revision_resolver.contains("refs/remotes/origin/$default_branch"));
+        assert!(revision_resolver.contains("refs/heads/$default_branch"));
+        assert!(revision_resolver.contains("event_before"));
+        assert!(!revision_resolver.contains("${head}^"));
+        assert!(pre_commit.contains("bash tools/ci/pre-commit.sh"));
+        assert!(fast_checks.contains("python3 tools/ci/version.py --check"));
+        assert!(fast_checks.contains("python3 tools/ci/changelog.py --staged"));
+        assert!(version_check.contains("Cargo.toml"));
+        assert!(version_check.contains("pyproject.toml"));
+        assert!(version_check.contains("lakefile.toml"));
+        assert!(changelog_check.contains("CHANGELOG.md"));
         assert!(xtask.contains("OsString::from(\"check\"), OsString::from(\"--fresh\")"));
         assert!(xtask.contains("Role::FinalVerifier"));
         assert!(xtask.contains("workspace_binary(root, \"proofbound-verify\")"));

@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use proofbound_core::{CommandSpec, EnvironmentId, ResourceUsage, Sha256Digest, ToolIdentity};
+use proofbound_core::{
+    CommandSpec, EnvironmentId, ExecutionRun, ResourceUsage, Sha256Digest, ToolIdentity,
+};
 use proofbound_manifest::EvidenceUnitManifest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -46,7 +48,9 @@ pub enum AuditSource {
 #[serde(deny_unknown_fields)]
 pub struct CapturedExecution {
     pub tool: ToolIdentity,
-    pub command: CommandSpec,
+    pub commands: Vec<CommandSpec>,
+    pub runs: Vec<ExecutionRun>,
+    pub normalization: String,
     pub started_unix_ms: u64,
     pub completed_unix_ms: u64,
     pub resource_usage: ResourceUsage,

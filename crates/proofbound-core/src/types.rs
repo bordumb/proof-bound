@@ -124,9 +124,8 @@ impl EvidenceKind {
     pub const fn minimum_tier(self) -> Tier {
         match self {
             Self::Theorem => Tier::Model,
-            Self::ArtifactSoundness | Self::TrustedTranscription | Self::SourceRefinement => {
-                Tier::Bound
-            }
+            Self::ArtifactSoundness | Self::SourceRefinement => Tier::Bound,
+            Self::TrustedTranscription => Tier::Bounded,
             Self::BoundedCheck | Self::IndependentCheck | Self::ExhaustiveCheck => Tier::Bounded,
             Self::PropertyTest
             | Self::ExampleTest
@@ -174,6 +173,7 @@ pub enum BindingMode {
 #[serde(rename_all = "kebab-case")]
 pub enum BuiltInProfile {
     Ledger,
+    Transcribed,
     Kernel,
     KernelWithAssumptions,
     ArtifactBound,
@@ -188,6 +188,7 @@ impl BuiltInProfile {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Ledger => "ledger",
+            Self::Transcribed => "transcribed",
             Self::Kernel => "kernel",
             Self::KernelWithAssumptions => "kernel-with-assumptions",
             Self::ArtifactBound => "artifact-bound",
@@ -202,7 +203,7 @@ impl BuiltInProfile {
     pub const fn minimum_tier(self) -> Tier {
         match self {
             Self::Ledger => Tier::Ledger,
-            Self::Bounded => Tier::Bounded,
+            Self::Bounded | Self::Transcribed => Tier::Bounded,
             Self::Kernel | Self::KernelWithAssumptions | Self::NativeEvaluated => Tier::Model,
             Self::ArtifactBound | Self::SourceRefined => Tier::Bound,
         }

@@ -192,7 +192,116 @@ pub struct EvidenceUnitManifest {
     #[serde(default)]
     pub environment_allowlist: Vec<String>,
     pub bounded_domain: Option<BoundedDomain>,
+    #[serde(default)]
+    pub transcription: Option<TrustedTranscriptionConfig>,
+    #[serde(default)]
+    pub mutation: Option<MutationReplayConfig>,
     pub resource_budget: ResourceBudget,
+}
+
+/// Maximum number of exact targets one evidence-producing adapter may bind.
+pub const MAX_ADAPTER_INVENTORY_ITEMS: usize = 100_000;
+
+/// Maximum Unicode-scalar length of one portable adapter target identity.
+pub const MAX_ADAPTER_INVENTORY_ITEM_CHARS: usize = 4096;
+
+/// Return an inventory in the one portable lexical wire order.
+///
+/// Manifest inventories have set semantics: semantic validation rejects
+/// duplicates before adapters run, while source order is not evidence. This
+/// helper deliberately performs only canonicalization so callers can use the
+/// same ordering after validation without silently repairing invalid entries.
+#[must_use]
+pub fn canonical_adapter_inventory(inventory: &[String]) -> Vec<String> {
+    let mut canonical = inventory.to_vec();
+    canonical.sort();
+    canonical
+}
+
+impl EvidenceUnitManifest {
+    /// Return this unit's manifest-owned inventory in portable wire order.
+    #[must_use]
+    pub fn canonical_expected_inventory(&self) -> Vec<String> {
+        canonical_adapter_inventory(&self.expected_inventory)
+    }
+}
+
+/// Manifest-owned inputs for the executable trusted-transcription route.
+///
+/// The adapter derives the two trusted roles from the registered driver and
+/// this typed configuration. Manifests never author TCB node identities or a
+/// Boolean assertion that the round trip passed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrustedTranscriptionConfig {
+    pub schema: TrustedTranscriptionSchema,
+    pub source: String,
+    pub committed_transcription: String,
+    pub driver: String,
+    pub source_format: String,
+    pub transcribed_format: String,
+    pub driver_abi: TranscriptionDriverAbi,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TrustedTranscriptionSchema {
+    #[serde(rename = "proofbound-trusted-transcription/1")]
+    Version1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TranscriptionDriverAbi {
+    #[serde(rename = "proofbound-transcription-driver/1")]
+    Version1,
+}
+
+/// Manifest-owned pointer to the one mutation registration replayed by a
+/// `proofbound-evidence-unit/3` unit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MutationReplayConfig {
+    pub schema: MutationReplaySchema,
+    pub registry: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MutationReplaySchema {
+    #[serde(rename = "proofbound-mutation-replay/1")]
+    Version1,
+}
+
+/// One exact, automatically replayable mutation registration.
+///
+/// Version 2 deliberately has a singular `mutation` field. A registry cannot
+/// make several mutations share one evidence fate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MutationRegistry {
+    pub schema: MutationRegistrySchema,
+    pub subject: String,
+    pub mutation: RegisteredMutation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MutationRegistrySchema {
+    #[serde(rename = "proofbound-mutation-registry/2")]
+    Version2,
+}
+
+/// Exact preimage, full-file mutant, and detecting witness for one replay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegisteredMutation {
+    pub id: String,
+    pub guard: String,
+    pub target_path: String,
+    pub target_preimage_sha256: String,
+    pub mutant_path: String,
+    pub mutant_sha256: String,
+    pub witness: String,
+    pub witness_path: String,
+    pub witness_sha256: String,
+    pub affected_claims: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,6 +316,7 @@ pub enum AdapterKind {
     SourceClosure,
     IndependentCheck,
     HumanReview,
+    TrustedTranscription,
 }
 
 impl AdapterKind {
@@ -219,7 +329,8 @@ impl AdapterKind {
             Self::CanonicalArtifact
             | Self::IndependentCheck
             | Self::SourceClosure
-            | Self::HumanReview => "proofbound-adapter-test",
+            | Self::HumanReview
+            | Self::TrustedTranscription => "proofbound-adapter-test",
         }
     }
 }
@@ -307,6 +418,7 @@ pub enum OperationKind {
     IndependentCheck,
     Review,
     Closure,
+    Transcription,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -317,16 +429,34 @@ pub struct ResourceBudget {
     pub memory_bytes: u64,
 }
 
+pub const MAX_TRANSLATION_PATH_BYTES: usize = 4096;
+pub const MAX_TRANSLATION_INVOCATIONS: usize = 4096;
+pub const MAX_TRANSLATION_SYMBOLS: usize = 4096;
+pub const MAX_TRANSLATION_CLAIMS: usize = 4096;
+pub const MAX_TRANSLATION_SOURCE_ROOTS: usize = 1024;
+pub const MAX_TRANSLATION_EXTERNAL_BRIDGES: usize = 1024;
+pub const MAX_TRANSLATION_TEMPLATE_AXIOMS: usize = 1024;
+pub const MAX_TRANSLATION_WARNINGS: usize = 4096;
+pub const MAX_TRANSLATION_MAPPED_OUTPUTS: usize = 100_000;
+pub const TRANSLATION_RESERVED_PATH_COMPONENTS: &[&str] = &[
+    ".git",
+    "target",
+    ".lake",
+    ".proofbound",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TranslationUnitManifest {
     pub schema: String,
     pub id: String,
-    pub adapter: String,
-    pub packages: Vec<String>,
-    pub start_from: Vec<String>,
-    pub opaque: Vec<String>,
-    pub include: Vec<String>,
+    pub pipeline: TranslationPipeline,
+    pub invocations: Vec<TranslationInvocation>,
     pub generated_dir: String,
     pub handwritten_refinement: String,
     pub determinism_runs: u8,
@@ -338,9 +468,95 @@ pub struct TranslationUnitManifest {
     pub template_axioms: Vec<TemplateAxiom>,
     #[serde(default)]
     pub warning_inventory: Vec<WarningInventory>,
-    pub import_mapping: Option<ImportMapping>,
+    pub import_mapping: ImportMapping,
     pub resource_budget: ResourceBudget,
     pub claims: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranslationPipeline {
+    CharonAeneas,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranslationInvocation {
+    pub id: String,
+    pub cargo_package: String,
+    pub cargo_manifest: String,
+    pub crate_name: String,
+    pub llbc_file: String,
+    pub start_from: Vec<String>,
+    pub opaque: Vec<String>,
+    pub include: Vec<String>,
+    pub translated_closure: Vec<TranslationInventoryEntry>,
+    pub aeneas_subdir: Option<String>,
+    pub outputs: Vec<TranslationOutputMapping>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranslationInventoryEntry {
+    pub kind: TranslationInventoryKind,
+    pub rust_name: String,
+}
+
+impl TranslationInventoryEntry {
+    #[must_use]
+    pub fn canonical_name(&self) -> String {
+        format!("{}:{}", self.kind.as_str(), self.rust_name)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranslationInventoryKind {
+    Function,
+    Type,
+}
+
+impl TranslationInventoryKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Function => "function",
+            Self::Type => "type",
+        }
+    }
+}
+
+impl TranslationUnitManifest {
+    /// Return the manifest-owned translated closure in one portable order.
+    ///
+    /// Semantic validation guarantees that the entries are unique. Sorting
+    /// the category-prefixed names here also produces a stable inventory when
+    /// a unit has multiple ordered invocations.
+    #[must_use]
+    pub fn canonical_translated_closure_inventory(&self) -> Vec<String> {
+        let inventory = self
+            .invocations
+            .iter()
+            .flat_map(|invocation| &invocation.translated_closure)
+            .map(TranslationInventoryEntry::canonical_name)
+            .collect::<Vec<_>>();
+        canonical_adapter_inventory(&inventory)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TranslationOutputMapping {
+    pub kind: TranslationOutputKind,
+    pub produced: String,
+    pub destination: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranslationOutputKind {
+    LeanSource,
+    TranslationReport,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -364,7 +580,14 @@ pub struct TemplateAxiom {
 pub struct WarningInventory {
     pub artifact: String,
     pub line: usize,
-    pub kind: String,
+    pub kind: TranslationWarningKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranslationWarningKind {
+    UpstreamSorry,
+    UpstreamSorryAx,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

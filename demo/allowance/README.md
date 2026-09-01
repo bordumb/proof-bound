@@ -90,11 +90,20 @@ of a transfer is out of scope.
 
 ## Mutation witnesses
 
-The mutation registry names one deliberately incorrect function and one failing
-comparison test for every decision guard. Mutants are compiled only for tests or
-with the explicit `mutation-testing` feature. They never replace the shipping
-symbol. Removing authorization, positive amount, cap, checked subtraction, or
-checked addition visibly diverges from the registered kernel behavior.
+Each decision guard has its own version-2 mutation registry and version-3
+evidence unit. A registry byte-pins the shipping `decision.rs` preimage, one
+full-file replacement, and the source of one ordinary integration test. During
+`check` or `reproduce`, Proofbound first runs that exact test against a fresh
+clean shadow and requires it to pass. It copies the registered replacement over
+the target in a second fresh shadow, verifies the resulting bytes, and then
+requires the same exact test to fail with libtest exit code 101. The committed
+shipping crate contains no callable mutant and the repository is never edited
+by replay.
+
+Authorization, positive amount, cap, checked subtraction, and checked addition
+therefore have five independent evidence fates. A broken witness invalidates
+only the claims named by that mutation rather than conservatively removing one
+shared receipt from unrelated claims.
 
 ## Run locally
 
@@ -115,11 +124,15 @@ kernel.
 
 ## Translation quarantine and integration work
 
-`proofbound/translations/transfer-kernel.toml` is authoritative for package,
-start symbol, generated destination, bridge, import mapping, determinism, axiom
-policy, claims, and resource budget. `lean/Generated/Allowance` is reserved
-exclusively for generator output and intentionally contains no handwritten
-files. The transparent bridge is outside it at
+`proofbound/translations/transfer-kernel.toml` is authoritative for the Cargo
+manifest and package, crate and LLBC names, start symbols, complete
+produced-to-destination output map, bridge, import mapping, determinism, axiom
+policy, claims, and resource budget. `lean/Generated/Allowance` is the declared
+atomic replacement boundary and intentionally contains no handwritten files.
+The illustrative `Funs.lean`, `Types.lean`, and `translation.json` mappings
+match the pinned pilot's output shape but are not observations of this crate:
+the pinned dry run must replace them with its complete exact inventory before
+the example evidence unit is activated. The transparent bridge is outside the generated tree at
 `lean/ProofboundDemo/Bridges/Kernel.lean` and is byte-pinned by the manifest.
 The prospective evidence unit is retained as
 `proofbound/evidence/transfer-refinement.toml.example`; it is deliberately not

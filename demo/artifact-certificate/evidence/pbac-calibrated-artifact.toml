@@ -6,8 +6,8 @@ claims = ["PBAC-CALIBRATED-001"]
 tier = 3
 evaluation_mode = "native"
 binding_mode = "digest-theorem"
-theorem = "ProofboundArtifactDemo.Claims.publishedCalibratedTotal"
-assumptions = ["PBAC-CALIBRATION-AX-001"]
+theorem = "ProofboundArtifactDemo.Claims.publishedCalibratedArtifactSoundness"
+assumptions = ["PBAC-CALIBRATION-AX-001", "PBAC-NATIVE-SHA256-001"]
 expected_inventory = ["valid-basic.pbac"]
 inputs = [
   "demo/artifact-certificate/FORMAT.md",

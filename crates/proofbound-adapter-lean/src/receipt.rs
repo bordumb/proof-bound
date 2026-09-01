@@ -7,8 +7,8 @@ use std::{
 
 use proofbound_core::{
     ArtifactIdentity, ArtifactLogicalName, AssumptionId, CacheOrigin, ClaimId, CommandSpec,
-    EVIDENCE_SCHEMA_V1, EvaluationMode, EvidenceId, EvidenceKind, EvidenceProvenance,
-    EvidenceRecord, EvidenceStatus, NodeId, PremiseId, ResourceBudget, Sha256Digest,
+    EVIDENCE_SCHEMA_V3, EvaluationMode, EvidenceId, EvidenceKind, EvidenceProvenance,
+    EvidenceRecord, EvidenceStatus, ExecutionKind, NodeId, PremiseId, ResourceBudget, Sha256Digest,
     TheoremEvidence, TreeState, UnitId,
 };
 use proofbound_evidence::{
@@ -84,7 +84,10 @@ pub fn build_theorem_evidence(
         .ok_or_else(|| AdapterError::new(RESOURCE, "time budget overflows milliseconds"))?;
     if execution.resource_usage.time_ms > budget_ms
         || execution.resource_usage.peak_disk_bytes > evidence_unit.resource_budget.disk_bytes
-        || execution.resource_usage.peak_memory_bytes > evidence_unit.resource_budget.memory_bytes
+        || execution
+            .resource_usage
+            .peak_memory_bytes
+            .is_some_and(|actual| actual > evidence_unit.resource_budget.memory_bytes)
     {
         return Err(AdapterError::new(
             RESOURCE,
@@ -178,7 +181,7 @@ pub fn build_theorem_evidence(
         .map_err(|error| AdapterError::new(CONFIGURATION, format!("invalid node ID: {error}")))?;
 
     let record = EvidenceRecord {
-        schema: EVIDENCE_SCHEMA_V1.to_owned(),
+        schema: EVIDENCE_SCHEMA_V3.to_owned(),
         id: evidence_id,
         node_id,
         unit_id,
@@ -190,6 +193,7 @@ pub fn build_theorem_evidence(
         theorem: Some(TheoremEvidence {
             declaration: verified.target.declaration.clone(),
             statement_encoding: crate::wire::STATEMENT_ENCODING.to_owned(),
+            statement_wire: verified.target.expr_wire.clone(),
             statement_sha256: verified.statement_sha256,
             attributed_claim: claim_id.clone(),
             environment: unit.environment_id.clone(),
@@ -218,11 +222,14 @@ pub fn build_theorem_evidence(
             generated_artifacts,
             tool: execution.tool.clone(),
             adapter: adapter_identity()?,
-            command: execution.command.clone(),
+            execution_kind: ExecutionKind::ObservedProcesses,
+            commands: execution.commands.clone(),
+            runs: execution.runs.clone(),
+            normalization: execution.normalization.clone(),
             reproduction_command: CommandSpec {
                 program: "proofbound".to_owned(),
                 args: vec!["reproduce".to_owned(), evidence_unit.id.clone()],
-                environment_allowlist: execution.command.environment_allowlist.clone(),
+                environment_allowlist: Vec::new(),
             },
             started_unix_ms: execution.started_unix_ms,
             completed_unix_ms: execution.completed_unix_ms,
