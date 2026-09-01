@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use proofbound_evidence::{canonical_json, domain_hash};
 use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::{Map, Number, Value};
@@ -262,6 +264,20 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         }
         kinds.push(kind.to_owned());
 
+        let declared_fact_schemas = match detail.get("required_fact_schemas") {
+            Some(Value::Array(values)) => values
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<BTreeSet<_>>(),
+            Some(_) => {
+                return Err(IrValidationError::new(
+                    "IR-DECODE-INVALID",
+                    "required_fact_schemas must be an array",
+                ));
+            }
+            None => BTreeSet::new(),
+        };
+
         let backend = object_field(item, "backend")?;
         for fact in array_field(backend, "retained_facts")? {
             let fact = value_object(fact)?;
@@ -270,7 +286,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             let schema = text(fact, "schema")?;
-            if required && schema != "proofbound-python-property/1" {
+            if required && !declared_fact_schemas.contains(schema) {
                 return Err(IrValidationError::new(
                     "IR-BACKEND-UNKNOWN-REQUIRED",
                     "unknown required retained fact",

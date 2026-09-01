@@ -241,11 +241,18 @@ def validate_case_program(data: bytes) -> None:
             )
         kinds.append(kind)
 
+        declared_fact_schemas = detail.get("required_fact_schemas", [])
+        if not isinstance(declared_fact_schemas, list) or any(
+            not isinstance(schema, str) for schema in declared_fact_schemas
+        ):
+            _fail("IR-DECODE-INVALID", "required_fact_schemas must be an array")
+
         backend = _object(item, "backend")
         for fact_value in _list(backend, "retained_facts"):
             fact = _as_object(fact_value)
-            if fact.get("required") is True and fact.get("schema") != (
-                "proofbound-python-property/1"
+            if (
+                fact.get("required") is True
+                and fact.get("schema") not in declared_fact_schemas
             ):
                 _fail(
                     "IR-BACKEND-UNKNOWN-REQUIRED",
@@ -733,6 +740,12 @@ def _family_detail(
         return {"schema": schema, "subject": subject or "subject:unknown"}
     if kind == "artifact-correspondence":
         return {"schema": schema, "artifact": _source_artifact(source)}
+    if kind == "sampled-property":
+        return {
+            "schema": schema,
+            "configuration_sha256": configuration_sha256,
+            "required_fact_schemas": ["proofbound-python-property/1"],
+        }
     return {"schema": schema, "configuration_sha256": configuration_sha256}
 
 

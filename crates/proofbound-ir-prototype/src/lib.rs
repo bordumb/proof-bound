@@ -656,6 +656,11 @@ fn family_detail(
             "schema": schema,
             "artifact": source_artifact(source),
         }),
+        "sampled-property" => serde_json::json!({
+            "schema": schema,
+            "configuration_sha256": configuration_sha256,
+            "required_fact_schemas": ["proofbound-python-property/1"],
+        }),
         _ => serde_json::json!({
             "schema": schema,
             "configuration_sha256": configuration_sha256,
