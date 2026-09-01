@@ -13,8 +13,10 @@ meaning across existing-language and future native frontends.
 
 ## Current work
 
-Complete the semantic-field inventory, classify backend pressure points, freeze
-golden projections, and draft Assurance IR `/1` only after coverage is complete.
+Inventory revision 2, the 20-case positive corpus, and the non-normative
+[Assurance IR `/1` draft](../assurance-ir-v1.md) are complete. Next, register
+canonical hash domains and adversarial cases, then implement independent
+producer and checker projections without shared decode or derivation code.
 
 ## Exit criteria
 

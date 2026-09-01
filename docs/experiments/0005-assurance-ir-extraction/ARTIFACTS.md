@@ -9,6 +9,7 @@
 | EXP-0005-A003 | `corpus/README.md` | frozen, revision 1, `sha256:c6885f6bf65f94395dbf9350f4e12e367ae873d436ddd783febc58f183f74001` | Human-readable positive corpus contract and coverage |
 | EXP-0005-A004 | `results/README.md` | scaffold | Naming and immutability contract for machine-readable run results |
 | EXP-0005-A005 | `corpus/cases.json` | frozen, revision 1, `sha256:370c45f5a7a5a492c7c12218ee53be782cd6e8610a70297bd94488801dba5f32` | Twenty exact positive registration, semantic-status, and portable-release cases |
+| EXP-0005-A006 | `../../research/proofbound-language/assurance-ir-v1.md` | research draft, `sha256:f409be37930a6203eedbd3146ae256fdbf376cba8677d7e1367b8b98159844b0` | Non-normative Assurance IR `/1` model and falsification boundary |
 
 Content digests identify frozen research inputs. Revisions must receive a new
 artifact digest; existing frozen bytes are not edited in place after an

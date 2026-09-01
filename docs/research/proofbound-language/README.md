@@ -22,9 +22,10 @@ state, releases, and derived status. It found a plausible backend-neutral
 kernel boundary while retaining typed backend facts at conversion and
 invalidation boundaries.
 
-The next bounded tasks are to freeze the positive semantic-projection corpus
-and draft Assurance IR `/1`. Neither is an experiment result until independent
-projection and adversarial checks execute.
+The positive semantic-projection corpus is frozen and a non-normative
+[Assurance IR `/1` draft](assurance-ir-v1.md) now makes the proposed boundary
+falsifiable. Neither is an experiment result until independent projection and
+adversarial checks execute.
 
 ## Programme map
 
@@ -36,6 +37,7 @@ projection and adversarial checks execute.
 | [Metrics](metrics.md) | Shared definitions used by several experiments |
 | [Open questions](open-questions.md) | Unresolved issues that have not become findings or decisions |
 | [Detailed plan](plan.md) | Complete initial methods, workstream rationale, and research backlog |
+| [Draft Assurance IR `/1`](assurance-ir-v1.md) | Non-normative semantic model to test against EXP-0005 |
 | [Workstreams](workstreams/README.md) | Bounded programmes of work and their dependencies |
 
 ## Workstream dashboard
@@ -62,10 +64,15 @@ projection and adversarial checks execute.
   possible for current receipts.
 - Experiment 0005 has identified initial classification candidates, including
   Python plugin facts in common provenance and Python-named detail inside a
-  cross-language property-test family. Neither is yet a concluded divergence.
+  cross-language property-test family.
+- Inventory revision 2 and the frozen 20-case corpus now support a concrete IR
+  draft. The draft isolates backend conversion and invalidation from common
+  validation and derivation, but that boundary has not yet survived executable
+  differential tests.
 
 ## Current decision
 
-Continue Gate 1 only. Do not design final syntax or native executable semantics
-until the field inventory, evidence algebra, and invalidation model satisfy
-their preregistered criteria.
+Continue Gate 1 only. Implement two independent IR projection/checking
+prototypes and the preregistered adversarial corpus next. Do not design final
+syntax or native executable semantics until the evidence algebra and
+invalidation model satisfy their preregistered criteria.

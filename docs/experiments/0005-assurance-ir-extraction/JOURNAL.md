@@ -57,3 +57,18 @@ translation registration is pinned as supporting input, while source-refinement
 semantics come from the positive conformance case. This avoids turning an
 aspirational demo into fabricated observation evidence. No converter or
 projection comparison has run, so Q1, Q3, and Q5 remain unanswered.
+
+## 2026-09-01 — Draft Assurance IR `/1`
+
+Drafted a non-normative Assurance IR from inventory revision 2 and the frozen
+positive corpus. The model separates authority, uses a closed evidence sum,
+keeps status as derived output, moves backend dependencies outside common
+provenance, names an explicit cache-dependency projection, and preserves
+distinct empirical, bounded, formal, correspondence, transcription, and
+reproducibility meanings.
+
+The draft does not hide the current sampled-property asymmetry: registered
+Hypothesis facts map to explicit sampling, while the current TypeScript route
+maps to a visible legacy backend-sampling state pending OQ-001. It also records
+the inactive Aeneas route honestly. The schema name is reserved only inside the
+research draft; no implementation may emit it yet. Q1–Q5 remain unanswered.
