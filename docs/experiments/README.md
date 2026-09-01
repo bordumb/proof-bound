@@ -12,6 +12,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0002](0002-auths-proof-algebra-kernel/README.md) | Auths Proof algebra kernel | `auths-proof` repo | §11.3 manifest inversion; per-harness Kani inventory | concluded |
 | [0003](0003-semver-precedence/README.md) | semver precedence | `semver` crate (crates.io) | Tier 0 brownfield UX; Pattern B on foreign code | concluded |
 | [0004](0004-base64-canonical-bytes/README.md) | base64 canonical bytes | `base64` crate (crates.io) | Tier 0→1 ladder; Pattern A on foreign bytes | concluded |
+| [0005](0005-assurance-ir-extraction/README.md) | Assurance IR extraction | Proofbound repository and conformance corpus | Shared semantic kernel; evidence-family boundaries; producer/verifier parity | planned |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).
