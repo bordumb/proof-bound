@@ -11,6 +11,14 @@ use proofbound_evidence::{canonical_json, domain_hash, sha256_bytes};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod assurance;
+
+pub use assurance::{
+    Artifact, CacheInput, CaseProgram, IrBackend, IrCache, IrCacheProvenance, IrClaim, IrEvidence,
+    IrFamily, IrPolicy, IrProvenance, IrRun, IrUsage, IrValidationError, RetainedFact, cache_key,
+    family_kind, family_schema, validate_case_program,
+};
+
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";
 pub const PROJECTION_SCHEMA: &str = "proofbound-assurance-ir-projection/1";
 pub const PROJECTION_DOMAIN: &str = "proofbound-assurance-ir-projection/1";
@@ -98,6 +106,7 @@ pub struct ProjectionCase {
     pub registration: Option<RegistrationProjection>,
     pub semantic_case_id: Option<String>,
     pub projection_profiles: Vec<String>,
+    pub program: CaseProgram,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -200,15 +209,25 @@ fn validate_corpus_header(corpus: &Corpus) -> Result<()> {
 
 fn project_case(root: &Path, case: &CorpusCase) -> Result<ProjectionCase> {
     let source_bytes = verify_source(root, &case.source.path, &case.source.sha256)?;
-    let (registration, semantic_case_id) = match case.role.as_str() {
-        "positive-registration" => (Some(project_registration(case, &source_bytes)?), None),
-        "positive-semantic-status" => (None, Some(project_semantic_case(case, &source_bytes)?)),
+    let (registration, semantic_case_id, program) = match case.role.as_str() {
+        "positive-registration" => {
+            let registration = project_registration(case, &source_bytes)?;
+            let program = registration_program(case, &registration);
+            (Some(registration), None, program)
+        }
+        "positive-semantic-status" => {
+            let (semantic_case_id, selected) = project_semantic_case(case, &source_bytes)?;
+            let program = semantic_program(case, &selected)?;
+            (None, Some(semantic_case_id), program)
+        }
         "positive-portable-release" => {
             verify_release_case(root, case, &source_bytes)?;
-            (None, None)
+            (None, None, release_program(case, &source_bytes)?)
         }
         role => bail!("case {} has unsupported role {role}", case.id),
     };
+
+    validate_case_program(&canonical_json(&program)?).map_err(anyhow::Error::from)?;
 
     Ok(ProjectionCase {
         id: case.id.clone(),
@@ -227,6 +246,7 @@ fn project_case(root: &Path, case: &CorpusCase) -> Result<ProjectionCase> {
         registration,
         semantic_case_id,
         projection_profiles: case.projection_profiles.clone(),
+        program,
     })
 }
 
@@ -300,7 +320,7 @@ fn project_registration(case: &CorpusCase, bytes: &[u8]) -> Result<RegistrationP
     })
 }
 
-fn project_semantic_case(case: &CorpusCase, bytes: &[u8]) -> Result<String> {
+fn project_semantic_case(case: &CorpusCase, bytes: &[u8]) -> Result<(String, Value)> {
     let pointer = case
         .source
         .json_pointer
@@ -320,7 +340,7 @@ fn project_semantic_case(case: &CorpusCase, bytes: &[u8]) -> Result<String> {
             .context("semantic case has no expected result")?,
     )?;
     ensure!(expected == case.expected_claim, "semantic status mismatch");
-    Ok(selected_id.to_owned())
+    Ok((selected_id.to_owned(), selected.clone()))
 }
 
 fn expected_from_value(value: &Value) -> Result<ExpectedClaim> {
@@ -345,6 +365,343 @@ fn expected_from_value(value: &Value) -> Result<ExpectedClaim> {
             .and_then(Value::as_bool)
             .context("expected policy status is missing")?,
     })
+}
+
+fn registration_program(case: &CorpusCase, registration: &RegistrationProjection) -> CaseProgram {
+    let mut claim_ids = registration.claims.clone();
+    claim_ids.sort();
+    let mut assumptions = registration.assumptions.clone();
+    assumptions.sort();
+    let claims = claim_ids
+        .iter()
+        .map(|claim_id| IrClaim {
+            id: claim_id.clone(),
+            subject: format!("subject:{claim_id}"),
+            assumptions: assumptions.clone(),
+            open_obligations: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    let kind = family_kind(&case.evidence_family)
+        .expect("frozen registration family must have an IR mapping");
+    let detail = family_detail(
+        kind,
+        claims.first().map(|claim| claim.subject.as_str()),
+        &case.source,
+        Some(&registration.family_configuration_sha256),
+    );
+    let retained_facts = if kind == "sampled-property" {
+        vec![RetainedFact {
+            schema: "proofbound-python-property/1".to_owned(),
+            required: true,
+            value: serde_json::json!({"configuration_sha256": registration.family_configuration_sha256}),
+        }]
+    } else {
+        Vec::new()
+    };
+    let cache = registration_cache(registration);
+    let prior_receipt = None;
+    let evidence = vec![IrEvidence {
+        authority: "registered".to_owned(),
+        unit: registration.unit_id.clone(),
+        claims: claim_ids,
+        assumptions,
+        family: IrFamily {
+            kind: kind.to_owned(),
+            detail,
+        },
+        backend: IrBackend { retained_facts },
+        provenance: IrProvenance {
+            runs: Vec::new(),
+            usage: IrUsage { peak_memory: None },
+            cache: IrCacheProvenance {
+                prior_receipt: prior_receipt.map(str::to_owned),
+                key: cache_key(&registration.unit_id, prior_receipt),
+            },
+        },
+    }];
+    CaseProgram {
+        schema: assurance::CASE_SCHEMA.to_owned(),
+        case_id: case.id.clone(),
+        evidence_family: case.evidence_family.clone(),
+        source: source_artifact(&case.source),
+        claims,
+        evidence,
+        cache,
+        policy: IrPolicy {
+            required_components: vec!["registered-aggregate".to_owned()],
+        },
+        reported: case.expected_claim.clone(),
+        exact_status: false,
+    }
+}
+
+fn semantic_program(case: &CorpusCase, selected: &Value) -> Result<CaseProgram> {
+    let expected = selected
+        .get("expected")
+        .and_then(Value::as_object)
+        .context("semantic expected result is not an object")?;
+    let assumptions = json_text_array(expected, "assumptions")?;
+    let obligations = json_text_array(expected, "undischarged_premises")?;
+    let mut claim_ids = case.claim_ids.clone();
+    claim_ids.sort();
+    let claims = claim_ids
+        .iter()
+        .map(|claim_id| IrClaim {
+            id: claim_id.clone(),
+            subject: format!("subject:{claim_id}"),
+            assumptions: assumptions.clone(),
+            open_obligations: obligations.clone(),
+        })
+        .collect::<Vec<_>>();
+    let source = source_artifact(&case.source);
+    let evidence_values = selected
+        .get("evidence")
+        .and_then(Value::as_array)
+        .context("semantic case has no evidence")?;
+    let evidence = evidence_values
+        .iter()
+        .map(|item| {
+            let source_kind = item
+                .get("kind")
+                .and_then(Value::as_str)
+                .context("semantic evidence kind is missing")?;
+            let kind = family_kind(source_kind).context("unsupported semantic evidence kind")?;
+            let unit = item
+                .get("id")
+                .and_then(Value::as_str)
+                .context("semantic evidence ID is missing")?;
+            Ok(IrEvidence {
+                authority: "derived-conformance".to_owned(),
+                unit: unit.to_owned(),
+                claims: claim_ids.clone(),
+                assumptions: assumptions.clone(),
+                family: IrFamily {
+                    kind: kind.to_owned(),
+                    detail: family_detail(
+                        kind,
+                        claims.first().map(|claim| claim.subject.as_str()),
+                        &case.source,
+                        None,
+                    ),
+                },
+                backend: IrBackend {
+                    retained_facts: Vec::new(),
+                },
+                provenance: empty_provenance(unit),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let policy = selected
+        .get("policy")
+        .and_then(Value::as_object)
+        .context("semantic policy is missing")?;
+    Ok(CaseProgram {
+        schema: assurance::CASE_SCHEMA.to_owned(),
+        case_id: case.id.clone(),
+        evidence_family: case.evidence_family.clone(),
+        source,
+        claims,
+        evidence,
+        cache: IrCache {
+            registered_inputs: Vec::new(),
+            execution_inputs: Vec::new(),
+        },
+        policy: IrPolicy {
+            required_components: json_text_array(policy, "components")?,
+        },
+        reported: case.expected_claim.clone(),
+        exact_status: true,
+    })
+}
+
+fn release_program(case: &CorpusCase, bytes: &[u8]) -> Result<CaseProgram> {
+    let receipt: Value = serde_json::from_slice(bytes).context("decode release receipt")?;
+    let records = receipt
+        .get("evidence")
+        .and_then(Value::as_array)
+        .context("release evidence is missing")?;
+    let mut evidence = Vec::with_capacity(records.len());
+    let mut all_assumptions = Vec::new();
+    for wrapped in records {
+        let record = wrapped.get("record").context("release record is missing")?;
+        let source_kind = record
+            .get("kind")
+            .and_then(Value::as_str)
+            .context("release evidence kind is missing")?;
+        let kind = family_kind(source_kind).context("unsupported release evidence kind")?;
+        let unit = record
+            .get("unit_id")
+            .and_then(Value::as_str)
+            .context("release evidence unit is missing")?;
+        let assumptions = json_text_array_value(record, "assumptions")?;
+        all_assumptions.extend(assumptions.iter().cloned());
+        let provenance = record
+            .get("provenance")
+            .and_then(Value::as_object)
+            .context("release provenance is missing")?;
+        let runs = provenance
+            .get("runs")
+            .and_then(Value::as_array)
+            .context("release runs are missing")?
+            .iter()
+            .map(|run| {
+                Ok(IrRun {
+                    command_index: run
+                        .get("command_index")
+                        .and_then(Value::as_u64)
+                        .context("release run index is missing")?,
+                    exit_code: run.get("exit_code").and_then(Value::as_i64),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let peak_memory = provenance
+            .get("actual_cost")
+            .and_then(|usage| usage.get("memory_bytes"))
+            .and_then(Value::as_u64);
+        let prior_receipt = provenance.get("reused_from").and_then(Value::as_str);
+        evidence.push(IrEvidence {
+            authority: "portable-receipt".to_owned(),
+            unit: unit.to_owned(),
+            claims: case.claim_ids.clone(),
+            assumptions,
+            family: IrFamily {
+                kind: kind.to_owned(),
+                detail: family_detail(kind, Some("subject:c"), &case.source, None),
+            },
+            backend: IrBackend {
+                retained_facts: Vec::new(),
+            },
+            provenance: IrProvenance {
+                runs,
+                usage: IrUsage { peak_memory },
+                cache: IrCacheProvenance {
+                    prior_receipt: prior_receipt.map(str::to_owned),
+                    key: cache_key(unit, prior_receipt),
+                },
+            },
+        });
+    }
+    all_assumptions.sort();
+    all_assumptions.dedup();
+    let claims = case
+        .claim_ids
+        .iter()
+        .map(|claim_id| IrClaim {
+            id: claim_id.clone(),
+            subject: format!("subject:{claim_id}"),
+            assumptions: all_assumptions.clone(),
+            open_obligations: Vec::new(),
+        })
+        .collect();
+    Ok(CaseProgram {
+        schema: assurance::CASE_SCHEMA.to_owned(),
+        case_id: case.id.clone(),
+        evidence_family: case.evidence_family.clone(),
+        source: source_artifact(&case.source),
+        claims,
+        evidence,
+        cache: IrCache {
+            registered_inputs: Vec::new(),
+            execution_inputs: Vec::new(),
+        },
+        policy: IrPolicy {
+            required_components: vec!["ledger".to_owned()],
+        },
+        reported: case.expected_claim.clone(),
+        exact_status: true,
+    })
+}
+
+fn registration_cache(registration: &RegistrationProjection) -> IrCache {
+    let mutation_target = (registration.declared_kind == "mutation-witness")
+        .then(|| {
+            registration
+                .inputs
+                .iter()
+                .find(|path| path.starts_with("src/") || path.contains("/src/"))
+        })
+        .flatten();
+    let mut inputs = registration
+        .inputs
+        .iter()
+        .map(|path| CacheInput {
+            selector: if mutation_target == Some(path) {
+                "target-preimage".to_owned()
+            } else {
+                path.clone()
+            },
+            identity: sha256_bytes(path.as_bytes()),
+        })
+        .collect::<Vec<_>>();
+    inputs.sort();
+    IrCache {
+        registered_inputs: inputs.clone(),
+        execution_inputs: inputs,
+    }
+}
+
+fn family_detail(
+    kind: &str,
+    subject: Option<&str>,
+    source: &Source,
+    configuration_sha256: Option<&str>,
+) -> Value {
+    let schema = family_schema(kind).expect("mapped family kind must have a detail schema");
+    match kind {
+        "mutation-witness" => serde_json::json!({
+            "schema": schema,
+            "subject": subject.unwrap_or("subject:unknown"),
+        }),
+        "artifact-correspondence" => serde_json::json!({
+            "schema": schema,
+            "artifact": source_artifact(source),
+        }),
+        _ => serde_json::json!({
+            "schema": schema,
+            "configuration_sha256": configuration_sha256,
+        }),
+    }
+}
+
+fn empty_provenance(unit: &str) -> IrProvenance {
+    IrProvenance {
+        runs: Vec::new(),
+        usage: IrUsage { peak_memory: None },
+        cache: IrCacheProvenance {
+            prior_receipt: None,
+            key: cache_key(unit, None),
+        },
+    }
+}
+
+fn source_artifact(source: &Source) -> Artifact {
+    Artifact {
+        logical_name: source.path.clone(),
+        sha256: source.sha256.clone(),
+    }
+}
+
+fn json_text_array(object: &serde_json::Map<String, Value>, field: &str) -> Result<Vec<String>> {
+    object
+        .get(field)
+        .and_then(Value::as_array)
+        .with_context(|| format!("{field} must be an array"))?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_owned)
+                .with_context(|| format!("{field} entries must be text"))
+        })
+        .collect()
+}
+
+fn json_text_array_value(value: &Value, field: &str) -> Result<Vec<String>> {
+    json_text_array(
+        value
+            .as_object()
+            .with_context(|| format!("parent of {field} must be an object"))?,
+        field,
+    )
 }
 
 fn verify_release_case(root: &Path, case: &CorpusCase, bytes: &[u8]) -> Result<()> {
@@ -457,5 +814,129 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let error = verify_source(temporary.path(), "missing", "sha256:00").unwrap_err();
         assert!(error.to_string().contains("read source"));
+    }
+
+    #[test]
+    fn rejects_every_preregistered_adversarial_case() {
+        let root = root();
+        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let projection = project_corpus(&root, &corpus).unwrap();
+        let bases = projection
+            .cases
+            .iter()
+            .map(|case| (case.id.as_str(), &case.program))
+            .collect::<BTreeMap<_, _>>();
+        let adversarial_path = root
+            .join("docs/experiments/0005-assurance-ir-extraction/corpus/adversarial-cases.json");
+        let adversarial: Value =
+            serde_json::from_slice(&fs::read(adversarial_path).unwrap()).unwrap();
+        assert_eq!(adversarial.get("revision").and_then(Value::as_u64), Some(2));
+        let attacks = adversarial.get("cases").and_then(Value::as_array).unwrap();
+        assert_eq!(attacks.len(), 20);
+
+        for attack in attacks {
+            let base_id = attack.get("base_case").and_then(Value::as_str).unwrap();
+            let base = bases[base_id];
+            let bytes = mutate_case(base, attack);
+            let expected = attack
+                .pointer("/expected/code")
+                .and_then(Value::as_str)
+                .unwrap();
+            let error = validate_case_program(&bytes).unwrap_err();
+            assert_eq!(error.code, expected, "attack {}", attack["id"]);
+        }
+    }
+
+    fn mutate_case(base: &CaseProgram, attack: &Value) -> Vec<u8> {
+        let mutation = attack.get("mutation").unwrap();
+        let operation = mutation.get("operation").and_then(Value::as_str).unwrap();
+        let mut value = serde_json::to_value(base).unwrap();
+        match operation {
+            "delete" => delete_pointer(
+                &mut value,
+                mutation.get("path").and_then(Value::as_str).unwrap(),
+            ),
+            "replace" | "replace-reported-status" => {
+                let path = mutation.get("path").and_then(Value::as_str).unwrap();
+                *value.pointer_mut(path).unwrap() = mutation.get("value").unwrap().clone();
+            }
+            "duplicate-set-member" => {
+                let array = value
+                    .pointer_mut(mutation.get("path").and_then(Value::as_str).unwrap())
+                    .and_then(Value::as_array_mut)
+                    .unwrap();
+                let index = mutation.get("index").and_then(Value::as_u64).unwrap() as usize;
+                array.insert(index, array[index].clone());
+            }
+            "replace-family" => {
+                let from = mutation.get("from").and_then(Value::as_str).unwrap();
+                let to = mutation.get("to").and_then(Value::as_str).unwrap();
+                let evidence = value
+                    .get_mut("evidence")
+                    .and_then(Value::as_array_mut)
+                    .unwrap();
+                let family = evidence
+                    .iter_mut()
+                    .find_map(|item| {
+                        let family = item.get_mut("family")?;
+                        (family.get("kind").and_then(Value::as_str) == Some(from)).then_some(family)
+                    })
+                    .unwrap();
+                family["kind"] = Value::String(to.to_owned());
+            }
+            "remove-set-member" => {
+                let array = value
+                    .pointer_mut(mutation.get("path").and_then(Value::as_str).unwrap())
+                    .and_then(Value::as_array_mut)
+                    .unwrap();
+                let position = if let Some(expected) = mutation.get("value") {
+                    array.iter().position(|item| item == expected).unwrap()
+                } else {
+                    let selector = mutation.get("selector").and_then(Value::as_str).unwrap();
+                    array
+                        .iter()
+                        .position(|item| {
+                            item.get("selector").and_then(Value::as_str) == Some(selector)
+                        })
+                        .unwrap()
+                };
+                array.remove(position);
+            }
+            "add-set-member" => {
+                let array = value
+                    .pointer_mut(mutation.get("path").and_then(Value::as_str).unwrap())
+                    .and_then(Value::as_array_mut)
+                    .unwrap();
+                array.push(mutation.get("value").unwrap().clone());
+                array.sort_by_key(|item| item.as_str().unwrap().to_owned());
+            }
+            "encode-noncanonical" => {
+                let mut bytes = canonical_json(&value).unwrap();
+                bytes.push(b'\n');
+                return bytes;
+            }
+            "encode-duplicate-object-key" => {
+                let bytes = canonical_json(&value).unwrap();
+                let unit = base.evidence[0].unit.as_str();
+                let needle = format!("\"unit\":\"{unit}\"");
+                let replacement = format!("{needle},{needle}");
+                return String::from_utf8(bytes)
+                    .unwrap()
+                    .replacen(&needle, &replacement, 1)
+                    .into_bytes();
+            }
+            other => panic!("unsupported adversarial operation {other}"),
+        }
+        canonical_json(&value).unwrap()
+    }
+
+    fn delete_pointer(value: &mut Value, pointer: &str) {
+        let (parent, field) = pointer.rsplit_once('/').unwrap();
+        value
+            .pointer_mut(parent)
+            .and_then(Value::as_object_mut)
+            .unwrap()
+            .remove(field)
+            .unwrap();
     }
 }

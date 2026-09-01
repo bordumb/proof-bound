@@ -19,10 +19,16 @@ from typing import Any
 CORPUS_SCHEMA = "proofbound-research-projection-corpus/1"
 PROJECTION_SCHEMA = "proofbound-assurance-ir-projection/1"
 PROJECTION_DOMAIN = "proofbound-assurance-ir-projection/1"
+CASE_SCHEMA = "proofbound-assurance-ir-case/1"
+CACHE_DOMAIN = "proofbound-assurance-ir-cache/1"
 
 
 class AssuranceIrError(ValueError):
     """Raised when a corpus or projection violates the research contract."""
+
+    def __init__(self, message: str, *, code: str = "IR-DECODE-INVALID") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -173,6 +179,208 @@ def check_canonical_vectors(path: Path) -> int:
     return count
 
 
+def validate_case_program(data: bytes) -> None:
+    """Validate one canonical research case without trusting reported status.
+
+    Args:
+        data: Canonical UTF-8 JSON for one projected case.
+
+    Raises:
+        AssuranceIrError: With a stable ``code`` for the first failed invariant.
+    """
+
+    root = _strict_json(data, require_canonical=True)
+    if root.get("schema") != CASE_SCHEMA:
+        _fail("IR-DECODE-SCHEMA", "unsupported case schema")
+    source = _object(root, "source")
+    source_sha256 = _required_text(source, "sha256")
+    claims = _list(root, "claims")
+    evidence = _list(root, "evidence")
+    claim_ids = [_required_text(_as_object(claim), "id") for claim in claims]
+    _require_sorted_unique(claim_ids)
+    claim_assumptions: list[list[str]] = []
+    obligations = False
+    for claim_value in claims:
+        claim = _as_object(claim_value)
+        assumptions = _text_list(claim, "assumptions")
+        _require_sorted_unique(assumptions)
+        obligations = obligations or bool(_list(claim, "open_obligations"))
+        claim_assumptions.append(assumptions)
+
+    kinds: list[str] = []
+    for evidence_value in evidence:
+        item = _as_object(evidence_value)
+        if "authority" not in item:
+            _fail("IR-DECODE-REQUIRED-AUTHORITY", "evidence authority is required")
+        item_claims = _text_list(item, "claims")
+        _require_sorted_unique(item_claims)
+        if item_claims != claim_ids:
+            _fail(
+                "IR-EVIDENCE-CLAIM-ATTRIBUTION",
+                "evidence claim attribution differs from the case",
+            )
+        assumptions = _text_list(item, "assumptions")
+        _require_sorted_unique(assumptions)
+        if any(expected != assumptions for expected in claim_assumptions):
+            _fail(
+                "IR-ASSUMPTION-JOIN",
+                "claim and evidence assumptions differ",
+            )
+
+        family = _object(item, "family")
+        kind = _required_text(family, "kind")
+        detail = _object(family, "detail")
+        try:
+            expected_schema = _family_schema(kind)
+        except AssuranceIrError:
+            expected_schema = None
+        if detail.get("schema") != expected_schema:
+            _fail(
+                "IR-EVIDENCE-FAMILY-DETAIL",
+                "family discriminant and detail schema differ",
+            )
+        kinds.append(kind)
+
+        backend = _object(item, "backend")
+        for fact_value in _list(backend, "retained_facts"):
+            fact = _as_object(fact_value)
+            if fact.get("required") is True and fact.get("schema") != (
+                "proofbound-python-property/1"
+            ):
+                _fail(
+                    "IR-BACKEND-UNKNOWN-REQUIRED",
+                    "unknown required retained fact",
+                )
+
+        if kind == "mutation-witness":
+            subject = _required_text(detail, "subject")
+            expected_subject = _required_text(_as_object(claims[0]), "subject")
+            if subject != expected_subject:
+                _fail(
+                    "IR-EVIDENCE-SUBJECT-MISMATCH",
+                    "mutation subject differs from the claim subject",
+                )
+        if kind == "artifact-correspondence":
+            artifact = _object(detail, "artifact")
+            if _required_text(artifact, "sha256") != source_sha256:
+                _fail(
+                    "IR-ARTIFACT-IDENTITY-MISMATCH",
+                    "artifact identity differs from the registered source",
+                )
+
+        provenance = _object(item, "provenance")
+        for index, run_value in enumerate(_list(provenance, "runs")):
+            run = _as_object(run_value)
+            if run.get("command_index") != index:
+                _fail(
+                    "IR-PROVENANCE-RUN-ORDER",
+                    "run index differs from its registered position",
+                )
+        usage = _object(provenance, "usage")
+        if "peak_memory" not in usage:
+            _fail(
+                "IR-DECODE-REQUIRED-UNKNOWN",
+                "required nullable peak_memory is missing",
+            )
+        provenance_cache = _object(provenance, "cache")
+        prior = provenance_cache.get("prior_receipt")
+        unit = _required_text(item, "unit")
+        if provenance_cache.get("key") != _cache_key(unit, prior):
+            _fail(
+                "IR-CACHE-REUSE-MISMATCH",
+                "cache key does not bind the prior receipt",
+            )
+
+    cache = _object(root, "cache")
+    registered = _cache_inputs(cache, "registered_inputs")
+    execution = _cache_inputs(cache, "execution_inputs")
+    if registered != execution:
+        _fail(
+            "IR-CACHE-DEPENDENCY-OMITTED",
+            "execution cache inputs differ from registration",
+        )
+    exact = root.get("exact_status")
+    if not isinstance(exact, bool):
+        _fail("IR-DECODE-INVALID", "missing exact_status")
+    assumed = any(bool(items) for items in claim_assumptions)
+    _validate_reported(_object(root, "reported"), kinds, assumed or obligations, exact)
+
+
+def _validate_reported(
+    reported: dict[str, Any], kinds: list[str], assumed: bool, exact: bool
+) -> None:
+    if "universal-source-proof" in kinds:
+        formal = "PROVED"
+    elif "bounded-model-check" in kinds:
+        formal = "BOUNDED_CHECKED"
+    elif kinds and all(kind == "trusted-transcription" for kind in kinds):
+        formal = "OPEN"
+    else:
+        formal = "TESTED"
+    if "artifact-correspondence" in kinds:
+        linkage = "ARTIFACT_BOUND"
+    elif "source-correspondence" in kinds:
+        linkage = "REFINED"
+    elif "trusted-transcription" in kinds:
+        linkage = "TRANSCRIBED"
+    else:
+        linkage = "MODEL_ONLY"
+
+    reported_formal = _required_text(reported, "formal")
+    if exact:
+        formal_matches = reported_formal == formal
+    else:
+        allowed = {
+            "PROVED": {"PROVED"},
+            "BOUNDED_CHECKED": {
+                "BOUNDED_CHECKED",
+                "BOUNDED_CHECKED_OR_STRONGER_PER_CLAIM",
+            },
+            "OPEN": {"OPEN"},
+            "TESTED": {"TESTED", "TESTED_OR_STRONGER_PER_CLAIM"},
+        }
+        formal_matches = reported_formal in allowed[formal]
+    assumption_matches = not exact or reported.get("assumption") == (
+        "ASSUMED" if assumed else "NONE"
+    )
+    if (
+        not formal_matches
+        or reported.get("linkage") != linkage
+        or not assumption_matches
+    ):
+        _fail(
+            "IR-STATUS-MISMATCH",
+            "reported status differs from independent derivation",
+        )
+
+
+def _cache_inputs(value: dict[str, Any], field: str) -> list[dict[str, str]]:
+    inputs = [
+        {
+            "selector": _required_text(_as_object(item), "selector"),
+            "identity": _required_text(_as_object(item), "identity"),
+        }
+        for item in _list(value, field)
+    ]
+    if inputs != sorted(inputs, key=lambda item: (item["selector"], item["identity"])):
+        _fail("IR-DECODE-DUPLICATE", "cache inputs must be canonical")
+    if len({(item["selector"], item["identity"]) for item in inputs}) != len(inputs):
+        _fail("IR-DECODE-DUPLICATE", "cache inputs must be unique")
+    return inputs
+
+
+def _require_sorted_unique(values: list[str]) -> None:
+    if values != sorted(set(values)):
+        _fail(
+            "IR-DECODE-DUPLICATE",
+            "set-like text arrays must be sorted and unique",
+        )
+
+
+def _fail(code: str, message: str) -> None:
+    raise AssuranceIrError(message, code=code)
+
+
 def _project_case(
     root: Path, case: dict[str, Any], profiles: dict[str, Any]
 ) -> dict[str, Any]:
@@ -186,10 +394,13 @@ def _project_case(
     semantic_case_id: str | None = None
     if case["role"] == "positive-registration":
         registration = _project_registration(case, source_bytes)
+        program = _registration_program(case, registration)
     elif case["role"] == "positive-semantic-status":
-        semantic_case_id = _project_semantic_case(case, source_bytes)
+        semantic_case_id, selected = _project_semantic_case(case, source_bytes)
+        program = _semantic_program(case, selected)
     elif case["role"] == "positive-portable-release":
         _verify_release_case(root, case, source_bytes)
+        program = _release_program(case, source_bytes)
     else:
         raise AssuranceIrError(f"unsupported case role {case['role']}")
 
@@ -210,6 +421,7 @@ def _project_case(
         "registration": registration,
         "semantic_case_id": semantic_case_id,
         "projection_profiles": case["projection_profiles"],
+        "program": program,
     }
 
 
@@ -254,7 +466,9 @@ def _project_registration(case: dict[str, Any], data: bytes) -> dict[str, Any]:
     }
 
 
-def _project_semantic_case(case: dict[str, Any], data: bytes) -> str:
+def _project_semantic_case(
+    case: dict[str, Any], data: bytes
+) -> tuple[str, dict[str, Any]]:
     pointer = case["source"].get("json_pointer")
     if not isinstance(pointer, str):
         raise AssuranceIrError("semantic case has no JSON pointer")
@@ -267,7 +481,278 @@ def _project_semantic_case(case: dict[str, Any], data: bytes) -> str:
     }
     if expected != case["expected_claim"]:
         raise AssuranceIrError("semantic expected status mismatch")
-    return _required_text(selected, "id")
+    return _required_text(selected, "id"), selected
+
+
+def _registration_program(
+    case: dict[str, Any], registration: dict[str, Any]
+) -> dict[str, Any]:
+    claim_ids = sorted(registration["claims"])
+    assumptions = sorted(registration["assumptions"])
+    claims = [
+        {
+            "id": claim_id,
+            "subject": f"subject:{claim_id}",
+            "assumptions": assumptions,
+            "open_obligations": [],
+        }
+        for claim_id in claim_ids
+    ]
+    kind = _family_kind(case["evidence_family"])
+    retained_facts = []
+    if kind == "sampled-property":
+        retained_facts.append(
+            {
+                "schema": "proofbound-python-property/1",
+                "required": True,
+                "value": {
+                    "configuration_sha256": registration["family_configuration_sha256"]
+                },
+            }
+        )
+    cache = _registration_cache(registration)
+    unit = registration["unit_id"]
+    return {
+        "schema": CASE_SCHEMA,
+        "case_id": case["id"],
+        "evidence_family": case["evidence_family"],
+        "source": _source_artifact(case["source"]),
+        "claims": claims,
+        "evidence": [
+            {
+                "authority": "registered",
+                "unit": unit,
+                "claims": claim_ids,
+                "assumptions": assumptions,
+                "family": {
+                    "kind": kind,
+                    "detail": _family_detail(
+                        kind,
+                        claims[0]["subject"] if claims else None,
+                        case["source"],
+                        registration["family_configuration_sha256"],
+                    ),
+                },
+                "backend": {"retained_facts": retained_facts},
+                "provenance": _empty_provenance(unit),
+            }
+        ],
+        "cache": cache,
+        "policy": {"required_components": ["registered-aggregate"]},
+        "reported": case["expected_claim"],
+        "exact_status": False,
+    }
+
+
+def _semantic_program(case: dict[str, Any], selected: dict[str, Any]) -> dict[str, Any]:
+    expected = selected["expected"]
+    assumptions = list(expected["assumptions"])
+    obligations = list(expected["undischarged_premises"])
+    claim_ids = sorted(case["claim_ids"])
+    claims = [
+        {
+            "id": claim_id,
+            "subject": f"subject:{claim_id}",
+            "assumptions": assumptions,
+            "open_obligations": obligations,
+        }
+        for claim_id in claim_ids
+    ]
+    evidence = []
+    for item in selected["evidence"]:
+        kind = _family_kind(item["kind"])
+        unit = item["id"]
+        evidence.append(
+            {
+                "authority": "derived-conformance",
+                "unit": unit,
+                "claims": claim_ids,
+                "assumptions": assumptions,
+                "family": {
+                    "kind": kind,
+                    "detail": _family_detail(
+                        kind,
+                        claims[0]["subject"] if claims else None,
+                        case["source"],
+                        None,
+                    ),
+                },
+                "backend": {"retained_facts": []},
+                "provenance": _empty_provenance(unit),
+            }
+        )
+    return {
+        "schema": CASE_SCHEMA,
+        "case_id": case["id"],
+        "evidence_family": case["evidence_family"],
+        "source": _source_artifact(case["source"]),
+        "claims": claims,
+        "evidence": evidence,
+        "cache": {"registered_inputs": [], "execution_inputs": []},
+        "policy": {"required_components": selected["policy"]["components"]},
+        "reported": case["expected_claim"],
+        "exact_status": True,
+    }
+
+
+def _release_program(case: dict[str, Any], data: bytes) -> dict[str, Any]:
+    receipt = _strict_json(data, require_canonical=False)
+    evidence = []
+    all_assumptions: set[str] = set()
+    for wrapped in receipt["evidence"]:
+        record = wrapped["record"]
+        kind = _family_kind(record["kind"])
+        unit = record["unit_id"]
+        assumptions = list(record["assumptions"])
+        all_assumptions.update(assumptions)
+        provenance = record["provenance"]
+        prior_receipt = provenance.get("reused_from")
+        evidence.append(
+            {
+                "authority": "portable-receipt",
+                "unit": unit,
+                "claims": case["claim_ids"],
+                "assumptions": assumptions,
+                "family": {
+                    "kind": kind,
+                    "detail": _family_detail(kind, "subject:c", case["source"], None),
+                },
+                "backend": {"retained_facts": []},
+                "provenance": {
+                    "runs": [
+                        {
+                            "command_index": run["command_index"],
+                            "exit_code": run["exit_code"],
+                        }
+                        for run in provenance["runs"]
+                    ],
+                    "usage": {"peak_memory": provenance["actual_cost"]["memory_bytes"]},
+                    "cache": {
+                        "prior_receipt": prior_receipt,
+                        "key": _cache_key(unit, prior_receipt),
+                    },
+                },
+            }
+        )
+    assumptions = sorted(all_assumptions)
+    claims = [
+        {
+            "id": claim_id,
+            "subject": f"subject:{claim_id}",
+            "assumptions": assumptions,
+            "open_obligations": [],
+        }
+        for claim_id in case["claim_ids"]
+    ]
+    return {
+        "schema": CASE_SCHEMA,
+        "case_id": case["id"],
+        "evidence_family": case["evidence_family"],
+        "source": _source_artifact(case["source"]),
+        "claims": claims,
+        "evidence": evidence,
+        "cache": {"registered_inputs": [], "execution_inputs": []},
+        "policy": {"required_components": ["ledger"]},
+        "reported": case["expected_claim"],
+        "exact_status": True,
+    }
+
+
+def _registration_cache(registration: dict[str, Any]) -> dict[str, Any]:
+    mutation_target = None
+    if registration["declared_kind"] == "mutation-witness":
+        mutation_target = next(
+            (
+                path
+                for path in registration["inputs"]
+                if path.startswith("src/") or "/src/" in path
+            ),
+            None,
+        )
+    inputs = sorted(
+        (
+            {
+                "selector": "target-preimage" if path == mutation_target else path,
+                "identity": _sha256(path.encode()),
+            }
+            for path in registration["inputs"]
+        ),
+        key=lambda item: (item["selector"], item["identity"]),
+    )
+    return {"registered_inputs": inputs, "execution_inputs": inputs}
+
+
+def _family_kind(source_kind: str) -> str:
+    kinds = {
+        "example-test": "example",
+        "property-test": "sampled-property",
+        "static-check": "static-consistency",
+        "mutation-witness": "mutation-witness",
+        "distribution-reproduction": "distribution-reproduction",
+        "bounded-check": "bounded-model-check",
+        "theorem": "universal-source-proof",
+        "exhaustive-check": "finite-exhaustive",
+        "artifact-soundness": "artifact-correspondence",
+        "trusted-transcription": "trusted-transcription",
+        "source-refinement": "source-correspondence",
+    }
+    try:
+        return kinds[source_kind]
+    except KeyError as error:
+        raise AssuranceIrError(f"unsupported evidence family {source_kind}") from error
+
+
+def _family_schema(kind: str) -> str:
+    schemas = {
+        "example": "proofbound-ir-example/1",
+        "sampled-property": "proofbound-ir-sampled-property/1",
+        "static-consistency": "proofbound-ir-static-consistency/1",
+        "mutation-witness": "proofbound-ir-mutation-witness/1",
+        "distribution-reproduction": "proofbound-ir-distribution/1",
+        "bounded-model-check": "proofbound-ir-bounded-model/1",
+        "universal-source-proof": "proofbound-ir-source-proof/1",
+        "finite-exhaustive": "proofbound-ir-finite-exhaustive/1",
+        "artifact-correspondence": "proofbound-ir-artifact/1",
+        "trusted-transcription": "proofbound-ir-transcription/1",
+        "source-correspondence": "proofbound-ir-source-correspondence/1",
+    }
+    try:
+        return schemas[kind]
+    except KeyError as error:
+        raise AssuranceIrError(f"unsupported IR family {kind}") from error
+
+
+def _family_detail(
+    kind: str,
+    subject: str | None,
+    source: dict[str, Any],
+    configuration_sha256: str | None,
+) -> dict[str, Any]:
+    schema = _family_schema(kind)
+    if kind == "mutation-witness":
+        return {"schema": schema, "subject": subject or "subject:unknown"}
+    if kind == "artifact-correspondence":
+        return {"schema": schema, "artifact": _source_artifact(source)}
+    return {"schema": schema, "configuration_sha256": configuration_sha256}
+
+
+def _source_artifact(source: dict[str, Any]) -> dict[str, str]:
+    return {"logical_name": source["path"], "sha256": source["sha256"]}
+
+
+def _cache_key(unit: str, prior_receipt: str | None) -> str:
+    return domain_hash(
+        CACHE_DOMAIN,
+        canonical_json({"prior_receipt": prior_receipt, "unit": unit}),
+    )
+
+
+def _empty_provenance(unit: str) -> dict[str, Any]:
+    return {
+        "runs": [],
+        "usage": {"peak_memory": None},
+        "cache": {"prior_receipt": None, "key": _cache_key(unit, None)},
+    }
 
 
 def _verify_release_case(root: Path, case: dict[str, Any], data: bytes) -> None:
@@ -292,7 +777,9 @@ def _strict_json(data: bytes, *, require_canonical: bool) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in pairs:
             if key in result:
-                raise AssuranceIrError(f"duplicate object key {key}")
+                raise AssuranceIrError(
+                    f"duplicate object key {key}", code="IR-DECODE-DUPLICATE-KEY"
+                )
             result[key] = value
         return result
 
@@ -303,8 +790,27 @@ def _strict_json(data: bytes, *, require_canonical: bool) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise AssuranceIrError("document root must be an object")
     if require_canonical and canonical_json(value) != data:
-        raise AssuranceIrError("projection is not canonical JSON")
+        raise AssuranceIrError(
+            "projection is not canonical JSON", code="IR-DECODE-NONCANONICAL"
+        )
     return value
+
+
+def _as_object(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        _fail("IR-DECODE-INVALID", "expected an object")
+    return value
+
+
+def _object(value: dict[str, Any], field: str) -> dict[str, Any]:
+    return _as_object(value.get(field))
+
+
+def _list(value: dict[str, Any], field: str) -> list[Any]:
+    items = value.get(field)
+    if not isinstance(items, list):
+        _fail("IR-DECODE-INVALID", f"{field} must be an array")
+    return items
 
 
 def _verify_source(root: Path, relative: str, expected: str) -> bytes:
