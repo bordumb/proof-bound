@@ -65,6 +65,8 @@ fn request() -> AdapterRequest {
                 inventory: None,
                 checker: None,
                 arguments: Vec::new(),
+                plugins: Vec::new(),
+                configuration: None,
             },
             evaluation_mode: Some(EvaluationMode::Kernel),
             binding_mode: None,
@@ -79,6 +81,8 @@ fn request() -> AdapterRequest {
             bounded_domain: None,
             transcription: None,
             mutation: None,
+            property: None,
+            distribution: None,
             resource_budget: ResourceBudget {
                 time_seconds: 10,
                 disk_bytes: 1 << 20,

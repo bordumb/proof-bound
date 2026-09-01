@@ -5043,6 +5043,7 @@ fn should_exclude(path: &Path) -> bool {
                     | ".lake"
                     | ".proofbound"
                     | ".venv"
+                    | "node_modules"
                     | "__pycache__"
                     | ".pytest_cache"
                     | ".mypy_cache"
@@ -5601,6 +5602,7 @@ else:
             validate_arguments(TestFlavor::IndependentCheck, &["../outside".to_owned()]).is_err()
         );
         assert!(should_exclude(Path::new(".venv/bin/python")));
+        assert!(should_exclude(Path::new("node_modules/.bin/vitest")));
         assert!(should_exclude(Path::new(
             ".proofbound/evidence/receipt.json"
         )));

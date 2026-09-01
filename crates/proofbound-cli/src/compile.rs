@@ -957,6 +957,7 @@ fn excluded_update_path(path: &Path) -> bool {
                     | ".lake"
                     | ".proofbound"
                     | ".venv"
+                    | "node_modules"
                     | "__pycache__"
                     | ".pytest_cache"
                     | ".mypy_cache"
@@ -6553,6 +6554,7 @@ mod tests {
             "member/src",
             "target",
             ".proofbound",
+            "node_modules/.bin",
             "empty-initial/nested",
         ] {
             fs::create_dir_all(root.join(directory)).unwrap();
@@ -6561,6 +6563,11 @@ mod tests {
         fs::write(
             root.join(".proofbound/ignored.rs"),
             b"ephemeral Proofbound state\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("node_modules/.bin/ignored"),
+            b"ephemeral Node installation\n",
         )
         .unwrap();
         fs::write(root.join("registered.txt"), b"unit-owned input\n").unwrap();
@@ -6695,6 +6702,7 @@ description = {description:?}
         }
         assert!(!initial.contains_key("target/ignored.rs"));
         assert!(!initial.contains_key(".proofbound/ignored.rs"));
+        assert!(!initial.contains_key("node_modules/.bin/ignored"));
         let initial_key = key(&initial);
         fs::create_dir_all(root.join("empty-added-later/nested")).unwrap();
         let empty_directory_added = cache_input_identities(&bundle, &unit).unwrap();

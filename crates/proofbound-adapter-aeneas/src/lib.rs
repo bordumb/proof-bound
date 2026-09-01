@@ -2984,6 +2984,7 @@ fn should_exclude(path: &Path) -> bool {
                     | ".lake"
                     | ".proofbound"
                     | ".venv"
+                    | "node_modules"
                     | "__pycache__"
                     | ".pytest_cache"
                     | ".mypy_cache"

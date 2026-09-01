@@ -46,6 +46,8 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
                 inventory: None,
                 checker: None,
                 arguments: Vec::new(),
+                plugins: Vec::new(),
+                configuration: None,
             },
             evaluation_mode: Some(EvaluationMode::Native),
             binding_mode: None,
@@ -70,6 +72,8 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
             bounded_domain: None,
             transcription: None,
             mutation: None,
+            property: None,
+            distribution: None,
             resource_budget: ResourceBudget {
                 time_seconds: 60,
                 disk_bytes: 256 << 20,

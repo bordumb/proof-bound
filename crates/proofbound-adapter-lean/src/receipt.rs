@@ -209,6 +209,9 @@ pub fn build_theorem_evidence(
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
+        static_check: None,
+        python_property: None,
+        distribution_reproduction: None,
         inventoried_targets: verified.inventory.clone(),
         assumptions,
         premises,
@@ -243,6 +246,7 @@ pub fn build_theorem_evidence(
             resource_usage: execution.resource_usage.clone(),
             cache_origin: CacheOrigin::Executed,
             prior_receipt_sha256: None,
+            python_plugins: Vec::new(),
         },
     };
     record.validate(&claim_id).map_err(|errors| {
