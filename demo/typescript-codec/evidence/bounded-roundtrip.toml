@@ -1,0 +1,19 @@
+schema = "proofbound-evidence-unit/1"
+id = "bounded-roundtrip"
+adapter = "node-test"
+kind = "property-test"
+claims = ["TS-CODEC-001"]
+tier = 0
+assumptions = ["TS-RUNTIME-001"]
+expected_inventory = ["src/roundtrip.test.ts::base64url codec > round trips bounded byte arrays"]
+inputs = ["package-lock.json", "package.json", "src/base64url.ts", "src/roundtrip.test.ts"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "vitest"
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 1073741824
+memory_bytes = 2147483648

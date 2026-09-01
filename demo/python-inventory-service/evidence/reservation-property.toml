@@ -1,0 +1,28 @@
+schema = "proofbound-evidence-unit/1"
+id = "reservation-property"
+adapter = "python-test"
+kind = "property-test"
+claims = ["PY-RESERVATION-001"]
+tier = 0
+assumptions = ["PY-RUNTIME-001"]
+expected_inventory = ["test_reservations::test_accepted_reservation_never_exceeds_capacity"]
+inputs = ["pyproject.toml", "requirements-dev.txt", "src/inventory_service/__init__.py", "src/inventory_service/reservations.py", "tests/test_reservations.py"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "pytest"
+manifest = "pyproject.toml"
+targets = ["test_accepted_reservation_never_exceeds_capacity"]
+paths = ["tests/test_reservations.py"]
+plugins = ["_hypothesis_pytestplugin"]
+
+[property]
+schema = "proofbound-python-property/1"
+framework = "hypothesis"
+seed = 4025493768
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 536870912

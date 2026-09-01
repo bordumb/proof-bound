@@ -112,6 +112,9 @@
         "bounded_check": { "$ref": "#/$defs/boundedCheckReceipt" },
         "exhaustive_check": { "$ref": "#/$defs/exhaustiveCheckReceipt" },
         "mutation_witness": { "$ref": "#/$defs/mutationWitnessReceipt" },
+        "python_property": { "$ref": "#/$defs/pythonPropertyReceipt" },
+        "static_check": { "$ref": "#/$defs/staticCheckReceipt" },
+        "distribution_reproduction": { "$ref": "#/$defs/distributionReproductionReceipt" },
         "independence": { "enum": ["independent", "common-origin"] },
         "inventoried_targets": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 },
         "assumptions": { "$ref": "#/$defs/ids" },
@@ -191,6 +194,11 @@
             }
           },
           "else": { "not": { "required": ["mutation_witness"] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "static-check" } }, "required": ["kind"] },
+          "then": { "required": ["static_check"] },
+          "else": { "not": { "required": ["static_check"] } }
         },
         { "if": { "properties": { "kind": { "const": "open" } }, "required": ["kind"] }, "then": { "required": ["open_obligation"] } }
       ]
@@ -276,14 +284,70 @@
       "required": ["run_index", "allowed_exit_codes"],
       "properties": {
         "run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
-        "allowed_exit_codes": { "const": [101] }
+        "allowed_exit_codes": { "oneOf": [{ "const": [1] }, { "const": [101] }] }
       }
+    },
+    "pythonPropertyReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "framework", "seed", "framework_version"],
+      "properties": {
+        "schema": { "const": "proofbound-python-property/1" },
+        "framework": { "const": "hypothesis" },
+        "seed": { "type": "integer", "minimum": 0 },
+        "framework_version": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "staticCheckReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "tool", "tool_version", "configuration_sha256", "targets", "diagnostics"],
+      "properties": {
+        "schema": { "const": "proofbound-static-check/1" },
+        "tool": { "enum": ["mypy", "tsc"] },
+        "tool_version": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "configuration_sha256": { "$ref": "#/$defs/digest" },
+        "targets": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
+        "diagnostics": { "const": 0 }
+      }
+    },
+    "distributionReproductionReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "format", "run_digests", "registered_digest", "source_date_epoch", "build_backend_name", "build_backend_version", "member_inventory"],
+      "properties": {
+        "schema": { "const": "proofbound-distribution-reproduction/1" },
+        "format": { "enum": ["wheel", "sdist", "npm-package"] },
+        "run_digests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "minItems": 2, "maxItems": 2 },
+        "registered_digest": { "$ref": "#/$defs/digest" },
+        "source_date_epoch": { "type": "integer", "minimum": 0 },
+        "build_backend_name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "build_backend_version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "npm_integrity": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "member_inventory": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "format": { "const": "npm-package" } }, "required": ["format"] },
+          "then": {
+            "required": ["npm_integrity"],
+            "properties": {
+              "source_date_epoch": { "const": 0 },
+              "build_backend_name": { "const": "npm" },
+              "npm_integrity": { "pattern": "^sha512-[A-Za-z0-9+/]+={0,2}$" },
+              "member_inventory": { "minItems": 1 }
+            }
+          },
+          "else": { "not": { "required": ["npm_integrity"] } }
+        },
+        {
+          "if": { "properties": { "format": { "const": "wheel" } }, "required": ["format"] },
+          "then": { "properties": { "member_inventory": { "minItems": 1 } } }
+        }
+      ]
     },
     "evidenceProvenance": {
       "type": "object", "additionalProperties": false,
       "required": ["project_revision", "tree_state", "semantic_closure", "input_artifacts", "generated_artifacts", "tool", "adapter", "execution_kind", "commands", "runs", "normalization", "reproduction_command", "started_unix_ms", "completed_unix_ms", "deterministic_result_sha256", "unit_configuration_sha256", "cache_key", "resource_budget", "actual_cost"],
       "properties": {
-        "project_revision": { "type": "string", "minLength": 1 }, "tree_state": { "enum": ["clean", "dirty"] }, "semantic_closure": { "$ref": "#/$defs/digest" }, "additional_closures": { "type": "array", "items": { "$ref": "#/$defs/closureReference" }, "uniqueItems": true, "maxItems": 4096 }, "input_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "uniqueItems": true, "maxItems": 100000 }, "generated_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "uniqueItems": true, "maxItems": 100000 }, "tool": { "$ref": "#/$defs/tool" }, "adapter": { "$ref": "#/$defs/tool" }, "execution_kind": { "enum": ["observed-processes", "compiler-internal"] }, "commands": { "type": "array", "items": { "$ref": "#/$defs/command" }, "maxItems": 4096 }, "runs": { "type": "array", "items": { "$ref": "#/$defs/run" }, "maxItems": 4096 }, "normalization": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" }, "reproduction_command": { "$ref": "#/$defs/command" }, "started_unix_ms": { "type": "integer", "minimum": 0 }, "completed_unix_ms": { "type": "integer", "minimum": 0 }, "deterministic_result_sha256": { "$ref": "#/$defs/digest" }, "unit_configuration_sha256": { "$ref": "#/$defs/digest" }, "cache_key": { "$ref": "#/$defs/digest" }, "reused_from": { "$ref": "#/$defs/digest" }, "resource_budget": { "$ref": "#/$defs/resource" }, "actual_cost": { "$ref": "#/$defs/actualCost" }
+        "project_revision": { "type": "string", "minLength": 1 }, "tree_state": { "enum": ["clean", "dirty"] }, "semantic_closure": { "$ref": "#/$defs/digest" }, "additional_closures": { "type": "array", "items": { "$ref": "#/$defs/closureReference" }, "uniqueItems": true, "maxItems": 4096 }, "input_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "uniqueItems": true, "maxItems": 100000 }, "generated_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" }, "uniqueItems": true, "maxItems": 100000 }, "tool": { "$ref": "#/$defs/tool" }, "adapter": { "$ref": "#/$defs/tool" }, "execution_kind": { "enum": ["observed-processes", "compiler-internal"] }, "commands": { "type": "array", "items": { "$ref": "#/$defs/command" }, "maxItems": 4096 }, "runs": { "type": "array", "items": { "$ref": "#/$defs/run" }, "maxItems": 4096 }, "normalization": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" }, "reproduction_command": { "$ref": "#/$defs/command" }, "started_unix_ms": { "type": "integer", "minimum": 0 }, "completed_unix_ms": { "type": "integer", "minimum": 0 }, "deterministic_result_sha256": { "$ref": "#/$defs/digest" }, "unit_configuration_sha256": { "$ref": "#/$defs/digest" }, "cache_key": { "$ref": "#/$defs/digest" }, "reused_from": { "$ref": "#/$defs/digest" }, "resource_budget": { "$ref": "#/$defs/resource" }, "actual_cost": { "$ref": "#/$defs/actualCost" }, "python_plugins": { "type": "array", "items": { "$ref": "#/$defs/pythonPluginReceipt" }, "uniqueItems": true, "maxItems": 32 }
       },
       "allOf": [
         {
@@ -404,7 +468,12 @@
     },
     "digests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "uniqueItems": true, "maxItems": 100000 },
     "assumptionCategory": { "enum": ["mathematical-hypothesis", "representation-premise", "translator-tcb", "compiler-tcb", "runtime-environment", "external-provider", "cryptographic-library", "human-attestation", "native-evaluation"] },
-    "evidenceKind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "review", "assumption", "open"] },
+    "pythonPluginReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["module", "distribution", "version", "origin_sha256"],
+      "properties": { "module": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*(?:\\.[a-z0-9_]+)*$", "maxLength": 256 }, "distribution": { "type": "string", "minLength": 1, "maxLength": 256 }, "version": { "type": "string", "minLength": 1, "maxLength": 256 }, "origin_sha256": { "$ref": "#/$defs/digest" } }
+    },
+    "evidenceKind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "static-check", "review", "assumption", "open"] },
     "profile": { "enum": ["ledger", "transcribed", "kernel", "kernel-with-assumptions", "artifact-bound", "source-refined", "native-evaluated", "bounded"] },
     "linkage": { "enum": ["REFINED", "ARTIFACT_BOUND", "TRANSCRIBED", "MODEL_ONLY"] }
   }

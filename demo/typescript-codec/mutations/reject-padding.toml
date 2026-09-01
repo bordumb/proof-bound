@@ -1,0 +1,14 @@
+schema = "proofbound-mutation-registry/2"
+subject = "npm:proofbound-typescript-codec::decodeBase64Url"
+
+[mutation]
+id = "reject-padding-mutant"
+guard = "Removing canonical re-encoding and admitting padding must be detected by the exact registered padding witness."
+target_path = "src/base64url.ts"
+target_preimage_sha256 = "sha256:d44ee23c8b488d81e6b6e75fb96fc48265a3ce803507137c8d328d2cf066f438"
+mutant_path = "mutants/base64url.ts"
+mutant_sha256 = "sha256:8c202285cfbf815ef86bd4c1c5043d4340d6f0137ba92e3c0d7e2b4638166c5d"
+witness = "src/reject-padding.test.ts::base64url codec > rejects padding"
+witness_path = "src/reject-padding.test.ts"
+witness_sha256 = "sha256:72af8ecfe127224a9eca6d195a3bfdaae49f09103e2fb266a3100c8eb0e33cd8"
+affected_claims = ["TS-CODEC-001"]

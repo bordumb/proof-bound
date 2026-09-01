@@ -225,6 +225,7 @@ fn provenance(closure: &str) -> EvidenceProvenance {
             disk_bytes: 1,
             memory_bytes: Some(1),
         },
+        python_plugins: Vec::new(),
     };
     value.cache_key = domain_hash(
         "proofbound-cache-key/1",
@@ -285,6 +286,9 @@ fn base_release() -> CompiledRelease {
         bounded_check: None,
         exhaustive_check: None,
         mutation_witness: None,
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         independence: None,
         inventoried_targets: BTreeSet::from(["demo::works".into()]),
         assumptions: Default::default(),
@@ -457,6 +461,117 @@ fn mutation_release() -> CompiledRelease {
     release
 }
 
+fn node_mutation_release() -> CompiledRelease {
+    let mut release = mutation_release();
+    let subject = "npm:fixture::guard";
+    let check_id = "src/guard.test.ts::guard > rejects invalid input";
+    release.claims[0].subject = subject_node(subject);
+    release.graph.nodes[1]
+        .id
+        .clone_from(&release.claims[0].subject);
+    release.graph_sha256 = graph_hash(&release.graph);
+
+    let record = &mut release.evidence[0].record;
+    record.provenance.input_artifacts.extend([
+        named_artifact("package-lock.json", "node lock", 128),
+        named_artifact("package.json", "node package", 64),
+    ]);
+    record.provenance.input_artifacts.sort();
+    let args = vec![
+        "run".into(),
+        "src/guard.test.ts".into(),
+        "--reporter=json".into(),
+        "--testNamePattern".into(),
+        "^guard rejects invalid input$".into(),
+    ];
+    record.provenance.commands = vec![
+        CommandReceipt {
+            program: "node_modules/.bin/vitest".into(),
+            args: args.clone(),
+            environment_allowlist: Vec::new(),
+        },
+        CommandReceipt {
+            program: "node_modules/.bin/vitest".into(),
+            args,
+            environment_allowlist: Vec::new(),
+        },
+    ];
+    record.provenance.runs[1].exit_code = Some(1);
+    let witness = record.mutation_witness.as_mut().unwrap();
+    witness.subject = subject.into();
+    witness.check_id = check_id.into();
+    witness.expected_failure.allowed_exit_codes = BTreeSet::from([1]);
+    let identity_material = serde_json::json!({
+        "check_id": witness.check_id,
+        "claims": record.claim_ids,
+        "guard": witness.guard,
+        "mutant_artifact": witness.mutant_artifact,
+        "mutation_id": witness.mutation_id,
+        "registry": witness.registry,
+        "subject": witness.subject,
+        "target_postimage": witness.target_postimage,
+        "target_preimage": witness.target_preimage,
+        "witness_source": witness.witness_source,
+    });
+    witness.mutation_sha256 = domain_hash(
+        MUTATION_IDENTITY_DOMAIN_V2,
+        &canonical_json(&identity_material).unwrap(),
+    );
+    recache_and_rehash_first_evidence(&mut release);
+    release
+}
+
+fn python_mutation_release() -> CompiledRelease {
+    let mut release = mutation_release();
+    let subject = "python:fixture::guard.check";
+    let check_id = "tests/test_guard.py::test_guard";
+    release.claims[0].subject = subject_node(subject);
+    release.graph.nodes[1]
+        .id
+        .clone_from(&release.claims[0].subject);
+    release.graph_sha256 = graph_hash(&release.graph);
+
+    let record = &mut release.evidence[0].record;
+    let command = |root: &str| CommandReceipt {
+        program: "python3".into(),
+        args: vec![
+            "-m".into(),
+            "pytest".into(),
+            "-p".into(),
+            "no:cacheprovider".into(),
+            "--rootdir".into(),
+            root.into(),
+            "-q".into(),
+            format!("{root}/{check_id}"),
+        ],
+        environment_allowlist: Vec::new(),
+    };
+    record.provenance.commands = vec![command("$BASELINE"), command("$MUTANT")];
+    record.provenance.runs[1].exit_code = Some(1);
+    let witness = record.mutation_witness.as_mut().unwrap();
+    witness.subject = subject.into();
+    witness.check_id = check_id.into();
+    witness.expected_failure.allowed_exit_codes = BTreeSet::from([1]);
+    let identity_material = serde_json::json!({
+        "check_id": witness.check_id,
+        "claims": record.claim_ids,
+        "guard": witness.guard,
+        "mutant_artifact": witness.mutant_artifact,
+        "mutation_id": witness.mutation_id,
+        "registry": witness.registry,
+        "subject": witness.subject,
+        "target_postimage": witness.target_postimage,
+        "target_preimage": witness.target_preimage,
+        "witness_source": witness.witness_source,
+    });
+    witness.mutation_sha256 = domain_hash(
+        MUTATION_IDENTITY_DOMAIN_V2,
+        &canonical_json(&identity_material).unwrap(),
+    );
+    recache_and_rehash_first_evidence(&mut release);
+    release
+}
+
 fn theorem_release() -> CompiledRelease {
     let mut release = base_release();
     release.project_tier = Tier::Model;
@@ -495,6 +610,9 @@ fn theorem_release() -> CompiledRelease {
         mutation_witness: None,
         independence: None,
         inventoried_targets: BTreeSet::from(["Synthetic.theorem".into()]),
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -681,6 +799,103 @@ fn valid_closed_receipt_is_consistent_in_memory_and_on_disk() {
 }
 
 #[test]
+fn distribution_reproduction_is_recomputed_from_portable_candidate_identities() {
+    let mut release = base_release();
+    let artifact_digest = digest("wheel-bytes");
+    let record = &mut release.evidence[0].record;
+    record.unit_id = "unit:wheel".into();
+    record.inventoried_targets = BTreeSet::from(["dist/package.whl".into()]);
+    record.provenance.generated_artifacts = vec![
+        ArtifactIdentityReceipt {
+            logical_name: "distribution/wheel/candidate-1".into(),
+            sha256: artifact_digest.clone(),
+            size_bytes: 64,
+        },
+        ArtifactIdentityReceipt {
+            logical_name: "distribution/wheel/candidate-2".into(),
+            sha256: artifact_digest.clone(),
+            size_bytes: 64,
+        },
+    ];
+    record.distribution_reproduction = Some(DistributionReproductionReceipt {
+        schema: DISTRIBUTION_REPRODUCTION_SCHEMA_V1.into(),
+        format: "wheel".into(),
+        run_digests: vec![artifact_digest.clone(), artifact_digest.clone()],
+        registered_digest: artifact_digest,
+        source_date_epoch: 315_532_800,
+        build_backend_name: "hatchling".into(),
+        build_backend_version: "1.27.0".into(),
+        npm_integrity: None,
+        member_inventory: vec!["package/__init__.py".into(), "package/py.typed".into()],
+    });
+    recache_and_rehash_first_evidence(&mut release);
+    verify_compiled_release(&release).unwrap();
+
+    let mut drifted = release.clone();
+    drifted.evidence[0]
+        .record
+        .distribution_reproduction
+        .as_mut()
+        .unwrap()
+        .run_digests[1] = digest("drifted");
+    rehash_first_evidence(&mut drifted);
+    assert!(verify_compiled_release(&drifted).is_err());
+
+    let mut extra = release;
+    extra.evidence[0]
+        .record
+        .provenance
+        .generated_artifacts
+        .push(ArtifactIdentityReceipt {
+            logical_name: "distribution/wheel/candidate-3".into(),
+            sha256: digest("wheel-bytes"),
+            size_bytes: 64,
+        });
+    recache_and_rehash_first_evidence(&mut extra);
+    assert!(verify_compiled_release(&extra).is_err());
+
+    let mut npm = base_release();
+    let npm_digest = digest("npm-package-bytes");
+    let record = &mut npm.evidence[0].record;
+    record.unit_id = "unit:npm-package".into();
+    record.inventoried_targets = BTreeSet::from(["fixture-1.0.0.tgz".into()]);
+    record.provenance.generated_artifacts = vec![
+        ArtifactIdentityReceipt {
+            logical_name: "distribution/npm-package/candidate-1".into(),
+            sha256: npm_digest.clone(),
+            size_bytes: 64,
+        },
+        ArtifactIdentityReceipt {
+            logical_name: "distribution/npm-package/candidate-2".into(),
+            sha256: npm_digest.clone(),
+            size_bytes: 64,
+        },
+    ];
+    record.distribution_reproduction = Some(DistributionReproductionReceipt {
+        schema: DISTRIBUTION_REPRODUCTION_SCHEMA_V1.into(),
+        format: "npm-package".into(),
+        run_digests: vec![npm_digest.clone(), npm_digest.clone()],
+        registered_digest: npm_digest,
+        source_date_epoch: 0,
+        build_backend_name: "npm".into(),
+        build_backend_version: "10.9.0".into(),
+        npm_integrity: Some("sha512-Zml4dHVyZQ==".into()),
+        member_inventory: vec!["package.json".into(), "src/index.ts".into()],
+    });
+    recache_and_rehash_first_evidence(&mut npm);
+    verify_compiled_release(&npm).unwrap();
+
+    npm.evidence[0]
+        .record
+        .distribution_reproduction
+        .as_mut()
+        .unwrap()
+        .npm_integrity = None;
+    rehash_first_evidence(&mut npm);
+    assert!(verify_compiled_release(&npm).is_err());
+}
+
+#[test]
 fn mutation_replay_is_singleton_hash_bound_and_truthful() {
     verify_compiled_release(&mutation_release()).unwrap();
 
@@ -814,6 +1029,48 @@ fn mutation_replay_is_singleton_hash_bound_and_truthful() {
         .insert("smuggled-claim".into());
     rehash_first_evidence(&mut broadened_claims);
     assert_invalid(&broadened_claims);
+}
+
+#[test]
+fn node_mutation_receipt_requires_exact_vitest_abi_and_package_inputs() {
+    verify_compiled_release(&node_mutation_release()).unwrap();
+
+    let mut wrong_pattern = node_mutation_release();
+    wrong_pattern.evidence[0].record.provenance.commands[1].args[4] = ".*".into();
+    rehash_first_evidence(&mut wrong_pattern);
+    assert!(verify_compiled_release(&wrong_pattern).is_err());
+
+    let mut wrong_exit = node_mutation_release();
+    wrong_exit.evidence[0].record.provenance.runs[1].exit_code = Some(101);
+    rehash_first_evidence(&mut wrong_exit);
+    assert!(verify_compiled_release(&wrong_exit).is_err());
+
+    let mut missing_lock = node_mutation_release();
+    missing_lock.evidence[0]
+        .record
+        .provenance
+        .input_artifacts
+        .retain(|artifact| artifact.logical_name != "package-lock.json");
+    recache_and_rehash_first_evidence(&mut missing_lock);
+    assert!(verify_compiled_release(&missing_lock).is_err());
+}
+
+#[test]
+fn python_mutation_receipt_requires_exact_pytest_shadow_abi() {
+    verify_compiled_release(&python_mutation_release()).unwrap();
+
+    let mut replayed_baseline = python_mutation_release();
+    let baseline = replayed_baseline.evidence[0].record.provenance.commands[0].clone();
+    replayed_baseline.evidence[0].record.provenance.commands[1] = baseline;
+    rehash_first_evidence(&mut replayed_baseline);
+    assert!(verify_compiled_release(&replayed_baseline).is_err());
+
+    let mut injected_argument = python_mutation_release();
+    injected_argument.evidence[0].record.provenance.commands[1]
+        .args
+        .insert(7, "--maxfail=1".into());
+    rehash_first_evidence(&mut injected_argument);
+    assert!(verify_compiled_release(&injected_argument).is_err());
 }
 
 #[test]
@@ -1161,6 +1418,9 @@ fn unresolved_assumption_cannot_be_omitted_from_output() {
         mutation_witness: None,
         independence: None,
         inventoried_targets: BTreeSet::from(["review:runtime-host".into()]),
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -1392,6 +1652,9 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         mutation_witness: None,
         independence: None,
         inventoried_targets: BTreeSet::from(["artifact.bin".into()]),
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -1416,6 +1679,9 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         bounded_check: None,
         exhaustive_check: None,
         mutation_witness: None,
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         independence: None,
         inventoried_targets: transcription_inventory,
         assumptions: Default::default(),
@@ -1484,6 +1750,9 @@ fn transcribed_release() -> CompiledRelease {
         bounded_check: None,
         exhaustive_check: None,
         mutation_witness: None,
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         independence: None,
         inventoried_targets: transcription_inventory,
         assumptions: Default::default(),
@@ -2264,6 +2533,9 @@ fn unit_scoped_transcription_tcb_roles_allow_distinct_drivers() {
         mutation_witness: None,
         independence: None,
         inventoried_targets: second_inventory,
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         assumptions: Default::default(),
         premises: Default::default(),
         open_obligation: None,
@@ -2554,6 +2826,9 @@ fn empty_raw_record(
         bounded_check: None,
         exhaustive_check: None,
         mutation_witness: None,
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         independence: None,
         inventoried_targets: if raw.outcome == "passed" {
             BTreeSet::from([format!("{}::registered", raw.id)])
@@ -2622,6 +2897,38 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
                 record
                     .inventoried_targets
                     .insert(format!("tests::{}", raw.id));
+                (record, NodeKind::TestSuite)
+            }
+            "static-check" => {
+                let mut record = empty_raw_record(
+                    &release,
+                    raw,
+                    EvidenceKind::StaticCheck,
+                    format!("test:{}", raw.id),
+                );
+                let target = format!("python/{}.py", raw.id);
+                let configuration_sha256 = digest("mypy-configuration");
+                record.inventoried_targets = BTreeSet::from([target.clone()]);
+                record
+                    .provenance
+                    .input_artifacts
+                    .push(ArtifactIdentityReceipt {
+                        logical_name: "mypy.ini".into(),
+                        sha256: configuration_sha256.clone(),
+                        size_bytes: 16,
+                    });
+                record.provenance.cache_key = domain_hash(
+                    "proofbound-cache-key/1",
+                    &canonical_json(&record.provenance.cache_material()).unwrap(),
+                );
+                record.static_check = Some(StaticCheckReceipt {
+                    schema: STATIC_CHECK_SCHEMA_V1.into(),
+                    tool: "mypy".into(),
+                    tool_version: "1.18.2".into(),
+                    configuration_sha256,
+                    targets: BTreeSet::from([target]),
+                    diagnostics: 0,
+                });
                 (record, NodeKind::TestSuite)
             }
             "bounded-check" => {

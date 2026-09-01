@@ -1,0 +1,22 @@
+schema = "proofbound-evidence-unit/3"
+id = "reject-padding-mutant"
+adapter = "node-test"
+kind = "mutation-witness"
+claims = ["TS-CODEC-001"]
+tier = 0
+expected_inventory = ["reject-padding-mutant"]
+inputs = ["mutants/base64url.ts", "mutations/reject-padding.toml", "package-lock.json", "package.json", "src/base64url.ts", "src/reject-padding.test.ts"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "vitest"
+
+[mutation]
+schema = "proofbound-mutation-replay/1"
+registry = "mutations/reject-padding.toml"
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 2147483648
+memory_bytes = 2147483648

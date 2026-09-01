@@ -1,0 +1,12 @@
+schema = "proofbound-assumption/1"
+id = "TS-RUNTIME-001"
+statement = "The registered Node, npm, vitest, TypeScript, and fast-check executions are representative of the environments in which these empirical claims are interpreted."
+category = "runtime-environment"
+owner = "Proofbound TypeScript reference maintainer"
+rationale = "Tests and static checks observe pinned tools and inputs but do not prove the runtimes or analyzers sound."
+scope = "Only the empirical interpretation of TS-CODEC-001 and the reproduction interpretation of TS-PACKAGE-001."
+affected_claims = ["TS-CODEC-001", "TS-PACKAGE-001"]
+review_evidence = ["README.md"]
+discharge_plan = "Replace this assumption with stronger runtime and analyzer evidence when typed routes become available."
+source_citation = "docs/specs/0003_typescript_support.md#11-tier-and-status-ceiling"
+status = "active"

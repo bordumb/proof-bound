@@ -1,0 +1,19 @@
+schema = "proofbound-evidence-unit/1"
+id = "reject-padding"
+adapter = "node-test"
+kind = "example-test"
+claims = ["TS-CODEC-001"]
+tier = 0
+assumptions = ["TS-RUNTIME-001"]
+expected_inventory = ["src/reject-padding.test.ts::base64url codec > rejects padding"]
+inputs = ["package-lock.json", "package.json", "src/base64url.ts", "src/reject-padding.test.ts"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "vitest"
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 1073741824
+memory_bytes = 2147483648

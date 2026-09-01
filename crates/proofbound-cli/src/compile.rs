@@ -12,14 +12,15 @@ use proofbound_core::{
     AdapterStrength, ArtifactBindingEvidence, ArtifactIdentity, ArtifactLogicalName,
     AssumptionCategory, AssumptionId, AssumptionRecord, AssumptionStatus, AssuranceGraph,
     BoundedCheckEvidence, BoundedDomain, BuiltInProfile, CacheOrigin, ClaimDefinition,
-    ClaimEvaluationInput, ClaimId, ClosureIdentity, CommandSpec, EdgeKind, EnvironmentVariable,
-    EnvironmentVariableName, EvidenceId, EvidenceKind, EvidenceProvenance, EvidenceRecord,
-    EvidenceStatus, ExecutionKind, ExecutionRun, ExpectedFailure, FlowScope, GraphEdge, GraphNode,
-    IndependenceMode, LinkageFacet, MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind,
-    ObligationId, OpenObligation, OutOfScope, PolicyDefinition, PolicyId, PremiseId, PremiseRecord,
-    ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence,
-    TRANSCRIPTION_DRIVER_ABI_V1, Tier, ToolIdentity, TranscriptionRole, TranscriptionTcbRole,
-    TreeState, TrustedTranscriptionEvidence, UnitId, derive_claim_status,
+    ClaimEvaluationInput, ClaimId, ClosureIdentity, CommandSpec, DistributionReproductionEvidence,
+    EdgeKind, EnvironmentVariable, EnvironmentVariableName, EvidenceId, EvidenceKind,
+    EvidenceProvenance, EvidenceRecord, EvidenceStatus, ExecutionKind, ExecutionRun,
+    ExpectedFailure, FlowScope, GraphEdge, GraphNode, IndependenceMode, LinkageFacet,
+    MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind, ObligationId, OpenObligation,
+    OutOfScope, PolicyDefinition, PolicyId, PremiseId, PremiseRecord, PythonPluginEvidence,
+    PythonPropertyEvidence, ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence,
+    StaticCheckEvidence, TRANSCRIPTION_DRIVER_ABI_V1, Tier, ToolIdentity, TranscriptionRole,
+    TranscriptionTcbRole, TreeState, TrustedTranscriptionEvidence, UnitId, derive_claim_status,
     transcription_role_identity,
 };
 use proofbound_evidence::{
@@ -347,7 +348,7 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     }
     fs::create_dir_all(destination.join("schemas"))?;
     fs::create_dir_all(destination.join("bin"))?;
-    copy_release_schemas(&root.join("schemas"), &destination.join("schemas"))?;
+    write_release_schemas(&destination.join("schemas"))?;
     copy_release_binaries(&destination)?;
     let assumptions = compiled
         .inputs
@@ -434,6 +435,9 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         bounded_check: None,
         exhaustive_check: None,
         mutation_witness: None,
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         independence: None,
         inventoried_targets: BTreeSet::new(),
         assumptions: BTreeSet::new(),
@@ -477,6 +481,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
             resource_usage: ResourceUsage::default(),
             cache_origin: CacheOrigin::Executed,
             prior_receipt_sha256: None,
+            python_plugins: Vec::new(),
         },
     };
     let closure = ClosureRecord {
@@ -564,23 +569,101 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     Ok(output.to_owned())
 }
 
-fn copy_release_schemas(source: &Path, destination: &Path) -> Result<()> {
-    let mut entries = fs::read_dir(source)?.collect::<std::io::Result<Vec<_>>>()?;
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-    for entry in &entries {
-        let file_type = entry.file_type()?;
-        if file_type.is_symlink() {
-            bail!("PB-RELEASE-0005: symlink in schema boundary");
-        }
-        if !file_type.is_file() {
-            bail!(
-                "PB-RELEASE-0005: non-file entry in schema boundary: {}",
-                entry.path().display()
-            );
-        }
-    }
-    for entry in entries {
-        fs::copy(entry.path(), destination.join(entry.file_name()))?;
+fn write_release_schemas(destination: &Path) -> Result<()> {
+    const SCHEMAS: &[(&str, &[u8])] = &[
+        ("README.md", include_bytes!("../../../schemas/README.md")),
+        (
+            "adapter-observation.schema.json",
+            include_bytes!("../../../schemas/adapter-observation.schema.json"),
+        ),
+        (
+            "adapter-protocol.schema.json",
+            include_bytes!("../../../schemas/adapter-protocol.schema.json"),
+        ),
+        (
+            "assumption.schema.json",
+            include_bytes!("../../../schemas/assumption.schema.json"),
+        ),
+        (
+            "checker-result.schema.json",
+            include_bytes!("../../../schemas/checker-result.schema.json"),
+        ),
+        (
+            "claim.schema.json",
+            include_bytes!("../../../schemas/claim.schema.json"),
+        ),
+        (
+            "closure.schema.json",
+            include_bytes!("../../../schemas/closure.schema.json"),
+        ),
+        (
+            "demo-registry.schema.json",
+            include_bytes!("../../../schemas/demo-registry.schema.json"),
+        ),
+        (
+            "error.schema.json",
+            include_bytes!("../../../schemas/error.schema.json"),
+        ),
+        (
+            "evidence-unit.schema.json",
+            include_bytes!("../../../schemas/evidence-unit.schema.json"),
+        ),
+        (
+            "evidence.schema.json",
+            include_bytes!("../../../schemas/evidence.schema.json"),
+        ),
+        (
+            "graph.schema.json",
+            include_bytes!("../../../schemas/graph.schema.json"),
+        ),
+        (
+            "lean-expr-v1.cddl",
+            include_bytes!("../../../schemas/lean-expr-v1.cddl"),
+        ),
+        (
+            "model-check-unit.schema.json",
+            include_bytes!("../../../schemas/model-check-unit.schema.json"),
+        ),
+        (
+            "mutation-registry.schema.json",
+            include_bytes!("../../../schemas/mutation-registry.schema.json"),
+        ),
+        (
+            "policy.schema.json",
+            include_bytes!("../../../schemas/policy.schema.json"),
+        ),
+        (
+            "project.schema.json",
+            include_bytes!("../../../schemas/project.schema.json"),
+        ),
+        (
+            "receipt.schema.json",
+            include_bytes!("../../../schemas/receipt.schema.json"),
+        ),
+        (
+            "report.schema.json",
+            include_bytes!("../../../schemas/report.schema.json"),
+        ),
+        (
+            "review.schema.json",
+            include_bytes!("../../../schemas/review.schema.json"),
+        ),
+        (
+            "tcb.schema.json",
+            include_bytes!("../../../schemas/tcb.schema.json"),
+        ),
+        (
+            "translation-toolchain-lock.schema.json",
+            include_bytes!("../../../schemas/translation-toolchain-lock.schema.json"),
+        ),
+        (
+            "translation-unit.schema.json",
+            include_bytes!("../../../schemas/translation-unit.schema.json"),
+        ),
+    ];
+
+    for (name, bytes) in SCHEMAS {
+        write_bytes(&destination.join(name), bytes)?;
     }
     Ok(())
 }
@@ -874,6 +957,7 @@ fn excluded_update_path(path: &Path) -> bool {
                     | ".lake"
                     | ".proofbound"
                     | ".venv"
+                    | "node_modules"
                     | "__pycache__"
                     | ".pytest_cache"
                     | ".mypy_cache"
@@ -2060,12 +2144,15 @@ fn registered_mutation(
         );
     }
     let input_paths = unit.inputs.iter().cloned().collect::<BTreeSet<_>>();
-    let expected_inputs = BTreeSet::from([
+    let mut expected_inputs = BTreeSet::from([
         config.registry.clone(),
         mutation.target_path.clone(),
         mutation.mutant_path.clone(),
         mutation.witness_path.clone(),
     ]);
+    if unit.adapter == AdapterKind::NodeTest {
+        expected_inputs.extend(["package-lock.json".to_owned(), "package.json".to_owned()]);
+    }
     if input_paths.len() != unit.inputs.len() || input_paths != expected_inputs {
         bail!(
             "PB-MUTATION-0003: mutation unit {} must register exactly its registry, target, mutant, and witness inputs",
@@ -2189,7 +2276,11 @@ fn mutation_record_matches_registration(
         baseline_run_index: witness.baseline_run_index,
         expected_failure: ExpectedFailure {
             run_index: witness.expected_failure.run_index,
-            allowed_exit_codes: BTreeSet::from([101]),
+            allowed_exit_codes: BTreeSet::from([if unit.adapter == AdapterKind::NodeTest {
+                1
+            } else {
+                101
+            }]),
         },
         proof_term_theorem: None,
     };
@@ -2238,6 +2329,59 @@ struct AdapterObservation {
     trusted_transcription: Option<TrustedTranscriptionObservation>,
     #[serde(default)]
     mutation_replay: Option<MutationReplayObservation>,
+    #[serde(default)]
+    python_plugins: Vec<PythonPluginObservation>,
+    #[serde(default)]
+    python_property: Option<PythonPropertyObservation>,
+    #[serde(default)]
+    static_check: Option<StaticCheckObservation>,
+    #[serde(default)]
+    distribution_reproduction: Option<DistributionReproductionObservation>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PythonPluginObservation {
+    module: String,
+    distribution: String,
+    version: String,
+    origin_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PythonPropertyObservation {
+    schema: String,
+    framework: String,
+    seed: u64,
+    framework_version: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StaticCheckObservation {
+    schema: String,
+    tool: String,
+    tool_version: String,
+    configuration_sha256: String,
+    targets: Vec<String>,
+    diagnostics: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DistributionReproductionObservation {
+    schema: String,
+    format: String,
+    run_digests: Vec<String>,
+    registered_digest: String,
+    source_date_epoch: u64,
+    build_backend_name: String,
+    build_backend_version: String,
+    #[serde(default)]
+    npm_integrity: Option<String>,
+    #[serde(default)]
+    member_inventory: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2486,6 +2630,156 @@ fn observation_to_record(
     };
     let mutation_witness =
         mutation_witness_from_observation(root, bundle, unit, kind, &claims, &observation)?;
+    let observed_plugin_modules = observation
+        .python_plugins
+        .iter()
+        .map(|plugin| plugin.module.as_str())
+        .collect::<Vec<_>>();
+    if observed_plugin_modules
+        != unit
+            .operation
+            .plugins
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+    {
+        bail!("PB-ADAPTER-0027: Python plugin observation does not match registered plugins");
+    }
+    let python_plugins = observation
+        .python_plugins
+        .iter()
+        .map(|plugin| {
+            Ok(PythonPluginEvidence {
+                module: plugin.module.clone(),
+                distribution: plugin.distribution.clone(),
+                version: plugin.version.clone(),
+                origin_sha256: parse_digest(&plugin.origin_sha256)?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let python_property = match (&unit.property, &observation.python_property) {
+        (Some(registered), Some(observed))
+            if kind == EvidenceKind::PropertyTest
+                && observed.schema == "proofbound-python-property/1"
+                && observed.framework
+                    == serde_json::to_value(registered.framework)?
+                        .as_str()
+                        .expect("framework serializes as text")
+                && observed.seed == registered.seed
+                && python_plugins.iter().any(|plugin| {
+                    plugin.module == "_hypothesis_pytestplugin"
+                        && plugin.distribution == "hypothesis"
+                        && plugin.version == observed.framework_version
+                }) =>
+        {
+            Some(PythonPropertyEvidence {
+                schema: observed.schema.clone(),
+                framework: observed.framework.clone(),
+                seed: observed.seed,
+                framework_version: observed.framework_version.clone(),
+            })
+        }
+        (None, None) => None,
+        _ => bail!("PB-ADAPTER-0028: Python property observation does not match its registration"),
+    };
+    let static_check = match (kind, &observation.static_check) {
+        (EvidenceKind::StaticCheck, Some(observed)) => {
+            let configuration = unit
+                .operation
+                .configuration
+                .as_deref()
+                .context("PB-ADAPTER-0029: static-check registration omitted configuration")?;
+            let matching_configuration = observation.input_artifacts.iter().filter(|artifact| {
+                artifact.logical_name == configuration
+                    && artifact.sha256 == observed.configuration_sha256
+            });
+            if observed.schema != "proofbound-static-check/1"
+                || observed.diagnostics != 0
+                || observed.targets
+                    != if unit.adapter == AdapterKind::NodeTest {
+                        unit.expected_inventory.as_slice()
+                    } else {
+                        unit.operation.targets.as_slice()
+                    }
+                || matching_configuration.count() != 1
+            {
+                bail!("PB-ADAPTER-0029: static-check observation disagrees with registration");
+            }
+            Some(StaticCheckEvidence {
+                schema: observed.schema.clone(),
+                tool: observed.tool.clone(),
+                tool_version: observed.tool_version.clone(),
+                configuration_sha256: parse_digest(&observed.configuration_sha256)?,
+                targets: observed.targets.iter().cloned().collect(),
+                diagnostics: observed.diagnostics,
+            })
+        }
+        (EvidenceKind::StaticCheck, None) => {
+            bail!("PB-ADAPTER-0029: static-check observation omitted its typed record")
+        }
+        (_, Some(_)) => bail!("PB-ADAPTER-0029: static-check record appears on another kind"),
+        (_, None) => None,
+    };
+    let distribution_reproduction = match (
+        unit.distribution.as_ref(),
+        observation.distribution_reproduction.as_ref(),
+    ) {
+        (Some(registered), Some(observed))
+            if kind == EvidenceKind::ExampleTest
+                && observed.schema == "proofbound-distribution-reproduction/1"
+                && observed.format
+                    == serde_json::to_value(registered.format)?
+                        .as_str()
+                        .expect("format serializes as text")
+                && observed.registered_digest == registered.artifact_sha256
+                && observed.source_date_epoch == registered.source_date_epoch =>
+        {
+            let npm_fields_valid = if observed.format == "npm-package" {
+                observed
+                    .npm_integrity
+                    .as_deref()
+                    .is_some_and(|value| value.starts_with("sha512-") && value.len() <= 512)
+                    && !observed.member_inventory.is_empty()
+                    && observed.source_date_epoch == 0
+                    && observed.build_backend_name == "npm"
+            } else {
+                observed.npm_integrity.is_none()
+            };
+            if observed.run_digests.len() != 2
+                || observation.generated_artifacts.len() != 2
+                || !npm_fields_valid
+                || observed
+                    .run_digests
+                    .iter()
+                    .enumerate()
+                    .any(|(index, digest)| {
+                        digest != &registered.artifact_sha256
+                            || observation.generated_artifacts[index].sha256 != *digest
+                    })
+            {
+                bail!("PB-ADAPTER-0030: distribution candidates do not match registered bytes");
+            }
+            Some(DistributionReproductionEvidence {
+                schema: observed.schema.clone(),
+                format: observed.format.clone(),
+                run_digests: observed
+                    .run_digests
+                    .iter()
+                    .map(|digest| parse_digest(digest))
+                    .collect::<Result<_>>()?,
+                registered_digest: parse_digest(&observed.registered_digest)?,
+                source_date_epoch: observed.source_date_epoch,
+                build_backend_name: observed.build_backend_name.clone(),
+                build_backend_version: observed.build_backend_version.clone(),
+                npm_integrity: observed.npm_integrity.clone(),
+                member_inventory: observed.member_inventory.clone(),
+            })
+        }
+        (None, None) => None,
+        _ => bail!(
+            "PB-ADAPTER-0030: distribution reproduction observation does not match registration"
+        ),
+    };
     let commands = observation
         .commands
         .iter()
@@ -2556,6 +2850,7 @@ fn observation_to_record(
         },
         cache_origin: CacheOrigin::Executed,
         prior_receipt_sha256: None,
+        python_plugins,
     };
     Ok(EvidenceRecord {
         schema: EVIDENCE_DOMAIN.into(),
@@ -2583,6 +2878,9 @@ fn observation_to_record(
         bounded_check,
         exhaustive_check: None,
         mutation_witness,
+        python_property,
+        static_check,
+        distribution_reproduction,
         independence: (kind == EvidenceKind::IndependentCheck)
             .then_some(IndependenceMode::Independent),
         inventoried_targets: observation.inventory.into_iter().collect(),
@@ -2629,6 +2927,7 @@ fn mutation_witness_from_observation(
     let observed_mutant = core_artifact_ref(&observed.mutant_artifact)?;
     let observed_target_postimage = core_artifact_ref(&observed.target_postimage)?;
     let observed_witness = core_artifact_ref(&observed.witness_source)?;
+    let expected_exit = mutation_expected_exit(unit.adapter)?;
     if observation.outcome != ObservationOutcome::Passed
         || observed.schema != "proofbound-mutation-replay-observation/1"
         || observed.mutation_id != registered.mutation_id
@@ -2639,26 +2938,32 @@ fn mutation_witness_from_observation(
         || observed_mutant != registered.mutant_artifact
         || observed_target_postimage != registered.target_postimage
         || observed_witness != registered.witness_source
-        || observed.expected_failure.allowed_exit_codes != [101]
+        || observed.expected_failure.allowed_exit_codes != [expected_exit]
         || observed.baseline_run_index >= observed.expected_failure.run_index
     {
         bail!(
             "PB-MUTATION-0006: mutation observation disagrees with its sealed registry or exact expected-failure contract"
         );
     }
-    let expected_inputs = [
-        &registered.registry,
-        &registered.target_preimage,
-        &registered.mutant_artifact,
-        &registered.witness_source,
+    let mut expected_inputs = vec![
+        registered.registry.clone(),
+        registered.target_preimage.clone(),
+        registered.mutant_artifact.clone(),
+        registered.witness_source.clone(),
     ];
+    if unit.adapter == AdapterKind::NodeTest {
+        expected_inputs.extend([
+            registered_file_artifact(root, bundle, "package-lock.json")?,
+            registered_file_artifact(root, bundle, "package.json")?,
+        ]);
+    }
     if observation.input_artifacts.len() != expected_inputs.len()
         || expected_inputs.iter().any(|expected| {
             observation
                 .input_artifacts
                 .iter()
                 .filter_map(|artifact| core_artifact_ref(artifact).ok())
-                .filter(|artifact| artifact == *expected)
+                .filter(|artifact| artifact == expected)
                 .count()
                 != 1
         })
@@ -2685,21 +2990,21 @@ fn mutation_witness_from_observation(
         .commands
         .get(observed.expected_failure.run_index)
         .context("PB-MUTATION-0008: mutation failure command index is out of bounds")?;
-    let selector = registered
-        .check_id
-        .split_once("::")
-        .map_or(registered.check_id.as_str(), |(_, selector)| selector);
+    let command_shape_valid = mutation_command_shape_valid(
+        unit.adapter,
+        baseline_command,
+        mutant_command,
+        &registered.check_id,
+    );
     if baseline.exit_code != Some(0)
-        || mutant.exit_code != Some(101)
+        || mutant.exit_code != Some(expected_exit)
         || observation
             .runs
             .iter()
             .filter(|run| run.exit_code != Some(0))
             .count()
             != 1
-        || baseline_command.program == mutant_command.program
-        || baseline_command.args != [selector, "--exact"]
-        || mutant_command.args != [selector, "--exact"]
+        || !command_shape_valid
         || baseline_command.environment_allowlist != mutant_command.environment_allowlist
     {
         bail!(
@@ -2722,12 +3027,73 @@ fn mutation_witness_from_observation(
         baseline_run_index: observed.baseline_run_index,
         expected_failure: ExpectedFailure {
             run_index: observed.expected_failure.run_index,
-            allowed_exit_codes: BTreeSet::from([101]),
+            allowed_exit_codes: BTreeSet::from([expected_exit]),
         },
         proof_term_theorem: None,
     };
     witness.mutation_sha256 = witness.derived_mutation_sha256(claims)?;
     Ok(Some(witness))
+}
+
+fn mutation_expected_exit(adapter: AdapterKind) -> Result<i32> {
+    match adapter {
+        AdapterKind::RustTest => Ok(101),
+        AdapterKind::PythonTest | AdapterKind::NodeTest => Ok(1),
+        _ => bail!("PB-MUTATION-0006: unsupported mutation adapter"),
+    }
+}
+
+fn mutation_command_shape_valid(
+    adapter: AdapterKind,
+    baseline: &CommandObservation,
+    mutant: &CommandObservation,
+    check_id: &str,
+) -> bool {
+    match adapter {
+        AdapterKind::NodeTest => {
+            baseline.program == mutant.program
+                && baseline.args == mutant.args
+                && baseline.args.len() >= 5
+                && baseline.args.first().map(String::as_str) == Some("run")
+                && baseline.args.get(1).map(String::as_str)
+                    == check_id.split_once("::").map(|(file, _)| file)
+                && baseline
+                    .args
+                    .iter()
+                    .any(|argument| argument == "--reporter=json")
+                && baseline
+                    .args
+                    .iter()
+                    .any(|argument| argument == "--testNamePattern")
+        }
+        AdapterKind::PythonTest => {
+            let expected_args = |root: &str| {
+                vec![
+                    "-m".to_owned(),
+                    "pytest".to_owned(),
+                    "-p".to_owned(),
+                    "no:cacheprovider".to_owned(),
+                    "--rootdir".to_owned(),
+                    root.to_owned(),
+                    "-q".to_owned(),
+                    format!("{root}/{check_id}"),
+                ]
+            };
+            baseline.program == "python3"
+                && mutant.program == "python3"
+                && baseline.args == expected_args("$BASELINE")
+                && mutant.args == expected_args("$MUTANT")
+        }
+        AdapterKind::RustTest => {
+            let selector = check_id
+                .split_once("::")
+                .map_or(check_id, |(_, selector)| selector);
+            baseline.program != mutant.program
+                && baseline.args == [selector, "--exact"]
+                && mutant.args == [selector, "--exact"]
+        }
+        _ => false,
+    }
 }
 
 fn trusted_transcription_from_observation(
@@ -3400,7 +3766,8 @@ fn evidence_node_kind(kind: EvidenceKind) -> NodeKind {
         EvidenceKind::IndependentCheck
         | EvidenceKind::PropertyTest
         | EvidenceKind::ExampleTest
-        | EvidenceKind::MutationWitness => NodeKind::TestSuite,
+        | EvidenceKind::MutationWitness
+        | EvidenceKind::StaticCheck => NodeKind::TestSuite,
         EvidenceKind::Review => NodeKind::Review,
         EvidenceKind::Assumption => NodeKind::Assumption,
         EvidenceKind::Open => NodeKind::Claim,
@@ -3415,9 +3782,10 @@ fn evidence_edge_kind(kind: EvidenceKind) -> EdgeKind {
         EvidenceKind::SourceRefinement => EdgeKind::Refines,
         EvidenceKind::BoundedCheck | EvidenceKind::ExhaustiveCheck => EdgeKind::CoversBoundedDomain,
         EvidenceKind::IndependentCheck => EdgeKind::CrossChecks,
-        EvidenceKind::PropertyTest | EvidenceKind::ExampleTest | EvidenceKind::MutationWitness => {
-            EdgeKind::Checks
-        }
+        EvidenceKind::PropertyTest
+        | EvidenceKind::ExampleTest
+        | EvidenceKind::MutationWitness
+        | EvidenceKind::StaticCheck => EdgeKind::Checks,
         EvidenceKind::Review => EdgeKind::ReviewedBy,
         EvidenceKind::Assumption | EvidenceKind::Open => EdgeKind::Assumes,
     }
@@ -3752,6 +4120,9 @@ fn synthesize_review_records(
             bounded_check: None,
             exhaustive_check: None,
             mutation_witness: None,
+            python_property: None,
+            static_check: None,
+            distribution_reproduction: None,
             independence: None,
             inventoried_targets: item.review_evidence.iter().cloned().collect(),
             assumptions: BTreeSet::new(),
@@ -3795,6 +4166,7 @@ fn synthesize_review_records(
                 resource_usage: ResourceUsage::default(),
                 cache_origin: CacheOrigin::Executed,
                 prior_receipt_sha256: None,
+                python_plugins: Vec::new(),
             },
         });
     }
@@ -4669,6 +5041,7 @@ fn canonical_reference(kind: ManifestEvidenceKind, id: &str) -> String {
         ManifestEvidenceKind::PropertyTest => "property-test",
         ManifestEvidenceKind::ExampleTest => "example-test",
         ManifestEvidenceKind::MutationWitness => "mutation-witness",
+        ManifestEvidenceKind::StaticCheck => "static-check",
         ManifestEvidenceKind::Review => "review",
         ManifestEvidenceKind::Assumption => "assumption",
         ManifestEvidenceKind::Open => "open",
@@ -5362,6 +5735,50 @@ fn release_evidence_record(
             "proof_term_witness": item.proof_term_theorem.is_some(),
         })
     });
+    let python_property = evidence.python_property.as_ref().map(|item| {
+        serde_json::json!({
+            "schema": item.schema,
+            "framework": item.framework,
+            "seed": item.seed,
+            "framework_version": item.framework_version,
+        })
+    });
+    let static_check = evidence.static_check.as_ref().map(|item| {
+        serde_json::json!({
+            "schema": item.schema,
+            "tool": item.tool,
+            "tool_version": item.tool_version,
+            "configuration_sha256": format!("sha256:{}", item.configuration_sha256),
+            "targets": item.targets,
+            "diagnostics": item.diagnostics,
+        })
+    });
+    let distribution_reproduction = evidence.distribution_reproduction.as_ref().map(|item| {
+        serde_json::json!({
+            "schema": item.schema,
+            "format": item.format,
+            "run_digests": item.run_digests.iter().map(|digest| format!("sha256:{digest}")).collect::<Vec<_>>(),
+            "registered_digest": format!("sha256:{}", item.registered_digest),
+            "source_date_epoch": item.source_date_epoch,
+            "build_backend_name": item.build_backend_name,
+            "build_backend_version": item.build_backend_version,
+            "npm_integrity": item.npm_integrity,
+            "member_inventory": item.member_inventory,
+        })
+    });
+    let python_plugins = evidence
+        .provenance
+        .python_plugins
+        .iter()
+        .map(|plugin| {
+            serde_json::json!({
+                "module": plugin.module,
+                "distribution": plugin.distribution,
+                "version": plugin.version,
+                "origin_sha256": format!("sha256:{}", plugin.origin_sha256),
+            })
+        })
+        .collect::<Vec<_>>();
     let open_obligation = evidence.open_obligation.as_ref().map(|item| {
         serde_json::json!({
             "id": item.id,
@@ -5385,6 +5802,9 @@ fn release_evidence_record(
         "bounded_check": bounded_check,
         "exhaustive_check": exhaustive_check,
         "mutation_witness": mutation_witness,
+        "python_property": python_property,
+        "static_check": static_check,
+        "distribution_reproduction": distribution_reproduction,
         "independence": evidence.independence,
         "inventoried_targets": evidence.inventoried_targets,
         "assumptions": evidence.assumptions,
@@ -5420,11 +5840,13 @@ fn release_evidence_record(
                 "disk_bytes": evidence.provenance.resource_usage.peak_disk_bytes,
                 "memory_bytes": evidence.provenance.resource_usage.peak_memory_bytes,
             },
+            "python_plugins": python_plugins,
         },
     });
     omit_null_object_fields(&mut record);
     if let Some(provenance) = record.get_mut("provenance") {
         omit_empty_array_field(provenance, "additional_closures");
+        omit_empty_array_field(provenance, "python_plugins");
     }
     Ok(record)
 }
@@ -6132,6 +6554,7 @@ mod tests {
             "member/src",
             "target",
             ".proofbound",
+            "node_modules/.bin",
             "empty-initial/nested",
         ] {
             fs::create_dir_all(root.join(directory)).unwrap();
@@ -6140,6 +6563,11 @@ mod tests {
         fs::write(
             root.join(".proofbound/ignored.rs"),
             b"ephemeral Proofbound state\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("node_modules/.bin/ignored"),
+            b"ephemeral Node installation\n",
         )
         .unwrap();
         fs::write(root.join("registered.txt"), b"unit-owned input\n").unwrap();
@@ -6274,6 +6702,7 @@ description = {description:?}
         }
         assert!(!initial.contains_key("target/ignored.rs"));
         assert!(!initial.contains_key(".proofbound/ignored.rs"));
+        assert!(!initial.contains_key("node_modules/.bin/ignored"));
         let initial_key = key(&initial);
         fs::create_dir_all(root.join("empty-added-later/nested")).unwrap();
         let empty_directory_added = cache_input_identities(&bundle, &unit).unwrap();
@@ -6715,22 +7144,63 @@ description = {description:?}
         assert!(error.contains("contains symlink"));
     }
 
-    #[cfg(unix)]
     #[test]
-    fn release_schema_boundary_rejects_symlinks_before_copying() {
-        use std::os::unix::fs::symlink;
-
+    fn release_schemas_are_emitted_from_build_pinned_bytes() {
         let temporary = tempfile::tempdir().unwrap();
-        let source = temporary.path().join("schemas");
         let destination = temporary.path().join("release-schemas");
-        fs::create_dir_all(&source).unwrap();
         fs::create_dir_all(&destination).unwrap();
-        fs::write(source.join("a.schema.json"), b"{}").unwrap();
-        symlink("a.schema.json", source.join("z.schema.json")).unwrap();
 
-        let error = copy_release_schemas(&source, &destination).unwrap_err();
-        assert!(error.to_string().contains("symlink in schema boundary"));
-        assert_eq!(fs::read_dir(destination).unwrap().count(), 0);
+        write_release_schemas(&destination).unwrap();
+
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let inventory = |root: &Path| {
+            let mut entries = fs::read_dir(root)
+                .unwrap()
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    (entry.file_name(), fs::read(entry.path()).unwrap())
+                })
+                .collect::<Vec<_>>();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            entries
+        };
+        assert_eq!(inventory(&destination), inventory(&source));
+    }
+
+    #[test]
+    fn python_mutation_abi_requires_exit_one_and_distinct_exact_shadows() {
+        let command = |root: &str| CommandObservation {
+            program: "python3".to_owned(),
+            args: vec![
+                "-m".to_owned(),
+                "pytest".to_owned(),
+                "-p".to_owned(),
+                "no:cacheprovider".to_owned(),
+                "--rootdir".to_owned(),
+                root.to_owned(),
+                "-q".to_owned(),
+                format!("{root}/tests/test_subject.py::test_guard"),
+            ],
+            environment_allowlist: Vec::new(),
+        };
+        let baseline = command("$BASELINE");
+        let mutant = command("$MUTANT");
+
+        assert_eq!(mutation_expected_exit(AdapterKind::PythonTest).unwrap(), 1);
+        assert!(mutation_command_shape_valid(
+            AdapterKind::PythonTest,
+            &baseline,
+            &mutant,
+            "tests/test_subject.py::test_guard"
+        ));
+
+        let replayed_baseline = command("$BASELINE");
+        assert!(!mutation_command_shape_valid(
+            AdapterKind::PythonTest,
+            &baseline,
+            &replayed_baseline,
+            "tests/test_subject.py::test_guard"
+        ));
     }
 
     #[test]

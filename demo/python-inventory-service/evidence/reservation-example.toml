@@ -1,0 +1,22 @@
+schema = "proofbound-evidence-unit/1"
+id = "reservation-example"
+adapter = "python-test"
+kind = "example-test"
+claims = ["PY-RESERVATION-001"]
+tier = 0
+assumptions = ["PY-RUNTIME-001"]
+expected_inventory = ["test_reservations::test_rejects_request_beyond_remaining_capacity"]
+inputs = ["pyproject.toml", "requirements-dev.txt", "src/inventory_service/__init__.py", "src/inventory_service/reservations.py", "tests/test_reservations.py"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "pytest"
+manifest = "pyproject.toml"
+targets = ["test_rejects_request_beyond_remaining_capacity"]
+paths = ["tests/test_reservations.py"]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 536870912

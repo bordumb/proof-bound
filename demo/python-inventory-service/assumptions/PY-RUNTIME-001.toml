@@ -1,0 +1,12 @@
+schema = "proofbound-assumption/1"
+id = "PY-RUNTIME-001"
+statement = "The registered Python environment is representative, and supplied inventory capacity values are accurate."
+category = "external-provider"
+owner = "Proofbound Python reference maintainer"
+rationale = "Tests, property examples, static analysis, and wheel reproduction do not prove interpreter or analyzer soundness and cannot authenticate external capacity data."
+scope = "Only the empirical interpretation of PY-RESERVATION-001 and the reproduction interpretation of PY-WHEEL-001."
+affected_claims = ["PY-RESERVATION-001", "PY-WHEEL-001"]
+review_evidence = ["README.md#claims-and-trust"]
+discharge_plan = "Bind authenticated capacity inputs and a reviewed runtime when stronger typed routes become available."
+source_citation = "docs/specs/0002_python_support.md#10-subject-identity-limits"
+status = "active"

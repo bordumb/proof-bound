@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.11.0
+**Version:** 0.12.0
 
 **Date:** 2026-09-01
 
@@ -12,6 +12,16 @@
 
 ### Revision history
 
+- **0.12.0** — adopts the Python and TypeScript ecosystem contracts of
+  Specifications 0002 version 0.3.0 and 0003 version 0.2.0: adds empirical
+  `static-check` evidence; typed pytest/Vitest plugin and property records;
+  mypy and `tsc --noEmit` analyzer routes; pytest and Vitest singleton mutation
+  witnesses; and the closed evidence-unit `/4` distribution-reproduction
+  route for wheels, sdists, and npm packages. The `ledger` profile admits the
+  new empirical kind but cannot promote it beyond `TESTED · MODEL_ONLY`.
+  Pyright, ty, pyrefly, ruff, and tsgo remain reserved until they satisfy the
+  authoritative-inventory admission criteria (§5, §9.1, §10.2, §11.2.2–3,
+  §12.2; Specifications 0002–0003).
 - **0.11.0** — sealed singleton mutation replay: reserves evidence-unit `/3`
   and mutation-registry `/2` for one byte-pinned full-file mutant and one exact
   witness per evidence fate; runs the witness in independent clean and mutated
@@ -161,8 +171,8 @@ more than ordinary unit-test confidence, including:
 - deterministic workflow engines; and
 - publication or certification pipelines.
 
-Proofbound is not restricted to Python, Rust, and Lean. Those languages form
-the first supported vertical because they exercise orchestration, production
+Proofbound is not restricted to Python, TypeScript, Rust, and Lean. Those
+languages form the first supported vertical because they exercise orchestration, production
 implementation, bounded model checking, source translation, and theorem proving.
 
 ## 3. Goals and non-goals
@@ -333,6 +343,7 @@ kinds simultaneously.
 | `exhaustive-check` | Every member of an explicitly finite registered domain was evaluated. |
 | `property-test` | Generated examples exercised a property; this is empirical evidence. |
 | `example-test` | Named test cases passed. |
+| `static-check` | A registered static analyzer reported zero violations over an exact authoritative target inventory under a byte-pinned configuration. This is empirical evidence, not a semantic proof. |
 | `mutation-witness` | One byte-pinned mutation of the subject was automatically installed in a fresh shadow after the same exact registered check passed on an independent clean shadow; that check then failed with its registered expected exit. The strongest form may additionally carry a compiled proof term witnessing the violation. |
 | `review` | A human review attestation exists for a precisely scoped surface. |
 | `assumption` | The claim depends on an explicit hypothesis or external premise. |
@@ -858,7 +869,8 @@ The initial built-in profiles are:
 ### 9.1 `ledger`
 
 - This is the built-in Tier 0 adoption profile.
-- It admits registered property-test, example-test, mutation-witness, review,
+- It admits registered property-test, example-test, static-check,
+  mutation-witness, review,
   assumption, and open evidence; independent-check, exhaustive-check,
   theorem, artifact-soundness,
   source-refinement, and bounded-check evidence are not required or admitted
@@ -1516,15 +1528,39 @@ operation derives its test from `witness`; checker-authored target aliases,
 additional arguments, outputs, qualifiers, or multiple mutations are invalid.
 
 For `check` and `reproduce`, the adapter creates two fresh shadows from the
-same reviewed source. It verifies the target preimage, recompiles and discovers
-the exact witness in the baseline shadow, and requires that one test to pass.
-In the second shadow it copies the registered full-file mutant bytes over the
-target, verifies the target postimage equals the mutant artifact, recompiles,
-rediscovers the same test, and requires that exact test to fail with libtest
-exit code 101. A compile failure, missing or renamed test, another exit code,
-truncated output, timeout, extra changed path, or mutation of the repository is
-not a successful witness. `inventory` performs exact registration and witness
-discovery without admitting evidence; `update` is unsupported.
+same reviewed source. It verifies the target preimage, discovers the exact
+witness in the baseline shadow, and requires that one test to pass. The
+original Rust route uses `cargo-test`, a Rust subject, and libtest exit 101.
+Specification 0002 adds `pytest`, a Python subject, and exact pytest exit 1;
+Specification 0003 adds `vitest`, a TypeScript subject, and its exact typed
+failure ABI. In the second shadow the adapter copies the registered full-file
+mutant bytes over the target, verifies the target postimage equals the mutant
+artifact, rediscovers the same test, and requires only that exact test to fail
+with the route's registered exit. A compile or collection failure, missing or
+renamed test, another exit code, truncated output, timeout, extra changed path,
+or mutation of the repository is not a successful witness. `inventory`
+performs exact registration and witness discovery without admitting evidence;
+`update` is unsupported.
+
+### 11.2.3 Distribution reproduction
+
+`proofbound-evidence-unit/4` is the closed distribution-reproduction route. It
+is not a reinterpretation of versions 1–3 and forbids transcription, mutation,
+and untyped operation fields. The typed operations are `python-distribution`
+for wheel or sdist artifacts (Specification 0002 §9) and `npm-package` for npm
+package artifacts (Specification 0003). Each registration names one exact
+artifact, expected SHA-256 identity, deterministic-build epoch, and exact
+source inputs including the ecosystem manifest.
+
+The adapter builds the artifact in two independent sealed shadows, without
+dependency installation or network access, and requires both outputs to be
+byte-identical and equal the registered digest. Archive safety, exact member
+inventory, and ecosystem integrity metadata are independently checked as
+defined by the language specification. Generated candidates remain beneath
+`.proofbound/`; this route never writes a built distribution into the reviewed
+tree. Its passing record is `example-test` evidence and can establish only
+empirical support. The canonical evidence and standalone verifier recompute
+both digest comparisons from the portable receipt.
 
 ### 11.3 Translation unit
 
@@ -1899,6 +1935,10 @@ proofbound release [--output DIR]
   ready even when it differs from a project lock; the separate locked-toolchain
   capability is then unavailable and reports the exact mismatch. Only a ready
   tool and an available project capability can satisfy a unit.
+  Specifications 0002 and 0003 additionally require native Python/Node test,
+  analyzer, plugin, and distribution-builder probes only for the typed units
+  that register them. Reserved analyzer spellings are rejected before doctor
+  and never become runnable capabilities.
 - `check` materializes evidence and compiles the assurance graph. It writes
   receipts and the evidence store only; it never modifies committed files,
   including generated code. Valid cached receipts are reused (§16.2), and
