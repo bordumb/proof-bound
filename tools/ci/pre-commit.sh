@@ -14,8 +14,10 @@ cargo fmt --manifest-path templates/rust-aeneas-refinement/rust/Cargo.toml -- --
 
 cargo test --locked --offline -p proofbound-manifest --test repository_bundle
 cargo test --locked --offline -p proofbound-manifest --test repository_closures
+cargo test --locked --offline -p proofbound-ir-prototype
 
 uv run --frozen --offline pytest -q \
   python/tests/test_public_schemas.py \
   python/tests/test_ci_revision_range.py \
+  python/tests/test_assurance_ir_checker.py \
   python/tests/test_release_metadata.py
