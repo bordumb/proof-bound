@@ -958,7 +958,9 @@ fn validate_node_metadata(root: &Path, _unit: &EvidenceUnitManifest) -> Result<(
                 "lockfile package entry `{path}` is a link"
             )));
         }
-        if entry.get("integrity").and_then(Value::as_str).is_none() {
+        if entry.get("integrity").and_then(Value::as_str).is_none()
+            && !bundled_entry_is_bound(path, entry, packages)
+        {
             return Err(NodeError::Unsupported(format!(
                 "lockfile package entry `{path}` omits integrity"
             )));
@@ -972,6 +974,19 @@ fn validate_node_metadata(root: &Path, _unit: &EvidenceUnitManifest) -> Result<(
         }
     }
     Ok(())
+}
+
+fn bundled_entry_is_bound(
+    path: &str,
+    entry: &serde_json::Map<String, Value>,
+    packages: &serde_json::Map<String, Value>,
+) -> bool {
+    entry.get("inBundle").and_then(Value::as_bool) == Some(true)
+        && packages.iter().any(|(parent_path, parent)| {
+            !parent_path.is_empty()
+                && path.starts_with(&format!("{parent_path}/node_modules/"))
+                && parent.get("integrity").and_then(Value::as_str).is_some()
+        })
 }
 
 fn forbidden_dependency(value: &str) -> bool {
@@ -1456,9 +1471,9 @@ fn validate_vitest_report(
     } else {
         report.get("numFailedTests").and_then(Value::as_u64)
     };
-    if total != Some(1) || selected != Some(1) {
+    if selected != Some(1) {
         return Err(NodeError::Inventory(format!(
-            "vitest executed total={total:?}, selected-outcome={selected:?}; expected exactly one"
+            "vitest executed total={total:?}, selected-outcome={selected:?}; expected one selected assertion"
         )));
     }
     let test_results = report
@@ -1511,22 +1526,38 @@ fn validate_vitest_report(
                     "vitest assertion name fields disagree".to_owned(),
                 ));
             }
+            let node = VitestNode {
+                file: file.clone(),
+                name: components.join(" > "),
+            };
             let expected_status = if expect_pass { "passed" } else { "failed" };
-            if assertion.get("status").and_then(Value::as_str) != Some(expected_status) {
+            let status = assertion.get("status").and_then(Value::as_str);
+            if node == *expected && status != Some(expected_status) {
                 return Err(NodeError::Inventory(format!(
                     "vitest assertion did not report `{expected_status}`"
                 )));
             }
-            assertions.push(VitestNode {
-                file: file.clone(),
-                name: components.join(" > "),
-            });
+            if node != *expected && status != Some("skipped") {
+                return Err(NodeError::Inventory(format!(
+                    "vitest executed unselected assertion `{}` with status {status:?}",
+                    node.id()
+                )));
+            }
+            assertions.push((node, status));
         }
     }
-    if assertions != [expected.clone()] {
+    let selected_assertions = assertions
+        .iter()
+        .filter(|(_, status)| *status != Some("skipped"))
+        .map(|(node, _)| node.clone())
+        .collect::<Vec<_>>();
+    if total != u64::try_from(assertions.len()).ok() || selected_assertions != [expected.clone()] {
         return Err(NodeError::Inventory(format!(
             "vitest report selected {:?}, expected `{}`",
-            assertions.iter().map(VitestNode::id).collect::<Vec<_>>(),
+            selected_assertions
+                .iter()
+                .map(VitestNode::id)
+                .collect::<Vec<_>>(),
             expected.id()
         )));
     }
@@ -2830,6 +2861,21 @@ mod tests {
             validate_node_metadata(&root, &unit),
             Err(NodeError::Unsupported(message)) if message.contains("unsupported dependency")
         ));
+
+        let packages =
+            serde_json::from_value::<serde_json::Map<String, Value>>(serde_json::json!({
+                "node_modules/npm": {"integrity": "sha512-parent"},
+                "node_modules/npm/node_modules/child": {"inBundle": true}
+            }))
+            .unwrap();
+        let child = packages["node_modules/npm/node_modules/child"]
+            .as_object()
+            .unwrap();
+        assert!(bundled_entry_is_bound(
+            "node_modules/npm/node_modules/child",
+            child,
+            &packages
+        ));
     }
 
     #[test]
@@ -2909,6 +2955,29 @@ mod tests {
             duration_ms: 1,
         };
         validate_vitest_report(&output, &root, &expected, true).unwrap();
+        let mut filtered = report.clone();
+        filtered["numTotalTests"] = serde_json::json!(2);
+        filtered["numPendingTests"] = serde_json::json!(1);
+        filtered["testResults"][0]["assertionResults"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "ancestorTitles": ["suite"],
+                "fullName": "suite other",
+                "status": "skipped",
+                "title": "other"
+            }));
+        let filtered_output = ProcessOutput {
+            stdout: serde_json::to_vec(&filtered).unwrap(),
+            ..output.clone()
+        };
+        validate_vitest_report(&filtered_output, &root, &expected, true).unwrap();
+        filtered["testResults"][0]["assertionResults"][1]["status"] = serde_json::json!("passed");
+        let unselected_output = ProcessOutput {
+            stdout: serde_json::to_vec(&filtered).unwrap(),
+            ..output.clone()
+        };
+        assert!(validate_vitest_report(&unselected_output, &root, &expected, true).is_err());
         let mut extra = report;
         extra["numTotalTests"] = serde_json::json!(2);
         let output = ProcessOutput {

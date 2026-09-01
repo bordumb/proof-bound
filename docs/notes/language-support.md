@@ -178,6 +178,36 @@ and reaches level 3 for its supported Python and TypeScript routes. Level 4
 remains ecosystem- and semantics-specific. The product should show this
 capability level honestly rather than presenting a single “supported” badge.
 
+## External compatibility trials
+
+The initial implementation was exercised against repositories outside the
+Proofbound workspace, not only against its purpose-built demonstrations. The
+2026-09-01 trial set deliberately spans different maintainers and project
+shapes:
+
+| Ecosystem | Repository | Shape exercised | Result |
+|---|---|---|---|
+| Python | Pallets Click | command-line library with parametrized pytest nodes | exact registered test admitted |
+| Python | Pallets ItsDangerous | security-token library with opaque parametrized node identifiers | exact registered test admitted |
+| Python | attrs | independent class-model library using Hypothesis | seeded property route admitted |
+| Python | Encode HTTPX | independent network-client library with a broad package/test source closure | exact registered test admitted |
+| TypeScript | Vitest Coverage Report Action | distributable GitHub Action with a root Vitest configuration | exact registered test admitted |
+| TypeScript | Node TypeScript Boilerplate | application/library boilerplate with a nested test layout | exact registered test admitted under its declared Node 24 runtime |
+
+These are compatibility probes, not endorsements or permanent fixtures. Their
+source remains outside the Proofbound repository. The GitHub Action's legacy
+lockfile was regenerated as npm lockfile v3 for the trial, and the boilerplate
+was run with the Node version required by its own engine declaration.
+
+The trials found product defects that synthetic fixtures had not exposed:
+pytest parameter identifiers needed a bounded opaque grammar; initialization
+needed the complete Python source surface; bundled npm entries needed a
+parent-integrity rule; initialization needed to register every Vitest node in
+the selected file; and exact Vitest execution needed to distinguish one
+executed assertion from the other assertions explicitly reported as skipped.
+Each correction retains fail-closed inventory comparison rather than weakening
+the adapter to accommodate a repository.
+
 ## Promoted reference demonstration
 
 The pure-Python

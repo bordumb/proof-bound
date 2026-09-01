@@ -153,7 +153,9 @@ Every Node evidence unit binds:
 
 `package-lock.json` MUST be present, parse as canonical JSON with
 `lockfileVersion >= 3`, and carry an `integrity` value for every
-depended-upon package entry. A missing lockfile, a missing integrity
+depended-upon package entry. An `inBundle = true` child MAY omit its own
+value only when a proper containing package entry carries the integrity
+that binds the bundled bytes. A missing lockfile, an otherwise missing integrity
 field, or a `file:`/`link:`/`git:` dependency is an unsupported
 capability failure in this version.
 

@@ -4234,7 +4234,7 @@ fn resolve_python_targets(
     }
     let mut selected = Vec::new();
     for target in targets {
-        if !safe_test_tail(target) {
+        if !safe_pytest_component(target) {
             return Err(AdapterError::Unit(format!(
                 "invalid pytest target `{target}`"
             )));
@@ -5139,7 +5139,15 @@ fn safe_test_tail(value: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '[' | ']' | '.'))
 }
 fn safe_pytest_suffix(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 2048 && value.split("::").all(safe_test_tail)
+    !value.is_empty()
+        && value.chars().count() <= 2048
+        && value.split("::").all(safe_pytest_component)
+}
+fn safe_pytest_component(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().count() <= 1024
+        && !value.starts_with('-')
+        && !value.chars().any(char::is_control)
 }
 fn safe_pytest_node(value: &str) -> bool {
     let Some((path, suffix)) = value.split_once("::") else {
@@ -5446,6 +5454,19 @@ else:
                 &nodes
             )
             .is_err()
+        );
+        let parametrized = parse_pytest_inventory(
+            b"test_sample.py::test_value[ma\\xf1ana with spaces]\n",
+            temp.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            parametrized[0].canonical,
+            r"test_sample::test_value[ma\xf1ana with spaces]"
+        );
+        assert!(
+            parse_pytest_inventory(b"test_sample.py::test_value[unsafe\tvalue]\n", temp.path(),)
+                .is_err()
         );
     }
 

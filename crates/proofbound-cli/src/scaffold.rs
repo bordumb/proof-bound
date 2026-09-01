@@ -55,6 +55,9 @@ pub fn init_project(root: &Path) -> Result<()> {
     if discovered.adapter == "node-test" {
         inputs.extend(node_source_inputs(&root)?);
     }
+    if discovered.adapter == "python-test" {
+        inputs.extend(python_source_inputs(&root)?);
+    }
     inputs.sort();
     inputs.dedup();
 
@@ -94,7 +97,7 @@ pub fn init_project(root: &Path) -> Result<()> {
     let unit = format!(
         "schema = \"proofbound-evidence-unit/1\"\nid = \"{EVIDENCE_ID}\"\nadapter = {:?}\nkind = \"example-test\"\nclaims = [\"{CLAIM_ID}\"]\ntier = 0\nassumptions = [\"{ASSUMPTION_ID}\"]\nexpected_inventory = {}\ninputs = {}\noutputs = []\nenvironment_allowlist = [\"PATH\"]\n\n[operation]\n{operation}\n\n[resource_budget]\ntime_seconds = 300\ndisk_bytes = 1073741824\nmemory_bytes = 2147483648\n",
         discovered.adapter,
-        toml_array(std::slice::from_ref(&discovered.inventory)),
+        toml_array(&discovered.inventory),
         toml_array(&inputs),
     );
 
@@ -141,8 +144,9 @@ struct DiscoveredTest {
     targets: Vec<String>,
     paths: Vec<String>,
     arguments: Vec<String>,
+    plugins: Vec<String>,
     configuration: Option<PathBuf>,
-    inventory: String,
+    inventory: Vec<String>,
     source: PathBuf,
 }
 
@@ -171,12 +175,17 @@ impl DiscoveredTest {
                 });
             return format!("type = {:?}\n{configuration}", self.operation);
         }
+        let plugins = if self.plugins.is_empty() {
+            String::new()
+        } else {
+            format!("\nplugins = {}", toml_array(&self.plugins))
+        };
         let package = self
             .package
             .as_ref()
             .map_or_else(String::new, |package| format!("package = {package:?}\n"));
         format!(
-            "type = {:?}\nmanifest = {:?}\n{package}targets = {}\npaths = {}\narguments = {}",
+            "type = {:?}\nmanifest = {:?}\n{package}targets = {}\npaths = {}\narguments = {}{plugins}",
             self.operation,
             path_text(&self.manifest),
             toml_array(&self.targets),
@@ -280,8 +289,9 @@ fn discover_rust_test(_root: &Path, shadow: &Path) -> Result<Option<DiscoveredTe
                 targets: vec![artifact.selector],
                 paths: Vec::new(),
                 arguments: Vec::new(),
+                plugins: Vec::new(),
                 configuration: None,
-                inventory: format!("{}::{test}", artifact.target),
+                inventory: vec![format!("{}::{test}", artifact.target)],
                 source: artifact.source,
             }));
         }
@@ -478,23 +488,15 @@ fn discover_python_test(root: &Path, shadow: &Path) -> Result<Option<DiscoveredT
     let mut failures = Vec::new();
     for source in candidates {
         let collection_path = shadow.join(&source);
-        let mut command = discovery_command("python3", shadow, DiscoveryFlavor::Python);
-        command
-            .args([
-                "-m",
-                "pytest",
-                "--collect-only",
-                "-p",
-                "no:cacheprovider",
-                "-q",
-            ])
-            .arg("--rootdir")
-            .arg(manifest.parent().expect("manifest has a parent"))
-            .arg(&collection_path);
-        let output = command
-            .output()
-            .with_context(|| "could not execute python3 for pytest inventory")?;
-        check_output_size(&output)?;
+        let mut plugins = Vec::new();
+        let mut output = collect_pytest_source(shadow, &manifest, &collection_path, &plugins)?;
+        if !output.status.success()
+            && python_plugin_registration_hint(&concise_process_failure(&output)).as_deref()
+                == Some("_hypothesis_pytestplugin")
+        {
+            plugins.push("_hypothesis_pytestplugin".to_owned());
+            output = collect_pytest_source(shadow, &manifest, &collection_path, &plugins)?;
+        }
         if !output.status.success() {
             let detail = concise_process_failure(&output);
             let detail = python_plugin_registration_hint(&detail).map_or(detail, |module| {
@@ -525,8 +527,9 @@ fn discover_python_test(root: &Path, shadow: &Path) -> Result<Option<DiscoveredT
             targets: vec![node.target],
             paths: vec![source_text],
             arguments: Vec::new(),
+            plugins,
             configuration: None,
-            inventory: node.canonical,
+            inventory: vec![node.canonical],
             source,
         }));
     }
@@ -534,6 +537,35 @@ fn discover_python_test(root: &Path, shadow: &Path) -> Result<Option<DiscoveredT
         bail!("pytest collection failed: {}", failures.join("; "));
     }
     Ok(None)
+}
+
+fn collect_pytest_source(
+    shadow: &Path,
+    manifest: &Path,
+    collection_path: &Path,
+    plugins: &[String],
+) -> Result<Output> {
+    let mut command = discovery_command("python3", shadow, DiscoveryFlavor::Python);
+    command.args([
+        "-m",
+        "pytest",
+        "--collect-only",
+        "-p",
+        "no:cacheprovider",
+        "-q",
+    ]);
+    for plugin in plugins {
+        command.arg("-p").arg(plugin);
+    }
+    command
+        .arg("--rootdir")
+        .arg(manifest.parent().expect("manifest has a parent"))
+        .arg(collection_path);
+    let output = command
+        .output()
+        .with_context(|| "could not execute python3 for pytest inventory")?;
+    check_output_size(&output)?;
+    Ok(output)
 }
 
 fn python_plugin_registration_hint(detail: &str) -> Option<String> {
@@ -547,7 +579,7 @@ fn python_plugin_registration_hint(detail: &str) -> Option<String> {
     }
     detail
         .contains("hypothesis")
-        .then(|| "hypothesis".to_owned())
+        .then(|| "_hypothesis_pytestplugin".to_owned())
 }
 
 fn safe_python_module(value: &str) -> bool {
@@ -590,6 +622,31 @@ fn python_test_files(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
+fn python_source_inputs(root: &Path) -> Result<Vec<String>> {
+    let mut sources = Vec::new();
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.depth() == 0
+                || entry
+                    .path()
+                    .strip_prefix(root)
+                    .ok()
+                    .is_none_or(|path| !excluded_from_shadow(path))
+        })
+    {
+        let entry = entry?;
+        if entry.file_type().is_file()
+            && entry.path().extension().and_then(OsStr::to_str) == Some("py")
+        {
+            sources.push(path_text(entry.path().strip_prefix(root)?));
+        }
+    }
+    Ok(sources)
+}
+
 fn parse_pytest_inventory(bytes: &[u8], shadow: &Path) -> Result<Vec<PythonNode>> {
     let text = std::str::from_utf8(bytes).context("pytest inventory is not UTF-8")?;
     let mut nodes = Vec::new();
@@ -626,7 +683,7 @@ fn parse_pytest_inventory(bytes: &[u8], shadow: &Path) -> Result<Vec<PythonNode>
         let target = suffix
             .rsplit("::")
             .next()
-            .filter(|target| safe_test_tail(target))
+            .filter(|target| safe_pytest_component(target))
             .context("pytest returned an unsafe target")?;
         nodes.push(PythonNode {
             canonical: format!("{stem}::{suffix}"),
@@ -713,11 +770,15 @@ fn discover_node_test_with_npm(
         list.arg("--config").arg(configuration);
     }
     run_discovery(list, "vitest inventory")?;
-    let mut nodes = parse_vitest_listing(&fs::read(&listing)?, shadow)?;
-    let Some(node) = nodes.drain(..).next() else {
+    let nodes = parse_vitest_listing(&fs::read(&listing)?, shadow)?;
+    let Some(node) = nodes.first() else {
         return Ok(None);
     };
     let source = node.file.clone();
+    let inventory = nodes
+        .iter()
+        .map(|node| format!("{}::{}", path_text(&node.file), node.name))
+        .collect();
     Ok(Some(DiscoveredTest {
         adapter: "node-test",
         operation: "vitest",
@@ -726,8 +787,9 @@ fn discover_node_test_with_npm(
         targets: Vec::new(),
         paths: Vec::new(),
         arguments: Vec::new(),
+        plugins: Vec::new(),
         configuration,
-        inventory: format!("{}::{}", path_text(&source), node.name),
+        inventory,
         source,
     }))
 }
@@ -797,6 +859,7 @@ fn require_locked_vitest(shadow: &Path) -> Result<()> {
             .get("integrity")
             .and_then(serde_json::Value::as_str)
             .is_none()
+            && !bundled_lock_entry_is_bound(path, entry, packages)
         {
             bail!("lockfile package entry {path:?} omits integrity");
         }
@@ -825,6 +888,22 @@ fn require_locked_vitest(shadow: &Path) -> Result<()> {
         bail!("locked vitest dependency omits integrity");
     }
     Ok(())
+}
+
+fn bundled_lock_entry_is_bound(
+    path: &str,
+    entry: &serde_json::Map<String, serde_json::Value>,
+    packages: &serde_json::Map<String, serde_json::Value>,
+) -> bool {
+    entry.get("inBundle").and_then(serde_json::Value::as_bool) == Some(true)
+        && packages.iter().any(|(parent_path, parent)| {
+            !parent_path.is_empty()
+                && path.starts_with(&format!("{parent_path}/node_modules/"))
+                && parent
+                    .get("integrity")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some()
+        })
 }
 
 fn snapshot_node_source(root: &Path) -> Result<BTreeMap<String, String>> {
@@ -1128,6 +1207,7 @@ fn excluded_from_shadow(path: &Path) -> bool {
                 ".git"
                     | "target"
                     | ".lake"
+                    | ".venv"
                     | "__pycache__"
                     | ".pytest_cache"
                     | ".mypy_cache"
@@ -1161,7 +1241,16 @@ fn safe_test_tail(value: &str) -> bool {
 }
 
 fn safe_pytest_suffix(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 2048 && value.split("::").all(safe_test_tail)
+    !value.is_empty()
+        && value.chars().count() <= 2048
+        && value.split("::").all(safe_pytest_component)
+}
+
+fn safe_pytest_component(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().count() <= 1024
+        && !value.starts_with('-')
+        && !value.chars().any(char::is_control)
 }
 
 fn path_text(path: &Path) -> String {
@@ -1345,6 +1434,28 @@ mod tests {
     }
 
     #[test]
+    fn pytest_inventory_accepts_opaque_parametrized_node_ids() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("tests")).unwrap();
+        fs::write(temp.path().join("tests/test_sample.py"), "").unwrap();
+        let root = temp.path().canonicalize().unwrap();
+
+        let nodes = parse_pytest_inventory(
+            b"tests/test_sample.py::test_value[ma\\xf1ana with spaces]\n",
+            &root,
+        )
+        .unwrap();
+        assert_eq!(
+            nodes[0].canonical,
+            r"test_sample::test_value[ma\xf1ana with spaces]"
+        );
+        assert!(
+            parse_pytest_inventory(b"tests/test_sample.py::test_value[unsafe\tvalue]\n", &root,)
+                .is_err()
+        );
+    }
+
+    #[test]
     fn python_plugin_failure_hint_names_the_typed_registration() {
         assert_eq!(
             python_plugin_registration_hint("ModuleNotFoundError: No module named 'hypothesis'"),
@@ -1352,7 +1463,7 @@ mod tests {
         );
         assert_eq!(
             python_plugin_registration_hint("error: unrecognized arguments: --hypothesis-seed"),
-            Some("hypothesis".to_owned())
+            Some("_hypothesis_pytestplugin".to_owned())
         );
         assert_eq!(
             python_plugin_registration_hint("ordinary assertion failure"),
@@ -1434,7 +1545,7 @@ exit 2
         assert_eq!(discovered.operation, "vitest");
         assert_eq!(
             discovered.inventory,
-            "src/existing.test.ts::suite > existing"
+            ["src/existing.test.ts::suite > existing"]
         );
         assert_eq!(discovered.operation_toml(), "type = \"vitest\"\n");
         assert_eq!(
@@ -1450,6 +1561,30 @@ exit 2
             Version::new(3, 2, 4)
         );
         assert!(parse_vitest_version("vitest unknown").is_err());
+    }
+
+    #[test]
+    fn bundled_lock_entries_require_an_integrity_bound_parent() {
+        let packages = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
+            serde_json::json!({
+                "node_modules/npm": {"integrity": "sha512-parent"},
+                "node_modules/npm/node_modules/child": {"inBundle": true}
+            }),
+        )
+        .unwrap();
+        let child = packages["node_modules/npm/node_modules/child"]
+            .as_object()
+            .unwrap();
+        assert!(bundled_lock_entry_is_bound(
+            "node_modules/npm/node_modules/child",
+            child,
+            &packages
+        ));
+        assert!(!bundled_lock_entry_is_bound(
+            "node_modules/orphan",
+            child,
+            &packages
+        ));
     }
 
     #[test]

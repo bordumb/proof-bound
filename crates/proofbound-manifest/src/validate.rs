@@ -2130,12 +2130,12 @@ fn valid_pytest_node(value: &str) -> bool {
     path.ends_with(".py")
         && translation_path("pytest", path).is_ok()
         && !suffix.is_empty()
-        && suffix.len() <= 2048
+        && suffix.chars().count() <= 2048
         && suffix.split("::").all(|segment| {
             !segment.is_empty()
-                && segment.bytes().all(|byte| {
-                    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'[' | b']' | b'.')
-                })
+                && segment.chars().count() <= 1024
+                && !segment.starts_with('-')
+                && !segment.chars().any(char::is_control)
         })
 }
 
