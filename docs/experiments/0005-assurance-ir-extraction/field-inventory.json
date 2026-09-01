@@ -1,0 +1,88 @@
+{
+  "schema": "proofbound-research-field-inventory/1",
+  "experiment": "EXP-0005",
+  "baseline": "git:295ad63e67bd30cc48eb8c9ee43c612de2c367c6",
+  "revision": 1,
+  "status": "partial",
+  "classifications": [
+    "common-mechanics",
+    "evidence-family-semantics",
+    "backend-retained-detail",
+    "policy",
+    "presentation"
+  ],
+  "authorities": [
+    "registered",
+    "observed",
+    "derived",
+    "reviewed",
+    "portable"
+  ],
+  "coverage": {
+    "complete": [
+      "core.ClaimDefinition",
+      "core.EvidenceRecord",
+      "core.EvidenceProvenance",
+      "verify.ClaimReceipt",
+      "verify.EvidenceReceipt",
+      "verify.EvidenceProvenance"
+    ],
+    "partial": [
+      "manifest",
+      "adapter-observation",
+      "graph",
+      "policy",
+      "source-closure",
+      "compiled-project-cache"
+    ]
+  },
+  "fields": [
+    {
+      "source_type": "ClaimDefinition",
+      "source_field": "statement",
+      "classification": "evidence-family-semantics",
+      "authorities": ["registered", "portable"],
+      "identity_roles": ["claim-meaning", "theorem-matching"],
+      "ir_candidate": "Claim.machine_meaning",
+      "status": "classified"
+    },
+    {
+      "source_type": "ClaimDefinition",
+      "source_field": "public_language",
+      "classification": "presentation",
+      "authorities": ["registered", "portable"],
+      "identity_roles": ["reader-projection"],
+      "ir_candidate": "Claim.presentation",
+      "status": "classified"
+    },
+    {
+      "source_type": "EvidenceRecord",
+      "source_field": "kind",
+      "classification": "evidence-family-semantics",
+      "authorities": ["registered", "derived", "portable"],
+      "identity_roles": ["evidence-constructor", "status-derivation"],
+      "ir_candidate": "Evidence.family",
+      "status": "classified"
+    },
+    {
+      "source_type": "EvidenceProvenance",
+      "source_field": "python_plugins",
+      "classification": "backend-retained-detail",
+      "authorities": ["registered", "observed", "portable"],
+      "identity_roles": ["dependency", "cache", "reproduction"],
+      "ir_candidate": null,
+      "status": "placement-open-question",
+      "open_question": "OQ-002"
+    },
+    {
+      "source_type": "EvidenceRecord",
+      "source_field": "python_property",
+      "classification": "evidence-family-semantics",
+      "authorities": ["registered", "observed", "portable"],
+      "identity_roles": ["sampled-property-contract"],
+      "ir_candidate": null,
+      "status": "cross-backend-contract-open-question",
+      "open_question": "OQ-001"
+    }
+  ]
+}

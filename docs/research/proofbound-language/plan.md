@@ -1,12 +1,20 @@
 # Proofbound language research plan
 
-[Documentation map](../README.md) · [Working notes](README.md) ·
-[Language vision](proofbound-language.md)
+[Research programme](README.md) · [Documentation map](../../README.md) ·
+[Language vision](../../notes/proofbound-language.md)
 
 - **Status:** exploring
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-01
 - **Purpose:** Define a staged, falsifiable research programme for determining whether Proofbound should grow from an assurance system for existing repositories into a native high-assurance programming language.
+
+This document retains the complete initial programme design and methods. The
+programme [dashboard](README.md), [hypothesis registry](hypotheses.md),
+[roadmap](roadmap.md), [corpus](corpus.md), [metrics](metrics.md), and
+[workstream files](workstreams/README.md) are the maintained operational
+indexes. When they differ from this initial plan, the newer linked record and
+its Git history control research execution; accepted product behavior still
+requires an ADR and specification change.
 
 ## Summary
 

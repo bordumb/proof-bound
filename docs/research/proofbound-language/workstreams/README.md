@@ -1,0 +1,23 @@
+# Proofbound language workstreams
+
+[Programme dashboard](../README.md)
+
+Workstreams organize bounded questions and dependencies. They summarize and
+link experiment evidence; preregistration, raw observations, and findings stay
+under `docs/experiments/`.
+
+| ID | Workstream | Status |
+|---|---|---|
+| WS-IR | [Canonical Assurance IR](assurance-ir.md) | running |
+| WS-EA | [Evidence algebra](evidence-algebra.md) | planned |
+| WS-IN | [Invalidation](invalidation.md) | planned |
+| WS-DSL | [Typed assurance DSL](assurance-dsl.md) | blocked by Gate 1 |
+| WS-FX | [Effects and capabilities](effects.md) | planned |
+| WS-UQ | [Uncertainty](uncertainty.md) | planned |
+| WS-NE | [Native executable prototype](native-runtime.md) | blocked by Gate 3 |
+| WS-AC | [Artifact correspondence](artifact-correspondence.md) | planned |
+| WS-FB | [Foreign boundaries](foreign-boundaries.md) | blocked by native prototype |
+| WS-IK | [Independent kernel](independent-kernel.md) | running |
+
+Each file records objective, questions, dependencies, deliverables, exit and
+stop conditions, active experiments, and findings to date.

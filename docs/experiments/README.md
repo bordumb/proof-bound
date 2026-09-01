@@ -36,3 +36,9 @@ Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 New experiments copy [TEMPLATE.md](TEMPLATE.md). Public-facing audit reports
 graduate to [docs/audits/](../audits/README.md); the raw experiment record
 stays here.
+
+Experiments with more than a few execution entries should keep their immutable
+registration and outcome in `README.md`, chronological observations in an
+append-only `JOURNAL.md`, and machine-readable artifacts or results in bounded
+subdirectories. The template documents the split; existing concluded
+experiments need not be mechanically rewritten.

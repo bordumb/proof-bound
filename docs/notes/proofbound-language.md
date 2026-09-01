@@ -1,6 +1,7 @@
 # Proofbound language
 
-[Documentation map](../README.md) · [Working notes](README.md)
+[Documentation map](../README.md) · [Working notes](README.md) ·
+[Language research programme](../research/proofbound-language/README.md)
 
 - **Status:** exploring
 - **Created:** 2026-09-01

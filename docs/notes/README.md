@@ -45,6 +45,7 @@ promote it rather than letting the note quietly become a second specification:
 
 | Content | Authoritative destination |
 |---|---|
+| Sustained question spanning several experiments | `docs/research/` (still non-normative) |
 | Accepted architectural or trust-boundary decision | `docs/adr/` |
 | Normative product or wire behavior | `docs/specs/` |
 | User-facing procedure | `docs/guides/` |
@@ -62,7 +63,6 @@ it `promoted` and link to the authoritative document.
 | [First-hour experience](first-hour-experience.md) | active | 2026-09-01 | Spec 0001 revision (§12.2, §12.3) and a release-layout ADR | Ranked, acceptance-tested plan for the five fixes that gate a stranger's first hour, from install to error localization. |
 | [Language support](language-support.md) | promoted | 2026-09-01 | Specifications 0002 and 0003 | Separate Proofbound's language-neutral assurance model from its supported evidence adapters; its Python and TypeScript plans now live in the ecosystem specifications. |
 | [Proofbound language](proofbound-language.md) | exploring | 2026-09-01 | Research plan, then an ADR or dedicated language specification | Explore a native high-assurance programming language that shares Proofbound's semantic kernel, with existing-language Proofbound as its adoption bridge. |
-| [Proofbound language research plan](proofbound-language-research-plan.md) | exploring | 2026-09-01 | Preregistered experiments, followed by language and IR specifications | Turn the native-language vision into staged hypotheses, prototypes, measurements, exit gates, and stop conditions. |
 
 ## Note template
 

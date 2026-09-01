@@ -165,15 +165,14 @@ failed; the pre-registered scope must not be silently narrowed.
 
 ## Journal (append-only)
 
-- **2026-09-01** — Pre-registered. Not started. No Assurance IR model or
-  experiment-specific semantic-field inventory was created before this
-  Questions section was committed.
-- **2026-09-01** — START. Pinned the subject and implementation baseline to
-  registration commit `295ad63e67bd30cc48eb8c9ee43c612de2c367c6` and began
-  the semantic-field inventory. The first bounded slice covers the claim,
-  evidence envelope, provenance, and portable family-detail records in core
-  and the standalone verifier; manifest and observation coverage remains
-  explicitly partial. See [semantic-field-inventory.md](semantic-field-inventory.md).
+Execution entries are preserved in the append-only [journal](JOURNAL.md).
+Corrections are new entries rather than edits to earlier observations.
+
+## Artifacts
+
+The [artifact ledger](ARTIFACTS.md) indexes human and machine-readable research
+artifacts. The structured field inventory is deliberately marked partial until
+all consumed fields have exactly one classification.
 
 ## Findings
 
