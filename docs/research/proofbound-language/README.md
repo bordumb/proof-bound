@@ -67,8 +67,11 @@ adversarial checks execute.
   cross-language property-test family.
 - Inventory revision 2 and the frozen 20-case corpus now support a concrete IR
   draft. The draft isolates backend conversion and invalidation from common
-  validation and derivation, but that boundary has not yet survived executable
-  differential tests.
+  validation and derivation.
+- The initial differential slice has executable Rust/Python agreement on all
+  20 positive source projections and 15 canonical vectors. It has not yet
+  rederived the full evidence algebra or executed the adversarial corpus, so it
+  is evidence of a workable boundary—not a pass for H1 or H2.
 
 ## Current decision
 

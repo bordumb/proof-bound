@@ -84,3 +84,20 @@ negative cases after observing the other's behavior.
 The registered attacks cover every minimum Q3 category plus cache dependency,
 required-unknown, claim-attribution, evidence-strength, and reported-linkage
 attacks. They remain unexecuted.
+
+## 2026-09-01 — Initial projection parity run
+
+At implementation commit `757f42096b896d3bdb41b896a46bfad3dcdc2ca4`,
+ran a typed Rust producer and separately written Python checker over all 20
+frozen positive cases. The producer verifies source identities and projects
+registration, semantic-status, and release cases. The Python checker imports no
+producer types, reconstructs the same projection directly from frozen source,
+and independently checks canonical bytes and domain identities.
+
+The implementations agreed on all 20 cases and all 15 preregistered canonical
+domain vectors. The canonical projection identity was
+`sha256:357cc0d521f46e9f360d06c378d32e0c2b1acd1de72ab38b5d8686e6fcfdd558`.
+This is deliberately a boundary prototype: it does not yet materialize the full
+AssuranceProgram, rederive every status from the evidence algebra, or execute
+the 20 preregistered adversarial transformations. No EXP-0005 question is
+therefore marked passed.
