@@ -2,8 +2,9 @@
   "schema": "proofbound-research-field-inventory/1",
   "experiment": "EXP-0005",
   "baseline": "git:295ad63e67bd30cc48eb8c9ee43c612de2c367c6",
-  "revision": 1,
-  "status": "partial",
+  "revision": 2,
+  "status": "complete",
+  "selector_contract": "Each source_fields entry is exhaustive for the named brace selector. Selectors are disjoint within this inventory; unlisted runtime implementation locals and diagnostics are not assurance-record fields.",
   "classifications": [
     "common-mechanics",
     "evidence-family-semantics",
@@ -11,78 +12,450 @@
     "policy",
     "presentation"
   ],
-  "authorities": [
-    "registered",
-    "observed",
-    "derived",
-    "reviewed",
-    "portable"
-  ],
+  "authorities": ["registered", "observed", "derived", "reviewed", "portable"],
   "coverage": {
     "complete": [
-      "core.ClaimDefinition",
-      "core.EvidenceRecord",
-      "core.EvidenceProvenance",
-      "verify.ClaimReceipt",
-      "verify.EvidenceReceipt",
-      "verify.EvidenceProvenance"
+      "manifest.registration",
+      "adapter.protocol",
+      "adapter.observation",
+      "core.claim-evidence",
+      "core.graph",
+      "core.status",
+      "portable.release",
+      "portable.policy",
+      "portable.closure",
+      "compiler.compiled-project",
+      "compiler.cache-projection"
     ],
-    "partial": [
-      "manifest",
-      "adapter-observation",
-      "graph",
-      "policy",
-      "source-closure",
-      "compiled-project-cache"
+    "excluded_nonsemantic": [
+      "implementation-local variables",
+      "human diagnostic rendering",
+      "filesystem discovery syntax after resolution",
+      "test-only fixtures that do not define a wire field"
     ]
   },
-  "fields": [
+  "groups": [
     {
-      "source_type": "ClaimDefinition",
-      "source_field": "statement",
-      "classification": "evidence-family-semantics",
-      "authorities": ["registered", "portable"],
-      "identity_roles": ["claim-meaning", "theorem-matching"],
-      "ir_candidate": "Claim.machine_meaning",
-      "status": "classified"
+      "id": "project-registration",
+      "classification": "common-mechanics",
+      "authorities": ["registered", "derived"],
+      "source_fields": [
+        "ProjectManifest.{schema,project,source,toolchains,claim_manifests,assumption_manifests,evidence_units,translation_units,model_check_units,policy_manifests,review_manifests,demo_registry,limits}",
+        "SourceSets.{semantic,runner,presentation,external_evidence}",
+        "ToolchainFiles.{rust,lean,python,translation}",
+        "ProjectLimits.{max_manifest_bytes,max_files,max_total_bytes}"
+      ],
+      "identity_roles": ["bundle-discovery", "closure-boundary", "resource-boundary"],
+      "ir_candidate": "ProjectRegistration"
     },
     {
-      "source_type": "ClaimDefinition",
-      "source_field": "public_language",
-      "classification": "presentation",
+      "id": "project-tier",
+      "classification": "policy",
       "authorities": ["registered", "portable"],
-      "identity_roles": ["reader-projection"],
-      "ir_candidate": "Claim.presentation",
-      "status": "classified"
+      "source_fields": ["ProjectManifest.tier", "CompiledRelease.project_tier"],
+      "identity_roles": ["project-capability-ceiling"],
+      "ir_candidate": "AdmissionPolicy.project_tier"
     },
     {
-      "source_type": "EvidenceRecord",
-      "source_field": "kind",
+      "id": "claim-machine-meaning",
       "classification": "evidence-family-semantics",
       "authorities": ["registered", "derived", "portable"],
-      "identity_roles": ["evidence-constructor", "status-derivation"],
-      "ir_candidate": "Evidence.family",
-      "status": "classified"
+      "source_fields": [
+        "ClaimManifest.{schema,id,statement,formal_declaration,statement_encoding,foundational_axioms,subject,subject_closure,evidence,assumptions,premises,open_obligations,out_of_scope,bounded_domain,source_roots}",
+        "ClaimDefinition.{schema,id,node_id,statement,subject,cited_evidence,assumptions,open_obligations,out_of_scope,registered_inputs,registered_domain_language}",
+        "ClaimReceipt.{schema,id,node_id,statement,subject,cited_evidence,assumptions,open_obligations,out_of_scope,registered_inputs,registered_domain_language}",
+        "BoundedDomain.{id,description,cardinality,ordering_key,constraints}"
+      ],
+      "identity_roles": ["claim-meaning", "subject-join", "evidence-attribution", "bounded-domain"],
+      "ir_candidate": "Claim"
     },
     {
-      "source_type": "EvidenceProvenance",
-      "source_field": "python_plugins",
+      "id": "claim-presentation",
+      "classification": "presentation",
+      "authorities": ["registered", "derived", "portable"],
+      "source_fields": [
+        "ClaimManifest.{title,public_language}",
+        "ClaimDefinition.{title,public_language}",
+        "ClaimReceipt.{title,public_language}",
+        "ClaimStatus.public_statement",
+        "ReportedClaimStatus.public_statement"
+      ],
+      "identity_roles": ["reader-projection"],
+      "ir_candidate": "ClaimPresentation"
+    },
+    {
+      "id": "claim-policy-selection",
+      "classification": "policy",
+      "authorities": ["registered", "portable"],
+      "source_fields": [
+        "ClaimManifest.{profile,tier,primary_linkage}",
+        "ClaimDefinition.{policy,tier,primary_linkage}",
+        "ClaimReceipt.{policy,tier,primary_linkage}"
+      ],
+      "identity_roles": ["admission-profile", "claim-ceiling", "linkage-requirement"],
+      "ir_candidate": "ClaimAdmission"
+    },
+    {
+      "id": "assumptions-and-premises",
+      "classification": "evidence-family-semantics",
+      "authorities": ["registered", "reviewed", "derived", "portable"],
+      "source_fields": [
+        "AssumptionManifest.{schema,id,statement,category,owner,rationale,scope,affected_claims,review_evidence,discharge_plan,source_citation,status}",
+        "AssumptionRecord.{schema,id,node_id,statement,category,owner,rationale,scope,affected_claims,review_evidence,falsification_or_discharge_plan,source_citation,status,depends_on}",
+        "AssumptionReceipt.{schema,id,node_id,statement,category,owner,rationale,scope,affected_claims,review_evidence,falsification_or_discharge_plan,source_citation,state,depends_on}",
+        "PremiseRecord.{id,node_id,statement,category,theorem_evidence,scope,discharge}",
+        "PremiseReceipt.{id,node_id,statement,category,theorem_evidence,scope,discharge}",
+        "PremiseDischarge.{theorem_evidence,scope}"
+      ],
+      "identity_roles": ["assumption-ledger", "premise-flow", "discharge-join"],
+      "ir_candidate": "AssumptionOrPremise"
+    },
+    {
+      "id": "evidence-unit-common",
+      "classification": "common-mechanics",
+      "authorities": ["registered", "derived"],
+      "source_fields": [
+        "EvidenceUnitManifest.{schema,id,claims,tier,inputs,outputs,environment_allowlist,resource_budget}",
+        "ResourceBudget.{time_seconds,time_ms,disk_bytes,memory_bytes}"
+      ],
+      "identity_roles": ["unit-identity", "claim-authorization", "artifact-boundary", "execution-budget"],
+      "ir_candidate": "EvidenceRequest.envelope"
+    },
+    {
+      "id": "evidence-unit-semantics",
+      "classification": "evidence-family-semantics",
+      "authorities": ["registered", "derived", "portable"],
+      "source_fields": [
+        "EvidenceUnitManifest.{kind,evaluation_mode,binding_mode,theorem,refinement_theorem,premises,assumptions,expected_inventory,bounded_domain,transcription,mutation,property,distribution}",
+        "AdapterOperation.{kind,targets,paths,inventory,checker,configuration,plugins,arguments}"
+      ],
+      "identity_roles": ["evidence-constructor", "inventory-contract", "family-configuration"],
+      "ir_candidate": "EvidenceRequest.family"
+    },
+    {
+      "id": "evidence-unit-backend-route",
       "classification": "backend-retained-detail",
+      "authorities": ["registered", "observed"],
+      "source_fields": [
+        "EvidenceUnitManifest.{adapter,operation}",
+        "AdapterOperation.{package,manifest}",
+        "PythonPropertyConfig.{schema,framework,seed}",
+        "DistributionReproductionConfig.{schema,format,artifact_name,source_date_epoch}",
+        "TrustedTranscriptionConfig.{schema,source,committed_transcription,driver,source_format,transcribed_format,driver_abi}",
+        "MutationReplayConfig.{schema,registry}"
+      ],
+      "identity_roles": ["producer-routing", "native-tool-contract", "reproduction"],
+      "ir_candidate": "BackendBinding"
+    },
+    {
+      "id": "mutation-registration",
+      "classification": "evidence-family-semantics",
       "authorities": ["registered", "observed", "portable"],
-      "identity_roles": ["dependency", "cache", "reproduction"],
-      "ir_candidate": null,
-      "status": "placement-open-question",
+      "source_fields": [
+        "MutationRegistry.{schema,subject,mutation}",
+        "RegisteredMutation.{id,guard,target_path,target_preimage_sha256,mutant_path,mutant_sha256,witness,witness_path,witness_sha256,affected_claims}"
+      ],
+      "identity_roles": ["mutant-identity", "guard-claim-binding", "witness-binding"],
+      "ir_candidate": "MutationWitness.registration"
+    },
+    {
+      "id": "translation-registration",
+      "classification": "backend-retained-detail",
+      "authorities": ["registered", "observed"],
+      "source_fields": [
+        "TranslationUnitManifest.{schema,id,pipeline,invocations,generated_dir,handwritten_refinement,determinism_runs,determinism_normalization,forbid_generated_axioms,external_bridges,template_axioms,warning_inventory,import_mapping,resource_budget,claims}",
+        "TranslationInvocation.{id,cargo_package,cargo_manifest,crate_name,llbc_file,start_from,opaque,include,translated_closure,aeneas_subdir,outputs}",
+        "TranslationInventoryEntry.{kind,rust_name}",
+        "TranslationOutputMapping.{kind,produced,destination}",
+        "ExternalBridge.{file,module}",
+        "TemplateAxiom.{file,count,compiled}",
+        "WarningInventory.{artifact,line,kind}",
+        "ImportMapping.{mode,source_roots,rewrite_digest}"
+      ],
+      "identity_roles": ["translation-invocation", "output-inventory", "toolchain-tcb", "generated-code-audit"],
+      "ir_candidate": "BackendBinding.translation"
+    },
+    {
+      "id": "model-check-semantics",
+      "classification": "evidence-family-semantics",
+      "authorities": ["registered", "observed", "portable"],
+      "source_fields": [
+        "ModelCheckManifest.{schema,id,harnesses,claims,domain,solver,unwind,assumptions,resource_budget}"
+      ],
+      "identity_roles": ["bounded-domain", "harness-inventory", "solver-assumptions"],
+      "ir_candidate": "BoundedModelCheck"
+    },
+    {
+      "id": "model-check-backend",
+      "classification": "backend-retained-detail",
+      "authorities": ["registered", "observed"],
+      "source_fields": ["ModelCheckManifest.{adapter,package}"],
+      "identity_roles": ["producer-routing", "package-selection"],
+      "ir_candidate": "BackendBinding.model_check"
+    },
+    {
+      "id": "policy-definition",
+      "classification": "policy",
+      "authorities": ["registered", "derived", "portable"],
+      "source_fields": [
+        "PolicyManifest.{schema,id,extends,allow_project_axioms,allowed_project_axioms,allowed_foundational_axioms,allow_native,native_premise_count,allow_exhaustive_as_proved,required_binding,require_registered_premises,publication_allows_open}",
+        "PolicyReceipt.{schema,id,node_id,components,allowed_foundational_axioms,allowed_project_axioms,admit_exhaustive_as_proved,require_no_assumptions,native_premise_rule,additional_required_evidence}"
+      ],
+      "identity_roles": ["admission", "axiom-policy", "evidence-requirement"],
+      "ir_candidate": "AdmissionPolicy"
+    },
+    {
+      "id": "review-approval",
+      "classification": "policy",
+      "authorities": ["reviewed", "registered"],
+      "source_fields": [
+        "ReviewManifest.{schema,id,reviewer,statement,scope,reviewed_at,base_revision,head_revision,regressions,signature}",
+        "ApprovedRegression.{id,claim_id,kind,detail}"
+      ],
+      "identity_roles": ["revision-approval", "regression-acknowledgement"],
+      "ir_candidate": "ReviewApproval"
+    },
+    {
+      "id": "adapter-protocol",
+      "classification": "common-mechanics",
+      "authorities": ["registered", "observed"],
+      "source_fields": [
+        "AdapterRequest.{schema,message_type,request_id,adapter,operation,project_root,unit}",
+        "AdapterResponse.{schema,message_type,request_id,adapter,success,evidence,inventory,diagnostics}",
+        "AdapterDiagnostic.{code,message,path,remediation}"
+      ],
+      "identity_roles": ["request-response-correlation", "operation-shape", "failure-boundary"],
+      "ir_candidate": "ObservationProtocol"
+    },
+    {
+      "id": "adapter-observation-common",
+      "classification": "common-mechanics",
+      "authorities": ["observed", "derived"],
+      "source_fields": [
+        "AdapterObservation.{schema,unit_id,evidence_kind,outcome,input_artifacts,generated_artifacts,tool,adapter,commands,runs,started_unix_ms,completed_unix_ms,deterministic_result_sha256,unit_configuration_sha256,resource_budget,resource_usage,inventory,normalization}",
+        "ToolObservation.{name,version,identity_sha256}",
+        "CommandObservation.{program,args,environment_allowlist}",
+        "EnvironmentObservation.{name,value_sha256,secret}",
+        "RunObservation.{command_index,exit_code,stdout_sha256,stderr_sha256,normalized_output_sha256,output_truncated,duration_ms}",
+        "BudgetObservation.{time_ms,disk_bytes,memory_bytes}",
+        "UsageObservation.{time_ms,peak_disk_bytes,peak_memory_bytes}"
+      ],
+      "identity_roles": ["registered-observation-equality", "execution", "inventory", "budget"],
+      "ir_candidate": "ObservedExecution"
+    },
+    {
+      "id": "adapter-observation-family-detail",
+      "classification": "evidence-family-semantics",
+      "authorities": ["observed", "derived"],
+      "source_fields": [
+        "AdapterObservation.{artifact_binding,trusted_transcription,mutation_replay,python_property,static_check,distribution_reproduction}",
+        "ArtifactBindingObservation.{artifact_logical_name,artifact_sha256}",
+        "TrustedTranscriptionObservation.{schema,source,committed_transcription,transcribed_candidate,reencoded_source,driver,driver_abi,source_format,transcribed_format,transcriber_role_identity,reencoder_role_identity}",
+        "MutationReplayObservation.{schema,mutation_id,registry,target_preimage,mutant_artifact,target_postimage,witness_source,check_id,affected_claims,baseline_run_index,expected_failure}",
+        "ExpectedFailureObservation.{run_index,allowed_exit_codes}",
+        "PythonPropertyObservation.{schema,framework,seed,framework_version}",
+        "StaticCheckObservation.{schema,tool,tool_version,configuration_sha256,targets,diagnostics}",
+        "DistributionReproductionObservation.{schema,format,run_digests,registered_digest,source_date_epoch,build_backend_name,build_backend_version,npm_integrity,member_inventory}"
+      ],
+      "identity_roles": ["family-observation", "compiler-derived-evidence"],
+      "ir_candidate": "EvidenceObservation.family"
+    },
+    {
+      "id": "adapter-observation-backend-detail",
+      "classification": "backend-retained-detail",
+      "authorities": ["registered", "observed"],
+      "source_fields": [
+        "AdapterObservation.python_plugins",
+        "PythonPluginObservation.{module,distribution,version,origin_sha256}"
+      ],
+      "identity_roles": ["plugin-identity", "cache", "reproduction"],
+      "ir_candidate": "BackendProvenance.extensions",
       "open_question": "OQ-002"
     },
     {
-      "source_type": "EvidenceRecord",
-      "source_field": "python_property",
+      "id": "artifact-identity",
+      "classification": "common-mechanics",
+      "authorities": ["registered", "observed", "derived", "portable"],
+      "source_fields": [
+        "ArtifactIdentity.{logical_name,sha256,size_bytes}",
+        "ArtifactIdentityReceipt.{logical_name,sha256,size_bytes}",
+        "ArtifactObservation.{logical_name,sha256,size_bytes}",
+        "SealedFile.{path,sha256,size_bytes}",
+        "ClosureMember.{path,sha256,size_bytes}"
+      ],
+      "identity_roles": ["byte-identity", "logical-role", "cardinality"],
+      "ir_candidate": "ArtifactIdentity"
+    },
+    {
+      "id": "execution-provenance",
+      "classification": "common-mechanics",
+      "authorities": ["observed", "derived", "portable"],
+      "source_fields": [
+        "EvidenceRecord.provenance",
+        "EvidenceReceipt.provenance",
+        "EvidenceProvenance.{project_revision,tree_state,semantic_source_closure,additional_closures,input_artifacts,generated_artifacts,tool,adapter,execution_kind,commands,runs,normalization,reproduction_command,started_unix_ms,completed_unix_ms,deterministic_result_identity,unit_configuration_sha256,resource_budget,resource_usage,cache_origin,prior_receipt_sha256}",
+        "verify.EvidenceProvenance.{project_revision,tree_state,semantic_closure,additional_closures,input_artifacts,generated_artifacts,tool,adapter,execution_kind,commands,runs,normalization,reproduction_command,started_unix_ms,completed_unix_ms,deterministic_result_sha256,unit_configuration_sha256,cache_key,reused_from,resource_budget,actual_cost}",
+        "CommandSpec.{program,args,environment_allowlist}",
+        "EnvironmentVariable.{name,value_sha256,secret}",
+        "ExecutionRun.{command_index,exit_code,stdout_sha256,stderr_sha256,normalized_output_sha256,output_truncated,duration_ms}",
+        "ResourceUsage.{time_ms,peak_disk_bytes,peak_memory_bytes}",
+        "ClosureIdentity.{kind,sha256}",
+        "ToolIdentity.{name,version}"
+      ],
+      "identity_roles": ["execution-reproduction", "result-identity", "budget", "reuse-chain"],
+      "ir_candidate": "Provenance"
+    },
+    {
+      "id": "backend-provenance",
+      "classification": "backend-retained-detail",
+      "authorities": ["registered", "observed", "portable"],
+      "source_fields": [
+        "EvidenceProvenance.python_plugins",
+        "PythonPluginEvidence.{module,distribution,version,origin_sha256}",
+        "PythonPluginReceipt.{module,distribution,version,origin_sha256}"
+      ],
+      "identity_roles": ["plugin-identity", "cache", "reproduction"],
+      "ir_candidate": "BackendProvenance.extensions",
+      "open_question": "OQ-002"
+    },
+    {
+      "id": "evidence-envelope",
+      "classification": "evidence-family-semantics",
+      "authorities": ["registered", "observed", "derived", "portable"],
+      "source_fields": [
+        "EvidenceRecord.{schema,id,node_id,unit_id,kind,status,claims,evaluation_mode,binding_mode,theorem,artifact_binding,trusted_transcription,source_refinement,bounded_check,exhaustive_check,mutation_witness,python_property,static_check,distribution_reproduction,independence,inventoried_targets,assumptions,premises,open_obligation}",
+        "EvidenceReceipt.{schema,unit_id,node_id,kind,claim_ids,outcome,evaluation_mode,binding_mode,theorem,artifact_binding,trusted_transcription,source_refinement,bounded_check,exhaustive_check,mutation_witness,python_property,static_check,distribution_reproduction,independence,inventoried_targets,assumptions,premises,open_obligation}"
+      ],
+      "identity_roles": ["closed-evidence-constructor", "claim-attribution", "status-derivation"],
+      "ir_candidate": "Evidence"
+    },
+    {
+      "id": "evidence-family-details",
+      "classification": "evidence-family-semantics",
+      "authorities": ["registered", "observed", "derived", "portable"],
+      "source_fields": [
+        "TheoremEvidence.{declaration,statement_encoding,statement_wire,statement_sha256,attributed_claim,environment,axiom_audit_passed,contains_sorry_ax,foundational_axioms,project_axioms}",
+        "ArtifactBindingEvidence.{theorem,artifact}",
+        "TrustedTranscriptionEvidence.{schema,source,committed_transcription,transcribed_candidate,reencoded_source,driver,transcriber,reencoder}",
+        "TranscriptionTcbRole.{tcb_node,role_identity}",
+        "SourceRefinementEvidence.{refinement_theorem,representation_premises,deterministic_translation,pinned_toolchain,generated_axioms_clean,adapter_strength}",
+        "BoundedCheckEvidence.{domain,solver,harnesses,unwind_bounds,assumptions}",
+        "ExhaustiveCheckEvidence.{domain,evaluated_members}",
+        "MutationWitnessEvidence.{schema,mutation_id,subject,guard,mutation_sha256,registry,target_preimage,mutant_artifact,target_postimage,witness_source,check_id,baseline_run_index,expected_failure,proof_term_theorem}",
+        "ExpectedFailure.{run_index,allowed_exit_codes}",
+        "StaticCheckEvidence.{schema,tool,tool_version,configuration_sha256,targets,diagnostics}",
+        "DistributionReproductionEvidence.{schema,format,run_digests,registered_digest,source_date_epoch,build_backend_name,build_backend_version,npm_integrity,member_inventory}"
+      ],
+      "identity_roles": ["family-validity", "epistemic-strength", "typed-joins"],
+      "ir_candidate": "EvidenceFamily"
+    },
+    {
+      "id": "sampled-property-detail",
       "classification": "evidence-family-semantics",
       "authorities": ["registered", "observed", "portable"],
-      "identity_roles": ["sampled-property-contract"],
-      "ir_candidate": null,
-      "status": "cross-backend-contract-open-question",
+      "source_fields": [
+        "PythonPropertyEvidence.{schema,framework,seed,framework_version}",
+        "PythonPropertyReceipt.{schema,framework,seed,framework_version}"
+      ],
+      "identity_roles": ["sampling-contract"],
+      "ir_candidate": "SampledProperty.sampling",
       "open_question": "OQ-001"
+    },
+    {
+      "id": "graph",
+      "classification": "evidence-family-semantics",
+      "authorities": ["derived", "portable"],
+      "source_fields": [
+        "AssuranceGraph.{schema,nodes,edges,mutual_theorem_groups}",
+        "GraphNode.{id,kind,proof_environment}",
+        "GraphEdge.{from,to,kind}",
+        "MutualTheoremGroup.{id,proof_environment,members}"
+      ],
+      "identity_roles": ["typed-relationship", "cycle-validity", "derivation-join"],
+      "ir_candidate": "AssuranceGraph"
+    },
+    {
+      "id": "release-context",
+      "classification": "common-mechanics",
+      "authorities": ["derived", "portable"],
+      "source_fields": [
+        "ReleaseEnvelope.{schema,payload,payload_sha256}",
+        "CompiledRelease.{schema,project,project_revision,tree_state,graph,claims,evidence,assumptions,premises,policies,closures,sealed_files,reported_statuses}",
+        "HashedRecord.{sha256,record}",
+        "SourceClosureReceipt.{schema,kind,members}",
+        "ClosureReference.{kind,sha256}",
+        "CacheKeyMaterial.{semantic_closure,additional_closures,input_artifacts,tool,adapter,unit_configuration_sha256}"
+      ],
+      "identity_roles": ["release-payload", "record-content-address", "closure-identity", "cache-projection"],
+      "ir_candidate": "AssuranceRelease"
+    },
+    {
+      "id": "derived-status",
+      "classification": "evidence-family-semantics",
+      "authorities": ["derived", "portable"],
+      "source_fields": [
+        "ClaimStatus.{schema,claim_id,formal,linkage,assumption,policy,evidence,bounded_domains,premises,not_proved_out_of_scope,errors}",
+        "EvidenceAssessment.{id,kind,status,policy_admitted,roles,reasons,budget_exceeded}",
+        "AssumptionFacetReport.{standing,assumptions,undischarged_premises}",
+        "PolicyVerdict.{admitted,blockers}",
+        "PolicyBlocker.{code,message,remediation}",
+        "NotProvedOutOfScope.{open_obligations,undischarged_premises,explicit_assumptions,exclusions}",
+        "ReportedClaimStatus.{claim_id,formal,linkage,assumption,assumptions,undischarged_premises,policy_admitted}"
+      ],
+      "identity_roles": ["status-derivation", "publication-decision", "explanation"],
+      "ir_candidate": "DerivationResult"
+    },
+    {
+      "id": "compiled-private-state",
+      "classification": "common-mechanics",
+      "authorities": ["derived"],
+      "source_fields": [
+        "CompiledProject.{schema,project,project_revision,tree_state,inputs,statuses,evidence,closures,unit_runs,claim_input_identities}",
+        "UnitRun.{unit_id,adapter,cache_key,outcome,inventory,diagnostics}"
+      ],
+      "identity_roles": ["incremental-compilation", "cache-reuse", "claim-input-invalidation"],
+      "ir_candidate": "CompilerState"
+    },
+    {
+      "id": "compiled-timestamp",
+      "classification": "presentation",
+      "authorities": ["derived"],
+      "source_fields": ["CompiledProject.generated_at"],
+      "identity_roles": ["diagnostic-timestamp"],
+      "ir_candidate": null
     }
-  ]
+  ],
+  "backend_branch_audit": [
+    {
+      "layer": "manifest-validation",
+      "concrete_names": true,
+      "disposition": "producer-boundary",
+      "may_author_status": false
+    },
+    {
+      "layer": "observation-conversion",
+      "concrete_names": true,
+      "disposition": "producer-boundary-and-retained-detail",
+      "may_author_status": false
+    },
+    {
+      "layer": "cache-input-discovery",
+      "concrete_names": true,
+      "disposition": "backend-supplied-invalidation-projection",
+      "may_author_status": false
+    },
+    {
+      "layer": "core-status-derivation",
+      "concrete_names": false,
+      "disposition": "backend-neutral-evidence-algebra",
+      "may_author_status": true
+    },
+    {
+      "layer": "independent-verifier",
+      "concrete_names": false,
+      "disposition": "backend-neutral-receipt-semantics",
+      "may_author_status": true
+    }
+  ],
+  "open_questions": ["OQ-001", "OQ-002", "OQ-004"]
 }

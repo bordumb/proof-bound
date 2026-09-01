@@ -16,11 +16,15 @@
 No language decision has been made. Experiment 0005 is inventorying the
 assurance meaning already distributed across manifests, observations, core
 records, portable receipts, status derivation, and the independent verifier.
-The first inventory revision covers claims, evidence envelopes, provenance,
-artifacts, commands, cache semantics, and portable evidence-family detail.
+Inventory revision 2 covers registration, observations, core evidence, graph,
+policy, assumptions, premises, closures, cache projection, private compiled
+state, releases, and derived status. It found a plausible backend-neutral
+kernel boundary while retaining typed backend facts at conversion and
+invalidation boundaries.
 
-The next bounded task is to complete release, graph, policy, closure, manifest,
-and adapter-observation coverage before proposing Assurance IR `/1`.
+The next bounded tasks are to freeze the positive semantic-projection corpus
+and draft Assurance IR `/1`. Neither is an experiment result until independent
+projection and adversarial checks execute.
 
 ## Programme map
 

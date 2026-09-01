@@ -27,3 +27,19 @@ this experiment's preregistration and observations. Added a structured partial
 field-inventory scaffold, artifact ledger, corpus index, and immutable-results
 directory. This is an organizational change, not an EXP-0005 result and not an
 Assurance IR design.
+
+## 2026-09-01 — Semantic inventory revision 2
+
+Completed the registration-to-release structural inventory at the pinned
+baseline. Revision 2 adds project, claim, evidence-unit, translation,
+model-check, mutation, policy, review, adapter protocol and observation, graph,
+assumption, premise, closure, cache, compiled-state, release, and derived-status
+coverage. It also records the concrete backend branch audit.
+
+The audit found no concrete backend-name branch in core status derivation or
+the standalone verifier's status algebra. Concrete backend knowledge remains
+in registration binding, observation conversion, cache dependency discovery,
+and typed retained detail. Two current generic-record defects remain explicit:
+Python plugin metadata is nested in common provenance and sampled-property
+detail is Python-named and asymmetric with TypeScript. No experiment question
+is answered by the inventory alone.

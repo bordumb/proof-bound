@@ -171,8 +171,8 @@ Corrections are new entries rather than edits to earlier observations.
 ## Artifacts
 
 The [artifact ledger](ARTIFACTS.md) indexes human and machine-readable research
-artifacts. The structured field inventory is deliberately marked partial until
-all consumed fields have exactly one classification.
+artifacts. Inventory revision 2 classifies the complete registered structural
+surface at the pinned baseline. Projection parity has not yet been run.
 
 ## Findings
 

@@ -1,10 +1,11 @@
 # Experiment 0005 semantic-field inventory
 
-- **Status:** running inventory; not an IR specification
+- **Status:** complete inventory; not an IR specification
 - **Baseline:** `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
-- **Inventory revision:** 1
-- **Coverage:** claim and evidence portable core, provenance, and current typed
-  evidence-family details; manifest and adapter-observation coverage is partial
+- **Inventory revision:** 2
+- **Coverage:** registration, observation, core semantics, graph, policy,
+  closure, compiled state, cache projection, portable release, and status
+  projection
 
 ## Purpose
 
@@ -29,10 +30,11 @@ compact IR exists.
 | Independent meaning | `crates/proofbound-verify/src/verifier.rs` | Independent validation, joins, status derivation, and release consistency |
 | Public contracts | `schemas/*.schema.json` | Structural wire requirements and conditional field shapes |
 
-Revision 1 has not yet exhaustively inventoried every manifest-only field,
-adapter-native observation field, graph edge, policy field, source-closure
-member, or compiler-internal record. Those omissions are explicit remaining
-work, not evidence that the fields are presentation-only.
+Revision 2 closes the structural inventory at the pinned baseline. The
+machine-readable companion uses exhaustive brace selectors: every field named
+inside one selector has that selector's classification, and no source path is
+intentionally covered by two selectors. Runtime code and schemas remain the
+authority if this research artifact and the baseline diverge.
 
 ## Classification vocabulary
 
@@ -263,41 +265,132 @@ These are candidates for investigation, not concluded divergences:
 | Distribution format branching | wheel, sdist, and npm validation differ | Archive semantics are legitimately format-specific, but generic reproducibility meaning should not be | Separate format checker facts from the shared two-run equality constructor |
 | Lean-specific theorem structure | theorem record carries Lean-oriented environment and statement encoding | Universal proof may require prover-neutral proposition identity while preserving logic-specific axioms | Compare with a proposed Verus observation without forcing false equivalence |
 
-## Portable release context still to inventory
+## Registration boundary
 
-The following release-level records are known to affect independent meaning and
-remain for revision 2:
+Registration contains five different kinds of meaning that are currently
+serialized together:
 
-- compiled release project, revision, tier, and tree state;
-- graph nodes, edges, and mutual theorem groups;
-- reported status projection and publication decision;
-- assumption and premise records;
-- policy profiles and their evidence requirements;
-- source-closure members, kinds, digests, file modes, and union semantics;
-- sealed release files;
-- release envelope and payload identity; and
-- compiled-project/cache-only state that does not enter the portable release.
+| Surface | Semantic classification | Authority and IR consequence |
+|---|---|---|
+| Project identity, source sets, toolchain paths, manifest registries, and limits | `CM` | Registered discovery and resource boundary. File globs are authoring syntax; resolved closures and identities are the IR input. |
+| Claim statement, subject, formal declaration, encoding, axioms, evidence/assumption/premise references, obligations, exclusions, bounded domain, and source roots | `FS` | Registered claim meaning. Display title and public wording remain `PR`; profile, tier, and linkage are `PO`. |
+| Evidence unit route, family, claims, inventory, inputs/outputs, evaluation/binding modes, family configuration, and resource budget | `FS` plus `CM` | Route configuration is validated before execution. The IR should receive a typed evidence request, not an adapter/operation string pair. |
+| Translation, model-check, mutation, transcription, property, static-analysis, and distribution blocks | `FS` with `BR` tool details | Their semantic results map to closed evidence constructors; invocations, selectors, formats, and native identities remain typed backend detail. |
+| Policy and review manifests | `PO` | Policy can admit or block but cannot manufacture evidence. Review acknowledges exact regression identities and revisions; it does not strengthen technical evidence. |
 
-## Manifest and observation work still to inventory
+Manifest file paths and glob patterns are not portable assurance facts after
+resolution. The resolved records, closure members, artifact identities, and
+configuration digest are. This is why a future frontend may use TOML, Pkl, or
+a dedicated DSL without changing the kernel model.
 
-Revision 2 must map registration and observation authority for:
+## Observation boundary
 
-- every `ClaimManifest` field;
-- every `EvidenceUnitManifest` field and conditional route block;
-- model-check and translation manifests;
-- mutation registries;
-- assumption, premise, policy, and review manifests;
-- adapter protocol request and response envelopes;
-- common adapter observation fields;
-- Python and Node observation extensions;
-- Lean, Kani, and Aeneas direct records or observations; and
-- compiler-internal review, source-closure, and artifact records.
+The adapter protocol has a small backend-neutral envelope: request identity,
+adapter, operation, project root, typed unit, success, evidence payload,
+inventory, and diagnostics. Only a successful `check` or `reproduce` response
+may carry assurance evidence. `doctor`, `inventory`, and `update` have distinct
+non-evidence shapes.
 
-Until these are mapped, Q1 is explicitly unanswered.
+Common observations contribute:
 
-## Revision 1 results
+- outcome and exact authoritative inventory;
+- input and generated artifact identities;
+- tool and adapter identities;
+- ordered commands, environment allowlists, and runs;
+- normalization and deterministic result identity;
+- budget and actual usage; and
+- one typed family observation when the route requires it.
 
-Revision 1 establishes a concrete baseline rather than an IR:
+The compiler is the authority that joins those observations to registration.
+An adapter-authored observation cannot choose its claims, evidence family,
+status strength, cache eligibility, or policy result. Adapter-native structures
+for Lean, Kani, Aeneas, Python, and Node are therefore producer boundary types,
+not additional IR constructors. Their assurance-relevant fields project into
+the common envelope or a closed family detail; remaining tool-native data is
+retained as `BR` and cannot author status.
+
+## Graph, assumption, premise, and policy boundary
+
+| Record | Class | Required meaning |
+|---|---|---|
+| Graph node | `CM` | Stable node ID, closed node kind, and theorem proof environment when applicable |
+| Graph edge | `FS` | Closed edge kind and checked endpoint kinds; arbitrary labels are not allowed |
+| Mutual theorem group | `FS` | Exact members under one proof environment; the only admitted graph cycle form |
+| Assumption | `FS` | Statement, category, owner, scope, affected claims, evidence, lifecycle, dependency, and discharge/falsification plan |
+| Premise | `FS` | Statement, category, flow scope, optional theorem attribution, and checked discharge |
+| Policy | `PO` | Built-in components, axiom allowances, native premise rule, assumption requirement, exhaustive-proof rule, binding requirements, and extra evidence families |
+
+Assumptions and premises are first-class graph facts, not warning strings. The
+IR must preserve their identity and joins so notification filtering can report
+only an assumption whose status or dependency actually affects a claim.
+
+## Closure and cache boundary
+
+A source closure is a typed, content-addressed ordered inventory of
+`(path, sha256, size_bytes)` members. The portable wire carries semantic,
+runner, presentation, external-evidence, and toolchain closure kinds. Sealed
+release files carry the same byte identity tuple under their release path.
+
+Cache reuse is not a field copied from an adapter. It is a derived equality over
+the registered unit configuration, semantic and additional closure identities,
+input artifacts, tool identity, adapter identity, and route-specific execution
+dependencies. File permission identity participates for Cargo execution; empty
+directories do not because the shadow execution model does not copy them. Run
+outputs, timestamps, usage, and generated artifacts are deliberately excluded
+from the pre-execution key. A future IR needs a named cache-dependency
+projection rather than an undocumented subset of the evidence record.
+
+Private `CompiledProject` state retains generated time, claim inputs, derived
+statuses, evidence, closures, unit runs, and claim-input identities. Of these,
+`generated_at` and diagnostics are operational/presentation data; claim input
+identities, cache keys, outcomes, inventories, and record identities are common
+mechanics. Private storage format is not a portable IR contract.
+
+## Portable release and derived status boundary
+
+The release envelope binds an exact payload. `CompiledRelease` binds project,
+revision, project tier, tree state, graph, claims, content-addressed evidence,
+assumptions, premises, policies, closures, sealed files, and reported statuses.
+The verifier recomputes record identities, graph validity, evidence validity,
+claim status, and the reported projection rather than trusting producer output.
+
+The derived status projection contains:
+
+- formal facet;
+- optional linkage facet;
+- assumption standing and exact contributing assumptions/premises;
+- policy admission and blockers;
+- evidence assessments and their accepted roles;
+- bounded domains;
+- explicit not-proved obligations and exclusions; and
+- structured validation errors.
+
+These are derived results, not authorable IR inputs. A language frontend may
+render them, but cannot directly declare a claim `PROVED`, `ARTIFACT_BOUND`, or
+`ADMITTED`.
+
+## Generic backend branch audit
+
+| Location | Concrete branch | Classification | Draft-IR rule |
+|---|---|---|---|
+| Manifest validation | adapter/operation/kind compatibility tables | Registration binding, not kernel semantics | Frontend resolves a closed evidence request before IR validation |
+| Compiler observation conversion | Python plugin, Node runtime, Kani harness, Lean theorem, Aeneas translation, and archive-format checks | Producer boundary plus `BR` | Converter emits one closed family constructor and retained backend facts |
+| Cache input discovery | Cargo, Python, Node, translation, and toolchain dependency rules | Backend invalidation policy | Backend supplies a typed cache-dependency projection; kernel hashes it generically |
+| Core status derivation | evidence-kind and profile matches only | Legitimate evidence algebra | Branch on closed semantic constructors, never concrete tools or languages |
+| Standalone verifier | evidence-kind, policy, graph, and archive-independent receipt checks | Legitimate independent semantics | No adapter crate or executable dependency |
+| Common provenance | `python_plugins` | Misplaced backend-retained detail | Move to typed backend provenance while preserving identity and cache participation |
+| Common evidence | `python_property` | Misnamed/asymmetric family detail | Replace with backend-neutral sampled-property semantics plus retained framework detail |
+
+No concrete pytest, Vitest, mypy, TypeScript, Kani, Aeneas, Lean, Cargo, npm,
+wheel, or sdist branch was found in core status derivation. Concrete names are
+present in registration, conversion, cache discovery, and typed verification
+of backend facts. That is compatible with a backend-neutral kernel only if the
+future boundary remains explicit and backend facts cannot author evidence
+strength.
+
+## Revision 2 results
+
+Revision 2 establishes a complete classification baseline rather than an IR:
 
 - claim machine meaning and reader presentation are already distinct;
 - the evidence envelope is close to a tagged union but remains a kind plus
@@ -307,9 +400,19 @@ Revision 1 establishes a concrete baseline rather than an IR:
 - cache semantics are a deliberate projection that must survive IR extraction;
 - full artifact identity is name, digest, and size, not digest alone;
 - required-null observations carry meaning distinct from omission and zero;
-- evidence-family distinctions are present but not yet uniformly represented
-  across Python and TypeScript sampled properties; and
-- no evidence yet supports the claim that the common kernel is backend-free.
+- evidence-family distinctions are present but sampled-property detail is not
+  yet uniformly represented across Python and TypeScript;
+- graph, policy, assumption, premise, closure, release, and status records have
+  a backend-neutral semantic projection;
+- common status derivation branches on evidence families and policies, not on
+  concrete tools or programming languages;
+- concrete backends still appear in registration binding, producer conversion,
+  invalidation, and retained audit detail, where they must remain typed;
+- `python_plugins` and `python_property` are concrete normalization defects for
+  a future IR, not reasons to erase their meaning; and
+- cache semantics require an explicit dependency projection supplied by the
+  backend boundary and hashed by common mechanics.
 
-The next inventory revision should complete release-level records and trace all
-concrete backend-name branches in generic producer and verifier code.
+This completes the inventory prerequisite for drafting Assurance IR `/1`.
+It does not answer Q1 or Q2: projection parity and an independent checker have
+not yet been implemented.
