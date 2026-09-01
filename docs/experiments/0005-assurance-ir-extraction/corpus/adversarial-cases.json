@@ -1,0 +1,150 @@
+{
+  "schema": "proofbound-research-adversarial-corpus/1",
+  "experiment": "EXP-0005",
+  "baseline": "git:295ad63e67bd30cc48eb8c9ee43c612de2c367c6",
+  "revision": 1,
+  "status": "preregistered-unexecuted",
+  "contract": "Each mutation is applied independently to a valid projected base case. Acceptance by either implementation is a falsifier for Q3 unless the expected result says accept.",
+  "cases": [
+    {
+      "id": "IR-ADV-001",
+      "base_case": "IR-PY-002",
+      "phase": "decode",
+      "mutation": {"operation": "delete", "path": "/evidence/0/authority"},
+      "expected": {"result": "reject", "code": "IR-DECODE-REQUIRED-AUTHORITY"}
+    },
+    {
+      "id": "IR-ADV-002",
+      "base_case": "IR-PY-001",
+      "phase": "decode",
+      "mutation": {"operation": "duplicate-set-member", "path": "/evidence/0/claims", "index": 0},
+      "expected": {"result": "reject", "code": "IR-DECODE-DUPLICATE"}
+    },
+    {
+      "id": "IR-ADV-003",
+      "base_case": "IR-REL-001",
+      "phase": "decode",
+      "mutation": {"operation": "reverse-list", "path": "/evidence/0/provenance/runs"},
+      "expected": {"result": "reject", "code": "IR-PROVENANCE-RUN-ORDER"}
+    },
+    {
+      "id": "IR-ADV-004",
+      "base_case": "IR-PY-001",
+      "phase": "evidence",
+      "mutation": {"operation": "replace", "path": "/evidence/0/family/kind", "value": "finite-exhaustive"},
+      "expected": {"result": "reject", "code": "IR-EVIDENCE-FAMILY-DETAIL"}
+    },
+    {
+      "id": "IR-ADV-005",
+      "base_case": "IR-TS-002",
+      "phase": "evidence",
+      "mutation": {"operation": "replace-family", "from": "sampled-property", "to": "finite-exhaustive", "retain_detail": true},
+      "expected": {"result": "reject", "code": "IR-EVIDENCE-FAMILY-DETAIL"}
+    },
+    {
+      "id": "IR-ADV-006",
+      "base_case": "IR-RS-002",
+      "phase": "graph",
+      "mutation": {"operation": "replace-family", "from": "universal-source-proof", "to": "artifact-correspondence", "retain_detail": true},
+      "expected": {"result": "reject", "code": "IR-EVIDENCE-FAMILY-DETAIL"}
+    },
+    {
+      "id": "IR-ADV-007",
+      "base_case": "IR-PY-003",
+      "phase": "derivation",
+      "mutation": {"operation": "replace-reported-status", "path": "/reported/formal", "value": "PROVED"},
+      "expected": {"result": "reject", "code": "IR-STATUS-MISMATCH"}
+    },
+    {
+      "id": "IR-ADV-008",
+      "base_case": "IR-PY-002",
+      "phase": "backend-provenance",
+      "mutation": {"operation": "replace", "path": "/evidence/0/backend/retained_facts/0/schema", "value": "unknown-required/1"},
+      "expected": {"result": "reject", "code": "IR-BACKEND-UNKNOWN-REQUIRED"}
+    },
+    {
+      "id": "IR-ADV-009",
+      "base_case": "IR-RS-003",
+      "phase": "registration-join",
+      "mutation": {"operation": "replace", "path": "/evidence/0/family/detail/subject", "value": "subject:unrelated"},
+      "expected": {"result": "reject", "code": "IR-EVIDENCE-SUBJECT-MISMATCH"}
+    },
+    {
+      "id": "IR-ADV-010",
+      "base_case": "IR-SEM-004",
+      "phase": "registration-join",
+      "mutation": {"operation": "replace", "path": "/evidence/1/family/detail/artifact/sha256", "value": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+      "expected": {"result": "reject", "code": "IR-ARTIFACT-IDENTITY-MISMATCH"}
+    },
+    {
+      "id": "IR-ADV-011",
+      "base_case": "IR-PY-001",
+      "phase": "registration-join",
+      "mutation": {"operation": "remove-set-member", "path": "/claims/0/assumptions", "value": "PY-RUNTIME-001"},
+      "expected": {"result": "reject", "code": "IR-ASSUMPTION-JOIN"}
+    },
+    {
+      "id": "IR-ADV-012",
+      "base_case": "IR-RS-003",
+      "phase": "cache",
+      "mutation": {"operation": "remove-set-member", "path": "/cache/execution_inputs", "selector": "target-preimage"},
+      "expected": {"result": "reject", "code": "IR-CACHE-DEPENDENCY-OMITTED"}
+    },
+    {
+      "id": "IR-ADV-013",
+      "base_case": "IR-REL-001",
+      "phase": "cache",
+      "mutation": {"operation": "replace", "path": "/evidence/0/provenance/cache/prior_receipt", "value": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "without_recomputing": "/evidence/0/provenance/cache/key"},
+      "expected": {"result": "reject", "code": "IR-CACHE-REUSE-MISMATCH"}
+    },
+    {
+      "id": "IR-ADV-014",
+      "base_case": "IR-PY-001",
+      "phase": "decode",
+      "mutation": {"operation": "encode-noncanonical", "form": "trailing-newline"},
+      "expected": {"result": "reject", "code": "IR-DECODE-NONCANONICAL"}
+    },
+    {
+      "id": "IR-ADV-015",
+      "base_case": "IR-PY-001",
+      "phase": "decode",
+      "mutation": {"operation": "encode-duplicate-object-key", "path": "/evidence/0", "key": "unit"},
+      "expected": {"result": "reject", "code": "IR-DECODE-DUPLICATE-KEY"}
+    },
+    {
+      "id": "IR-ADV-016",
+      "base_case": "IR-SEM-001",
+      "phase": "release-comparison",
+      "mutation": {"operation": "replace-reported-status", "path": "/reported/formal", "value": "PROVED"},
+      "expected": {"result": "reject", "code": "IR-STATUS-MISMATCH"}
+    },
+    {
+      "id": "IR-ADV-017",
+      "base_case": "IR-REL-001",
+      "phase": "decode",
+      "mutation": {"operation": "replace", "path": "/schema", "value": "proofbound-evidence/3"},
+      "expected": {"result": "reject", "code": "IR-DECODE-SCHEMA"}
+    },
+    {
+      "id": "IR-ADV-018",
+      "base_case": "IR-REL-001",
+      "phase": "decode",
+      "mutation": {"operation": "delete", "path": "/evidence/0/provenance/usage/peak_memory"},
+      "expected": {"result": "reject", "code": "IR-DECODE-REQUIRED-UNKNOWN"}
+    },
+    {
+      "id": "IR-ADV-019",
+      "base_case": "IR-PY-004",
+      "phase": "registration-join",
+      "mutation": {"operation": "add-set-member", "path": "/evidence/0/claims", "value": "PY-WHEEL-001"},
+      "expected": {"result": "reject", "code": "IR-EVIDENCE-CLAIM-ATTRIBUTION"}
+    },
+    {
+      "id": "IR-ADV-020",
+      "base_case": "IR-SEM-005",
+      "phase": "derivation",
+      "mutation": {"operation": "replace-reported-status", "path": "/reported/linkage", "value": "ARTIFACT_BOUND"},
+      "expected": {"result": "reject", "code": "IR-STATUS-MISMATCH"}
+    }
+  ]
+}

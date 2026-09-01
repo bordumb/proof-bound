@@ -2,12 +2,16 @@
 
 [Experiment registration](../README.md) ·
 [Programme corpus](../../../research/proofbound-language/corpus.md) ·
-[Machine-readable cases](cases.json)
+[Positive cases](cases.json) ·
+[Adversarial cases](adversarial-cases.json) ·
+[Canonical vectors](canonical-vectors.json)
 
-- **Status:** frozen positive corpus; no projection execution yet
+- **Status:** frozen positive and preregistered adversarial corpus; no
+  projection execution yet
 - **Baseline:** `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
 - **Corpus revision:** 1
 - **Case count:** 20
+- **Adversarial case count:** 20
 
 The corpus freezes tracked registration and portable-fixture bytes from the
 experiment baseline. It does not copy generated caches, local tool output, or
@@ -54,4 +58,13 @@ new encoding is byte-equal to the old one.
 
 Changing a frozen source, pointer, expected status, projection profile, or blob
 identity requires a new corpus revision and journal entry. The adversarial
-corpus remains future work under Q3.
+corpus preregisters omission, duplicate, ordering, family substitution,
+evidence-strength upgrade, unknown required semantics, subject/artifact skew,
+assumption and cache omission, stale reuse, noncanonical encoding, duplicate
+keys, old-schema reinterpretation, required-unknown omission, attribution, and
+reported-status attacks. Its exact mutations and expected rejection codes are
+frozen before either prototype is implemented.
+
+`canonical-vectors.json` freezes five new research-only domain strings and
+independent expected digests over three canonical values. These domains do not
+alter or reuse any current Proofbound identity domain.

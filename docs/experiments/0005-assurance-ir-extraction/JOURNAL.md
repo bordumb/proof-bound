@@ -72,3 +72,15 @@ Hypothesis facts map to explicit sampling, while the current TypeScript route
 maps to a visible legacy backend-sampling state pending OQ-001. It also records
 the inactive Aeneas route honestly. The schema name is reserved only inside the
 research draft; no implementation may emit it yet. Q1–Q5 remain unanswered.
+
+## 2026-09-01 — Adversarial and canonical preregistration
+
+Before implementing either prototype, froze 20 independent adversarial
+mutations and their expected rejection phases/codes. Also froze the canonical
+JSON contract, five research-only domain strings, and 15 expected domain-hash
+vectors. This prevents either implementation from choosing encodings or
+negative cases after observing the other's behavior.
+
+The registered attacks cover every minimum Q3 category plus cache dependency,
+required-unknown, claim-attribution, evidence-strength, and reported-linkage
+attacks. They remain unexecuted.
