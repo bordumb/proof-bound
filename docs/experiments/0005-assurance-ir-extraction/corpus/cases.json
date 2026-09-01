@@ -1,0 +1,183 @@
+{
+  "schema": "proofbound-research-projection-corpus/1",
+  "experiment": "EXP-0005",
+  "baseline": "git:295ad63e67bd30cc48eb8c9ee43c612de2c367c6",
+  "revision": 1,
+  "status": "frozen-positive-unexecuted",
+  "source_identity": "sha256-of-exact-git-blob-bytes-at-baseline",
+  "projection_profiles": {
+    "registered-evidence": [
+      "unit_id", "evidence_family", "claim_ids", "authoritative_inventory",
+      "registered_inputs", "registered_outputs", "assumptions",
+      "typed_family_configuration", "resource_budget", "backend_binding"
+    ],
+    "derived-claim": [
+      "claim_id", "formal_facet", "linkage_facet", "assumption_facet",
+      "policy_admitted", "bounded_domains", "evidence_roles",
+      "open_obligations", "out_of_scope"
+    ],
+    "portable-release": [
+      "project_identity", "project_revision", "project_tier", "tree_state",
+      "graph", "claims", "evidence_records", "assumptions", "premises",
+      "policies", "closures", "sealed_files", "reported_statuses",
+      "payload_identity", "cache_and_reuse_semantics"
+    ]
+  },
+  "supporting_sources": [
+    {
+      "path": "demo/allowance/proofbound/model-checks/transfer-bounds.toml",
+      "sha256": "sha256:0608fb97a5c40509eb2327fa293c5cf5f1b7f65dd472a6c80b156774bbafc375",
+      "role": "bounded-model-registration"
+    },
+    {
+      "path": "demo/allowance/proofbound/translations/transfer-kernel.toml",
+      "sha256": "sha256:470c31e77f4819309d123c7e11428af570be7cdfc92d40a47428a3de33ef7df7",
+      "role": "translation-registration-only-not-executed-refinement-evidence"
+    },
+    {
+      "path": "proofbound/conformance/v1/status-graphs.json",
+      "sha256": "sha256:ecf17547d6bff8ad6141b8af842a8e43ce50d01a1848c4ecd89e5412669d1488",
+      "role": "independent-semantic-status-cases"
+    }
+  ],
+  "cases": [
+    {
+      "id": "IR-PY-001", "role": "positive-registration", "evidence_family": "example-test",
+      "source": {"path": "demo/python-inventory-service/evidence/reservation-example.toml", "sha256": "sha256:4be02140847d6112c49b44ba3733747cfa4040a75f322b1750994faa998cfdef"},
+      "unit_id": "reservation-example", "claim_ids": ["PY-RESERVATION-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "pytest"]
+    },
+    {
+      "id": "IR-PY-002", "role": "positive-registration", "evidence_family": "property-test",
+      "source": {"path": "demo/python-inventory-service/evidence/reservation-property.toml", "sha256": "sha256:c3d5b220067293b37d696e853f9e3c69574aa97e38e69275d72815c0683afa79"},
+      "unit_id": "reservation-property", "claim_ids": ["PY-RESERVATION-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "pytest", "hypothesis"]
+    },
+    {
+      "id": "IR-PY-003", "role": "positive-registration", "evidence_family": "static-check",
+      "source": {"path": "demo/python-inventory-service/evidence/reservation-types.toml", "sha256": "sha256:1a5d986120e396c07c5179c29fefd2646ec1513eb8619c720e478ece4d69da6d"},
+      "unit_id": "reservation-types", "claim_ids": ["PY-RESERVATION-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "mypy"]
+    },
+    {
+      "id": "IR-PY-004", "role": "positive-registration", "evidence_family": "mutation-witness",
+      "source": {"path": "demo/python-inventory-service/evidence/reservation-mutant.toml", "sha256": "sha256:8bb7d57013389fcc51200f3118a486bee90273274df8cff78c7e4885f07e9b16"},
+      "unit_id": "accept-over-cap-mutant", "claim_ids": ["PY-RESERVATION-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "pytest"]
+    },
+    {
+      "id": "IR-PY-005", "role": "positive-registration", "evidence_family": "distribution-reproduction",
+      "source": {"path": "demo/python-inventory-service/evidence/wheel-reproduction.toml", "sha256": "sha256:bf52fbb71644040d886c62797f72024170c472a4e16248f67fedabbaebb4fa09"},
+      "unit_id": "wheel-reproduction", "claim_ids": ["PY-WHEEL-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "build"]
+    },
+    {
+      "id": "IR-TS-001", "role": "positive-registration", "evidence_family": "example-test",
+      "source": {"path": "demo/typescript-codec/evidence/reject-padding.toml", "sha256": "sha256:91bdb2cba6d0cea7f24da1bbcc51bb8b2aca9593e200209e56ee298245320530"},
+      "unit_id": "reject-padding", "claim_ids": ["TS-CODEC-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm", "vitest"]
+    },
+    {
+      "id": "IR-TS-002", "role": "positive-registration", "evidence_family": "property-test",
+      "source": {"path": "demo/typescript-codec/evidence/bounded-roundtrip.toml", "sha256": "sha256:ab6fbaffa27f04a2b32d88d8721260eb8fb799fca4354759fa0e31af691aba1b"},
+      "unit_id": "bounded-roundtrip", "claim_ids": ["TS-CODEC-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm", "vitest", "fast-check"]
+    },
+    {
+      "id": "IR-TS-003", "role": "positive-registration", "evidence_family": "static-check",
+      "source": {"path": "demo/typescript-codec/evidence/strict-types.toml", "sha256": "sha256:f8f037b9081b2cffc42394385dcd8f03689f5cb973568d4d7b64c37d017865b7"},
+      "unit_id": "strict-types", "claim_ids": ["TS-CODEC-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm", "tsc"]
+    },
+    {
+      "id": "IR-TS-004", "role": "positive-registration", "evidence_family": "mutation-witness",
+      "source": {"path": "demo/typescript-codec/evidence/reject-padding-mutant.toml", "sha256": "sha256:28c5132825e20bb5b64dd910511156bf8549bc0194d02d5e416ac576463ab393"},
+      "unit_id": "reject-padding-mutant", "claim_ids": ["TS-CODEC-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm", "vitest"]
+    },
+    {
+      "id": "IR-TS-005", "role": "positive-registration", "evidence_family": "distribution-reproduction",
+      "source": {"path": "demo/typescript-codec/evidence/npm-package.toml", "sha256": "sha256:37f93c53ec4cf5767ed4902f5baebbde74ec1ca4c9bbb47d50f901f4aeefba21"},
+      "unit_id": "npm-package", "claim_ids": ["TS-PACKAGE-001"],
+      "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm"]
+    },
+    {
+      "id": "IR-RS-001", "role": "positive-registration", "evidence_family": "bounded-check",
+      "source": {"path": "demo/allowance/proofbound/evidence/transfer-bounds.toml", "sha256": "sha256:c6495bf7b731ffd7b2f84a9a8b63b8a4d50bf7bb3cdcc38f20aea389b2a9076b"},
+      "unit_id": "transfer-bounds", "claim_ids": ["DEMO-TRANSFER-001", "DEMO-TRANSFER-002", "DEMO-TRANSFER-003", "DEMO-TRANSFER-004"],
+      "expected_claim": {"formal": "BOUNDED_CHECKED_OR_STRONGER_PER_CLAIM", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence"], "toolchain_required_to_regenerate": ["cargo", "kani"]
+    },
+    {
+      "id": "IR-RS-002", "role": "positive-registration", "evidence_family": "theorem",
+      "source": {"path": "demo/allowance/proofbound/evidence/accept-conserves.toml", "sha256": "sha256:315655e6378109d81d324e04b0e41503328dfe769c66e1b8e61e6942edf9484e"},
+      "unit_id": "accept-conserves", "claim_ids": ["DEMO-TRANSFER-001"],
+      "expected_claim": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["lean", "lake"]
+    },
+    {
+      "id": "IR-RS-003", "role": "positive-registration", "evidence_family": "mutation-witness",
+      "source": {"path": "demo/allowance/proofbound/evidence/remove-cap-guard.toml", "sha256": "sha256:a95df7d8c9f481143589fdeafe8a50ce8c660cab27742d6386f0d5909c17796c"},
+      "unit_id": "remove-cap-guard", "claim_ids": ["DEMO-TRANSFER-003", "DEMO-TRANSFER-005"],
+      "expected_claim": {"formal": "TESTED_OR_STRONGER_PER_CLAIM", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["registered-evidence"], "toolchain_required_to_regenerate": ["cargo", "rust-test"]
+    },
+    {
+      "id": "IR-SEM-001", "role": "positive-semantic-status", "evidence_family": "bounded-check",
+      "source": {"path": "proofbound/conformance/v1/status-graphs.json", "sha256": "sha256:ecf17547d6bff8ad6141b8af842a8e43ce50d01a1848c4ecd89e5412669d1488", "json_pointer": "/cases/8"},
+      "claim_ids": ["c"], "expected_claim": {"formal": "BOUNDED_CHECKED", "linkage": "MODEL_ONLY", "assumption": "NONE", "policy_admitted": true},
+      "projection_profiles": ["derived-claim"], "toolchain_required_to_regenerate": []
+    },
+    {
+      "id": "IR-SEM-002", "role": "positive-semantic-status", "evidence_family": "theorem",
+      "source": {"path": "proofbound/conformance/v1/status-graphs.json", "sha256": "sha256:ecf17547d6bff8ad6141b8af842a8e43ce50d01a1848c4ecd89e5412669d1488", "json_pointer": "/cases/9"},
+      "claim_ids": ["c"], "expected_claim": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "NONE", "policy_admitted": true},
+      "projection_profiles": ["derived-claim"], "toolchain_required_to_regenerate": []
+    },
+    {
+      "id": "IR-SEM-003", "role": "positive-semantic-status", "evidence_family": "exhaustive-check",
+      "source": {"path": "proofbound/conformance/v1/status-graphs.json", "sha256": "sha256:ecf17547d6bff8ad6141b8af842a8e43ce50d01a1848c4ecd89e5412669d1488", "json_pointer": "/cases/10"},
+      "claim_ids": ["c"], "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "policy_admitted": true},
+      "projection_profiles": ["derived-claim"], "toolchain_required_to_regenerate": []
+    },
+    {
+      "id": "IR-SEM-004", "role": "positive-semantic-status", "evidence_family": "artifact-soundness",
+      "source": {"path": "proofbound/conformance/v1/status-graphs.json", "sha256": "sha256:ecf17547d6bff8ad6141b8af842a8e43ce50d01a1848c4ecd89e5412669d1488", "json_pointer": "/cases/12"},
+      "claim_ids": ["c"], "expected_claim": {"formal": "PROVED", "linkage": "ARTIFACT_BOUND", "assumption": "NONE", "policy_admitted": true},
+      "projection_profiles": ["derived-claim"], "toolchain_required_to_regenerate": []
+    },
+    {
+      "id": "IR-SEM-005", "role": "positive-semantic-status", "evidence_family": "trusted-transcription",
+      "source": {"path": "proofbound/conformance/v1/status-graphs.json", "sha256": "sha256:ecf17547d6bff8ad6141b8af842a8e43ce50d01a1848c4ecd89e5412669d1488", "json_pointer": "/cases/16"},
+      "claim_ids": ["c"], "expected_claim": {"formal": "OPEN", "linkage": "TRANSCRIBED", "assumption": "NONE", "policy_admitted": true},
+      "projection_profiles": ["derived-claim"], "toolchain_required_to_regenerate": []
+    },
+    {
+      "id": "IR-SEM-006", "role": "positive-semantic-status", "evidence_family": "source-refinement",
+      "source": {"path": "proofbound/conformance/v1/status-graphs.json", "sha256": "sha256:ecf17547d6bff8ad6141b8af842a8e43ce50d01a1848c4ecd89e5412669d1488", "json_pointer": "/cases/17"},
+      "claim_ids": ["c"], "expected_claim": {"formal": "PROVED", "linkage": "REFINED", "assumption": "ASSUMED", "policy_admitted": true},
+      "projection_profiles": ["derived-claim"], "toolchain_required_to_regenerate": []
+    },
+    {
+      "id": "IR-REL-001", "role": "positive-portable-release", "evidence_family": "compiler-internal-and-example-test",
+      "source": {
+        "path": "proofbound/conformance/v1/release-valid/compiled-receipt.json",
+        "sha256": "sha256:b6e16078ddb5af8f5983bf1a61d73f9532620a413ebf688516d6103778682edd",
+        "envelope_path": "proofbound/conformance/v1/release-valid/release.json",
+        "envelope_sha256": "sha256:6204659b54820b9b9840e86a20337d314b172c4f157d197c7843c442ef5f7134"
+      },
+      "claim_ids": ["c"], "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "policy_admitted": true},
+      "projection_profiles": ["portable-release", "derived-claim"], "toolchain_required_to_regenerate": []
+    }
+  ]
+}

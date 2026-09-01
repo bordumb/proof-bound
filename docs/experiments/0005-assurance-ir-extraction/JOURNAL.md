@@ -43,3 +43,17 @@ and typed retained detail. Two current generic-record defects remain explicit:
 Python plugin metadata is nested in common provenance and sampled-property
 detail is Python-named and asymmetric with TypeScript. No experiment question
 is answered by the inventory alone.
+
+## 2026-09-01 — Positive projection corpus revision 1
+
+Froze 20 positive projection cases against exact Git blob bytes at baseline
+`295ad63e67bd30cc48eb8c9ee43c612de2c367c6`. The corpus covers Python and
+TypeScript example, property, static, mutation, and distribution registrations;
+Kani, Lean, and Rust registrations; six backend-free semantic status cases;
+and the canonical portable release fixture.
+
+The inactive Aeneas refinement example remains explicitly non-executed. Its
+translation registration is pinned as supporting input, while source-refinement
+semantics come from the positive conformance case. This avoids turning an
+aspirational demo into fabricated observation evidence. No converter or
+projection comparison has run, so Q1, Q3, and Q5 remain unanswered.

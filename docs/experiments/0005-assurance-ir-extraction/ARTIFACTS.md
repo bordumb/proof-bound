@@ -6,8 +6,9 @@
 |---|---|---|---|
 | EXP-0005-A001 | `semantic-field-inventory.md` | frozen, revision 2, `sha256:c3238ccbbf72336157511aaa42defd9894d1846402c9d87f344fd9333e1d404c` | Human-readable classification and boundary analysis |
 | EXP-0005-A002 | `field-inventory.json` | frozen, revision 2, `sha256:b47b151ea98020131dc340aca412d437efc3fba9ad3b8605d8dec8affa4f8847` | Machine-readable field classification and backend-branch audit |
-| EXP-0005-A003 | `corpus/README.md` | scaffold | Exact selected cases and identities to be pinned before parity execution |
+| EXP-0005-A003 | `corpus/README.md` | frozen, revision 1, `sha256:c6885f6bf65f94395dbf9350f4e12e367ae873d436ddd783febc58f183f74001` | Human-readable positive corpus contract and coverage |
 | EXP-0005-A004 | `results/README.md` | scaffold | Naming and immutability contract for machine-readable run results |
+| EXP-0005-A005 | `corpus/cases.json` | frozen, revision 1, `sha256:370c45f5a7a5a492c7c12218ee53be782cd6e8610a70297bd94488801dba5f32` | Twenty exact positive registration, semantic-status, and portable-release cases |
 
 Content digests identify frozen research inputs. Revisions must receive a new
 artifact digest; existing frozen bytes are not edited in place after an
