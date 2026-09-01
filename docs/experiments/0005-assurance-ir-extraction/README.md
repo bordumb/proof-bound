@@ -1,12 +1,12 @@
 # Experiment 0005: Assurance IR extraction
 
-- **Status:** planned
+- **Status:** running
 - **Registered:** 2026-09-01 (commit of this Questions section)
-- **Started / concluded:** — / —
-- **Subject:** Proofbound repository and conformance corpus
-  (`TBD-at-start`; pin the exact commit in the first journal entry)
-- **Proofbound:** `TBD-at-start`; pin the exact experiment implementation
-  commit in each executed trial
+- **Started / concluded:** 2026-09-01 / —
+- **Subject:** Proofbound repository and conformance corpus at
+  `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
+- **Proofbound:** baseline `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`;
+  pin later experiment implementation commits in each executed trial
 - **Operator:** Codex (GPT-5)
 
 ## Why this experiment
@@ -168,6 +168,12 @@ failed; the pre-registered scope must not be silently narrowed.
 - **2026-09-01** — Pre-registered. Not started. No Assurance IR model or
   experiment-specific semantic-field inventory was created before this
   Questions section was committed.
+- **2026-09-01** — START. Pinned the subject and implementation baseline to
+  registration commit `295ad63e67bd30cc48eb8c9ee43c612de2c367c6` and began
+  the semantic-field inventory. The first bounded slice covers the claim,
+  evidence envelope, provenance, and portable family-detail records in core
+  and the standalone verifier; manifest and observation coverage remains
+  explicitly partial. See [semantic-field-inventory.md](semantic-field-inventory.md).
 
 ## Findings
 
@@ -176,4 +182,4 @@ failed; the pre-registered scope must not be silently narrowed.
 
 ## Outcome
 
-Not started. Q1–Q5 remain unanswered.
+Running. Q1–Q5 remain unanswered.
