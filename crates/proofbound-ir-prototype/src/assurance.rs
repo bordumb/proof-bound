@@ -26,15 +26,112 @@ pub struct CaseProgram {
 pub struct IrProgrammeContext {
     pub release_schema: Option<String>,
     pub project: Option<IrProject>,
-    pub graph: Option<Value>,
+    pub graph: Option<IrGraph>,
     pub graph_sha256: Option<String>,
-    pub assumptions: Vec<Value>,
-    pub premises: Vec<Value>,
-    pub policies: Vec<Value>,
+    pub assumptions: Vec<IrAssumption>,
+    pub premises: Vec<IrPremise>,
+    pub policies: Vec<IrPolicyRecord>,
     pub closures: Vec<IrClosure>,
     pub sealed_artifacts: Vec<Artifact>,
     pub publication_blockers: Vec<String>,
     pub reported_statuses: Vec<IrReportedStatus>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrGraph {
+    pub schema: String,
+    pub nodes: Vec<IrGraphNode>,
+    pub edges: Vec<IrGraphEdge>,
+    pub mutual_theorem_groups: Vec<IrMutualTheoremGroup>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrGraphNode {
+    pub id: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_environment: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrGraphEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrMutualTheoremGroup {
+    pub id: String,
+    pub proof_environment: String,
+    pub members: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrAssumption {
+    pub schema: String,
+    pub id: String,
+    pub node_id: String,
+    pub statement: String,
+    pub category: String,
+    pub owner: String,
+    pub rationale: String,
+    pub scope: String,
+    pub affected_claims: Vec<String>,
+    pub review_evidence: Vec<String>,
+    pub falsification_or_discharge_plan: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_citation: Option<String>,
+    pub state: String,
+    pub depends_on: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrPremise {
+    pub id: String,
+    pub node_id: String,
+    pub statement: String,
+    pub category: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theorem_evidence: Option<String>,
+    pub scope: IrFlowScope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discharge: Option<IrPremiseDischarge>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrFlowScope {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub flows: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrPremiseDischarge {
+    pub theorem_evidence: String,
+    pub scope: IrFlowScope,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrPolicyRecord {
+    pub schema: String,
+    pub id: String,
+    pub node_id: String,
+    pub components: Vec<String>,
+    pub allowed_foundational_axioms: Vec<String>,
+    pub allowed_project_axioms: Vec<String>,
+    pub admit_exhaustive_as_proved: bool,
+    pub require_no_assumptions: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_premise_rule: Option<IrNativePremiseRule>,
+    pub additional_required_evidence: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrNativePremiseRule {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -674,6 +771,7 @@ fn validate_programme(
             ));
         }
         let graph = object_field(programme, "graph")?;
+        validate_graph(graph)?;
         let graph_schema = text(graph, "schema")?;
         let graph_sha256 = text(programme, "graph_sha256")?;
         let graph_bytes = canonical_json(&Value::Object(graph.clone()))
@@ -690,6 +788,16 @@ fn validate_programme(
                 "portable programme must retain its policies",
             ));
         }
+    }
+
+    for assumption in array_field(programme, "assumptions")? {
+        validate_assumption(value_object(assumption)?)?;
+    }
+    for premise in array_field(programme, "premises")? {
+        validate_premise(value_object(premise)?)?;
+    }
+    for policy in array_field(programme, "policies")? {
+        validate_policy_record(value_object(policy)?)?;
     }
 
     for closure in array_field(programme, "closures")? {
@@ -727,6 +835,190 @@ fn validate_programme(
         array_field(programme, field)?;
     }
     Ok(())
+}
+
+fn validate_graph(graph: &Map<String, Value>) -> Result<(), IrValidationError> {
+    exact_fields(
+        graph,
+        &["schema", "nodes", "edges", "mutual_theorem_groups"],
+        &[],
+    )?;
+    for node in array_field(graph, "nodes")? {
+        let node = value_object(node)?;
+        exact_fields(node, &["id", "kind"], &["proof_environment"])?;
+        text(node, "id")?;
+        text(node, "kind")?;
+        optional_text_value(node, "proof_environment")?;
+    }
+    for edge in array_field(graph, "edges")? {
+        let edge = value_object(edge)?;
+        exact_fields(edge, &["from", "to", "kind"], &[])?;
+        for field in ["from", "to", "kind"] {
+            text(edge, field)?;
+        }
+    }
+    for group in array_field(graph, "mutual_theorem_groups")? {
+        let group = value_object(group)?;
+        exact_fields(group, &["id", "proof_environment", "members"], &[])?;
+        text(group, "id")?;
+        text(group, "proof_environment")?;
+        require_sorted_unique(&text_array(group, "members")?)?;
+    }
+    Ok(())
+}
+
+fn validate_assumption(value: &Map<String, Value>) -> Result<(), IrValidationError> {
+    exact_fields(
+        value,
+        &[
+            "schema",
+            "id",
+            "node_id",
+            "statement",
+            "category",
+            "owner",
+            "rationale",
+            "scope",
+            "affected_claims",
+            "review_evidence",
+            "falsification_or_discharge_plan",
+            "state",
+            "depends_on",
+        ],
+        &["source_citation"],
+    )?;
+    for field in [
+        "schema",
+        "id",
+        "node_id",
+        "statement",
+        "category",
+        "owner",
+        "rationale",
+        "scope",
+        "falsification_or_discharge_plan",
+        "state",
+    ] {
+        text(value, field)?;
+    }
+    optional_text_value(value, "source_citation")?;
+    for field in ["affected_claims", "review_evidence", "depends_on"] {
+        require_sorted_unique(&text_array(value, field)?)?;
+    }
+    Ok(())
+}
+
+fn validate_premise(value: &Map<String, Value>) -> Result<(), IrValidationError> {
+    exact_fields(
+        value,
+        &["id", "node_id", "statement", "category", "scope"],
+        &["theorem_evidence", "discharge"],
+    )?;
+    for field in ["id", "node_id", "statement", "category"] {
+        text(value, field)?;
+    }
+    optional_text_value(value, "theorem_evidence")?;
+    validate_flow_scope(object_field(value, "scope")?)?;
+    if let Some(discharge) = value.get("discharge") {
+        let discharge = value_object(discharge)?;
+        exact_fields(discharge, &["theorem_evidence", "scope"], &[])?;
+        text(discharge, "theorem_evidence")?;
+        validate_flow_scope(object_field(discharge, "scope")?)?;
+    }
+    Ok(())
+}
+
+fn validate_flow_scope(value: &Map<String, Value>) -> Result<(), IrValidationError> {
+    exact_fields(value, &["kind"], &["flows"])?;
+    text(value, "kind")?;
+    if value.contains_key("flows") {
+        require_sorted_unique(&text_array(value, "flows")?)?;
+    }
+    Ok(())
+}
+
+fn validate_policy_record(value: &Map<String, Value>) -> Result<(), IrValidationError> {
+    exact_fields(
+        value,
+        &[
+            "schema",
+            "id",
+            "node_id",
+            "components",
+            "allowed_foundational_axioms",
+            "allowed_project_axioms",
+            "admit_exhaustive_as_proved",
+            "require_no_assumptions",
+            "additional_required_evidence",
+        ],
+        &["native_premise_rule"],
+    )?;
+    for field in ["schema", "id", "node_id"] {
+        text(value, field)?;
+    }
+    for field in [
+        "components",
+        "allowed_foundational_axioms",
+        "allowed_project_axioms",
+        "additional_required_evidence",
+    ] {
+        require_sorted_unique(&text_array(value, field)?)?;
+    }
+    for field in ["admit_exhaustive_as_proved", "require_no_assumptions"] {
+        if value.get(field).and_then(Value::as_bool).is_none() {
+            return Err(IrValidationError::new(
+                "IR-DECODE-INVALID",
+                format!("{field} must be a Boolean"),
+            ));
+        }
+    }
+    if let Some(rule) = value.get("native_premise_rule") {
+        let rule = value_object(rule)?;
+        exact_fields(rule, &["kind"], &["count"])?;
+        text(rule, "kind")?;
+        if rule.contains_key("count") && rule.get("count").and_then(Value::as_u64).is_none() {
+            return Err(IrValidationError::new(
+                "IR-DECODE-INVALID",
+                "native premise count must be an unsigned integer",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn exact_fields(
+    value: &Map<String, Value>,
+    required: &[&str],
+    optional: &[&str],
+) -> Result<(), IrValidationError> {
+    let allowed = required
+        .iter()
+        .chain(optional)
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if required.iter().any(|field| !value.contains_key(*field))
+        || value.keys().any(|field| !allowed.contains(field.as_str()))
+    {
+        return Err(IrValidationError::new(
+            "IR-PROGRAMME-TYPED-RECORD",
+            "typed programme record has missing or unknown fields",
+        ));
+    }
+    Ok(())
+}
+
+fn optional_text_value(value: &Map<String, Value>, field: &str) -> Result<(), IrValidationError> {
+    if matches!(
+        value.get(field),
+        None | Some(Value::Null | Value::String(_))
+    ) {
+        Ok(())
+    } else {
+        Err(IrValidationError::new(
+            "IR-DECODE-INVALID",
+            format!("{field} must be text or null"),
+        ))
+    }
 }
 
 fn validate_artifact(artifact: &Map<String, Value>) -> Result<(), IrValidationError> {

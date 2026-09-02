@@ -14,12 +14,13 @@ use serde_json::{Map, Value};
 mod assurance;
 
 pub use assurance::{
-    Artifact, CacheInput, CaseProgram, IrBackend, IrBudget, IrCache, IrCacheProvenance, IrClaim,
-    IrClaimAdmission, IrClaimMeaning, IrClaimPresentation, IrClosure, IrClosureReference,
-    IrCommand, IrEnvironment, IrEvidence, IrEvidenceRequest, IrFamily, IrPolicy,
-    IrProgrammeContext, IrProject, IrProvenance, IrPythonPlugin, IrReportedStatus, IrRun, IrTool,
-    IrUsage, IrValidationError, RetainedFact, cache_key, family_kind, family_schema,
-    validate_case_program,
+    Artifact, CacheInput, CaseProgram, IrAssumption, IrBackend, IrBudget, IrCache,
+    IrCacheProvenance, IrClaim, IrClaimAdmission, IrClaimMeaning, IrClaimPresentation, IrClosure,
+    IrClosureReference, IrCommand, IrEnvironment, IrEvidence, IrEvidenceRequest, IrFamily,
+    IrFlowScope, IrGraph, IrGraphEdge, IrGraphNode, IrMutualTheoremGroup, IrNativePremiseRule,
+    IrPolicy, IrPolicyRecord, IrPremise, IrPremiseDischarge, IrProgrammeContext, IrProject,
+    IrProvenance, IrPythonPlugin, IrReportedStatus, IrRun, IrTool, IrUsage, IrValidationError,
+    RetainedFact, cache_key, family_kind, family_schema, validate_case_program,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";
@@ -1175,11 +1176,22 @@ fn release_programme(receipt: &Value) -> Result<IrProgrammeContext> {
     Ok(IrProgrammeContext {
         release_schema: Some(required_value_text(receipt, "schema")?.to_owned()),
         project: Some(project),
-        graph: receipt.get("graph").cloned(),
+        graph: Some(graph_from_value(
+            receipt.get("graph").context("release graph is missing")?,
+        )?),
         graph_sha256: Some(required_value_text(receipt, "graph_sha256")?.to_owned()),
-        assumptions: required_value_array(receipt, "assumptions")?.clone(),
-        premises: required_value_array(receipt, "premises")?.clone(),
-        policies: required_value_array(receipt, "policies")?.clone(),
+        assumptions: required_value_array(receipt, "assumptions")?
+            .iter()
+            .map(assumption_from_value)
+            .collect::<Result<Vec<_>>>()?,
+        premises: required_value_array(receipt, "premises")?
+            .iter()
+            .map(premise_from_value)
+            .collect::<Result<Vec<_>>>()?,
+        policies: required_value_array(receipt, "policies")?
+            .iter()
+            .map(policy_from_value)
+            .collect::<Result<Vec<_>>>()?,
         closures,
         sealed_artifacts,
         publication_blockers,
@@ -1612,6 +1624,137 @@ fn reported_status_from_value(value: &Value) -> Result<IrReportedStatus> {
     })
 }
 
+fn graph_from_value(value: &Value) -> Result<IrGraph> {
+    Ok(IrGraph {
+        schema: required_value_text(value, "schema")?.to_owned(),
+        nodes: required_value_array(value, "nodes")?
+            .iter()
+            .map(|node| {
+                Ok(IrGraphNode {
+                    id: required_value_text(node, "id")?.to_owned(),
+                    kind: required_value_text(node, "kind")?.to_owned(),
+                    proof_environment: node
+                        .get("proof_environment")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?,
+        edges: required_value_array(value, "edges")?
+            .iter()
+            .map(|edge| {
+                Ok(IrGraphEdge {
+                    from: required_value_text(edge, "from")?.to_owned(),
+                    to: required_value_text(edge, "to")?.to_owned(),
+                    kind: required_value_text(edge, "kind")?.to_owned(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?,
+        mutual_theorem_groups: required_value_array(value, "mutual_theorem_groups")?
+            .iter()
+            .map(|group| {
+                Ok(IrMutualTheoremGroup {
+                    id: required_value_text(group, "id")?.to_owned(),
+                    proof_environment: required_value_text(group, "proof_environment")?.to_owned(),
+                    members: json_text_array_value(group, "members")?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?,
+    })
+}
+
+fn assumption_from_value(value: &Value) -> Result<IrAssumption> {
+    Ok(IrAssumption {
+        schema: required_value_text(value, "schema")?.to_owned(),
+        id: required_value_text(value, "id")?.to_owned(),
+        node_id: required_value_text(value, "node_id")?.to_owned(),
+        statement: required_value_text(value, "statement")?.to_owned(),
+        category: required_value_text(value, "category")?.to_owned(),
+        owner: required_value_text(value, "owner")?.to_owned(),
+        rationale: required_value_text(value, "rationale")?.to_owned(),
+        scope: required_value_text(value, "scope")?.to_owned(),
+        affected_claims: json_text_array_value(value, "affected_claims")?,
+        review_evidence: json_text_array_value(value, "review_evidence")?,
+        falsification_or_discharge_plan: required_value_text(
+            value,
+            "falsification_or_discharge_plan",
+        )?
+        .to_owned(),
+        source_citation: value
+            .get("source_citation")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        state: required_value_text(value, "state")?.to_owned(),
+        depends_on: value
+            .get("depends_on")
+            .map(|_| json_text_array_value(value, "depends_on"))
+            .transpose()?
+            .unwrap_or_default(),
+    })
+}
+
+fn premise_from_value(value: &Value) -> Result<IrPremise> {
+    Ok(IrPremise {
+        id: required_value_text(value, "id")?.to_owned(),
+        node_id: required_value_text(value, "node_id")?.to_owned(),
+        statement: required_value_text(value, "statement")?.to_owned(),
+        category: required_value_text(value, "category")?.to_owned(),
+        theorem_evidence: value
+            .get("theorem_evidence")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        scope: flow_scope_from_value(value.get("scope").context("premise scope is missing")?)?,
+        discharge: value
+            .get("discharge")
+            .map(|discharge| -> Result<IrPremiseDischarge> {
+                Ok(IrPremiseDischarge {
+                    theorem_evidence: required_value_text(discharge, "theorem_evidence")?
+                        .to_owned(),
+                    scope: flow_scope_from_value(
+                        discharge
+                            .get("scope")
+                            .context("premise discharge scope is missing")?,
+                    )?,
+                })
+            })
+            .transpose()?,
+    })
+}
+
+fn flow_scope_from_value(value: &Value) -> Result<IrFlowScope> {
+    Ok(IrFlowScope {
+        kind: required_value_text(value, "kind")?.to_owned(),
+        flows: value
+            .get("flows")
+            .map(|_| json_text_array_value(value, "flows"))
+            .transpose()?
+            .unwrap_or_default(),
+    })
+}
+
+fn policy_from_value(value: &Value) -> Result<IrPolicyRecord> {
+    Ok(IrPolicyRecord {
+        schema: required_value_text(value, "schema")?.to_owned(),
+        id: required_value_text(value, "id")?.to_owned(),
+        node_id: required_value_text(value, "node_id")?.to_owned(),
+        components: json_text_array_value(value, "components")?,
+        allowed_foundational_axioms: json_text_array_value(value, "allowed_foundational_axioms")?,
+        allowed_project_axioms: json_text_array_value(value, "allowed_project_axioms")?,
+        admit_exhaustive_as_proved: required_value_bool(value, "admit_exhaustive_as_proved")?,
+        require_no_assumptions: required_value_bool(value, "require_no_assumptions")?,
+        native_premise_rule: value
+            .get("native_premise_rule")
+            .map(|rule| -> Result<IrNativePremiseRule> {
+                Ok(IrNativePremiseRule {
+                    kind: required_value_text(rule, "kind")?.to_owned(),
+                    count: rule.get("count").and_then(Value::as_u64),
+                })
+            })
+            .transpose()?,
+        additional_required_evidence: json_text_array_value(value, "additional_required_evidence")?,
+    })
+}
+
 fn tool_from_value(value: &Value) -> Result<IrTool> {
     let object = value.as_object().context("tool must be an object")?;
     Ok(IrTool {
@@ -1831,6 +1974,13 @@ fn required_value_array<'a>(value: &'a Value, field: &str) -> Result<&'a Vec<Val
         .get(field)
         .and_then(Value::as_array)
         .with_context(|| format!("{field} must be an array"))
+}
+
+fn required_value_bool(value: &Value, field: &str) -> Result<bool> {
+    value
+        .get(field)
+        .and_then(Value::as_bool)
+        .with_context(|| format!("{field} must be a Boolean"))
 }
 
 fn json_text_array(object: &serde_json::Map<String, Value>, field: &str) -> Result<Vec<String>> {
@@ -2054,6 +2204,11 @@ mod tests {
         assert_eq!(project.revision, "rev-1");
         assert_eq!(program.programme.closures.len(), 1);
         assert_eq!(
+            program.programme.graph.as_ref().unwrap().nodes[0].kind,
+            "claim"
+        );
+        assert_eq!(program.programme.policies[0].id, "ledger-ci");
+        assert_eq!(
             program.programme.closures[0].members[0].logical_name,
             "src/model.rs"
         );
@@ -2101,6 +2256,47 @@ mod tests {
         false_blocker["programme"]["publication_blockers"] = serde_json::json!(["c"]);
         let error = validate_case_program(&canonical_json(&false_blocker).unwrap()).unwrap_err();
         assert_eq!(error.code, "IR-PROGRAMME-BLOCKER-MISMATCH");
+
+        let mut unknown_policy_field = serde_json::to_value(program).unwrap();
+        unknown_policy_field["programme"]["policies"][0]["backend_hint"] =
+            Value::String("hidden".to_owned());
+        let error =
+            validate_case_program(&canonical_json(&unknown_policy_field).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-TYPED-RECORD");
+    }
+
+    #[test]
+    fn typed_ledger_records_round_trip_without_opaque_values() {
+        let assumption = serde_json::json!({
+            "schema": "proofbound-assumption/1",
+            "id": "ASSUMPTION-1",
+            "node_id": "assumption:one",
+            "statement": "The runtime preserves integer addition.",
+            "category": "runtime-environment",
+            "owner": "runtime team",
+            "rationale": "Execution is outside the proof kernel.",
+            "scope": "registered runtime calls",
+            "affected_claims": ["CLAIM-1"],
+            "review_evidence": [],
+            "falsification_or_discharge_plan": "Replace with a verified runtime.",
+            "state": "active",
+            "depends_on": [],
+        });
+        let premise = serde_json::json!({
+            "id": "PREMISE-1",
+            "node_id": "premise:one",
+            "statement": "Inputs use the registered representation.",
+            "category": "representation-premise",
+            "scope": {"kind": "flows", "flows": ["input:one"]},
+        });
+        assert_eq!(
+            serde_json::to_value(assumption_from_value(&assumption).unwrap()).unwrap(),
+            assumption
+        );
+        assert_eq!(
+            serde_json::to_value(premise_from_value(&premise).unwrap()).unwrap(),
+            premise
+        );
     }
 
     #[test]

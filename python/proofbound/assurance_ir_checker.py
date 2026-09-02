@@ -358,6 +358,7 @@ def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> No
         if not isinstance(project.get("tier"), int):
             _fail("IR-DECODE-INVALID", "portable project tier is required")
         graph = _object(programme, "graph")
+        _typed_graph(graph)
         graph_schema = _required_text(graph, "schema")
         graph_sha256 = _required_text(programme, "graph_sha256")
         if domain_hash(graph_schema, canonical_json(graph)) != graph_sha256:
@@ -386,6 +387,12 @@ def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> No
                     "size_bytes": artifact["size_bytes"],
                 }
             )
+    for assumption in _list(programme, "assumptions"):
+        _typed_assumption(_as_object(assumption))
+    for premise in _list(programme, "premises"):
+        _typed_premise(_as_object(premise))
+    for policy in _list(programme, "policies"):
+        _typed_policy(_as_object(policy))
         source_record = {"schema": schema, "kind": kind, "members": source_members}
         if domain_hash(schema, canonical_json(source_record)) != sha256:
             _fail(
@@ -1162,11 +1169,11 @@ def _release_programme(receipt: dict[str, Any]) -> dict[str, Any]:
             "tier": receipt["project_tier"],
             "tree_state": receipt["tree_state"],
         },
-        "graph": receipt["graph"],
+        "graph": _typed_graph(receipt["graph"]),
         "graph_sha256": receipt["graph_sha256"],
-        "assumptions": receipt["assumptions"],
-        "premises": receipt["premises"],
-        "policies": receipt["policies"],
+        "assumptions": [_typed_assumption(item) for item in receipt["assumptions"]],
+        "premises": [_typed_premise(item) for item in receipt["premises"]],
+        "policies": [_typed_policy(item) for item in receipt["policies"]],
         "closures": [
             {
                 "sha256": closure["sha256"],
@@ -1201,6 +1208,104 @@ def _release_programme(receipt: dict[str, Any]) -> dict[str, Any]:
             for status in receipt["reported_statuses"]
         ],
     }
+
+
+def _typed_graph(graph: dict[str, Any]) -> dict[str, Any]:
+    _require_exact_fields(graph, {"schema", "nodes", "edges", "mutual_theorem_groups"})
+    return {
+        "schema": graph["schema"],
+        "nodes": [
+            _typed_optional_record(node, {"id", "kind"}, {"proof_environment"})
+            for node in graph["nodes"]
+        ],
+        "edges": [
+            _typed_optional_record(edge, {"from", "to", "kind"}, set())
+            for edge in graph["edges"]
+        ],
+        "mutual_theorem_groups": [
+            _typed_optional_record(group, {"id", "proof_environment", "members"}, set())
+            for group in graph["mutual_theorem_groups"]
+        ],
+    }
+
+
+def _typed_assumption(value: dict[str, Any]) -> dict[str, Any]:
+    required = {
+        "schema",
+        "id",
+        "node_id",
+        "statement",
+        "category",
+        "owner",
+        "rationale",
+        "scope",
+        "affected_claims",
+        "review_evidence",
+        "falsification_or_discharge_plan",
+        "state",
+        "depends_on",
+    }
+    return _typed_optional_record(value, required, {"source_citation"})
+
+
+def _typed_premise(value: dict[str, Any]) -> dict[str, Any]:
+    projected = _typed_optional_record(
+        value,
+        {"id", "node_id", "statement", "category", "scope"},
+        {"theorem_evidence", "discharge"},
+    )
+    projected["scope"] = _typed_flow_scope(value["scope"])
+    if "discharge" in value:
+        discharge = _typed_optional_record(
+            value["discharge"], {"theorem_evidence", "scope"}, set()
+        )
+        discharge["scope"] = _typed_flow_scope(discharge["scope"])
+        projected["discharge"] = discharge
+    return projected
+
+
+def _typed_flow_scope(value: dict[str, Any]) -> dict[str, Any]:
+    return _typed_optional_record(value, {"kind"}, {"flows"})
+
+
+def _typed_policy(value: dict[str, Any]) -> dict[str, Any]:
+    required = {
+        "schema",
+        "id",
+        "node_id",
+        "components",
+        "allowed_foundational_axioms",
+        "allowed_project_axioms",
+        "admit_exhaustive_as_proved",
+        "require_no_assumptions",
+        "additional_required_evidence",
+    }
+    projected = _typed_optional_record(value, required, {"native_premise_rule"})
+    if "native_premise_rule" in value:
+        projected["native_premise_rule"] = _typed_optional_record(
+            value["native_premise_rule"], {"kind"}, {"count"}
+        )
+    return projected
+
+
+def _typed_optional_record(
+    value: dict[str, Any], required: set[str], optional: set[str]
+) -> dict[str, Any]:
+    _require_exact_fields(value, required, optional)
+    return {
+        field: value[field] for field in sorted(required | optional) if field in value
+    }
+
+
+def _require_exact_fields(
+    value: dict[str, Any], required: set[str], optional: set[str] | None = None
+) -> None:
+    optional = optional or set()
+    if not required.issubset(value) or set(value) - required - optional:
+        _fail(
+            "IR-PROGRAMME-TYPED-RECORD",
+            "typed programme record has missing or unknown fields",
+        )
 
 
 def _release_source_semantics(

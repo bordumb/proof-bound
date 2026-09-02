@@ -86,6 +86,8 @@ def test_portable_projection_retains_programme_and_execution_meaning() -> None:
     assert (
         program["programme"]["sealed_artifacts"][0]["logical_name"] == "tcb-ledger.json"
     )
+    assert program["programme"]["graph"]["nodes"][0]["kind"] == "claim"
+    assert program["programme"]["policies"][0]["id"] == "ledger-ci"
     evidence = program["evidence"][0]
     assert (
         evidence["content_sha256"]
@@ -130,6 +132,12 @@ def test_portable_projection_retains_programme_and_execution_meaning() -> None:
     with pytest.raises(AssuranceIrError) as caught:
         validate_case_program(canonical_json(false_blocker))
     assert caught.value.code == "IR-PROGRAMME-BLOCKER-MISMATCH"
+
+    unknown_policy_field = json.loads(json.dumps(program))
+    unknown_policy_field["programme"]["policies"][0]["backend_hint"] = "hidden"
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(unknown_policy_field))
+    assert caught.value.code == "IR-PROGRAMME-TYPED-RECORD"
 
 
 def test_registration_cache_binds_actual_input_bytes() -> None:
