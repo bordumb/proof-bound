@@ -311,6 +311,7 @@ def check_sampling_observation(
             "contract",
             "contract_identity",
             "actual_seed",
+            "attempted_cases",
             "completed_cases",
             "skipped_cases",
             "shrink_count",
@@ -344,7 +345,12 @@ def check_sampling_observation(
         _sampling_fail("sampling-contract-mismatch", "observed execution differs")
     if contract["shrinking"] == "disabled" and observation["shrink_count"] != 0:
         _sampling_fail("sampling-contract-mismatch", "disabled shrinking was observed")
-    for field in ("completed_cases", "skipped_cases", "shrink_count"):
+    for field in (
+        "attempted_cases",
+        "completed_cases",
+        "skipped_cases",
+        "shrink_count",
+    ):
         value = observation[field]
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             _sampling_fail("sampling-report-invalid", f"{field} is invalid")
@@ -352,7 +358,11 @@ def check_sampling_observation(
     status = result.get("status")
     if status == "passed":
         _require_keys(result, {"status"}, "sampling result")
-        if observation["completed_cases"] != contract["successful_cases"]:
+        if (
+            observation["completed_cases"] != contract["successful_cases"]
+            or observation["attempted_cases"]
+            != observation["completed_cases"] + observation["skipped_cases"]
+        ):
             _sampling_fail(
                 "sampling-contract-mismatch", "completed case budget differs"
             )
@@ -363,7 +373,11 @@ def check_sampling_observation(
             "sampling result",
         )
         _sampling_text(result["failure_kind"], "counterexample failure kind")
-        if observation["completed_cases"] >= contract["successful_cases"]:
+        if (
+            observation["completed_cases"] >= contract["successful_cases"]
+            or observation["attempted_cases"]
+            <= observation["completed_cases"] + observation["skipped_cases"]
+        ):
             _sampling_fail(
                 "sampling-report-invalid",
                 "counterexample follows a completed successful budget",

@@ -13,6 +13,7 @@ from typing import Any
 
 import hypothesis
 from hypothesis import Phase, given, seed, settings
+from hypothesis.errors import UnsatisfiedAssumption
 
 
 def canonical_json(value: object) -> bytes:
@@ -80,7 +81,7 @@ def main() -> None:
     predicate: Callable[[Any], None] = module.predicate
     attempted_cases = 0
     completed_cases = 0
-    failed_cases = 0
+    skipped_cases = 0
     last_value: Any = None
 
     @seed(arguments.seed)
@@ -92,13 +93,13 @@ def main() -> None:
     )
     @given(strategy)
     def execute(value: Any) -> None:
-        nonlocal attempted_cases, completed_cases, failed_cases, last_value
+        nonlocal attempted_cases, completed_cases, last_value, skipped_cases
         attempted_cases += 1
         last_value = value
         try:
             predicate(value)
-        except Exception:  # noqa: BLE001 - count the property failure before replay.
-            failed_cases += 1
+        except UnsatisfiedAssumption:
+            skipped_cases += 1
             raise
         completed_cases += 1
 
@@ -141,8 +142,9 @@ def main() -> None:
         "contract": contract,
         "contract_identity": domain_hash("proofbound-sampling-contract/1", contract),
         "actual_seed": {"encoding": "decimal-u64", "value": arguments.seed},
+        "attempted_cases": attempted_cases,
         "completed_cases": completed_cases,
-        "skipped_cases": attempted_cases - completed_cases - failed_cases,
+        "skipped_cases": skipped_cases,
         "shrink_count": 0,
         "targets": [arguments.target],
         "result": result,

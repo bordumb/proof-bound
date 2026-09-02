@@ -111,6 +111,7 @@ pub struct SamplingObservation {
     contract: SamplingContract,
     contract_identity: String,
     actual_seed: Seed,
+    attempted_cases: u64,
     completed_cases: u64,
     skipped_cases: u64,
     shrink_count: u64,
@@ -197,7 +198,10 @@ pub fn validate_sampling_observation(
     }
     let result = match observation.result {
         SamplingResult::Passed => {
-            if observation.completed_cases != contract.successful_cases {
+            if observation.completed_cases != contract.successful_cases
+                || observation.attempted_cases
+                    != observation.completed_cases + observation.skipped_cases
+            {
                 return Err(SamplingValidationError::new(
                     "sampling-contract-mismatch",
                     "completed successful cases differ from registration",
@@ -208,7 +212,10 @@ pub fn validate_sampling_observation(
         SamplingResult::Counterexample {
             ref failure_kind, ..
         } => {
-            if observation.completed_cases >= contract.successful_cases {
+            if observation.completed_cases >= contract.successful_cases
+                || observation.attempted_cases
+                    <= observation.completed_cases + observation.skipped_cases
+            {
                 return Err(SamplingValidationError::new(
                     "sampling-report-invalid",
                     "counterexample appears after the successful budget completed",
