@@ -249,7 +249,58 @@ pub struct IrEvidenceRequest {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrFamily {
     pub kind: String,
-    pub detail: Value,
+    pub detail: IrFamilyDetail,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrFamilyDetail {
+    pub schema: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<Artifact>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub property: Option<IrPropertyRegistration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mutation: Option<IrMutationRegistration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distribution: Option<IrDistributionRegistration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounded_domain: Option<IrBoundedDomain>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theorem: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub required_fact_schemas: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrPropertyRegistration {
+    pub schema: String,
+    pub framework: String,
+    pub seed: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrMutationRegistration {
+    pub schema: String,
+    pub registry: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrDistributionRegistration {
+    pub schema: String,
+    pub format: String,
+    pub artifact_name: String,
+    pub artifact_sha256: String,
+    pub source_date_epoch: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrBoundedDomain {
+    pub id: String,
+    pub description: String,
+    pub cardinality: u64,
+    pub ordering_key: Vec<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -261,7 +312,15 @@ pub struct IrBackend {
 pub struct RetainedFact {
     pub schema: String,
     pub required: bool,
-    pub value: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<IrRetainedFactValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrRetainedFactValue {
+    pub configuration_sha256: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -475,7 +534,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         ));
     }
     let source = object_field(object, "source")?;
-    let source_sha256 = text(source, "sha256")?;
+    text(source, "sha256")?;
     let claims = array_field(object, "claims")?;
     let evidence = array_field(object, "evidence")?;
     let programme = object_field(object, "programme")?;
@@ -546,9 +605,9 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         let inventory = text_array(item, "inventory")?;
         require_sorted_unique(&inventory)?;
         let authority = text(item, "authority")?;
-        if authority == "registered" {
-            object_field(item, "request")?;
-        }
+        let request = (authority == "registered")
+            .then(|| object_field(item, "request"))
+            .transpose()?;
         if authority == "portable-receipt" {
             portable_receipt = true;
             if item.get("schema").and_then(Value::as_str) != Some("proofbound-evidence/3") {
@@ -579,6 +638,10 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
                 "family discriminant and detail schema differ",
             ));
         }
+        validate_family_detail(kind, detail)?;
+        if let Some(request) = request {
+            validate_registered_family_join(kind, detail, request)?;
+        }
         kinds.push(kind.to_owned());
 
         let declared_fact_schemas = match detail.get("required_fact_schemas") {
@@ -598,15 +661,58 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         let backend = object_field(item, "backend")?;
         for fact in array_field(backend, "retained_facts")? {
             let fact = value_object(fact)?;
+            exact_fields(fact, &["schema", "required"], &["value", "payload_sha256"])?;
             let required = fact
                 .get("required")
                 .and_then(Value::as_bool)
-                .unwrap_or(false);
+                .ok_or_else(|| {
+                    IrValidationError::new(
+                        "IR-DECODE-INVALID",
+                        "retained fact disposition is required",
+                    )
+                })?;
             let schema = text(fact, "schema")?;
             if required && !declared_fact_schemas.contains(schema) {
                 return Err(IrValidationError::new(
                     "IR-BACKEND-UNKNOWN-REQUIRED",
                     "unknown required retained fact",
+                ));
+            }
+            if schema != "proofbound-python-property/1" {
+                if required
+                    || fact.contains_key("value")
+                    || !matches!(fact.get("payload_sha256"), Some(Value::String(_)))
+                {
+                    return Err(IrValidationError::new(
+                        "IR-BACKEND-UNKNOWN-OPTIONAL",
+                        "unknown optional fact must retain only its canonical payload identity",
+                    ));
+                }
+                continue;
+            }
+            if fact.contains_key("payload_sha256") {
+                return Err(IrValidationError::new(
+                    "IR-BACKEND-FACT-MISMATCH",
+                    "known retained fact must use its typed value",
+                ));
+            }
+            let value = object_field(fact, "value")?;
+            exact_fields(value, &["configuration_sha256"], &[])?;
+            let configuration_sha256 = text(value, "configuration_sha256")?;
+            let registered_configuration = request
+                .and_then(|request| request.get("family_configuration"))
+                .ok_or_else(|| {
+                    IrValidationError::new(
+                        "IR-BACKEND-FACT-MISMATCH",
+                        "retained fact has no registered family configuration",
+                    )
+                })?;
+            let bytes = canonical_json(registered_configuration)
+                .map_err(|error| IrValidationError::new("IR-DECODE-INVALID", error.to_string()))?;
+            if domain_hash(super::PROJECTION_DOMAIN, &bytes) != configuration_sha256 {
+                return Err(IrValidationError::new(
+                    "IR-BACKEND-FACT-MISMATCH",
+                    "retained fact identity differs from the registered family configuration",
                 ));
             }
         }
@@ -628,7 +734,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         }
         if kind == "artifact-correspondence" {
             let artifact = object_field(detail, "artifact")?;
-            if text(artifact, "sha256")? != source_sha256 {
+            if artifact != source {
                 return Err(IrValidationError::new(
                     "IR-ARTIFACT-IDENTITY-MISMATCH",
                     "artifact identity differs from the registered source",
@@ -971,6 +1077,151 @@ fn validate_programme(
     Ok(())
 }
 
+fn validate_family_detail(
+    kind: &str,
+    detail: &Map<String, Value>,
+) -> Result<(), IrValidationError> {
+    match kind {
+        "mutation-witness" => {
+            exact_fields(detail, &["schema", "subject"], &["mutation"])?;
+            text(detail, "subject")?;
+            if let Some(value) = detail.get("mutation") {
+                let value = value_object(value)?;
+                exact_fields(value, &["schema", "registry"], &[])?;
+                text(value, "schema")?;
+                text(value, "registry")?;
+            }
+        }
+        "artifact-correspondence" => {
+            exact_fields(detail, &["schema", "artifact"], &[])?;
+            validate_artifact(object_field(detail, "artifact")?)?;
+        }
+        "sampled-property" => {
+            exact_fields(detail, &["schema"], &["property", "required_fact_schemas"])?;
+            if let Some(value) = detail.get("property") {
+                let value = value_object(value)?;
+                exact_fields(value, &["schema", "framework", "seed"], &[])?;
+                let schema = text(value, "schema")?;
+                text(value, "framework")?;
+                if value.get("seed").and_then(Value::as_u64).is_none() {
+                    return Err(IrValidationError::new(
+                        "IR-PROGRAMME-TYPED-RECORD",
+                        "sampled-property seed must be an unsigned integer",
+                    ));
+                }
+                if text_array(detail, "required_fact_schemas")? != [schema.to_owned()] {
+                    return Err(IrValidationError::new(
+                        "IR-PROGRAMME-TYPED-RECORD",
+                        "sampled-property fact declaration differs from its typed property",
+                    ));
+                }
+            } else if detail.contains_key("required_fact_schemas") {
+                return Err(IrValidationError::new(
+                    "IR-PROGRAMME-TYPED-RECORD",
+                    "sampled-property facts require a typed property registration",
+                ));
+            }
+        }
+        "distribution-reproduction" => {
+            exact_fields(detail, &["schema"], &["distribution"])?;
+            if let Some(value) = detail.get("distribution") {
+                let value = value_object(value)?;
+                exact_fields(
+                    value,
+                    &[
+                        "schema",
+                        "format",
+                        "artifact_name",
+                        "artifact_sha256",
+                        "source_date_epoch",
+                    ],
+                    &[],
+                )?;
+                for field in ["schema", "format", "artifact_name", "artifact_sha256"] {
+                    text(value, field)?;
+                }
+                if value
+                    .get("source_date_epoch")
+                    .and_then(Value::as_u64)
+                    .is_none()
+                {
+                    return Err(IrValidationError::new(
+                        "IR-PROGRAMME-TYPED-RECORD",
+                        "distribution epoch must be an unsigned integer",
+                    ));
+                }
+            }
+        }
+        "bounded-model-check" => {
+            exact_fields(detail, &["schema"], &["bounded_domain"])?;
+            if let Some(value) = detail.get("bounded_domain") {
+                let value = value_object(value)?;
+                exact_fields(
+                    value,
+                    &["id", "description", "cardinality", "ordering_key"],
+                    &[],
+                )?;
+                text(value, "id")?;
+                text(value, "description")?;
+                if value.get("cardinality").and_then(Value::as_u64).is_none()
+                    || array_field(value, "ordering_key")?
+                        .iter()
+                        .any(|item| item.as_u64().is_none())
+                {
+                    return Err(IrValidationError::new(
+                        "IR-PROGRAMME-TYPED-RECORD",
+                        "bounded-domain cardinality and ordering key must be unsigned",
+                    ));
+                }
+            }
+        }
+        "universal-source-proof" => {
+            exact_fields(detail, &["schema"], &["theorem"])?;
+            optional_text_value(detail, "theorem")?;
+        }
+        "example"
+        | "static-consistency"
+        | "finite-exhaustive"
+        | "trusted-transcription"
+        | "source-correspondence" => exact_fields(detail, &["schema"], &[])?,
+        _ => {
+            return Err(IrValidationError::new(
+                "IR-EVIDENCE-FAMILY-DETAIL",
+                "unknown evidence family detail",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_registered_family_join(
+    kind: &str,
+    detail: &Map<String, Value>,
+    request: &Map<String, Value>,
+) -> Result<(), IrValidationError> {
+    let mut projected = Map::new();
+    let field = match kind {
+        "sampled-property" => Some("property"),
+        "mutation-witness" => Some("mutation"),
+        "distribution-reproduction" => Some("distribution"),
+        "bounded-model-check" => Some("bounded_domain"),
+        "universal-source-proof" => Some("theorem"),
+        _ => None,
+    };
+    if let Some(field) = field
+        && let Some(value) = detail.get(field)
+    {
+        projected.insert(field.to_owned(), value.clone());
+    }
+    if request.get("family_configuration") != Some(&Value::Object(projected)) {
+        return Err(IrValidationError::new(
+            "IR-EVIDENCE-FAMILY-DETAIL",
+            "typed family detail differs from the registered family configuration",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_graph(graph: &Map<String, Value>) -> Result<(), IrValidationError> {
     const NODE_KINDS: &[&str] = &[
         "claim",
@@ -1180,9 +1431,18 @@ fn exact_fields(
     if required.iter().any(|field| !value.contains_key(*field))
         || value.keys().any(|field| !allowed.contains(field.as_str()))
     {
+        let missing = required
+            .iter()
+            .filter(|field| !value.contains_key(**field))
+            .copied()
+            .collect::<Vec<_>>();
+        let unknown = value
+            .keys()
+            .filter(|field| !allowed.contains(field.as_str()))
+            .collect::<Vec<_>>();
         return Err(IrValidationError::new(
             "IR-PROGRAMME-TYPED-RECORD",
-            "typed programme record has missing or unknown fields",
+            format!("typed programme record has missing {missing:?} or unknown {unknown:?} fields"),
         ));
     }
     Ok(())

@@ -14,13 +14,14 @@ use serde_json::{Map, Value};
 mod assurance;
 
 pub use assurance::{
-    Artifact, CacheInput, CaseProgram, IrAssumption, IrBackend, IrBudget, IrCache,
+    Artifact, CacheInput, CaseProgram, IrAssumption, IrBackend, IrBoundedDomain, IrBudget, IrCache,
     IrCacheProvenance, IrClaim, IrClaimAdmission, IrClaimMeaning, IrClaimPresentation, IrClosure,
-    IrClosureReference, IrCommand, IrEnvironment, IrEvidence, IrEvidenceRequest, IrFamily,
-    IrFlowScope, IrGraph, IrGraphEdge, IrGraphNode, IrMutualTheoremGroup, IrNativePremiseRule,
-    IrPolicy, IrPolicyRecord, IrPremise, IrPremiseDischarge, IrProgrammeContext, IrProject,
-    IrProvenance, IrPythonPlugin, IrReportedStatus, IrRun, IrTool, IrUsage, IrValidationError,
-    RetainedFact, cache_key, family_kind, family_schema, validate_case_program,
+    IrClosureReference, IrCommand, IrDistributionRegistration, IrEnvironment, IrEvidence,
+    IrEvidenceRequest, IrFamily, IrFamilyDetail, IrFlowScope, IrGraph, IrGraphEdge, IrGraphNode,
+    IrMutationRegistration, IrMutualTheoremGroup, IrNativePremiseRule, IrPolicy, IrPolicyRecord,
+    IrPremise, IrPremiseDischarge, IrProgrammeContext, IrProject, IrPropertyRegistration,
+    IrProvenance, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun, IrTool, IrUsage,
+    IrValidationError, RetainedFact, cache_key, family_kind, family_schema, validate_case_program,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";
@@ -688,13 +689,18 @@ fn registration_program(
         claims.first().map(|claim| claim.subject.as_str()),
         &case.source,
         source_size,
-        Some(&registration.family_configuration_sha256),
-    );
-    let retained_facts = if kind == "sampled-property" {
+        Some(&registration.family_configuration),
+    )?;
+    let retained_facts = if kind == "sampled-property"
+        && registration.family_configuration.get("property").is_some()
+    {
         vec![RetainedFact {
             schema: "proofbound-python-property/1".to_owned(),
             required: true,
-            value: serde_json::json!({"configuration_sha256": registration.family_configuration_sha256}),
+            value: Some(IrRetainedFactValue {
+                configuration_sha256: registration.family_configuration_sha256.clone(),
+            }),
+            payload_sha256: None,
         }]
     } else {
         Vec::new()
@@ -829,7 +835,7 @@ fn semantic_program(case: &CorpusCase, source_size: u64, selected: &Value) -> Re
                         &case.source,
                         source_size,
                         None,
-                    ),
+                    )?,
                 },
                 backend: IrBackend {
                     retained_facts: Vec::new(),
@@ -964,7 +970,7 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
             request: None,
             family: IrFamily {
                 kind: kind.to_owned(),
-                detail: family_detail(kind, Some("subject:c"), &case.source, source_size, None),
+                detail: family_detail(kind, Some("subject:c"), &case.source, source_size, None)?,
             },
             backend: IrBackend {
                 retained_facts: Vec::new(),
@@ -1315,7 +1321,7 @@ fn release_evidence_source_projection(
         "request": Value::Null,
         "family": {
             "kind": kind,
-            "detail": family_detail(kind, Some("subject:c"), &case.source, source_size, None),
+            "detail": family_detail(kind, Some("subject:c"), &case.source, source_size, None)?,
         },
         "backend": {"retained_facts": []},
         "provenance": release_provenance_source_projection(unit, provenance)?,
@@ -1894,28 +1900,113 @@ fn family_detail(
     subject: Option<&str>,
     source: &Source,
     source_size: u64,
-    configuration_sha256: Option<&str>,
-) -> Value {
+    configuration: Option<&Value>,
+) -> Result<IrFamilyDetail> {
     let schema = family_schema(kind).expect("mapped family kind must have a detail schema");
+    let configuration = configuration
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut detail = IrFamilyDetail {
+        schema: schema.to_owned(),
+        subject: None,
+        artifact: None,
+        property: None,
+        mutation: None,
+        distribution: None,
+        bounded_domain: None,
+        theorem: None,
+        required_fact_schemas: Vec::new(),
+    };
     match kind {
-        "mutation-witness" => serde_json::json!({
-            "schema": schema,
-            "subject": subject.unwrap_or("subject:unknown"),
-        }),
-        "artifact-correspondence" => serde_json::json!({
-            "schema": schema,
-            "artifact": source_artifact(source, source_size),
-        }),
-        "sampled-property" => serde_json::json!({
-            "schema": schema,
-            "configuration_sha256": configuration_sha256,
-            "required_fact_schemas": ["proofbound-python-property/1"],
-        }),
-        _ => serde_json::json!({
-            "schema": schema,
-            "configuration_sha256": configuration_sha256,
-        }),
+        "mutation-witness" => {
+            ensure_family_configuration_fields(&configuration, &["mutation"])?;
+            detail.subject = Some(subject.unwrap_or("subject:unknown").to_owned());
+            if let Some(value) = configuration.get("mutation") {
+                detail.mutation = Some(IrMutationRegistration {
+                    schema: required_value_text(value, "schema")?.to_owned(),
+                    registry: required_value_text(value, "registry")?.to_owned(),
+                });
+            }
+        }
+        "artifact-correspondence" => {
+            ensure_family_configuration_fields(&configuration, &[])?;
+            detail.artifact = Some(source_artifact(source, source_size));
+        }
+        "sampled-property" => {}
+        "distribution-reproduction" => {
+            ensure_family_configuration_fields(&configuration, &["distribution"])?;
+            if let Some(value) = configuration.get("distribution") {
+                detail.distribution = Some(IrDistributionRegistration {
+                    schema: required_value_text(value, "schema")?.to_owned(),
+                    format: required_value_text(value, "format")?.to_owned(),
+                    artifact_name: required_value_text(value, "artifact_name")?.to_owned(),
+                    artifact_sha256: required_value_text(value, "artifact_sha256")?.to_owned(),
+                    source_date_epoch: value
+                        .get("source_date_epoch")
+                        .and_then(Value::as_u64)
+                        .context("distribution source_date_epoch is missing")?,
+                });
+            }
+        }
+        "bounded-model-check" => {
+            ensure_family_configuration_fields(&configuration, &["bounded_domain"])?;
+            if let Some(value) = configuration.get("bounded_domain") {
+                detail.bounded_domain = Some(IrBoundedDomain {
+                    id: required_value_text(value, "id")?.to_owned(),
+                    description: required_value_text(value, "description")?.to_owned(),
+                    cardinality: value
+                        .get("cardinality")
+                        .and_then(Value::as_u64)
+                        .context("bounded-domain cardinality is missing")?,
+                    ordering_key: value
+                        .get("ordering_key")
+                        .and_then(Value::as_array)
+                        .context("bounded-domain ordering key is missing")?
+                        .iter()
+                        .map(|item| item.as_u64().context("ordering key must be unsigned"))
+                        .collect::<Result<Vec<_>>>()?,
+                });
+            }
+        }
+        "universal-source-proof" => {
+            ensure_family_configuration_fields(&configuration, &["theorem"])?;
+            detail.theorem = configuration
+                .get("theorem")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+        }
+        _ => ensure_family_configuration_fields(&configuration, &[])?,
     }
+    if kind == "sampled-property" {
+        ensure_family_configuration_fields(&configuration, &["property"])?;
+        if let Some(value) = configuration.get("property") {
+            let property = IrPropertyRegistration {
+                schema: required_value_text(value, "schema")?.to_owned(),
+                framework: required_value_text(value, "framework")?.to_owned(),
+                seed: value
+                    .get("seed")
+                    .and_then(Value::as_u64)
+                    .context("property seed is missing")?,
+            };
+            detail.required_fact_schemas.push(property.schema.clone());
+            detail.property = Some(property);
+        }
+    }
+    Ok(detail)
+}
+
+fn ensure_family_configuration_fields(
+    configuration: &Map<String, Value>,
+    allowed: &[&str],
+) -> Result<()> {
+    ensure!(
+        configuration
+            .keys()
+            .all(|field| allowed.contains(&field.as_str())),
+        "family configuration contains fields outside its typed IR variant"
+    );
+    Ok(())
 }
 
 fn empty_provenance(unit: &str) -> IrProvenance {
@@ -2296,6 +2387,74 @@ mod tests {
         assert_eq!(
             serde_json::to_value(premise_from_value(&premise).unwrap()).unwrap(),
             premise
+        );
+    }
+
+    #[test]
+    fn typed_family_details_bind_registration_and_artifact_roles() {
+        let root = root();
+        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let projection = project_corpus(&root, &corpus).unwrap();
+        let property = &projection
+            .cases
+            .iter()
+            .find(|case| case.id == "IR-PY-002")
+            .unwrap()
+            .program;
+        assert_eq!(
+            property.evidence[0]
+                .family
+                .detail
+                .property
+                .as_ref()
+                .unwrap()
+                .seed,
+            4_025_493_768
+        );
+
+        let mut substituted_property = serde_json::to_value(property).unwrap();
+        substituted_property["evidence"][0]["family"]["detail"]["property"]["seed"] =
+            Value::from(1);
+        let error =
+            validate_case_program(&canonical_json(&substituted_property).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-EVIDENCE-FAMILY-DETAIL");
+
+        let mut substituted_fact = serde_json::to_value(property).unwrap();
+        substituted_fact["evidence"][0]["backend"]["retained_facts"][0]["value"]["configuration_sha256"] =
+            Value::String(format!("sha256:{}", "0".repeat(64)));
+        let error = validate_case_program(&canonical_json(&substituted_fact).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-BACKEND-FACT-MISMATCH");
+
+        let mut optional_extension = serde_json::to_value(property).unwrap();
+        let fact = optional_extension["evidence"][0]["backend"]["retained_facts"][0]
+            .as_object_mut()
+            .unwrap();
+        fact.insert(
+            "schema".to_owned(),
+            Value::String("extension-observation/1".to_owned()),
+        );
+        fact.insert("required".to_owned(), Value::Bool(false));
+        fact.remove("value");
+        fact.insert(
+            "payload_sha256".to_owned(),
+            Value::String(format!("sha256:{}", "1".repeat(64))),
+        );
+        validate_case_program(&canonical_json(&optional_extension).unwrap()).unwrap();
+
+        let artifact = &projection
+            .cases
+            .iter()
+            .find(|case| case.id == "IR-SEM-004")
+            .unwrap()
+            .program;
+        let mut substituted_role = serde_json::to_value(artifact).unwrap();
+        substituted_role["evidence"][1]["family"]["detail"]["artifact"]["logical_name"] =
+            Value::String("substituted-artifact".to_owned());
+        let error = validate_case_program(&canonical_json(&substituted_role).unwrap()).unwrap_err();
+        assert_eq!(
+            error.code, "IR-ARTIFACT-IDENTITY-MISMATCH",
+            "{}",
+            error.message
         );
     }
 

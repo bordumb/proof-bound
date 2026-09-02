@@ -192,8 +192,8 @@ def validate_case_program(data: bytes) -> None:
     root = _strict_json(data, require_canonical=True)
     if root.get("schema") != CASE_SCHEMA:
         _fail("IR-DECODE-SCHEMA", "unsupported case schema")
-    source = _object(root, "source")
-    source_sha256 = _required_text(source, "sha256")
+    case_source = _object(root, "source")
+    _required_text(case_source, "sha256")
     claims = _list(root, "claims")
     evidence = _list(root, "evidence")
     programme = _object(root, "programme")
@@ -215,10 +215,10 @@ def validate_case_program(data: bytes) -> None:
         ):
             _require_sorted_unique(_text_list(claim, field))
         if claim.get("source") is not None:
-            source = _object(claim, "source")
-            _required_text(source, "logical_name")
-            _required_text(source, "sha256")
-            if not isinstance(source.get("size_bytes"), int):
+            claim_source = _object(claim, "source")
+            _required_text(claim_source, "logical_name")
+            _required_text(claim_source, "sha256")
+            if not isinstance(claim_source.get("size_bytes"), int):
                 _fail("IR-DECODE-INVALID", "claim source size is required")
             _required_text(_object(claim, "meaning"), "schema")
             _required_text(_object(claim, "meaning"), "statement")
@@ -244,8 +244,7 @@ def validate_case_program(data: bytes) -> None:
         _require_sorted_unique(assumptions)
         _require_sorted_unique(_text_list(item, "inventory"))
         authority = _required_text(item, "authority")
-        if authority == "registered":
-            _object(item, "request")
+        request = _object(item, "request") if authority == "registered" else None
         if authority == "portable-receipt":
             portable_receipt = True
             if item.get("schema") != "proofbound-evidence/3":
@@ -275,6 +274,9 @@ def validate_case_program(data: bytes) -> None:
                 "IR-EVIDENCE-FAMILY-DETAIL",
                 "family discriminant and detail schema differ",
             )
+        _validate_family_detail(kind, detail)
+        if request is not None:
+            _validate_registered_family_join(kind, detail, request)
         kinds.append(kind)
 
         declared_fact_schemas = detail.get("required_fact_schemas", [])
@@ -286,6 +288,11 @@ def validate_case_program(data: bytes) -> None:
         backend = _object(item, "backend")
         for fact_value in _list(backend, "retained_facts"):
             fact = _as_object(fact_value)
+            _require_exact_fields(
+                fact, {"schema", "required"}, {"value", "payload_sha256"}
+            )
+            if not isinstance(fact.get("required"), bool):
+                _fail("IR-DECODE-INVALID", "retained fact disposition is required")
             if (
                 fact.get("required") is True
                 and fact.get("schema") not in declared_fact_schemas
@@ -293,6 +300,40 @@ def validate_case_program(data: bytes) -> None:
                 _fail(
                     "IR-BACKEND-UNKNOWN-REQUIRED",
                     "unknown required retained fact",
+                )
+            if fact.get("schema") != "proofbound-python-property/1":
+                if (
+                    fact["required"]
+                    or "value" in fact
+                    or not isinstance(fact.get("payload_sha256"), str)
+                ):
+                    _fail(
+                        "IR-BACKEND-UNKNOWN-OPTIONAL",
+                        "unknown optional fact must retain only its canonical payload identity",
+                    )
+                continue
+            if "payload_sha256" in fact:
+                _fail(
+                    "IR-BACKEND-FACT-MISMATCH",
+                    "known retained fact must use its typed value",
+                )
+            retained_value = _as_object(fact.get("value"))
+            _require_exact_fields(retained_value, {"configuration_sha256"})
+            configuration_sha256 = _required_text(
+                retained_value, "configuration_sha256"
+            )
+            if request is None or "family_configuration" not in request:
+                _fail(
+                    "IR-BACKEND-FACT-MISMATCH",
+                    "retained fact has no registered family configuration",
+                )
+            expected_configuration = domain_hash(
+                PROJECTION_DOMAIN, canonical_json(request["family_configuration"])
+            )
+            if configuration_sha256 != expected_configuration:
+                _fail(
+                    "IR-BACKEND-FACT-MISMATCH",
+                    "retained fact identity differs from the registered family configuration",
                 )
 
         if kind == "mutation-witness":
@@ -305,7 +346,7 @@ def validate_case_program(data: bytes) -> None:
                 )
         if kind == "artifact-correspondence":
             artifact = _object(detail, "artifact")
-            if _required_text(artifact, "sha256") != source_sha256:
+            if artifact != case_source:
                 _fail(
                     "IR-ARTIFACT-IDENTITY-MISMATCH",
                     "artifact identity differs from the registered source",
@@ -561,6 +602,121 @@ def _validate_artifact(artifact: dict[str, Any]) -> None:
     _required_text(artifact, "sha256")
     if not isinstance(artifact.get("size_bytes"), int):
         _fail("IR-DECODE-INVALID", "artifact size is required")
+
+
+def _validate_family_detail(kind: str, detail: dict[str, Any]) -> None:
+    if kind == "mutation-witness":
+        _require_exact_fields(detail, {"schema", "subject"}, {"mutation"})
+        _required_text(detail, "subject")
+        if "mutation" in detail:
+            mutation = _as_object(detail["mutation"])
+            _require_exact_fields(mutation, {"schema", "registry"})
+            _required_text(mutation, "schema")
+            _required_text(mutation, "registry")
+        return
+    if kind == "artifact-correspondence":
+        _require_exact_fields(detail, {"schema", "artifact"})
+        _validate_artifact(_object(detail, "artifact"))
+        return
+    if kind == "sampled-property":
+        _require_exact_fields(detail, {"schema"}, {"property", "required_fact_schemas"})
+        if "property" not in detail:
+            if "required_fact_schemas" in detail:
+                _fail(
+                    "IR-PROGRAMME-TYPED-RECORD",
+                    "sampled-property facts require a typed property registration",
+                )
+            return
+        property_registration = _object(detail, "property")
+        _require_exact_fields(property_registration, {"schema", "framework", "seed"})
+        schema = _required_text(property_registration, "schema")
+        _required_text(property_registration, "framework")
+        if type(property_registration.get("seed")) is not int:
+            _fail(
+                "IR-PROGRAMME-TYPED-RECORD",
+                "sampled-property seed must be an unsigned integer",
+            )
+        if _text_list(detail, "required_fact_schemas") != [schema]:
+            _fail(
+                "IR-PROGRAMME-TYPED-RECORD",
+                "sampled-property fact declaration differs from its typed property",
+            )
+        return
+    if kind == "distribution-reproduction":
+        _require_exact_fields(detail, {"schema"}, {"distribution"})
+        if "distribution" in detail:
+            distribution = _object(detail, "distribution")
+            _require_exact_fields(
+                distribution,
+                {
+                    "schema",
+                    "format",
+                    "artifact_name",
+                    "artifact_sha256",
+                    "source_date_epoch",
+                },
+            )
+            for field in ("schema", "format", "artifact_name", "artifact_sha256"):
+                _required_text(distribution, field)
+            if type(distribution.get("source_date_epoch")) is not int:
+                _fail(
+                    "IR-PROGRAMME-TYPED-RECORD",
+                    "distribution epoch must be an unsigned integer",
+                )
+        return
+    if kind == "bounded-model-check":
+        _require_exact_fields(detail, {"schema"}, {"bounded_domain"})
+        if "bounded_domain" in detail:
+            bounded = _object(detail, "bounded_domain")
+            _require_exact_fields(
+                bounded, {"id", "description", "cardinality", "ordering_key"}
+            )
+            _required_text(bounded, "id")
+            _required_text(bounded, "description")
+            ordering_key = _list(bounded, "ordering_key")
+            if type(bounded.get("cardinality")) is not int or any(
+                type(item) is not int for item in ordering_key
+            ):
+                _fail(
+                    "IR-PROGRAMME-TYPED-RECORD",
+                    "bounded-domain cardinality and ordering key must be unsigned",
+                )
+        return
+    if kind == "universal-source-proof":
+        _require_exact_fields(detail, {"schema"}, {"theorem"})
+        if "theorem" in detail:
+            _required_text(detail, "theorem")
+        return
+    if kind in {
+        "example",
+        "static-consistency",
+        "finite-exhaustive",
+        "trusted-transcription",
+        "source-correspondence",
+    }:
+        _require_exact_fields(detail, {"schema"})
+        return
+    _fail("IR-EVIDENCE-FAMILY-DETAIL", "unknown evidence family detail")
+
+
+def _validate_registered_family_join(
+    kind: str, detail: dict[str, Any], request: dict[str, Any]
+) -> None:
+    configuration_field = {
+        "sampled-property": "property",
+        "mutation-witness": "mutation",
+        "distribution-reproduction": "distribution",
+        "bounded-model-check": "bounded_domain",
+        "universal-source-proof": "theorem",
+    }.get(kind)
+    projected = {}
+    if configuration_field is not None and configuration_field in detail:
+        projected[configuration_field] = detail[configuration_field]
+    if request.get("family_configuration") != projected:
+        _fail(
+            "IR-EVIDENCE-FAMILY-DETAIL",
+            "typed family detail differs from the registered family configuration",
+        )
 
 
 def _validate_reported(
@@ -973,7 +1129,10 @@ def _registration_program(
     assumptions = sorted(registration["assumptions"])
     kind = _family_kind(case["evidence_family"])
     retained_facts = []
-    if kind == "sampled-property":
+    if (
+        kind == "sampled-property"
+        and "property" in registration["family_configuration"]
+    ):
         retained_facts.append(
             {
                 "schema": "proofbound-python-property/1",
@@ -1024,7 +1183,7 @@ def _registration_program(
                         claims[0]["subject"] if claims else None,
                         case["source"],
                         source_size,
-                        registration["family_configuration_sha256"],
+                        registration["family_configuration"],
                     ),
                 },
                 "backend": {"retained_facts": retained_facts},
@@ -1830,23 +1989,80 @@ def _family_detail(
     subject: str | None,
     source: dict[str, Any],
     source_size: int,
-    configuration_sha256: str | None,
+    configuration: dict[str, Any] | None,
 ) -> dict[str, Any]:
     schema = _family_schema(kind)
+    configuration = configuration or {}
     if kind == "mutation-witness":
-        return {"schema": schema, "subject": subject or "subject:unknown"}
+        _require_configuration_fields(configuration, {"mutation"})
+        detail = {"schema": schema, "subject": subject or "subject:unknown"}
+        if "mutation" in configuration:
+            mutation = _as_object(configuration["mutation"])
+            _require_exact_fields(mutation, {"schema", "registry"})
+            detail["mutation"] = dict(mutation)
+        return detail
     if kind == "artifact-correspondence":
+        _require_configuration_fields(configuration, set())
         return {
             "schema": schema,
             "artifact": _source_artifact(source, source_size),
         }
     if kind == "sampled-property":
-        return {
-            "schema": schema,
-            "configuration_sha256": configuration_sha256,
-            "required_fact_schemas": ["proofbound-python-property/1"],
-        }
-    return {"schema": schema, "configuration_sha256": configuration_sha256}
+        _require_configuration_fields(configuration, {"property"})
+        detail = {"schema": schema}
+        if "property" in configuration:
+            property_registration = _as_object(configuration["property"])
+            _require_exact_fields(
+                property_registration, {"schema", "framework", "seed"}
+            )
+            detail["property"] = dict(property_registration)
+            detail["required_fact_schemas"] = [property_registration["schema"]]
+        return detail
+    if kind == "distribution-reproduction":
+        _require_configuration_fields(configuration, {"distribution"})
+        detail = {"schema": schema}
+        if "distribution" in configuration:
+            distribution = _as_object(configuration["distribution"])
+            _require_exact_fields(
+                distribution,
+                {
+                    "schema",
+                    "format",
+                    "artifact_name",
+                    "artifact_sha256",
+                    "source_date_epoch",
+                },
+            )
+            detail["distribution"] = dict(distribution)
+        return detail
+    if kind == "bounded-model-check":
+        _require_configuration_fields(configuration, {"bounded_domain"})
+        detail = {"schema": schema}
+        if "bounded_domain" in configuration:
+            bounded_domain = _as_object(configuration["bounded_domain"])
+            _require_exact_fields(
+                bounded_domain,
+                {"id", "description", "cardinality", "ordering_key"},
+            )
+            detail["bounded_domain"] = dict(bounded_domain)
+        return detail
+    if kind == "universal-source-proof":
+        _require_configuration_fields(configuration, {"theorem"})
+        detail = {"schema": schema}
+        if "theorem" in configuration:
+            detail["theorem"] = configuration["theorem"]
+        return detail
+    _require_configuration_fields(configuration, set())
+    return {"schema": schema}
+
+
+def _require_configuration_fields(
+    configuration: dict[str, Any], allowed: set[str]
+) -> None:
+    if set(configuration) - allowed:
+        raise AssuranceIrError(
+            "family configuration contains fields outside its typed IR variant"
+        )
 
 
 def _source_artifact(source: dict[str, Any], size_bytes: int) -> dict[str, Any]:

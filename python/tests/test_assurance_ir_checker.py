@@ -159,6 +159,50 @@ def test_registration_cache_binds_actual_input_bytes() -> None:
     assert cache_input["identity"] == f"sha256:{hashlib.sha256(data).hexdigest()}"
 
 
+def test_typed_family_details_bind_registration_and_artifact_roles() -> None:
+    projection = json.loads(producer_projection())
+    programs = {case["id"]: case["program"] for case in projection["cases"]}
+    property_program = programs["IR-PY-002"]
+    assert (
+        property_program["evidence"][0]["family"]["detail"]["property"]["seed"]
+        == 4_025_493_768
+    )
+
+    substituted_property = json.loads(json.dumps(property_program))
+    substituted_property["evidence"][0]["family"]["detail"]["property"]["seed"] = 1
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(substituted_property))
+    assert caught.value.code == "IR-EVIDENCE-FAMILY-DETAIL"
+
+    substituted_fact = json.loads(json.dumps(property_program))
+    substituted_fact["evidence"][0]["backend"]["retained_facts"][0]["value"][
+        "configuration_sha256"
+    ] = f"sha256:{'0' * 64}"
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(substituted_fact))
+    assert caught.value.code == "IR-BACKEND-FACT-MISMATCH"
+
+    optional_extension = json.loads(json.dumps(property_program))
+    fact = optional_extension["evidence"][0]["backend"]["retained_facts"][0]
+    fact.clear()
+    fact.update(
+        {
+            "schema": "extension-observation/1",
+            "required": False,
+            "payload_sha256": f"sha256:{'1' * 64}",
+        }
+    )
+    validate_case_program(canonical_json(optional_extension))
+
+    substituted_role = json.loads(json.dumps(programs["IR-SEM-004"]))
+    substituted_role["evidence"][1]["family"]["detail"]["artifact"]["logical_name"] = (
+        "substituted-artifact"
+    )
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(substituted_role))
+    assert caught.value.code == "IR-ARTIFACT-IDENTITY-MISMATCH"
+
+
 def test_both_implementations_reject_every_preregistered_attack() -> None:
     projection = json.loads(producer_projection())
     programs = {case["id"]: case["program"] for case in projection["cases"]}
