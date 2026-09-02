@@ -30,3 +30,19 @@ not an observation of the sampling contract.
 The ordinary-runner route fails Q1 and Q2. Parsing Hypothesis prose or treating
 Vitest pass/fail as fast-check metadata would violate the preregistered
 authority rule. The driver-ABI route remains unexecuted.
+
+## 2026-09-02 — fast-check setup instrumentation failed closed
+
+Tried to attach fast-check's public reporter from adapter-owned Vitest setup
+without changing the application property. Global configuration and a module
+mock did not intercept the fast-check instance used by the test under Vitest's
+module isolation. Directly replacing the imported `assert` export failed
+because the ESM namespace is read-only.
+
+The final prototype adds an adapter-owned global teardown that requires and
+strictly decodes the structured report. The property and outer Vitest node
+passed, no sampling report appeared, and teardown forced process exit 1 with
+`sampling observer did not emit strict JSON`. This is the correct safety
+outcome but fails Q2. TypeScript therefore joins Python in requiring a driver
+that is structurally in the property execution path; setup instrumentation is
+not sufficient.
