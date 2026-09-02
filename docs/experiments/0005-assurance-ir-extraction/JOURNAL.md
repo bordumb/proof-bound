@@ -136,3 +136,19 @@ prototype does not yet preserve every registered projection field or implement
 reverse conversion. Q5 remains unanswered because complete versioned migration
 has not been exercised. The machine-readable result records those limits and
 must not be cited as completion of Experiment 0005.
+
+## 2026-09-02 — Q1 losslessness gap audit
+
+Before extending the successful adversarial prototype, froze a 16-row matrix
+against the exact semantic projection registered by Q1. Only claim identity is
+forward-complete. Status facets are present but mix exact derivation with
+aggregate registration ceilings. Every other row is partial, minimal,
+synthetic, a placeholder, or missing, and no row has a reverse projection.
+
+In particular, the current case document must not be described as a lossless
+AssuranceProgram. It does not retain actual claim subjects and meaning,
+complete inventories and artifact tuples, closures, full provenance, actual
+cache dependencies, TCB/tool identities, or complete policy explanation. The
+matrix fixes the acceptance boundary before implementation: Q1 passes only
+when all applicable source values survive a source-to-IR-to-source semantic
+round trip, without substituting opaque hashes for required meaning.

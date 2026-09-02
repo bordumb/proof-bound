@@ -1,0 +1,160 @@
+{
+  "schema": "proofbound-research-losslessness-matrix/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "baseline": "git:295ad63e67bd30cc48eb8c9ee43c612de2c367c6",
+  "implementation_audited": "git:f577a55dc01e70dfcd595a45b71855ae052db58b",
+  "revision": 1,
+  "status": "frozen-gap-audit",
+  "equality_contract": "A row is complete only when every applicable frozen case projects its source-authoritative value, canonical IR preserves it without an opaque digest standing in for required meaning, and an independent reverse projection reproduces the registered semantic value under the source schema's list/set rules.",
+  "rows": [
+    {
+      "id": "Q1-FIELD-001",
+      "meaning": "claim identity",
+      "registered_sources": ["ClaimManifest.id", "ClaimDefinition.id", "ClaimReceipt.id"],
+      "current_projection": ["ProjectionCase.claim_ids", "CaseProgram.claims[].id"],
+      "state": "forward-complete",
+      "missing": ["reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-002",
+      "meaning": "subject identity and subject closure",
+      "registered_sources": ["ClaimManifest.subject", "ClaimManifest.subject_closure", "ClaimDefinition.subject", "ClaimReceipt.subject"],
+      "current_projection": ["CaseProgram.claims[].subject"],
+      "state": "placeholder",
+      "missing": ["actual registered subject", "subject closure identity", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-003",
+      "meaning": "internal machine claim meaning",
+      "registered_sources": ["ClaimManifest.statement", "ClaimManifest.formal_declaration", "ClaimManifest.statement_encoding", "ClaimManifest.foundational_axioms", "ClaimDefinition.statement", "ClaimReceipt.statement", "registered_domain_language"],
+      "current_projection": [],
+      "state": "missing",
+      "missing": ["statement", "formal declaration", "encoding", "statement identity", "foundational axioms", "registered domain language", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-004",
+      "meaning": "claim presentation",
+      "registered_sources": ["ClaimManifest.title", "ClaimManifest.public_language", "ReportedClaimStatus.public_statement"],
+      "current_projection": [],
+      "state": "missing",
+      "missing": ["title", "public language", "derived public statement", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-005",
+      "meaning": "formal, linkage, and assumption status facets",
+      "registered_sources": ["ClaimStatus", "ReportedClaimStatus"],
+      "current_projection": ["CaseProgram.reported"],
+      "state": "forward-complete-with-mixed-derivation",
+      "missing": ["exact per-claim derivation for aggregate registration cases", "reverse comparison"]
+    },
+    {
+      "id": "Q1-FIELD-006",
+      "meaning": "publication decision and blocking reasons",
+      "registered_sources": ["ClaimStatus.policy_admitted", "DerivationResult.policy", "publication_blockers"],
+      "current_projection": ["CaseProgram.reported.policy_admitted"],
+      "state": "partial",
+      "missing": ["blocking reasons", "policy derivation trace", "reverse comparison"]
+    },
+    {
+      "id": "Q1-FIELD-007",
+      "meaning": "evidence unit, node, family, outcome, evaluation, and binding",
+      "registered_sources": ["EvidenceUnitManifest", "EvidenceRecord", "EvidenceReceipt"],
+      "current_projection": ["CaseProgram.evidence[].unit", "CaseProgram.evidence[].family"],
+      "state": "partial",
+      "missing": ["evidence content identity", "graph node", "outcome", "evaluation mode", "binding mode", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-008",
+      "meaning": "authoritative inventory",
+      "registered_sources": ["EvidenceUnitManifest.expected_inventory", "EvidenceRecord.inventoried_targets", "EvidenceReceipt.inventoried_targets"],
+      "current_projection": ["RegistrationProjection.inventory"],
+      "state": "partial",
+      "missing": ["inventory in canonical case evidence", "registered-observed equality", "portable inventory", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-009",
+      "meaning": "input, generated, bound, and sealed artifact identities",
+      "registered_sources": ["EvidenceUnitManifest.inputs", "EvidenceUnitManifest.outputs", "Provenance.input_artifacts", "Provenance.generated_artifacts", "artifact family details", "CompiledRelease.sealed_files"],
+      "current_projection": ["RegistrationProjection.inputs", "RegistrationProjection.outputs", "CaseProgram.source"],
+      "state": "partial",
+      "missing": ["full logical-name/digest/size tuples", "generated artifacts", "bound artifact roles", "sealed files", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-010",
+      "meaning": "assumptions, premises, open obligations, and exclusions",
+      "registered_sources": ["ClaimDefinition", "EvidenceRecord", "AssumptionRecord", "PremiseRecord"],
+      "current_projection": ["CaseProgram.claims[].assumptions", "CaseProgram.claims[].open_obligations", "CaseProgram.evidence[].assumptions"],
+      "state": "partial",
+      "missing": ["assumption ledger meaning", "premise records and discharge", "evidence premises", "out-of-scope exclusions", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-011",
+      "meaning": "semantic, runner, presentation, external-evidence, and toolchain closures",
+      "registered_sources": ["SourceClosure", "Provenance.semantic_source_closure", "Provenance.additional_closures"],
+      "current_projection": [],
+      "state": "missing",
+      "missing": ["closure kind", "closure identity", "ordered members", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-012",
+      "meaning": "typed evidence-family detail",
+      "registered_sources": ["EvidenceRecord family detail", "EvidenceReceipt family detail"],
+      "current_projection": ["CaseProgram.evidence[].family.detail", "RegistrationProjection.family_configuration_sha256"],
+      "state": "semantic-skeleton",
+      "missing": ["source-authoritative typed values instead of configuration hash", "every applicable family field", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-013",
+      "meaning": "execution, command, run, normalization, reproduction, interval, budget, and usage provenance",
+      "registered_sources": ["EvidenceProvenance", "EvidenceProvenanceReceipt"],
+      "current_projection": ["CaseProgram.evidence[].provenance.runs[].command_index", "CaseProgram.evidence[].provenance.runs[].exit_code", "CaseProgram.evidence[].provenance.usage.peak_memory"],
+      "state": "minimal",
+      "missing": ["project revision", "tree state", "execution kind", "complete commands", "complete runs", "normalization", "reproduction", "timestamps", "result identity", "unit configuration", "budget", "time and disk usage", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-014",
+      "meaning": "cache origin, dependencies, reuse eligibility, key, and prior receipt",
+      "registered_sources": ["cache input projection", "Provenance.cache_origin", "Provenance.prior_receipt_sha256", "EvidenceProvenanceReceipt.cache_key", "EvidenceProvenanceReceipt.reused_from"],
+      "current_projection": ["CaseProgram.cache", "CaseProgram.evidence[].provenance.cache"],
+      "state": "synthetic",
+      "missing": ["actual cache dependency projection", "actual cache key", "origin", "reuse eligibility", "registered-vs-execution dependency equality", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-015",
+      "meaning": "tool, adapter, backend dependency, and TCB identities",
+      "registered_sources": ["Provenance.tool", "Provenance.adapter", "BackendDependency", "graph TCB nodes", "release TCB ledger"],
+      "current_projection": ["CaseProgram.evidence[].backend.retained_facts"],
+      "state": "minimal",
+      "missing": ["tool identity", "adapter identity", "backend dependency identity", "TCB node and ledger component identities", "reverse projection"]
+    },
+    {
+      "id": "Q1-FIELD-016",
+      "meaning": "policy selection, project and claim tier, linkage requirement, and admission explanation",
+      "registered_sources": ["ProjectManifest.tier", "ClaimDefinition.policy", "ClaimDefinition.tier", "ClaimDefinition.primary_linkage", "PolicyRecord", "DerivationResult.trace"],
+      "current_projection": ["CaseProgram.policy.required_components"],
+      "state": "partial",
+      "missing": ["policy identity", "project tier", "claim tier", "primary linkage", "complete policy semantics", "admission explanation", "reverse projection"]
+    }
+  ],
+  "summary": {
+    "rows": 16,
+    "forward_complete": 1,
+    "forward_complete_with_mixed_derivation": 1,
+    "partial_or_minimal": 9,
+    "placeholder_or_synthetic": 2,
+    "missing": 3,
+    "reverse_complete": 0,
+    "q1_pass": false
+  },
+  "next_acceptance_gate": {
+    "required_state": "forward-and-reverse-complete",
+    "requirements": [
+      "Every row has an explicit typed IR location or a justified non-semantic disposition.",
+      "Every applicable positive case compares equal after source-to-IR-to-source semantic projection.",
+      "No required semantic value is represented only by an opaque aggregate digest.",
+      "Rust and Python independently agree on the complete projection and its omission attacks.",
+      "Q1 remains failed if any row is placeholder, synthetic, partial, minimal, or missing."
+    ]
+  }
+}

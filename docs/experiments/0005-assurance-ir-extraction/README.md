@@ -183,6 +183,7 @@ forward and reverse field coverage.
 | EXP-0005-F001 | A required backend fact need not create a concrete backend branch in the kernel: typed family detail can declare its required schemas and generic validation can check membership. | Rust/Python validators at `f577a55`; zero concrete backend-name hits in generic kernels | Retain for the complete projection and test extension registration separately. |
 | EXP-0005-F002 | Two independent implementations rejected all 20 registered ambiguity, substitution, join, cache, and status attacks with the exact same codes. | `results/2026-09-02-adversarial-evidence-algebra.json` | Bounded pass for Q2-Q4; preserve the corpus as a permanent regression suite. |
 | EXP-0005-F003 | The current case projection omits fields required by Q1, including complete inventory, output, subject, closure, normalization, and TCB meaning; successful adversarial parity is not semantic sufficiency. | Result limitations and registered Q1 projection | Continue Gate 1 with a field-by-field losslessness matrix and reverse conversion. |
+| EXP-0005-F004 | A strict Q1 audit finds one of 16 rows forward-complete and none reverse-complete; opaque configuration hashes and synthetic cache/subject values are insufficient substitutes for registered meaning. | `q1-losslessness-matrix.json` | Freeze the matrix as the forward and reverse acceptance gate. |
 
 ## Outcome
 
