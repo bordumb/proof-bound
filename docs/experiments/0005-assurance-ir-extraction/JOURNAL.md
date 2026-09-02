@@ -152,3 +152,15 @@ cache dependencies, TCB/tool identities, or complete policy explanation. The
 matrix fixes the acceptance boundary before implementation: Q1 passes only
 when all applicable source values survive a source-to-IR-to-source semantic
 round trip, without substituting opaque hashes for required meaning.
+
+## 2026-09-02 — Positive corpus revision 2 for Q1
+
+Expanded each registration case with the exact claim-manifest path and SHA-256
+for every attributed claim. Earlier revision-1 results remain immutable and do
+not retroactively cite these bytes. The expansion is required because Q1 names
+actual subject identity, internal and public meaning, claim policy, assumptions,
+obligations, exclusions, and registered inputs; deriving placeholders from a
+claim ID cannot satisfy that contract.
+
+No Q1 comparison has run against revision 2. The expected statuses, evidence
+registrations, semantic conformance pointers, and release fixture are unchanged.

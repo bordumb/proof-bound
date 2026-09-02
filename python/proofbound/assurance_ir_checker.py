@@ -126,7 +126,7 @@ def check_projection(
         raise AssuranceIrError("unexpected experiment")
     if corpus["baseline"] != projection["baseline"]:
         raise AssuranceIrError("baseline mismatch")
-    if corpus["status"] != "frozen-positive-unexecuted":
+    if corpus["revision"] != 2 or corpus["status"] != "frozen-positive-expanded-for-q1":
         raise AssuranceIrError("corpus is not frozen")
 
     corpus_sha256 = _sha256(corpus_bytes)
@@ -393,6 +393,8 @@ def _project_case(
 ) -> dict[str, Any]:
     source = case["source"]
     source_bytes = _verify_source(root, source["path"], source["sha256"])
+    for claim_source in case.get("claim_sources", []):
+        _verify_source(root, claim_source["path"], claim_source["sha256"])
     for profile in case["projection_profiles"]:
         if profile not in profiles:
             raise AssuranceIrError(f"unknown projection profile {profile}")

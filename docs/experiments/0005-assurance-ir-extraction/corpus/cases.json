@@ -2,8 +2,8 @@
   "schema": "proofbound-research-projection-corpus/1",
   "experiment": "EXP-0005",
   "baseline": "git:295ad63e67bd30cc48eb8c9ee43c612de2c367c6",
-  "revision": 1,
-  "status": "frozen-positive-unexecuted",
+  "revision": 2,
+  "status": "frozen-positive-expanded-for-q1",
   "source_identity": "sha256-of-exact-git-blob-bytes-at-baseline",
   "projection_profiles": {
     "registered-evidence": [
@@ -44,6 +44,7 @@
     {
       "id": "IR-PY-001", "role": "positive-registration", "evidence_family": "example-test",
       "source": {"path": "demo/python-inventory-service/evidence/reservation-example.toml", "sha256": "sha256:4be02140847d6112c49b44ba3733747cfa4040a75f322b1750994faa998cfdef"},
+      "claim_sources": [{"path": "demo/python-inventory-service/claims/PY-RESERVATION-001.toml", "sha256": "sha256:6a45e6cfe766d3f6fe4e7b2ceea22e74d92beb55d99761399bb200480b7f104b"}],
       "unit_id": "reservation-example", "claim_ids": ["PY-RESERVATION-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "pytest"]
@@ -51,6 +52,7 @@
     {
       "id": "IR-PY-002", "role": "positive-registration", "evidence_family": "property-test",
       "source": {"path": "demo/python-inventory-service/evidence/reservation-property.toml", "sha256": "sha256:c3d5b220067293b37d696e853f9e3c69574aa97e38e69275d72815c0683afa79"},
+      "claim_sources": [{"path": "demo/python-inventory-service/claims/PY-RESERVATION-001.toml", "sha256": "sha256:6a45e6cfe766d3f6fe4e7b2ceea22e74d92beb55d99761399bb200480b7f104b"}],
       "unit_id": "reservation-property", "claim_ids": ["PY-RESERVATION-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "pytest", "hypothesis"]
@@ -58,6 +60,7 @@
     {
       "id": "IR-PY-003", "role": "positive-registration", "evidence_family": "static-check",
       "source": {"path": "demo/python-inventory-service/evidence/reservation-types.toml", "sha256": "sha256:1a5d986120e396c07c5179c29fefd2646ec1513eb8619c720e478ece4d69da6d"},
+      "claim_sources": [{"path": "demo/python-inventory-service/claims/PY-RESERVATION-001.toml", "sha256": "sha256:6a45e6cfe766d3f6fe4e7b2ceea22e74d92beb55d99761399bb200480b7f104b"}],
       "unit_id": "reservation-types", "claim_ids": ["PY-RESERVATION-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "mypy"]
@@ -65,6 +68,7 @@
     {
       "id": "IR-PY-004", "role": "positive-registration", "evidence_family": "mutation-witness",
       "source": {"path": "demo/python-inventory-service/evidence/reservation-mutant.toml", "sha256": "sha256:8bb7d57013389fcc51200f3118a486bee90273274df8cff78c7e4885f07e9b16"},
+      "claim_sources": [{"path": "demo/python-inventory-service/claims/PY-RESERVATION-001.toml", "sha256": "sha256:6a45e6cfe766d3f6fe4e7b2ceea22e74d92beb55d99761399bb200480b7f104b"}],
       "unit_id": "accept-over-cap-mutant", "claim_ids": ["PY-RESERVATION-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "pytest"]
@@ -72,6 +76,7 @@
     {
       "id": "IR-PY-005", "role": "positive-registration", "evidence_family": "distribution-reproduction",
       "source": {"path": "demo/python-inventory-service/evidence/wheel-reproduction.toml", "sha256": "sha256:bf52fbb71644040d886c62797f72024170c472a4e16248f67fedabbaebb4fa09"},
+      "claim_sources": [{"path": "demo/python-inventory-service/claims/PY-WHEEL-001.toml", "sha256": "sha256:87138473bb0bdde2cfa4369255b2425df52cd1d45379671c09f46d8a90394f9f"}],
       "unit_id": "wheel-reproduction", "claim_ids": ["PY-WHEEL-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["python", "build"]
@@ -79,6 +84,7 @@
     {
       "id": "IR-TS-001", "role": "positive-registration", "evidence_family": "example-test",
       "source": {"path": "demo/typescript-codec/evidence/reject-padding.toml", "sha256": "sha256:91bdb2cba6d0cea7f24da1bbcc51bb8b2aca9593e200209e56ee298245320530"},
+      "claim_sources": [{"path": "demo/typescript-codec/claims/TS-CODEC-001.toml", "sha256": "sha256:5cf72a7212a92d0418ad4b746e03d90247e6967b1803fcc277b612ee7d70b6cf"}],
       "unit_id": "reject-padding", "claim_ids": ["TS-CODEC-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm", "vitest"]
@@ -86,6 +92,7 @@
     {
       "id": "IR-TS-002", "role": "positive-registration", "evidence_family": "property-test",
       "source": {"path": "demo/typescript-codec/evidence/bounded-roundtrip.toml", "sha256": "sha256:ab6fbaffa27f04a2b32d88d8721260eb8fb799fca4354759fa0e31af691aba1b"},
+      "claim_sources": [{"path": "demo/typescript-codec/claims/TS-CODEC-001.toml", "sha256": "sha256:5cf72a7212a92d0418ad4b746e03d90247e6967b1803fcc277b612ee7d70b6cf"}],
       "unit_id": "bounded-roundtrip", "claim_ids": ["TS-CODEC-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm", "vitest", "fast-check"]
@@ -93,6 +100,7 @@
     {
       "id": "IR-TS-003", "role": "positive-registration", "evidence_family": "static-check",
       "source": {"path": "demo/typescript-codec/evidence/strict-types.toml", "sha256": "sha256:f8f037b9081b2cffc42394385dcd8f03689f5cb973568d4d7b64c37d017865b7"},
+      "claim_sources": [{"path": "demo/typescript-codec/claims/TS-CODEC-001.toml", "sha256": "sha256:5cf72a7212a92d0418ad4b746e03d90247e6967b1803fcc277b612ee7d70b6cf"}],
       "unit_id": "strict-types", "claim_ids": ["TS-CODEC-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm", "tsc"]
@@ -100,6 +108,7 @@
     {
       "id": "IR-TS-004", "role": "positive-registration", "evidence_family": "mutation-witness",
       "source": {"path": "demo/typescript-codec/evidence/reject-padding-mutant.toml", "sha256": "sha256:28c5132825e20bb5b64dd910511156bf8549bc0194d02d5e416ac576463ab393"},
+      "claim_sources": [{"path": "demo/typescript-codec/claims/TS-CODEC-001.toml", "sha256": "sha256:5cf72a7212a92d0418ad4b746e03d90247e6967b1803fcc277b612ee7d70b6cf"}],
       "unit_id": "reject-padding-mutant", "claim_ids": ["TS-CODEC-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm", "vitest"]
@@ -107,6 +116,7 @@
     {
       "id": "IR-TS-005", "role": "positive-registration", "evidence_family": "distribution-reproduction",
       "source": {"path": "demo/typescript-codec/evidence/npm-package.toml", "sha256": "sha256:37f93c53ec4cf5767ed4902f5baebbde74ec1ca4c9bbb47d50f901f4aeefba21"},
+      "claim_sources": [{"path": "demo/typescript-codec/claims/TS-PACKAGE-001.toml", "sha256": "sha256:c84636c6dc3871c13e9957ec98f64670c3178b632e7277e6b2caedb3ab043406"}],
       "unit_id": "npm-package", "claim_ids": ["TS-PACKAGE-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["node", "npm"]
@@ -114,6 +124,12 @@
     {
       "id": "IR-RS-001", "role": "positive-registration", "evidence_family": "bounded-check",
       "source": {"path": "demo/allowance/proofbound/evidence/transfer-bounds.toml", "sha256": "sha256:c6495bf7b731ffd7b2f84a9a8b63b8a4d50bf7bb3cdcc38f20aea389b2a9076b"},
+      "claim_sources": [
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-001.toml", "sha256": "sha256:6c7e5ea4bbd0e81b9e24a66b11ee058474045ceca1ce6b2e26a2b53330573387"},
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-002.toml", "sha256": "sha256:c1e445d83b402ac4206d6a1486418d2989c2e519360a194a9795388df7de3d9c"},
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-003.toml", "sha256": "sha256:0ec18c0a20bce1c9824dc58a4a789c6757ec209fbbffe647d452a9086543fa2a"},
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-004.toml", "sha256": "sha256:e5ce1b5af704f3b9282a8d977499b02a35c2aff6f835b4f0ec3a272f629f88d2"}
+      ],
       "unit_id": "transfer-bounds", "claim_ids": ["DEMO-TRANSFER-001", "DEMO-TRANSFER-002", "DEMO-TRANSFER-003", "DEMO-TRANSFER-004"],
       "expected_claim": {"formal": "BOUNDED_CHECKED_OR_STRONGER_PER_CLAIM", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence"], "toolchain_required_to_regenerate": ["cargo", "kani"]
@@ -121,6 +137,7 @@
     {
       "id": "IR-RS-002", "role": "positive-registration", "evidence_family": "theorem",
       "source": {"path": "demo/allowance/proofbound/evidence/accept-conserves.toml", "sha256": "sha256:315655e6378109d81d324e04b0e41503328dfe769c66e1b8e61e6942edf9484e"},
+      "claim_sources": [{"path": "demo/allowance/claims/DEMO-TRANSFER-001.toml", "sha256": "sha256:6c7e5ea4bbd0e81b9e24a66b11ee058474045ceca1ce6b2e26a2b53330573387"}],
       "unit_id": "accept-conserves", "claim_ids": ["DEMO-TRANSFER-001"],
       "expected_claim": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["lean", "lake"]
@@ -128,6 +145,10 @@
     {
       "id": "IR-RS-003", "role": "positive-registration", "evidence_family": "mutation-witness",
       "source": {"path": "demo/allowance/proofbound/evidence/remove-cap-guard.toml", "sha256": "sha256:a95df7d8c9f481143589fdeafe8a50ce8c660cab27742d6386f0d5909c17796c"},
+      "claim_sources": [
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-003.toml", "sha256": "sha256:0ec18c0a20bce1c9824dc58a4a789c6757ec209fbbffe647d452a9086543fa2a"},
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-005.toml", "sha256": "sha256:c172da27238eacac74e6325832a57f3de3b09052d2c4fbc5a68fcb7d86da1600"}
+      ],
       "unit_id": "remove-cap-guard", "claim_ids": ["DEMO-TRANSFER-003", "DEMO-TRANSFER-005"],
       "expected_claim": {"formal": "TESTED_OR_STRONGER_PER_CLAIM", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence"], "toolchain_required_to_regenerate": ["cargo", "rust-test"]

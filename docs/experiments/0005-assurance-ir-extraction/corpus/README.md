@@ -9,7 +9,7 @@
 - **Status:** frozen positive and preregistered adversarial corpus; no
   projection execution yet
 - **Baseline:** `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
-- **Positive corpus revision:** 1
+- **Positive corpus revision:** 2
 - **Adversarial corpus revision:** 2
 - **Case count:** 20
 - **Adversarial case count:** 20
@@ -33,6 +33,12 @@ The corpus deliberately contains two complementary positive case forms:
 
 The release-smoke case freezes the complete portable release and envelope used
 to test canonical conversion and compiler-internal evidence.
+
+Positive revision 2 adds exact claim-manifest sources to every registration
+case. Revision 1 remains the immutable input to the two earlier result files.
+The added sources make actual subject, machine meaning, presentation, claim
+policy, assumptions, obligations, exclusions, and source roots available to
+the Q1 losslessness run; they do not change any registered expected outcome.
 
 ## Coverage
 

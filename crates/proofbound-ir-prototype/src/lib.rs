@@ -53,11 +53,20 @@ struct CorpusCase {
     evidence_family: String,
     source: Source,
     #[serde(default)]
+    claim_sources: Vec<ClaimSource>,
+    #[serde(default)]
     unit_id: Option<String>,
     claim_ids: Vec<String>,
     expected_claim: ExpectedClaim,
     projection_profiles: Vec<String>,
     toolchain_required_to_regenerate: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClaimSource {
+    path: String,
+    sha256: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,9 +200,9 @@ pub fn project_corpus(root: &Path, corpus_path: &Path) -> Result<ProjectionBatch
 fn validate_corpus_header(corpus: &Corpus) -> Result<()> {
     ensure!(corpus.schema == CORPUS_SCHEMA, "unsupported corpus schema");
     ensure!(corpus.experiment == "EXP-0005", "unexpected experiment");
-    ensure!(corpus.revision == 1, "unsupported corpus revision");
+    ensure!(corpus.revision == 2, "unsupported corpus revision");
     ensure!(
-        corpus.status == "frozen-positive-unexecuted",
+        corpus.status == "frozen-positive-expanded-for-q1",
         "corpus is not frozen"
     );
     ensure!(
@@ -209,6 +218,9 @@ fn validate_corpus_header(corpus: &Corpus) -> Result<()> {
 
 fn project_case(root: &Path, case: &CorpusCase) -> Result<ProjectionCase> {
     let source_bytes = verify_source(root, &case.source.path, &case.source.sha256)?;
+    for claim_source in &case.claim_sources {
+        verify_source(root, &claim_source.path, &claim_source.sha256)?;
+    }
     let (registration, semantic_case_id, program) = match case.role.as_str() {
         "positive-registration" => {
             let registration = project_registration(case, &source_bytes)?;
