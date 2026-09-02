@@ -31,5 +31,6 @@ or artifact evidence.
 - [EXP-0005](../../../experiments/0005-assurance-ir-extraction/README.md)
   extracts the common algebra and keeps legacy sampling visible.
 - [EXP-0006](../../../experiments/0006-explicit-sampling-contract/README.md)
-  tests whether Hypothesis and fast-check can emit one explicit, independently
-  checked sampling contract without source-code inference.
+  shows that Hypothesis and fast-check can emit one explicit, independently
+  checked sampling contract through an adapter-owned driver, while ordinary
+  runner instrumentation cannot. A Rust framework remains the holdout.

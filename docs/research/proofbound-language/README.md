@@ -83,13 +83,19 @@ contract. Eleven of sixteen Q1 rows are complete; five remain partial.
   records in Rust and Python, including human review and typed observed detail.
   It deliberately retains the TypeScript and Rust property records as legacy
   sampling and rejects a self-consistently rehashed semantic upgrade.
+- Experiment 0006 rejects ordinary-runner and Vitest setup instrumentation,
+  then demonstrates one adapter-owned generator/predicate ABI for Hypothesis
+  and fast-check. Both independent validators reconstruct the same generator
+  and contract identities and reject all ten registered attacks. The result
+  resolves the Python/TypeScript part of OQ-001 without upgrading old receipts;
+  Rust sampling remains the holdout.
 
 ## Current decision
 
-Continue Gate 1 only. Implement the portable constructors that already have
-closed typed records and preserve the remaining property records as an
-explicit legacy migration state. A new versioned producer wire is required
-before TypeScript and Rust sampling can be called lossless. Do not execute the
+Continue Gate 1 only. Preserve old property records as explicit legacy
+sampling. Register a Rust property-framework holdout against the EXP-0006
+contract before proposing a production wire; then recapture the portable
+family only after versioned producer adoption. Do not execute the
 preregistered derivation-trace attacks, freeze Assurance IR `/1`, preregister
 the Go holdout, or design final syntax and native executable semantics until
 the lossless boundary passes. Versioned migration remains the subsequent Q5

@@ -46,3 +46,28 @@ passed, no sampling report appeared, and teardown forced process exit 1 with
 outcome but fails Q2. TypeScript therefore joins Python in requiring a driver
 that is structurally in the property execution path; setup instrumentation is
 not sufficient.
+
+## 2026-09-02 — Adapter-owned driver passed
+
+Implemented the candidate driver ABI at `f4e5ec8a717e218c876547d508a399e517365abf`.
+Application modules export only a generator and predicate. The driver owns the
+seed, successful-case budget, persistence and shrink policies, framework
+execution, counters, and exclusive-create report. Hypothesis and fast-check
+both completed 100 registered cases and emitted the same closed observation
+shape. Deliberately false properties emitted typed counterexamples before
+both drivers exited 1.
+
+The common counter semantics are now exact: attempted cases are predicate
+invocations; completed cases returned successfully; skipped cases are
+predicate precondition rejections. Values discarded internally by a generator
+before predicate invocation are not attempts. A passing observation must
+complete the exact registered budget. A counterexample must occur before that
+budget completes.
+
+Independent Rust and Python validators reconstruct generator and contract
+identities from separate registration plus live closure bytes. Both reject all
+ten preregistered attacks with their registered class and contain no branch on
+`hypothesis` or `fast-check`. Q1, Q2, and Q4 pass at this research boundary;
+Q3 selects the adapter-owned driver. Existing production receipts remain
+legacy until a new wire adopts this contract, so the result does not silently
+upgrade the completion captures.

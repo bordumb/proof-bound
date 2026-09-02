@@ -16,6 +16,20 @@ stop decision; questions are not deleted.
 | OQ-007 | How should uncertainty differ from assumptions, exclusions, open obligations, stale evidence, and conflicting evidence? | H6, WS-UQ | Notification study |
 | OQ-008 | Is a custom DSL materially better than a restricted Pkl or CUE frontend once effective-program review and evaluator identity are included? | H4, WS-DSL | Frontend selection |
 
+### OQ-001 — split
+
+- **Date:** 2026-09-02
+- **Evidence:** EXP-0006 adapter-owned driver result
+- **Resolution:** Hypothesis and fast-check share one explicit sampling
+  contract when an adapter-owned driver controls generator/predicate execution.
+  Ordinary pytest/Vitest instrumentation is insufficient. Rust
+  property-labelled receipts remain legacy because no Rust generator/driver
+  route was registered in EXP-0006.
+- **Consequence:** Adopt the common semantic shape only through a new versioned
+  wire. Test a Rust property framework as a holdout before calling OQ-001 fully
+  resolved across all three original ecosystems.
+- **Promoted to:** EXP-0006 result; Rust sampling holdout registration
+
 ## Resolution format
 
 ```markdown

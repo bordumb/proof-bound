@@ -15,6 +15,9 @@
 | EXP-0006-P002 | `drivers/fast-check-observer-teardown.mjs` | fail-closed guard, `sha256:a2fd16ab582eb7f301d5ff481a7695d2eb0c63084c72b2fac930cb941b719955` | Rejects a passing Vitest run when strict property metadata is absent |
 | EXP-0006-P003 | `drivers/vitest-observer.config.mjs` | failed instrumentation configuration, `sha256:5b52c3a2f4c901ffa1eb399057975e48466cf0c31ae602a5e2cf330ff6d042cd` | Registers setup and teardown around the unchanged property |
 | EXP-0006-X002 | `results/2026-09-02-fast-check-instrumentation.json` | immutable failed-route result, `sha256:58b7a911e5816a70644b0c1347a19fec2a85d3bc9eb871c69cef5491c2cbe57c` | Records four instrumentation attempts and the final fail-closed missing-report result |
+| EXP-0006-P004 | `drivers/hypothesis-driver.py` | implementation at `f4e5ec8`, `sha256:1c4d3d7ab6c45eaf506cfd1df4601dea33eeabe9f63b071bcd5b65ca505038e3` | Adapter-owned Hypothesis generator/predicate driver |
+| EXP-0006-P005 | `drivers/fast-check-driver.ts` | implementation at `f4e5ec8`, `sha256:208f3199ab4a6d0508277b5b5f7bce11777b7c19b26367680ddfccc755c21bc6` | Adapter-owned fast-check generator/predicate driver |
+| EXP-0006-X003 | `results/2026-09-02-adapter-owned-driver.json` | immutable successful-route result, `sha256:2f22817442b6857585d469c1c4e3c0dcd89df4d8cd9451df0473d5501aaa506f` | Records positive runs, typed counterexamples, independent agreement, all ten attack classes, and Q1–Q4 decisions |
 
 Executed results are immutable files under `results/`; bounded fixtures belong
 under `corpus/`. Dependency trees and framework caches are never committed.
