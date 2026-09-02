@@ -4,15 +4,18 @@
 [Programme corpus](../../../research/proofbound-language/corpus.md) ·
 [Positive cases](cases.json) ·
 [Adversarial cases](adversarial-cases.json) ·
+[Q1 adversarial cases](q1-adversarial-cases.json) ·
 [Canonical vectors](canonical-vectors.json)
 
-- **Status:** frozen positive and preregistered adversarial corpus; no
-  projection execution yet
+- **Status:** positive revision 2 and adversarial revision 2 executed;
+  Q1 adversarial revision 1 preregistered but not executed
 - **Baseline:** `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
 - **Positive corpus revision:** 2
 - **Adversarial corpus revision:** 2
+- **Q1 adversarial corpus revision:** 1
 - **Case count:** 20
 - **Adversarial case count:** 20
+- **Q1 adversarial case count:** 12
 
 The corpus freezes tracked registration and portable-fixture bytes from the
 experiment baseline. It does not copy generated caches, local tool output, or
@@ -77,6 +80,12 @@ Revision 1 tried to reverse a singleton run list and therefore could not alter
 its base case. The corrected case changes that source-derived run's command
 index while preserving the original ordering invariant and expected rejection
 code.
+
+Q1 adversarial revision 1 was frozen after the initial field-preservation and
+portable reverse-projection work, but before programme-level graph, policy,
+status, and ledger-join validation was extended. It is a separate corpus so
+the earlier 20-case adversarial result remains immutable and its preregistered
+scope is not rewritten after execution.
 
 `canonical-vectors.json` freezes five new research-only domain strings and
 independent expected digests over three canonical values. These domains do not

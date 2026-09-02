@@ -185,3 +185,17 @@ a research placeholder, and graph, policy, assumption, and premise values are
 preserved but not yet independently interpreted as typed kernel records. The
 machine-readable result records these limits so forward completeness cannot be
 mistaken for losslessness.
+
+## 2026-09-02 — Q1 adversarial corpus preregistration
+
+Before extending programme-level semantic validation, froze twelve additional
+portable-projection attacks in `corpus/q1-adversarial-cases.json`. They cover
+schema and presentation omission, status and policy divergence, unknown typed
+fields, self-consistent graph mutations with refreshed identities, closure
+omission, duplicate statuses, false publication blockers, and broken
+assumption/premise joins.
+
+These cases have not been executed. The implementation-derived omission and
+identity tests run earlier remain useful regressions but are not retrospectively
+called preregistered. The new corpus fixes exact rejection codes before the
+kernel changes needed to satisfy them.
