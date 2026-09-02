@@ -8,7 +8,7 @@ new one; it does not rewrite the original claim after results are known.
 | ID | Status | Hypothesis | Primary falsifier | Tested by |
 |---|---|---|---|---|
 | H1 | testing | Existing evidence routes can compile into a small canonical Assurance IR without losing assurance-relevant detail. | The IR requires proliferating tool-named core variants or cannot reproduce current semantic projections. | EXP-0005 |
-| H2 | testing | Evidence strength can be represented as a closed algebra with statically constrained composition. | Common routes require ad hoc status rules outside the algebra or flatten unlike evidence. | EXP-0005, planned EXP-LANG-002 |
+| H2 | testing | Evidence strength can be represented as a closed algebra with statically constrained composition. | Common routes require ad hoc status rules outside the algebra or flatten unlike evidence. | EXP-0005, EXP-0008, planned EXP-LANG-002 |
 | H3 | planned | Exact semantic dependencies can invalidate evidence soundly and more narrowly than repository-wide reruns. | A load-bearing change retains evidence or routine unrelated changes invalidate most of the graph. | planned EXP-LANG-003 |
 | H4 | planned | A typed assurance DSL can reduce authoring errors and duplication while compiling identically to existing manifests. | Equivalent frontends diverge or the effective programme is harder to review. | planned EXP-LANG-004 |
 | H5 | planned | An effect and capability model can prevent demonstrated ambient-authority defects before evidence execution. | Known defects pass static checks or useful operations require effectively unrestricted authority. | planned EXP-LANG-005 |
@@ -18,6 +18,8 @@ new one; it does not rewrite the original claim after results are known.
 
 ## Current interpretation
 
-Only H1 and H2 are under active test. No hypothesis has passed. The active
-experiment's bounded positive and adversarial corpus determines its outcome;
-the existence of an initial field inventory is not confirmation.
+Only H1 and H2 are under active test. No programme-level hypothesis has passed.
+EXP-0008 supports H2's layered sampling slice, but its bounded three-framework
+result does not establish the complete evidence algebra. The active
+experiment's positive and adversarial corpus determines its outcome; the
+existence of an initial field inventory is not confirmation.

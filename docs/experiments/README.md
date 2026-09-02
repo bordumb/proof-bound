@@ -15,7 +15,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0005](0005-assurance-ir-extraction/README.md) | Assurance IR extraction | Proofbound repository and conformance corpus | Shared semantic kernel; evidence-family boundaries; producer/verifier parity | running |
 | [0006](0006-explicit-sampling-contract/README.md) | Explicit sampled-property contract | Hypothesis and fast-check reference properties | Portable sampling semantics; observation authority; honest legacy migration | concluded |
 | [0007](0007-rust-sampling-holdout/README.md) | Rust sampled-property holdout | allowance kernel and proptest 1.11.0 | Third-ecosystem generality; counter authority; contract confirmation or falsification | concluded |
-| [0008](0008-layered-sampling-model/README.md) | Layered sampling model | EXP-0006/0007 three-framework results | Common intent; typed backend plans; authority-indexed facts; targeted uncertainty | planned |
+| [0008](0008-layered-sampling-model/README.md) | Layered sampling model | EXP-0006/0007 three-framework results | Common intent; typed backend plans; authority-indexed facts; targeted uncertainty | concluded |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).

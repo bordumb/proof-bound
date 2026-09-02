@@ -1,6 +1,6 @@
 # WS-EA: evidence algebra
 
-- **Status:** running; initial inventory in EXP-0005; explicit sampling in EXP-0006
+- **Status:** running; initial inventory in EXP-0005; sampling sequence concluded in EXP-0008
 - **Hypothesis:** H2
 - **Depends on:** WS-IR field classification
 - **Blocks:** DSL typing and native evidence constructors
@@ -39,5 +39,7 @@ or artifact evidence.
   needs a bound RNG algorithm and cannot authoritatively expose the same
   counter set. The next candidate is a layered intent/plan/observation model.
 - [EXP-0008](../../../experiments/0008-layered-sampling-model/README.md)
-  tests that layered model, including whether unavailable telemetry produces a
-  consequence only when an admission rule actually requires it.
+  passes that layered model in independent Rust and Python implementations.
+  Common intent and admission stay backend-neutral; typed plans retain backend
+  execution controls; unavailable telemetry has a consequence only when a
+  registered admission rule consumes it.

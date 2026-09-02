@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-02
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiments:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md) and [Experiment 0008 — layered sampling model](../../experiments/0008-layered-sampling-model/README.md); [Experiment 0006](../../experiments/0006-explicit-sampling-contract/README.md) concluded the Python/TypeScript slice and [Experiment 0007](../../experiments/0007-rust-sampling-holdout/README.md) concluded the Rust holdout
+- **Active experiment:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md); [Experiments 0006–0008](../../experiments/README.md) concluded the sampling-contract sequence
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -49,7 +49,7 @@ contract. Eleven of sixteen Q1 rows are complete; five remain partial.
 | ID | Workstream | Status | Hypotheses | Active experiment |
 |---|---|---|---|---|
 | WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | running | H1, H2 | EXP-0005 |
-| WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | running | H2 | EXP-0005; EXP-0008 |
+| WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | running | H2 | EXP-0005 |
 | WS-IN | [Invalidation](workstreams/invalidation.md) | planned | H3 | — |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | blocked by Gate 1 | H4 | — |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | planned | H5 | — |
@@ -95,15 +95,20 @@ contract. Eleven of sixteen Q1 rows are complete; five remain partial.
   stable typed API does not expose the required success, rejection, and
   accepted-shrink counters. The evidence supports a layered sampling model,
   not a framework-named kernel branch.
+- Experiment 0008 validates that layered candidate over the same frozen
+  Hypothesis, fast-check, and proptest sources in independent Rust and Python
+  implementations. All twelve attacks match preregistration. In particular,
+  a missing completed-budget fact blocks the consuming empirical-admission
+  rule, while unavailable shrink telemetry creates no notification when the
+  rule does not consume it.
 
 ## Current decision
 
 Continue Gate 1 only. Preserve old property records as explicit legacy
-sampling. Prototype a layered common sampling intent, typed backend plan, and
-capability-indexed observation across all three frameworks before proposing a
-production wire. Recapture the portable family only after versioned producer
-adoption. Do not execute the
-preregistered derivation-trace attacks, freeze Assurance IR `/1`, preregister
-the Go holdout, or design final syntax and native executable semantics until
-the lossless boundary passes. Versioned migration remains the subsequent Q5
-gate.
+sampling. Carry the experimentally supported intent/plan/fact-authority split
+into the Assurance IR candidate, but do not change a production wire until the
+remaining EXP-0005 losslessness rows pass and a versioned migration is
+preregistered. Next, test generic derivation traces and consequence-indexed
+uncertainty without adding framework-named rules. Do not freeze Assurance IR
+`/1`, preregister the Go holdout, or design final syntax and native executable
+semantics until that boundary passes.
