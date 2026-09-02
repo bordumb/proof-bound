@@ -203,6 +203,30 @@ def test_typed_family_details_bind_registration_and_artifact_roles() -> None:
     assert caught.value.code == "IR-ARTIFACT-IDENTITY-MISMATCH"
 
 
+def test_subject_closure_binds_registered_paths_and_bytes() -> None:
+    projection = json.loads(producer_projection())
+    program = next(
+        case["program"] for case in projection["cases"] if case["id"] == "IR-PY-001"
+    )
+    closure = program["claims"][0]["subject_closure"]
+    assert closure["selectors"] == ["src/inventory_service/reservations.py"]
+    assert closure["members"][0]["logical_name"] == closure["selectors"][0]
+
+    substituted = json.loads(json.dumps(program))
+    closure = substituted["claims"][0]["subject_closure"]
+    closure["selectors"][0] = "src/inventory_service/substituted.py"
+    closure["members"][0]["logical_name"] = "src/inventory_service/substituted.py"
+    material = {
+        "schema": closure["schema"],
+        "selectors": closure["selectors"],
+        "members": closure["members"],
+    }
+    closure["sha256"] = domain_hash(closure["schema"], canonical_json(material))
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(substituted))
+    assert caught.value.code == "IR-CLAIM-SUBJECT-CLOSURE"
+
+
 def test_both_implementations_reject_every_preregistered_attack() -> None:
     projection = json.loads(producer_projection())
     programs = {case["id"]: case["program"] for case in projection["cases"]}

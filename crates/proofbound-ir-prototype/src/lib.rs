@@ -20,13 +20,15 @@ pub use assurance::{
     IrEvidenceRequest, IrFamily, IrFamilyDetail, IrFlowScope, IrGraph, IrGraphEdge, IrGraphNode,
     IrMutationRegistration, IrMutualTheoremGroup, IrNativePremiseRule, IrPolicy, IrPolicyRecord,
     IrPremise, IrPremiseDischarge, IrProgrammeContext, IrProject, IrPropertyRegistration,
-    IrProvenance, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun, IrTool, IrUsage,
-    IrValidationError, RetainedFact, cache_key, family_kind, family_schema, validate_case_program,
+    IrProvenance, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun, IrSubjectClosure,
+    IrTool, IrUsage, IrValidationError, RetainedFact, cache_key, family_kind, family_schema,
+    validate_case_program,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";
 pub const PROJECTION_SCHEMA: &str = "proofbound-assurance-ir-projection/1";
 pub const PROJECTION_DOMAIN: &str = "proofbound-assurance-ir-projection/1";
+const SUBJECT_CLOSURE_SCHEMA: &str = "proofbound-ir-subject-closure/1";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -537,9 +539,11 @@ fn project_claim_sources(root: &Path, case: &CorpusCase) -> Result<Vec<IrClaim>>
             ] {
                 values.sort();
             }
+            let subject_closure = subject_closure(root, &source.path, &registered_inputs)?;
             let claim = IrClaim {
                 id,
                 subject: required_text(table, "subject")?,
+                subject_closure: Some(subject_closure.clone()),
                 source: Some(Artifact {
                     logical_name: source.path.clone(),
                     sha256: source.sha256.clone(),
@@ -581,7 +585,8 @@ fn project_claim_sources(root: &Path, case: &CorpusCase) -> Result<Vec<IrClaim>>
                 }),
             };
             ensure!(
-                claim_source_projection(table)? == claim_ir_projection(&claim)?,
+                claim_source_projection(table, Some(&subject_closure))?
+                    == claim_ir_projection(&claim)?,
                 "claim {} is not lossless under the registered semantic projection",
                 claim.id
             );
@@ -603,7 +608,10 @@ fn project_claim_sources(root: &Path, case: &CorpusCase) -> Result<Vec<IrClaim>>
     Ok(claims)
 }
 
-fn claim_source_projection(table: &toml::value::Table) -> Result<Value> {
+fn claim_source_projection(
+    table: &toml::value::Table,
+    subject_closure: Option<&IrSubjectClosure>,
+) -> Result<Value> {
     let sorted = |field| {
         let mut values = optional_text_array(table, field)?;
         values.sort();
@@ -617,6 +625,7 @@ fn claim_source_projection(table: &toml::value::Table) -> Result<Value> {
         "public_language": optional_text(table, "public_language")?,
         "public_statement": Value::Null,
         "subject": required_text(table, "subject")?,
+        "subject_closure": subject_closure,
         "formal_declaration": optional_text(table, "formal_declaration")?,
         "statement_encoding": optional_text(table, "statement_encoding")?,
         "statement_sha256": optional_text(table, "statement_sha256")?,
@@ -653,6 +662,7 @@ fn claim_ir_projection(claim: &IrClaim) -> Result<Value> {
         "public_language": presentation.public_language,
         "public_statement": presentation.public_statement,
         "subject": claim.subject,
+        "subject_closure": claim.subject_closure,
         "formal_declaration": meaning.formal_declaration,
         "statement_encoding": meaning.statement_encoding,
         "statement_sha256": meaning.statement_sha256,
@@ -769,6 +779,7 @@ fn semantic_program(case: &CorpusCase, source_size: u64, selected: &Value) -> Re
         .map(|claim_id| IrClaim {
             id: claim_id.clone(),
             subject: format!("subject:{claim_id}"),
+            subject_closure: None,
             source: None,
             node: None,
             meaning: None,
@@ -1250,6 +1261,7 @@ fn release_claim_source_projection(claim: &Value, receipt: &Value) -> Result<Val
         claim.get("public_language").cloned().unwrap_or(Value::Null),
     );
     projection.insert("subject".to_owned(), claim["subject"].clone());
+    projection.insert("subject_closure".to_owned(), Value::Null);
     for field in [
         "formal_declaration",
         "statement_encoding",
@@ -1527,6 +1539,7 @@ fn release_claim(claim: &Value, receipt: &Value) -> Result<IrClaim> {
             .and_then(Value::as_str)
             .context("release claim subject is missing")?
             .to_owned(),
+        subject_closure: None,
         source: None,
         node: object
             .get("node_id")
@@ -1878,7 +1891,15 @@ fn registration_project_root(
     case: &CorpusCase,
     inputs: &[String],
 ) -> Result<std::path::PathBuf> {
-    let source = root.join(&case.source.path);
+    source_project_root(root, &case.source.path, inputs)
+}
+
+fn source_project_root(
+    root: &Path,
+    source_path: &str,
+    inputs: &[String],
+) -> Result<std::path::PathBuf> {
+    let source = root.join(source_path);
     let mut candidates = source
         .parent()
         .context("registration source has no parent")?
@@ -1893,6 +1914,51 @@ fn registration_project_root(
         "registration inputs resolve from more than one project root"
     );
     Ok(project_root.to_path_buf())
+}
+
+fn subject_closure(
+    root: &Path,
+    source_path: &str,
+    selectors: &[String],
+) -> Result<IrSubjectClosure> {
+    ensure!(!selectors.is_empty(), "claim subject closure is empty");
+    let project_root = source_project_root(root, source_path, selectors)?;
+    let members = selectors
+        .iter()
+        .map(|selector| {
+            let path = Path::new(selector);
+            ensure!(
+                !path.is_absolute()
+                    && path
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_))),
+                "claim source selector is not a normalized relative path"
+            );
+            let absolute = project_root.join(path);
+            let metadata = fs::symlink_metadata(&absolute)
+                .with_context(|| format!("inspect claim source {selector}"))?;
+            ensure!(metadata.is_file() && !metadata.file_type().is_symlink());
+            let bytes =
+                fs::read(&absolute).with_context(|| format!("read claim source {selector}"))?;
+            Ok(Artifact {
+                logical_name: selector.clone(),
+                sha256: sha256_bytes(&bytes),
+                size_bytes: bytes.len() as u64,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let material = serde_json::json!({
+        "schema": SUBJECT_CLOSURE_SCHEMA,
+        "selectors": selectors,
+        "members": members,
+    });
+    let sha256 = domain_hash(SUBJECT_CLOSURE_SCHEMA, &canonical_json(&material)?);
+    Ok(IrSubjectClosure {
+        schema: SUBJECT_CLOSURE_SCHEMA.to_owned(),
+        sha256,
+        selectors: selectors.to_vec(),
+        members,
+    })
 }
 
 fn family_detail(
@@ -2456,6 +2522,42 @@ mod tests {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn subject_closure_binds_registered_paths_and_bytes() {
+        let root = root();
+        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let projection = project_corpus(&root, &corpus).unwrap();
+        let program = &projection
+            .cases
+            .iter()
+            .find(|case| case.id == "IR-PY-001")
+            .unwrap()
+            .program;
+        let closure = program.claims[0].subject_closure.as_ref().unwrap();
+        assert_eq!(closure.selectors, ["src/inventory_service/reservations.py"]);
+        assert_eq!(closure.members[0].logical_name, closure.selectors[0]);
+
+        let mut substituted = serde_json::to_value(program).unwrap();
+        substituted["claims"][0]["subject_closure"]["selectors"][0] =
+            Value::String("src/inventory_service/substituted.py".to_owned());
+        substituted["claims"][0]["subject_closure"]["members"][0]["logical_name"] =
+            Value::String("src/inventory_service/substituted.py".to_owned());
+        let closure = substituted["claims"][0]["subject_closure"]
+            .as_object()
+            .unwrap();
+        let material = serde_json::json!({
+            "schema": closure["schema"],
+            "selectors": closure["selectors"],
+            "members": closure["members"],
+        });
+        substituted["claims"][0]["subject_closure"]["sha256"] = Value::String(domain_hash(
+            SUBJECT_CLOSURE_SCHEMA,
+            &canonical_json(&material).unwrap(),
+        ));
+        let error = validate_case_program(&canonical_json(&substituted).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-CLAIM-SUBJECT-CLOSURE");
     }
 
     #[test]

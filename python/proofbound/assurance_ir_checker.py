@@ -211,9 +211,10 @@ def validate_case_program(data: bytes) -> None:
             "premises",
             "open_obligations",
             "out_of_scope",
-            "registered_inputs",
         ):
             _require_sorted_unique(_text_list(claim, field))
+        registered_inputs = _text_list(claim, "registered_inputs")
+        _require_sorted_unique(registered_inputs)
         if claim.get("source") is not None:
             claim_source = _object(claim, "source")
             _required_text(claim_source, "logical_name")
@@ -224,6 +225,9 @@ def validate_case_program(data: bytes) -> None:
             _required_text(_object(claim, "meaning"), "statement")
             _required_text(_object(claim, "presentation"), "title")
             _required_text(_object(claim, "admission"), "policy")
+            _validate_subject_closure(
+                _object(claim, "subject_closure"), registered_inputs
+            )
         obligations = obligations or bool(_list(claim, "open_obligations"))
         claim_assumptions.append(assumptions)
 
@@ -595,6 +599,34 @@ def _validate_ledger_joins(
                 "IR-PROGRAMME-LEDGER-JOIN",
                 "premise ledger references absent programme identities",
             )
+
+
+def _validate_subject_closure(
+    closure: dict[str, Any], registered_inputs: list[str]
+) -> None:
+    _require_exact_fields(closure, {"schema", "sha256", "selectors", "members"})
+    schema = _required_text(closure, "schema")
+    if schema != "proofbound-ir-subject-closure/1":
+        _fail("IR-CLAIM-SUBJECT-CLOSURE", "unsupported subject-closure schema")
+    selectors = _text_list(closure, "selectors")
+    _require_sorted_unique(selectors)
+    members = [_as_object(member) for member in _list(closure, "members")]
+    for member in members:
+        _validate_artifact(member)
+    if (
+        selectors != registered_inputs
+        or [_required_text(member, "logical_name") for member in members] != selectors
+    ):
+        _fail(
+            "IR-CLAIM-SUBJECT-CLOSURE",
+            "subject closure differs from the registered source selectors",
+        )
+    material = {"schema": schema, "selectors": selectors, "members": members}
+    if domain_hash(schema, canonical_json(material)) != closure["sha256"]:
+        _fail(
+            "IR-CLAIM-SUBJECT-CLOSURE",
+            "subject closure identity differs from its typed members",
+        )
 
 
 def _validate_artifact(artifact: dict[str, Any]) -> None:
@@ -1009,9 +1041,12 @@ def _project_claim_sources(root: Path, case: dict[str, Any]) -> list[dict[str, A
     for source in case.get("claim_sources", []):
         data = _verify_source(root, source["path"], source["sha256"])
         claim = tomllib.loads(data.decode())
+        registered_inputs = sorted(_optional_text_list(claim, "source_roots"))
+        subject_closure = _subject_closure(root, source["path"], registered_inputs)
         projected = {
             "id": _required_text(claim, "id"),
             "subject": _required_text(claim, "subject"),
+            "subject_closure": subject_closure,
             "source": {
                 "logical_name": source["path"],
                 "sha256": source["sha256"],
@@ -1040,14 +1075,16 @@ def _project_claim_sources(root: Path, case: dict[str, Any]) -> list[dict[str, A
             "premises": sorted(_optional_text_list(claim, "premises")),
             "open_obligations": sorted(_optional_text_list(claim, "open_obligations")),
             "out_of_scope": sorted(_optional_text_list(claim, "out_of_scope")),
-            "registered_inputs": sorted(_optional_text_list(claim, "source_roots")),
+            "registered_inputs": registered_inputs,
             "admission": {
                 "policy": _required_text(claim, "profile"),
                 "tier": claim.get("tier"),
                 "primary_linkage": claim.get("primary_linkage"),
             },
         }
-        if _claim_source_projection(claim) != _claim_ir_projection(projected):
+        if _claim_source_projection(claim, subject_closure) != _claim_ir_projection(
+            projected
+        ):
             raise AssuranceIrError(
                 f"claim {projected['id']} is not lossless under the registered semantic projection"
             )
@@ -1059,7 +1096,9 @@ def _project_claim_sources(root: Path, case: dict[str, Any]) -> list[dict[str, A
     return claims
 
 
-def _claim_source_projection(claim: dict[str, Any]) -> dict[str, Any]:
+def _claim_source_projection(
+    claim: dict[str, Any], subject_closure: dict[str, Any] | None
+) -> dict[str, Any]:
     return {
         "schema": _required_text(claim, "schema"),
         "id": _required_text(claim, "id"),
@@ -1068,6 +1107,7 @@ def _claim_source_projection(claim: dict[str, Any]) -> dict[str, Any]:
         "public_language": claim.get("public_language"),
         "public_statement": None,
         "subject": _required_text(claim, "subject"),
+        "subject_closure": subject_closure,
         "formal_declaration": claim.get("formal_declaration"),
         "statement_encoding": claim.get("statement_encoding"),
         "statement_sha256": claim.get("statement_sha256"),
@@ -1100,6 +1140,7 @@ def _claim_ir_projection(claim: dict[str, Any]) -> dict[str, Any]:
         "public_language": presentation["public_language"],
         "public_statement": presentation["public_statement"],
         "subject": claim["subject"],
+        "subject_closure": claim["subject_closure"],
         "formal_declaration": meaning["formal_declaration"],
         "statement_encoding": meaning["statement_encoding"],
         "statement_sha256": meaning["statement_sha256"],
@@ -1210,6 +1251,7 @@ def _semantic_program(
         {
             "id": claim_id,
             "subject": f"subject:{claim_id}",
+            "subject_closure": None,
             "source": None,
             "node": None,
             "meaning": None,
@@ -1670,6 +1712,7 @@ def _release_claim_source_projection(
         "public_language": claim.get("public_language"),
         "public_statement": status["public_statement"],
         "subject": claim["subject"],
+        "subject_closure": None,
         "formal_declaration": claim.get("formal_declaration"),
         "statement_encoding": claim.get("statement_encoding"),
         "statement_sha256": claim.get("statement_sha256"),
@@ -1860,7 +1903,11 @@ def _registration_cache(
 def _registration_project_root(
     root: Path, case: dict[str, Any], inputs: list[str]
 ) -> Path:
-    source = root / case["source"]["path"]
+    return _source_project_root(root, case["source"]["path"], inputs)
+
+
+def _source_project_root(root: Path, source_path: str, inputs: list[str]) -> Path:
+    source = root / source_path
     candidates = [
         candidate
         for candidate in (source.parent, *source.parent.parents)
@@ -1874,6 +1921,41 @@ def _registration_project_root(
     return candidates[0]
 
 
+def _subject_closure(
+    root: Path, source_path: str, selectors: list[str]
+) -> dict[str, Any]:
+    if not selectors:
+        raise AssuranceIrError("claim subject closure is empty")
+    project_root = _source_project_root(root, source_path, selectors)
+    members = []
+    for selector in selectors:
+        path = Path(selector)
+        if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+            raise AssuranceIrError(
+                "claim source selector is not a normalized relative path"
+            )
+        absolute = project_root / path
+        if not absolute.is_file() or absolute.is_symlink():
+            raise AssuranceIrError("claim source member must be a regular file")
+        data = absolute.read_bytes()
+        members.append(
+            {
+                "logical_name": selector,
+                "sha256": _sha256(data),
+                "size_bytes": len(data),
+            }
+        )
+    material = {
+        "schema": "proofbound-ir-subject-closure/1",
+        "selectors": selectors,
+        "members": members,
+    }
+    return {
+        **material,
+        "sha256": domain_hash(material["schema"], canonical_json(material)),
+    }
+
+
 def _release_claim(claim: dict[str, Any], receipt: dict[str, Any]) -> dict[str, Any]:
     claim_id = _required_text(claim, "id")
     status = next(
@@ -1882,6 +1964,7 @@ def _release_claim(claim: dict[str, Any], receipt: dict[str, Any]) -> dict[str, 
     return {
         "id": claim_id,
         "subject": _required_text(claim, "subject"),
+        "subject_closure": None,
         "source": None,
         "node": claim.get("node_id"),
         "meaning": {

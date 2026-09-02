@@ -173,6 +173,7 @@ pub struct Artifact {
 pub struct IrClaim {
     pub id: String,
     pub subject: String,
+    pub subject_closure: Option<IrSubjectClosure>,
     pub source: Option<Artifact>,
     pub node: Option<String>,
     pub meaning: Option<IrClaimMeaning>,
@@ -184,6 +185,14 @@ pub struct IrClaim {
     pub out_of_scope: Vec<String>,
     pub registered_inputs: Vec<String>,
     pub admission: Option<IrClaimAdmission>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrSubjectClosure {
+    pub schema: String,
+    pub sha256: String,
+    pub selectors: Vec<String>,
+    pub members: Vec<Artifact>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -556,10 +565,11 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
             "premises",
             "open_obligations",
             "out_of_scope",
-            "registered_inputs",
         ] {
             require_sorted_unique(&text_array(claim, field)?)?;
         }
+        let registered_inputs = text_array(claim, "registered_inputs")?;
+        require_sorted_unique(&registered_inputs)?;
         if !matches!(claim.get("source"), None | Some(Value::Null)) {
             let source = object_field(claim, "source")?;
             text(source, "logical_name")?;
@@ -577,6 +587,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
             text(presentation, "title")?;
             let admission = object_field(claim, "admission")?;
             text(admission, "policy")?;
+            validate_subject_closure(object_field(claim, "subject_closure")?, &registered_inputs)?;
         }
         obligations |= !array_field(claim, "open_obligations")?.is_empty();
         claim_assumptions.push(assumptions);
@@ -990,6 +1001,50 @@ fn validate_ledger_joins(
                 "premise ledger references absent programme identities",
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_subject_closure(
+    closure: &Map<String, Value>,
+    registered_inputs: &[String],
+) -> Result<(), IrValidationError> {
+    exact_fields(closure, &["schema", "sha256", "selectors", "members"], &[])?;
+    let schema = text(closure, "schema")?;
+    if schema != "proofbound-ir-subject-closure/1" {
+        return Err(IrValidationError::new(
+            "IR-CLAIM-SUBJECT-CLOSURE",
+            "unsupported subject-closure schema",
+        ));
+    }
+    let selectors = text_array(closure, "selectors")?;
+    require_sorted_unique(&selectors)?;
+    let members = array_field(closure, "members")?;
+    for member in members {
+        validate_artifact(value_object(member)?)?;
+    }
+    let member_names = members
+        .iter()
+        .map(|member| text(value_object(member)?, "logical_name").map(str::to_owned))
+        .collect::<Result<Vec<_>, _>>()?;
+    if selectors != registered_inputs || member_names != selectors {
+        return Err(IrValidationError::new(
+            "IR-CLAIM-SUBJECT-CLOSURE",
+            "subject closure differs from the registered source selectors",
+        ));
+    }
+    let material = serde_json::json!({
+        "schema": schema,
+        "selectors": selectors,
+        "members": members,
+    });
+    let bytes = canonical_json(&material)
+        .map_err(|error| IrValidationError::new("IR-DECODE-INVALID", error.to_string()))?;
+    if domain_hash(schema, &bytes) != text(closure, "sha256")? {
+        return Err(IrValidationError::new(
+            "IR-CLAIM-SUBJECT-CLOSURE",
+            "subject closure identity differs from its typed members",
+        ));
     }
     Ok(())
 }
