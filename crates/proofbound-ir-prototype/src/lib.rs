@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 mod assurance;
+mod layered_sampling;
 mod portable;
 mod sampling;
 
@@ -25,6 +26,10 @@ pub use assurance::{
     IrProvenance, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun, IrSubjectClosure,
     IrTcbComponent, IrTool, IrUsage, IrValidationError, RetainedFact, cache_key, family_kind,
     family_schema, validate_case_program,
+};
+pub use layered_sampling::{
+    LayeredSamplingCase, LayeredSamplingError, LayeredSamplingReport,
+    validate_layered_sampling_case,
 };
 pub use portable::{
     PORTABLE_FAMILY_PROJECTION_SCHEMA, PortableFamily, PortableFamilyProjection,

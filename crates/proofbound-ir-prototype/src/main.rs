@@ -6,7 +6,8 @@ use std::{
 };
 
 use proofbound_ir_prototype::{
-    project_corpus, project_portable_families, validate_case_program, validate_sampling_observation,
+    project_corpus, project_portable_families, validate_case_program,
+    validate_layered_sampling_case, validate_sampling_observation,
 };
 
 fn main() -> ExitCode {
@@ -91,6 +92,42 @@ fn main() -> ExitCode {
                         validate_sampling_observation(&root, &contract_bytes, &observation_bytes)
                             .map_err(|error| error.to_string())
                     })
+            });
+        return match outcome.and_then(|report| {
+            proofbound_evidence::canonical_json(&report).map_err(|error| error.to_string())
+        }) {
+            Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("failed to write validation: {error}");
+                    ExitCode::from(1)
+                }
+            },
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-layered-sampling")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype validate-layered-sampling <repository-root> <case.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(case) = args.next().map(PathBuf::from) else {
+            eprintln!("missing layered sampling case");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let outcome = std::fs::read(&case)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_layered_sampling_case(&root, &bytes).map_err(|error| error.to_string())
             });
         return match outcome.and_then(|report| {
             proofbound_evidence::canonical_json(&report).map_err(|error| error.to_string())

@@ -11,6 +11,7 @@ from proofbound.assurance_ir_checker import (
     check_canonical_vectors,
     check_portable_family_projection,
     check_projection,
+    check_layered_sampling_case,
     check_sampling_observation,
     domain_hash,
     validate_case_program,
@@ -34,6 +35,13 @@ COMPLETION_CAPTURE = (
     / "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json"
 )
 SAMPLING = ROOT / "docs/experiments/0006-explicit-sampling-contract/corpus"
+
+
+def layered_sampling_case(backend: str) -> dict[str, object]:
+    path = (
+        ROOT / "docs/experiments/0008-layered-sampling-model/corpus" / f"{backend}.json"
+    )
+    return json.loads(path.read_bytes())
 
 
 def producer_projection() -> bytes:
@@ -75,6 +83,28 @@ def producer_portable_family_projection() -> bytes:
         check=True,
         capture_output=True,
     ).stdout
+
+
+def producer_layered_sampling(case: Path) -> dict[str, object]:
+    output = subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--locked",
+            "--offline",
+            "--quiet",
+            "-p",
+            "proofbound-ir-prototype",
+            "--",
+            "validate-layered-sampling",
+            str(ROOT),
+            str(case),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+    return json.loads(output)
 
 
 def test_independent_checker_agrees_with_rust_projection() -> None:
@@ -174,6 +204,101 @@ def test_independent_checker_rejects_every_sampling_attack() -> None:
                 ROOT, canonical_json(registered), observation_bytes
             )
         assert caught.value.code == expected, attack
+
+
+def test_independent_checker_admits_three_layered_sampling_plans() -> None:
+    for backend in ("hypothesis", "fast-check", "proptest"):
+        case_path = (
+            ROOT
+            / "docs/experiments/0008-layered-sampling-model/corpus"
+            / f"{backend}.json"
+        )
+        report = check_layered_sampling_case(ROOT, case_path.read_bytes())
+        producer = producer_layered_sampling(case_path)
+        assert report.admitted
+        assert report.result == "passed"
+        assert report.alerts == ()
+        assert producer == {
+            "admitted": report.admitted,
+            "alerts": list(report.alerts),
+            "intent_identity": report.intent_identity,
+            "plan_identity": report.plan_identity,
+            "result": report.result,
+            "schema": "proofbound-layered-sampling-validation/1",
+        }
+
+
+def test_independent_checker_rejects_layered_sampling_attacks() -> None:
+    expected = {
+        "EXP-0008-A001": "sampling-layer-violation",
+        "EXP-0008-A002": "sampling-plan-invalid",
+        "EXP-0008-A003": "sampling-plan-identity-mismatch",
+        "EXP-0008-A004": "sampling-authority-mismatch",
+        "EXP-0008-A005": "sampling-authority-mismatch",
+        "EXP-0008-A006": "sampling-derivation-incomplete",
+        "EXP-0008-A007": "sampling-admission-blocked",
+        "EXP-0008-A008": "sampling-rule-overreach",
+        "EXP-0008-A010": "sampling-inventory-mismatch",
+        "EXP-0008-A011": "sampling-schema-mismatch",
+        "EXP-0008-A012": "sampling-schema-mismatch",
+    }
+    for attack, expected_code in expected.items():
+        case = json.loads(json.dumps(layered_sampling_case("proptest")))
+        if attack == "EXP-0008-A001":
+            case["intent"]["rng_algorithm"] = "chacha"
+        elif attack == "EXP-0008-A002":
+            del case["plan"]["rng_algorithm"]
+            rehash_layered_plan(case)
+        elif attack == "EXP-0008-A003":
+            case["plan"]["rng_algorithm"] = "xorshift"
+        elif attack == "EXP-0008-A004":
+            case["observation"]["completed"] = {
+                "authority": "observed",
+                "value": 100,
+                "source": "runner-success",
+            }
+        elif attack == "EXP-0008-A005":
+            case["observation"]["shrinks"] = {
+                "authority": "observed",
+                "value": 0,
+                "source": "invented-zero",
+            }
+        elif attack == "EXP-0008-A006":
+            case["observation"]["completed"]["dependencies"] = ["result.passed"]
+        elif attack == "EXP-0008-A007":
+            case["plan"]["capabilities"]["completed"] = "unavailable"
+            rehash_layered_plan(case)
+            case["observation"]["completed"] = {
+                "authority": "unavailable",
+                "reason": "runner completion could not be established",
+            }
+        elif attack == "EXP-0008-A008":
+            case["admission_rule"]["required_facts"] = ["completed", "shrinks"]
+        elif attack == "EXP-0008-A010":
+            case["observation"]["targets"] = ["proptest::substituted"]
+        elif attack == "EXP-0008-A011":
+            case["schema"] = "proofbound-sampling-observation/1"
+        elif attack == "EXP-0008-A012":
+            case["schema"] = "legacy-backend-sampling/1"
+        with pytest.raises(AssuranceIrError) as caught:
+            check_layered_sampling_case(ROOT, canonical_json(case))
+        assert caught.value.code == expected_code, attack
+
+
+def test_unused_layered_shrink_telemetry_has_no_admission_consequence() -> None:
+    case = layered_sampling_case("proptest")
+    del case["observation"]["shrinks"]
+    report = check_layered_sampling_case(ROOT, canonical_json(case))
+    assert report.admitted
+    assert report.alerts == ()
+
+
+def rehash_layered_plan(case: dict[str, object]) -> None:
+    identity = domain_hash(
+        "proofbound-backend-sampling-plan/1", canonical_json(case["plan"])
+    )
+    case["plan_identity"] = identity
+    case["observation"]["plan_identity"] = identity
 
 
 def test_portable_family_checker_rejects_sampling_upgrade() -> None:

@@ -67,6 +67,25 @@ class SamplingCheckReport:
     result: str
 
 
+@dataclass(frozen=True)
+class LayeredSamplingCheckReport:
+    """Independent admission result for one layered sampling case.
+
+    Attributes:
+        intent_identity: Recomputed common sampling-intent identity.
+        plan_identity: Recomputed backend-plan identity.
+        result: Typed sampling result.
+        admitted: Whether the registered empirical rule is satisfied.
+        alerts: Consequence-bearing admission alerts.
+    """
+
+    intent_identity: str
+    plan_identity: str
+    result: str
+    admitted: bool
+    alerts: tuple[str, ...]
+
+
 def canonical_json(value: object) -> bytes:
     """Encode the bounded research JSON form canonically.
 
@@ -391,6 +410,155 @@ def check_sampling_observation(
         contract_identity=identity,
         generator_identity=_as_object(contract["generator"])["identity_sha256"],
         result=status,
+    )
+
+
+def check_layered_sampling_case(
+    root: Path, case_bytes: bytes
+) -> LayeredSamplingCheckReport:
+    """Validate a layered sampling case without framework runtime imports.
+
+    Args:
+        root: Repository root containing the generator closure.
+        case_bytes: Canonical layered case bytes.
+
+    Returns:
+        Recomputed identities and the consequence-bearing admission decision.
+
+    Raises:
+        AssuranceIrError: If layering, identity, authority, or admission fails.
+    """
+
+    case = _sampling_json(case_bytes, "layered sampling case", allow_final_newline=True)
+    if case.get("schema") != "proofbound-layered-sampling-case/1":
+        _sampling_fail("sampling-schema-mismatch", "unsupported layered case schema")
+    _require_keys(
+        case,
+        {
+            "schema",
+            "intent",
+            "intent_identity",
+            "plan",
+            "plan_identity",
+            "observation",
+            "admission_rule",
+        },
+        "layered sampling case",
+    )
+    intent = _as_object(case["intent"])
+    backend_fields = {
+        "rng_algorithm",
+        "phases",
+        "database",
+        "random_type",
+        "skip_limit",
+        "max_local_rejects",
+        "max_global_rejects",
+        "max_shrink_iters",
+    }
+    if backend_fields.intersection(intent):
+        _sampling_fail(
+            "sampling-layer-violation",
+            "backend execution control appears in common sampling intent",
+        )
+    _validate_layered_intent(root, intent)
+    intent_identity = domain_hash(
+        "proofbound-sampling-intent/1", canonical_json(intent)
+    )
+    observation = _as_object(case["observation"])
+    if (
+        case["intent_identity"] != intent_identity
+        or observation.get("intent_identity") != intent_identity
+    ):
+        _sampling_fail(
+            "sampling-intent-identity-mismatch", "sampling intent identity differs"
+        )
+
+    plan = _as_object(case["plan"])
+    capabilities = _validate_layered_plan(plan)
+    plan_identity = domain_hash(
+        "proofbound-backend-sampling-plan/1", canonical_json(plan)
+    )
+    if (
+        case["plan_identity"] != plan_identity
+        or observation.get("plan_identity") != plan_identity
+    ):
+        _sampling_fail(
+            "sampling-plan-identity-mismatch", "backend plan identity differs"
+        )
+    required_observation = {
+        "schema",
+        "intent_identity",
+        "plan_identity",
+        "targets",
+        "result",
+    }
+    allowed_observation = required_observation | {
+        "attempted",
+        "completed",
+        "skipped",
+        "shrinks",
+    }
+    if not required_observation.issubset(observation) or not set(observation).issubset(
+        allowed_observation
+    ):
+        raise AssuranceIrError(
+            "layered sampling observation has missing or unknown fields"
+        )
+    if observation["schema"] != "proofbound-layered-sampling-observation/1":
+        _sampling_fail("sampling-schema-mismatch", "unsupported observation schema")
+    if observation["targets"] != intent["targets"]:
+        _sampling_fail("sampling-inventory-mismatch", "observed targets differ")
+    for name in ("attempted", "completed", "skipped", "shrinks"):
+        _validate_layered_fact(observation.get(name), capabilities[name], name)
+
+    rule = _as_object(case["admission_rule"])
+    _require_keys(rule, {"schema", "id", "required_facts"}, "sampling rule")
+    if (
+        rule["schema"] != "proofbound-sampling-admission-rule/1"
+        or rule["id"] != "empirical-sample-pass"
+        or rule["required_facts"] != ["completed"]
+    ):
+        _sampling_fail(
+            "sampling-rule-overreach",
+            "empirical admission consumes only the completed fact",
+        )
+    result = _as_object(observation["result"])
+    if result == {"status": "passed"}:
+        status = "passed"
+    elif (
+        set(result) == {"status", "counterexample"}
+        and result.get("status") == "counterexample"
+    ):
+        status = "counterexample"
+    else:
+        _sampling_fail("sampling-plan-invalid", "sampling result is invalid")
+
+    completed_fact = observation.get("completed")
+    if (
+        isinstance(completed_fact, dict)
+        and completed_fact.get("authority") == "derived"
+        and completed_fact.get("rule") == "runner-success-contract"
+        and status != "passed"
+    ):
+        _sampling_fail(
+            "sampling-derivation-incomplete",
+            "runner-success derivation requires a passed typed result",
+        )
+    completed = _layered_fact_value(observation.get("completed"))
+    alerts: list[str] = []
+    if completed is None:
+        alerts.append("required-fact-unavailable:completed")
+    if status == "passed" and completed != intent["successful_cases"]:
+        alerts.append("completed-budget-not-established")
+    if alerts:
+        _sampling_fail("sampling-admission-blocked", ",".join(alerts))
+    return LayeredSamplingCheckReport(
+        intent_identity=intent_identity,
+        plan_identity=plan_identity,
+        result=status,
+        admitted=status == "passed",
+        alerts=tuple(alerts),
     )
 
 
@@ -2876,6 +3044,212 @@ def _validate_sampling_contract(root: Path, contract: dict[str, Any]) -> None:
     identity = domain_hash("proofbound-generator-closure/1", canonical_json(material))
     if generator["identity_sha256"] != identity:
         _sampling_fail("generator-identity-mismatch", "generator identity differs")
+
+
+def _validate_layered_intent(root: Path, intent: dict[str, Any]) -> None:
+    _require_keys(
+        intent,
+        {
+            "schema",
+            "seed",
+            "successful_cases",
+            "generator",
+            "targets",
+            "persistence",
+            "ceiling",
+        },
+        "sampling intent",
+    )
+    if intent["schema"] != "proofbound-sampling-intent/1":
+        _sampling_fail("sampling-schema-mismatch", "unsupported sampling intent")
+    seed = _as_object(intent["seed"])
+    _require_keys(seed, {"encoding", "value"}, "sampling seed")
+    if (
+        seed["encoding"] != "decimal-u64"
+        or not isinstance(seed["value"], int)
+        or isinstance(seed["value"], bool)
+        or not 0 <= seed["value"] <= 2**64 - 1
+    ):
+        _sampling_fail("sampling-plan-invalid", "sampling seed is invalid")
+    budget = intent["successful_cases"]
+    if (
+        not isinstance(budget, int)
+        or isinstance(budget, bool)
+        or not 1 <= budget <= 1_000_000
+    ):
+        _sampling_fail("sampling-plan-invalid", "sampling budget is invalid")
+    if intent["ceiling"] != "empirical-sample":
+        _sampling_fail("sampling-plan-invalid", "sampling ceiling is invalid")
+    persistence = _as_object(intent["persistence"])
+    if persistence == {"mode": "disabled"}:
+        pass
+    elif set(persistence) == {"mode", "artifact"} and persistence["mode"] == (
+        "read-only-bound"
+    ):
+        _validate_layered_artifact(root, _as_object(persistence["artifact"]))
+    else:
+        _sampling_fail("sampling-plan-invalid", "persistence policy is invalid")
+    targets = intent["targets"]
+    if not isinstance(targets, list) or not targets:
+        _sampling_fail("sampling-plan-invalid", "sampling targets are empty")
+    _sampling_sorted_text(targets, "sampling targets")
+    generator = _as_object(intent["generator"])
+    _require_keys(
+        generator,
+        {"entrypoint", "closure", "identity_sha256"},
+        "sampling generator",
+    )
+    _sampling_text(generator["entrypoint"], "generator entrypoint")
+    closure = generator["closure"]
+    if not isinstance(closure, list) or not closure:
+        _sampling_fail("generator-identity-mismatch", "generator closure is empty")
+    names = []
+    for item in closure:
+        artifact = _as_object(item)
+        _validate_layered_artifact(root, artifact)
+        names.append(artifact["logical_name"])
+    _sampling_sorted_text(names, "generator closure")
+    identity = domain_hash(
+        "proofbound-generator-closure/1",
+        canonical_json({"closure": closure, "entrypoint": generator["entrypoint"]}),
+    )
+    if generator["identity_sha256"] != identity:
+        _sampling_fail("generator-identity-mismatch", "generator identity differs")
+
+
+def _validate_layered_artifact(root: Path, artifact: dict[str, Any]) -> None:
+    _require_keys(
+        artifact, {"logical_name", "sha256", "size_bytes"}, "sampling artifact"
+    )
+    logical_name = artifact["logical_name"]
+    _sampling_text(logical_name, "artifact path")
+    path = Path(logical_name)
+    if (
+        path.is_absolute()
+        or "\\" in logical_name
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        _sampling_fail("generator-identity-mismatch", "artifact path is unsafe")
+    try:
+        resolved = (root / path).resolve(strict=True)
+        resolved.relative_to(root.resolve(strict=True))
+    except (OSError, ValueError) as error:
+        raise AssuranceIrError(
+            "artifact path escapes or is missing",
+            code="generator-identity-mismatch",
+        ) from error
+    data = resolved.read_bytes()
+    if artifact["sha256"] != _sha256(data) or artifact["size_bytes"] != len(data):
+        _sampling_fail("generator-identity-mismatch", "artifact bytes differ")
+
+
+def _validate_layered_plan(plan: dict[str, Any]) -> dict[str, str]:
+    backend = plan.get("backend")
+    common = {"backend", "schema", "version", "capabilities"}
+    expected_fields = {
+        "hypothesis": common | {"phases", "database", "shrinking"},
+        "fast-check": common | {"random_type", "examples", "skip_limit", "shrinking"},
+        "proptest": common
+        | {
+            "rng_algorithm",
+            "max_local_rejects",
+            "max_global_rejects",
+            "max_shrink_iters",
+        },
+    }
+    if backend not in expected_fields:
+        _sampling_fail("sampling-plan-invalid", "unknown sampling backend")
+    if set(plan) != expected_fields[backend]:
+        _sampling_fail(
+            "sampling-plan-invalid",
+            "backend sampling plan has missing or unknown fields",
+        )
+    if plan["schema"] != "proofbound-backend-sampling-plan/1":
+        _sampling_fail("sampling-schema-mismatch", "unsupported backend plan schema")
+    _sampling_text(plan["version"], "backend version")
+    if backend == "hypothesis":
+        _sampling_sorted_text(plan["phases"], "Hypothesis phases")
+        _sampling_text(plan["database"], "Hypothesis database policy")
+        _sampling_text(plan["shrinking"], "Hypothesis shrinking policy")
+    elif backend == "fast-check":
+        _sampling_text(plan["random_type"], "fast-check random type")
+        _sampling_text(plan["shrinking"], "fast-check shrinking policy")
+        if not isinstance(plan["examples"], list) or not _layered_u64(
+            plan["skip_limit"]
+        ):
+            _sampling_fail("sampling-plan-invalid", "fast-check plan is invalid")
+    else:
+        _sampling_text(plan["rng_algorithm"], "proptest RNG algorithm")
+        for field in (
+            "max_local_rejects",
+            "max_global_rejects",
+            "max_shrink_iters",
+        ):
+            if not _layered_u64(plan[field]) or plan[field] == 0:
+                _sampling_fail("sampling-plan-invalid", f"{field} is invalid")
+    capabilities = _as_object(plan["capabilities"])
+    _require_keys(
+        capabilities,
+        {"attempted", "completed", "skipped", "shrinks"},
+        "sampling capabilities",
+    )
+    for authority in capabilities.values():
+        if authority not in {"observed", "derived", "unavailable"}:
+            _sampling_fail("sampling-plan-invalid", "fact authority is invalid")
+    return capabilities
+
+
+def _validate_layered_fact(value: Any, expected: str, name: str) -> None:
+    if value is None:
+        return
+    fact = _as_object(value)
+    authority = fact.get("authority")
+    if authority != expected:
+        _sampling_fail(
+            "sampling-authority-mismatch",
+            f"{name} authority differs from backend capability",
+        )
+    if authority == "observed":
+        _require_keys(fact, {"authority", "value", "source"}, f"{name} fact")
+        if not _layered_u64(fact["value"]):
+            _sampling_fail("sampling-plan-invalid", f"{name} value is invalid")
+        _sampling_text(fact["source"], "observation source")
+    elif authority == "derived":
+        _require_keys(
+            fact,
+            {"authority", "value", "rule", "dependencies"},
+            f"{name} fact",
+        )
+        if not _layered_u64(fact["value"]):
+            _sampling_fail("sampling-plan-invalid", f"{name} value is invalid")
+        if fact["rule"] != "runner-success-contract" or fact["dependencies"] != [
+            "intent.successful-cases",
+            "result.passed",
+        ]:
+            _sampling_fail(
+                "sampling-derivation-incomplete",
+                "derived dependencies differ from the closed rule",
+            )
+    elif authority == "unavailable":
+        _require_keys(fact, {"authority", "reason"}, f"{name} fact")
+        _sampling_text(fact["reason"], "unavailable reason")
+    else:
+        _sampling_fail("sampling-plan-invalid", "fact authority is invalid")
+
+
+def _layered_fact_value(value: Any) -> int | None:
+    if value is None:
+        return None
+    fact = _as_object(value)
+    return None if fact.get("authority") == "unavailable" else fact.get("value")
+
+
+def _layered_u64(value: Any) -> bool:
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value <= 2**64 - 1
+    )
 
 
 def _sampling_sorted_text(values: list[Any], label: str) -> None:
