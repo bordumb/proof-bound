@@ -1,6 +1,6 @@
 # WS-EA: evidence algebra
 
-- **Status:** planned; initial inventory in EXP-0005
+- **Status:** running; initial inventory in EXP-0005; explicit sampling in EXP-0006
 - **Hypothesis:** H2
 - **Depends on:** WS-IR field classification
 - **Blocks:** DSL typing and native evidence constructors
@@ -25,3 +25,11 @@ a generated corpus, and forbidden strengthening is unrepresentable or rejected.
 
 Do not proceed if compatibility requires flattening sampled, bounded, formal,
 or artifact evidence.
+
+## Active experiments
+
+- [EXP-0005](../../../experiments/0005-assurance-ir-extraction/README.md)
+  extracts the common algebra and keeps legacy sampling visible.
+- [EXP-0006](../../../experiments/0006-explicit-sampling-contract/README.md)
+  tests whether Hypothesis and fast-check can emit one explicit, independently
+  checked sampling contract without source-code inference.
