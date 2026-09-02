@@ -202,8 +202,27 @@ def validate_case_program(data: bytes) -> None:
     obligations = False
     for claim_value in claims:
         claim = _as_object(claim_value)
+        _required_text(claim, "subject")
         assumptions = _text_list(claim, "assumptions")
         _require_sorted_unique(assumptions)
+        for field in (
+            "cited_evidence",
+            "premises",
+            "open_obligations",
+            "out_of_scope",
+            "registered_inputs",
+        ):
+            _require_sorted_unique(_text_list(claim, field))
+        if claim.get("source") is not None:
+            source = _object(claim, "source")
+            _required_text(source, "logical_name")
+            _required_text(source, "sha256")
+            if not isinstance(source.get("size_bytes"), int):
+                _fail("IR-DECODE-INVALID", "claim source size is required")
+            _required_text(_object(claim, "meaning"), "schema")
+            _required_text(_object(claim, "meaning"), "statement")
+            _required_text(_object(claim, "presentation"), "title")
+            _required_text(_object(claim, "admission"), "policy")
         obligations = obligations or bool(_list(claim, "open_obligations"))
         claim_assumptions.append(assumptions)
 
@@ -221,7 +240,13 @@ def validate_case_program(data: bytes) -> None:
             )
         assumptions = _text_list(item, "assumptions")
         _require_sorted_unique(assumptions)
-        if any(expected != assumptions for expected in claim_assumptions):
+        _require_sorted_unique(_text_list(item, "inventory"))
+        if _required_text(item, "authority") == "registered":
+            _object(item, "request")
+        if any(
+            any(assumption not in registered for assumption in assumptions)
+            for registered in claim_assumptions
+        ):
             _fail(
                 "IR-ASSUMPTION-JOIN",
                 "claim and evidence assumptions differ",
@@ -393,8 +418,7 @@ def _project_case(
 ) -> dict[str, Any]:
     source = case["source"]
     source_bytes = _verify_source(root, source["path"], source["sha256"])
-    for claim_source in case.get("claim_sources", []):
-        _verify_source(root, claim_source["path"], claim_source["sha256"])
+    registered_claims = _project_claim_sources(root, case)
     for profile in case["projection_profiles"]:
         if profile not in profiles:
             raise AssuranceIrError(f"unknown projection profile {profile}")
@@ -403,17 +427,19 @@ def _project_case(
     semantic_case_id: str | None = None
     if case["role"] == "positive-registration":
         registration = _project_registration(case, source_bytes)
-        program = _registration_program(case, registration)
+        program = _registration_program(
+            case, len(source_bytes), registration, registered_claims
+        )
     elif case["role"] == "positive-semantic-status":
         semantic_case_id, selected = _project_semantic_case(case, source_bytes)
-        program = _semantic_program(case, selected)
+        program = _semantic_program(case, len(source_bytes), selected)
     elif case["role"] == "positive-portable-release":
         _verify_release_case(root, case, source_bytes)
-        program = _release_program(case, source_bytes)
+        program = _release_program(case, len(source_bytes), source_bytes)
     else:
         raise AssuranceIrError(f"unsupported case role {case['role']}")
 
-    return {
+    projected = {
         "id": case["id"],
         "role": case["role"],
         "source": {
@@ -432,6 +458,7 @@ def _project_case(
         "projection_profiles": case["projection_profiles"],
         "program": program,
     }
+    return projected
 
 
 def _project_registration(case: dict[str, Any], data: bytes) -> dict[str, Any]:
@@ -450,15 +477,31 @@ def _project_registration(case: dict[str, Any], data: bytes) -> dict[str, Any]:
     )
     if projected_family != case["evidence_family"]:
         raise AssuranceIrError(f"registration family mismatch for {case['id']}")
-    family_configuration = {
-        "bounded_domain": registration.get("bounded_domain"),
-        "distribution": registration.get("distribution"),
-        "mutation": registration.get("mutation"),
-        "operation": registration.get("operation"),
-        "property": registration.get("property"),
-        "transcription": registration.get("transcription"),
+    common_fields = {
+        "schema",
+        "id",
+        "adapter",
+        "kind",
+        "claims",
+        "tier",
+        "assumptions",
+        "premises",
+        "open_obligation",
+        "evaluation_mode",
+        "binding_mode",
+        "expected_inventory",
+        "inputs",
+        "outputs",
+        "environment_allowlist",
+        "resource_budget",
+        "operation",
     }
-    return {
+    family_configuration = {
+        field: value
+        for field, value in registration.items()
+        if field not in common_fields
+    }
+    projected = {
         "schema": _required_text(registration, "schema"),
         "unit_id": unit_id,
         "declared_kind": declared_kind,
@@ -466,12 +509,99 @@ def _project_registration(case: dict[str, Any], data: bytes) -> dict[str, Any]:
         "operation": _required_text(operation, "type"),
         "claims": claims,
         "assumptions": _optional_text_list(registration, "assumptions"),
+        "premises": _optional_text_list(registration, "premises"),
+        "open_obligation": registration.get("open_obligation"),
+        "evaluation_mode": registration.get("evaluation_mode"),
+        "binding_mode": registration.get("binding_mode"),
         "inventory": _optional_text_list(registration, "expected_inventory"),
         "inputs": _optional_text_list(registration, "inputs"),
         "outputs": _optional_text_list(registration, "outputs"),
+        "tier": registration["tier"],
+        "environment_allowlist": _optional_text_list(
+            registration, "environment_allowlist"
+        ),
+        "resource_budget": registration["resource_budget"],
+        "operation_configuration": registration["operation"],
+        "family_configuration": family_configuration,
         "family_configuration_sha256": domain_hash(
             PROJECTION_DOMAIN, canonical_json(family_configuration)
         ),
+    }
+    if _registration_source_projection(registration) != _registration_ir_projection(
+        projected
+    ):
+        raise AssuranceIrError(
+            f"registration {unit_id} is not lossless under the registered semantic projection"
+        )
+    return projected
+
+
+def _registration_source_projection(registration: dict[str, Any]) -> dict[str, Any]:
+    common_fields = {
+        "schema",
+        "id",
+        "adapter",
+        "kind",
+        "claims",
+        "tier",
+        "assumptions",
+        "premises",
+        "open_obligation",
+        "evaluation_mode",
+        "binding_mode",
+        "expected_inventory",
+        "inputs",
+        "outputs",
+        "environment_allowlist",
+        "resource_budget",
+        "operation",
+    }
+    return {
+        "schema": registration["schema"],
+        "unit": registration["id"],
+        "adapter": registration["adapter"],
+        "kind": registration["kind"],
+        "claims": registration.get("claims", []),
+        "tier": registration.get("tier"),
+        "assumptions": registration.get("assumptions", []),
+        "premises": registration.get("premises", []),
+        "open_obligation": registration.get("open_obligation"),
+        "evaluation_mode": registration.get("evaluation_mode"),
+        "binding_mode": registration.get("binding_mode"),
+        "inventory": registration.get("expected_inventory", []),
+        "inputs": registration.get("inputs", []),
+        "outputs": registration.get("outputs", []),
+        "environment_allowlist": registration.get("environment_allowlist", []),
+        "resource_budget": registration.get("resource_budget"),
+        "operation": registration.get("operation"),
+        "family_configuration": {
+            field: value
+            for field, value in registration.items()
+            if field not in common_fields
+        },
+    }
+
+
+def _registration_ir_projection(registration: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema": registration["schema"],
+        "unit": registration["unit_id"],
+        "adapter": registration["adapter"],
+        "kind": registration["declared_kind"],
+        "claims": registration["claims"],
+        "tier": registration["tier"],
+        "assumptions": registration["assumptions"],
+        "premises": registration["premises"],
+        "open_obligation": registration["open_obligation"],
+        "evaluation_mode": registration["evaluation_mode"],
+        "binding_mode": registration["binding_mode"],
+        "inventory": registration["inventory"],
+        "inputs": registration["inputs"],
+        "outputs": registration["outputs"],
+        "environment_allowlist": registration["environment_allowlist"],
+        "resource_budget": registration["resource_budget"],
+        "operation": registration["operation_configuration"],
+        "family_configuration": registration["family_configuration"],
     }
 
 
@@ -493,20 +623,126 @@ def _project_semantic_case(
     return _required_text(selected, "id"), selected
 
 
+def _project_claim_sources(root: Path, case: dict[str, Any]) -> list[dict[str, Any]]:
+    claims = []
+    for source in case.get("claim_sources", []):
+        data = _verify_source(root, source["path"], source["sha256"])
+        claim = tomllib.loads(data.decode())
+        projected = {
+            "id": _required_text(claim, "id"),
+            "subject": _required_text(claim, "subject"),
+            "source": {
+                "logical_name": source["path"],
+                "sha256": source["sha256"],
+                "size_bytes": len(data),
+            },
+            "node": None,
+            "meaning": {
+                "schema": _required_text(claim, "schema"),
+                "statement": _required_text(claim, "statement"),
+                "formal_declaration": claim.get("formal_declaration"),
+                "statement_encoding": claim.get("statement_encoding"),
+                "statement_sha256": claim.get("statement_sha256"),
+                "foundational_axioms": sorted(
+                    _optional_text_list(claim, "foundational_axioms")
+                ),
+                "bounded_domain": claim.get("bounded_domain"),
+                "registered_domain_language": claim.get("registered_domain_language"),
+            },
+            "presentation": {
+                "title": _required_text(claim, "title"),
+                "public_language": claim.get("public_language"),
+                "public_statement": None,
+            },
+            "cited_evidence": sorted(_optional_text_list(claim, "evidence")),
+            "assumptions": sorted(_optional_text_list(claim, "assumptions")),
+            "premises": sorted(_optional_text_list(claim, "premises")),
+            "open_obligations": sorted(_optional_text_list(claim, "open_obligations")),
+            "out_of_scope": sorted(_optional_text_list(claim, "out_of_scope")),
+            "registered_inputs": sorted(_optional_text_list(claim, "source_roots")),
+            "admission": {
+                "policy": _required_text(claim, "profile"),
+                "tier": claim.get("tier"),
+                "primary_linkage": claim.get("primary_linkage"),
+            },
+        }
+        if _claim_source_projection(claim) != _claim_ir_projection(projected):
+            raise AssuranceIrError(
+                f"claim {projected['id']} is not lossless under the registered semantic projection"
+            )
+        claims.append(projected)
+    claims.sort(key=lambda claim: claim["id"])
+    expected_ids = sorted(case["claim_ids"])
+    if claims and [claim["id"] for claim in claims] != expected_ids:
+        raise AssuranceIrError(f"claim source attribution differs for {case['id']}")
+    return claims
+
+
+def _claim_source_projection(claim: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema": _required_text(claim, "schema"),
+        "id": _required_text(claim, "id"),
+        "title": _required_text(claim, "title"),
+        "statement": _required_text(claim, "statement"),
+        "public_language": claim.get("public_language"),
+        "subject": _required_text(claim, "subject"),
+        "formal_declaration": claim.get("formal_declaration"),
+        "statement_encoding": claim.get("statement_encoding"),
+        "statement_sha256": claim.get("statement_sha256"),
+        "foundational_axioms": sorted(
+            _optional_text_list(claim, "foundational_axioms")
+        ),
+        "policy": _required_text(claim, "profile"),
+        "tier": claim.get("tier"),
+        "primary_linkage": claim.get("primary_linkage"),
+        "cited_evidence": sorted(_optional_text_list(claim, "evidence")),
+        "assumptions": sorted(_optional_text_list(claim, "assumptions")),
+        "premises": sorted(_optional_text_list(claim, "premises")),
+        "open_obligations": sorted(_optional_text_list(claim, "open_obligations")),
+        "out_of_scope": sorted(_optional_text_list(claim, "out_of_scope")),
+        "registered_inputs": sorted(_optional_text_list(claim, "source_roots")),
+        "bounded_domain": claim.get("bounded_domain"),
+        "registered_domain_language": claim.get("registered_domain_language"),
+    }
+
+
+def _claim_ir_projection(claim: dict[str, Any]) -> dict[str, Any]:
+    meaning = claim["meaning"]
+    presentation = claim["presentation"]
+    admission = claim["admission"]
+    return {
+        "schema": meaning["schema"],
+        "id": claim["id"],
+        "title": presentation["title"],
+        "statement": meaning["statement"],
+        "public_language": presentation["public_language"],
+        "subject": claim["subject"],
+        "formal_declaration": meaning["formal_declaration"],
+        "statement_encoding": meaning["statement_encoding"],
+        "statement_sha256": meaning["statement_sha256"],
+        "foundational_axioms": meaning["foundational_axioms"],
+        "policy": admission["policy"],
+        "tier": admission["tier"],
+        "primary_linkage": admission["primary_linkage"],
+        "cited_evidence": claim["cited_evidence"],
+        "assumptions": claim["assumptions"],
+        "premises": claim["premises"],
+        "open_obligations": claim["open_obligations"],
+        "out_of_scope": claim["out_of_scope"],
+        "registered_inputs": claim["registered_inputs"],
+        "bounded_domain": meaning["bounded_domain"],
+        "registered_domain_language": meaning["registered_domain_language"],
+    }
+
+
 def _registration_program(
-    case: dict[str, Any], registration: dict[str, Any]
+    case: dict[str, Any],
+    source_size: int,
+    registration: dict[str, Any],
+    claims: list[dict[str, Any]],
 ) -> dict[str, Any]:
     claim_ids = sorted(registration["claims"])
     assumptions = sorted(registration["assumptions"])
-    claims = [
-        {
-            "id": claim_id,
-            "subject": f"subject:{claim_id}",
-            "assumptions": assumptions,
-            "open_obligations": [],
-        }
-        for claim_id in claim_ids
-    ]
     kind = _family_kind(case["evidence_family"])
     retained_facts = []
     if kind == "sampled-property":
@@ -525,20 +761,39 @@ def _registration_program(
         "schema": CASE_SCHEMA,
         "case_id": case["id"],
         "evidence_family": case["evidence_family"],
-        "source": _source_artifact(case["source"]),
+        "source": _source_artifact(case["source"], source_size),
         "claims": claims,
         "evidence": [
             {
                 "authority": "registered",
                 "unit": unit,
+                "node": None,
                 "claims": claim_ids,
+                "outcome": None,
+                "evaluation": registration["evaluation_mode"],
+                "binding": registration["binding_mode"],
+                "inventory": registration["inventory"],
                 "assumptions": assumptions,
+                "premises": registration["premises"],
+                "open_obligation": registration["open_obligation"],
+                "request": {
+                    "schema": registration["schema"],
+                    "adapter": registration["adapter"],
+                    "tier": registration["tier"],
+                    "input_names": registration["inputs"],
+                    "output_names": registration["outputs"],
+                    "environment_allowlist": registration["environment_allowlist"],
+                    "resource_budget": registration["resource_budget"],
+                    "operation": registration["operation_configuration"],
+                    "family_configuration": registration["family_configuration"],
+                },
                 "family": {
                     "kind": kind,
                     "detail": _family_detail(
                         kind,
                         claims[0]["subject"] if claims else None,
                         case["source"],
+                        source_size,
                         registration["family_configuration_sha256"],
                     ),
                 },
@@ -553,7 +808,9 @@ def _registration_program(
     }
 
 
-def _semantic_program(case: dict[str, Any], selected: dict[str, Any]) -> dict[str, Any]:
+def _semantic_program(
+    case: dict[str, Any], source_size: int, selected: dict[str, Any]
+) -> dict[str, Any]:
     expected = selected["expected"]
     assumptions = list(expected["assumptions"])
     obligations = list(expected["undischarged_premises"])
@@ -562,8 +819,17 @@ def _semantic_program(case: dict[str, Any], selected: dict[str, Any]) -> dict[st
         {
             "id": claim_id,
             "subject": f"subject:{claim_id}",
+            "source": None,
+            "node": None,
+            "meaning": None,
+            "presentation": None,
+            "cited_evidence": [],
             "assumptions": assumptions,
+            "premises": [],
             "open_obligations": obligations,
+            "out_of_scope": [],
+            "registered_inputs": [],
+            "admission": None,
         }
         for claim_id in claim_ids
     ]
@@ -575,14 +841,23 @@ def _semantic_program(case: dict[str, Any], selected: dict[str, Any]) -> dict[st
             {
                 "authority": "derived-conformance",
                 "unit": unit,
+                "node": None,
                 "claims": claim_ids,
+                "outcome": "passed",
+                "evaluation": item.get("evaluation"),
+                "binding": None,
+                "inventory": [],
                 "assumptions": assumptions,
+                "premises": item.get("premises", []),
+                "open_obligation": None,
+                "request": None,
                 "family": {
                     "kind": kind,
                     "detail": _family_detail(
                         kind,
                         claims[0]["subject"] if claims else None,
                         case["source"],
+                        source_size,
                         None,
                     ),
                 },
@@ -594,7 +869,7 @@ def _semantic_program(case: dict[str, Any], selected: dict[str, Any]) -> dict[st
         "schema": CASE_SCHEMA,
         "case_id": case["id"],
         "evidence_family": case["evidence_family"],
-        "source": _source_artifact(case["source"]),
+        "source": _source_artifact(case["source"], source_size),
         "claims": claims,
         "evidence": evidence,
         "cache": {"registered_inputs": [], "execution_inputs": []},
@@ -604,27 +879,37 @@ def _semantic_program(case: dict[str, Any], selected: dict[str, Any]) -> dict[st
     }
 
 
-def _release_program(case: dict[str, Any], data: bytes) -> dict[str, Any]:
+def _release_program(
+    case: dict[str, Any], source_size: int, data: bytes
+) -> dict[str, Any]:
     receipt = _strict_json(data, require_canonical=False)
     evidence = []
-    all_assumptions: set[str] = set()
     for wrapped in receipt["evidence"]:
         record = wrapped["record"]
         kind = _family_kind(record["kind"])
         unit = record["unit_id"]
         assumptions = list(record["assumptions"])
-        all_assumptions.update(assumptions)
         provenance = record["provenance"]
         prior_receipt = provenance.get("reused_from")
         evidence.append(
             {
                 "authority": "portable-receipt",
                 "unit": unit,
+                "node": record.get("node_id"),
                 "claims": case["claim_ids"],
+                "outcome": record.get("outcome"),
+                "evaluation": record.get("evaluation_mode"),
+                "binding": record.get("binding_mode"),
+                "inventory": record["inventoried_targets"],
                 "assumptions": assumptions,
+                "premises": record.get("premises", []),
+                "open_obligation": record.get("open_obligation"),
+                "request": None,
                 "family": {
                     "kind": kind,
-                    "detail": _family_detail(kind, "subject:c", case["source"], None),
+                    "detail": _family_detail(
+                        kind, "subject:c", case["source"], source_size, None
+                    ),
                 },
                 "backend": {"retained_facts": []},
                 "provenance": {
@@ -643,21 +928,12 @@ def _release_program(case: dict[str, Any], data: bytes) -> dict[str, Any]:
                 },
             }
         )
-    assumptions = sorted(all_assumptions)
-    claims = [
-        {
-            "id": claim_id,
-            "subject": f"subject:{claim_id}",
-            "assumptions": assumptions,
-            "open_obligations": [],
-        }
-        for claim_id in case["claim_ids"]
-    ]
+    claims = [_release_claim(claim, receipt) for claim in receipt["claims"]]
     return {
         "schema": CASE_SCHEMA,
         "case_id": case["id"],
         "evidence_family": case["evidence_family"],
-        "source": _source_artifact(case["source"]),
+        "source": _source_artifact(case["source"], source_size),
         "claims": claims,
         "evidence": evidence,
         "cache": {"registered_inputs": [], "execution_inputs": []},
@@ -689,6 +965,45 @@ def _registration_cache(registration: dict[str, Any]) -> dict[str, Any]:
         key=lambda item: (item["selector"], item["identity"]),
     )
     return {"registered_inputs": inputs, "execution_inputs": inputs}
+
+
+def _release_claim(claim: dict[str, Any], receipt: dict[str, Any]) -> dict[str, Any]:
+    claim_id = _required_text(claim, "id")
+    status = next(
+        item for item in receipt["reported_statuses"] if item["claim_id"] == claim_id
+    )
+    return {
+        "id": claim_id,
+        "subject": _required_text(claim, "subject"),
+        "source": None,
+        "node": claim.get("node_id"),
+        "meaning": {
+            "schema": _required_text(claim, "schema"),
+            "statement": _required_text(claim, "statement"),
+            "formal_declaration": claim.get("formal_declaration"),
+            "statement_encoding": claim.get("statement_encoding"),
+            "statement_sha256": claim.get("statement_sha256"),
+            "foundational_axioms": sorted(claim.get("foundational_axioms", [])),
+            "bounded_domain": claim.get("bounded_domain"),
+            "registered_domain_language": claim.get("registered_domain_language"),
+        },
+        "presentation": {
+            "title": _required_text(claim, "title"),
+            "public_language": claim.get("public_language"),
+            "public_statement": status.get("public_statement"),
+        },
+        "cited_evidence": sorted(claim.get("cited_evidence", [])),
+        "assumptions": sorted(claim.get("assumptions", [])),
+        "premises": sorted(claim.get("premises", [])),
+        "open_obligations": sorted(claim.get("open_obligations", [])),
+        "out_of_scope": sorted(claim.get("out_of_scope", [])),
+        "registered_inputs": sorted(claim.get("registered_inputs", [])),
+        "admission": {
+            "policy": _required_text(claim, "policy"),
+            "tier": claim.get("tier"),
+            "primary_linkage": claim.get("primary_linkage"),
+        },
+    }
 
 
 def _family_kind(source_kind: str) -> str:
@@ -735,13 +1050,17 @@ def _family_detail(
     kind: str,
     subject: str | None,
     source: dict[str, Any],
+    source_size: int,
     configuration_sha256: str | None,
 ) -> dict[str, Any]:
     schema = _family_schema(kind)
     if kind == "mutation-witness":
         return {"schema": schema, "subject": subject or "subject:unknown"}
     if kind == "artifact-correspondence":
-        return {"schema": schema, "artifact": _source_artifact(source)}
+        return {
+            "schema": schema,
+            "artifact": _source_artifact(source, source_size),
+        }
     if kind == "sampled-property":
         return {
             "schema": schema,
@@ -751,8 +1070,12 @@ def _family_detail(
     return {"schema": schema, "configuration_sha256": configuration_sha256}
 
 
-def _source_artifact(source: dict[str, Any]) -> dict[str, str]:
-    return {"logical_name": source["path"], "sha256": source["sha256"]}
+def _source_artifact(source: dict[str, Any], size_bytes: int) -> dict[str, Any]:
+    return {
+        "logical_name": source["path"],
+        "sha256": source["sha256"],
+        "size_bytes": size_bytes,
+    }
 
 
 def _cache_key(unit: str, prior_receipt: str | None) -> str:

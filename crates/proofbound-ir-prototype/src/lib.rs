@@ -14,8 +14,9 @@ use serde_json::Value;
 mod assurance;
 
 pub use assurance::{
-    Artifact, CacheInput, CaseProgram, IrBackend, IrCache, IrCacheProvenance, IrClaim, IrEvidence,
-    IrFamily, IrPolicy, IrProvenance, IrRun, IrUsage, IrValidationError, RetainedFact, cache_key,
+    Artifact, CacheInput, CaseProgram, IrBackend, IrCache, IrCacheProvenance, IrClaim,
+    IrClaimAdmission, IrClaimMeaning, IrClaimPresentation, IrEvidence, IrEvidenceRequest, IrFamily,
+    IrPolicy, IrProvenance, IrRun, IrUsage, IrValidationError, RetainedFact, cache_key,
     family_kind, family_schema, validate_case_program,
 };
 
@@ -138,9 +139,18 @@ pub struct RegistrationProjection {
     pub operation: String,
     pub claims: Vec<String>,
     pub assumptions: Vec<String>,
+    pub premises: Vec<String>,
+    pub open_obligation: Option<String>,
+    pub evaluation_mode: Option<String>,
+    pub binding_mode: Option<String>,
     pub inventory: Vec<String>,
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
+    pub tier: u64,
+    pub environment_allowlist: Vec<String>,
+    pub resource_budget: Value,
+    pub operation_configuration: Value,
+    pub family_configuration: Value,
     pub family_configuration_sha256: String,
 }
 
@@ -218,23 +228,30 @@ fn validate_corpus_header(corpus: &Corpus) -> Result<()> {
 
 fn project_case(root: &Path, case: &CorpusCase) -> Result<ProjectionCase> {
     let source_bytes = verify_source(root, &case.source.path, &case.source.sha256)?;
-    for claim_source in &case.claim_sources {
-        verify_source(root, &claim_source.path, &claim_source.sha256)?;
-    }
+    let registered_claims = project_claim_sources(root, case)?;
     let (registration, semantic_case_id, program) = match case.role.as_str() {
         "positive-registration" => {
             let registration = project_registration(case, &source_bytes)?;
-            let program = registration_program(case, &registration);
+            let program = registration_program(
+                case,
+                source_bytes.len() as u64,
+                &registration,
+                registered_claims,
+            );
             (Some(registration), None, program)
         }
         "positive-semantic-status" => {
             let (semantic_case_id, selected) = project_semantic_case(case, &source_bytes)?;
-            let program = semantic_program(case, &selected)?;
+            let program = semantic_program(case, source_bytes.len() as u64, &selected)?;
             (None, Some(semantic_case_id), program)
         }
         "positive-portable-release" => {
             verify_release_case(root, case, &source_bytes)?;
-            (None, None, release_program(case, &source_bytes)?)
+            (
+                None,
+                None,
+                release_program(case, source_bytes.len() as u64, &source_bytes)?,
+            )
         }
         role => bail!("case {} has unsupported role {role}", case.id),
     };
@@ -289,9 +306,30 @@ fn project_registration(case: &CorpusCase, bytes: &[u8]) -> Result<RegistrationP
         .context("registration has no operation table")?;
     let operation = required_text(operation_table, "type")?;
     let assumptions = optional_text_array(table, "assumptions")?;
+    let premises = optional_text_array(table, "premises")?;
+    let open_obligation = optional_text(table, "open_obligation")?;
+    let evaluation_mode = optional_text(table, "evaluation_mode")?;
+    let binding_mode = optional_text(table, "binding_mode")?;
     let inventory = optional_text_array(table, "expected_inventory")?;
     let inputs = optional_text_array(table, "inputs")?;
     let outputs = optional_text_array(table, "outputs")?;
+    let tier = table
+        .get("tier")
+        .and_then(toml::Value::as_integer)
+        .context("tier must be an integer")? as u64;
+    let environment_allowlist = optional_text_array(table, "environment_allowlist")?;
+    let resource_budget = table
+        .get("resource_budget")
+        .map(serde_json::to_value)
+        .transpose()
+        .context("convert resource budget")?
+        .context("resource_budget is required")?;
+    let operation_configuration = serde_json::to_value(
+        table
+            .get("operation")
+            .context("operation configuration is required")?,
+    )
+    .context("convert operation configuration")?;
 
     let projected_family = if table.contains_key("distribution") {
         "distribution-reproduction"
@@ -304,20 +342,13 @@ fn project_registration(case: &CorpusCase, bytes: &[u8]) -> Result<RegistrationP
         case.id
     );
 
-    let family_configuration = serde_json::json!({
-        "bounded_domain": table.get("bounded_domain"),
-        "distribution": table.get("distribution"),
-        "mutation": table.get("mutation"),
-        "operation": table.get("operation"),
-        "property": table.get("property"),
-        "transcription": table.get("transcription"),
-    });
+    let family_configuration = registration_family_configuration(table)?;
     let family_configuration_sha256 = domain_hash(
         PROJECTION_DOMAIN,
         &canonical_json(&family_configuration).context("canonicalize family configuration")?,
     );
 
-    Ok(RegistrationProjection {
+    let projected = RegistrationProjection {
         schema,
         unit_id,
         declared_kind,
@@ -325,10 +356,104 @@ fn project_registration(case: &CorpusCase, bytes: &[u8]) -> Result<RegistrationP
         operation,
         claims,
         assumptions,
+        premises,
+        open_obligation,
+        evaluation_mode,
+        binding_mode,
         inventory,
         inputs,
         outputs,
+        tier,
+        environment_allowlist,
+        resource_budget,
+        operation_configuration,
+        family_configuration: family_configuration.clone(),
         family_configuration_sha256,
+    };
+    ensure!(
+        registration_source_projection(table)? == registration_ir_projection(&projected),
+        "registration {} is not lossless under the registered semantic projection",
+        projected.unit_id
+    );
+    Ok(projected)
+}
+
+fn registration_family_configuration(table: &toml::value::Table) -> Result<Value> {
+    const COMMON_FIELDS: &[&str] = &[
+        "schema",
+        "id",
+        "adapter",
+        "kind",
+        "claims",
+        "tier",
+        "assumptions",
+        "premises",
+        "open_obligation",
+        "evaluation_mode",
+        "binding_mode",
+        "expected_inventory",
+        "inputs",
+        "outputs",
+        "environment_allowlist",
+        "resource_budget",
+        "operation",
+    ];
+    let mut projected = serde_json::Map::new();
+    for (field, value) in table {
+        if !COMMON_FIELDS.contains(&field.as_str()) {
+            projected.insert(
+                field.clone(),
+                serde_json::to_value(value)
+                    .with_context(|| format!("convert family field {field}"))?,
+            );
+        }
+    }
+    Ok(Value::Object(projected))
+}
+
+fn registration_source_projection(table: &toml::value::Table) -> Result<Value> {
+    Ok(serde_json::json!({
+        "schema": required_text(table, "schema")?,
+        "unit": required_text(table, "id")?,
+        "adapter": required_text(table, "adapter")?,
+        "kind": required_text(table, "kind")?,
+        "claims": optional_text_array(table, "claims")?,
+        "tier": table.get("tier").and_then(toml::Value::as_integer).map(|value| value as u64),
+        "assumptions": optional_text_array(table, "assumptions")?,
+        "premises": optional_text_array(table, "premises")?,
+        "open_obligation": optional_text(table, "open_obligation")?,
+        "evaluation_mode": optional_text(table, "evaluation_mode")?,
+        "binding_mode": optional_text(table, "binding_mode")?,
+        "inventory": optional_text_array(table, "expected_inventory")?,
+        "inputs": optional_text_array(table, "inputs")?,
+        "outputs": optional_text_array(table, "outputs")?,
+        "environment_allowlist": optional_text_array(table, "environment_allowlist")?,
+        "resource_budget": table.get("resource_budget").map(serde_json::to_value).transpose()?,
+        "operation": table.get("operation").map(serde_json::to_value).transpose()?,
+        "family_configuration": registration_family_configuration(table)?,
+    }))
+}
+
+fn registration_ir_projection(registration: &RegistrationProjection) -> Value {
+    serde_json::json!({
+        "schema": registration.schema,
+        "unit": registration.unit_id,
+        "adapter": registration.adapter,
+        "kind": registration.declared_kind,
+        "claims": registration.claims,
+        "tier": registration.tier,
+        "assumptions": registration.assumptions,
+        "premises": registration.premises,
+        "open_obligation": registration.open_obligation,
+        "evaluation_mode": registration.evaluation_mode,
+        "binding_mode": registration.binding_mode,
+        "inventory": registration.inventory,
+        "inputs": registration.inputs,
+        "outputs": registration.outputs,
+        "environment_allowlist": registration.environment_allowlist,
+        "resource_budget": registration.resource_budget,
+        "operation": registration.operation_configuration,
+        "family_configuration": registration.family_configuration,
     })
 }
 
@@ -379,26 +504,183 @@ fn expected_from_value(value: &Value) -> Result<ExpectedClaim> {
     })
 }
 
-fn registration_program(case: &CorpusCase, registration: &RegistrationProjection) -> CaseProgram {
+fn project_claim_sources(root: &Path, case: &CorpusCase) -> Result<Vec<IrClaim>> {
+    let mut claims = case
+        .claim_sources
+        .iter()
+        .map(|source| {
+            let bytes = verify_source(root, &source.path, &source.sha256)?;
+            let text = std::str::from_utf8(&bytes).context("claim source is not UTF-8")?;
+            let value: toml::Value = toml::from_str(text).context("decode claim TOML")?;
+            let table = value.as_table().context("claim root is not a table")?;
+            let id = required_text(table, "id")?;
+            let mut cited_evidence = optional_text_array(table, "evidence")?;
+            let mut assumptions = optional_text_array(table, "assumptions")?;
+            let mut premises = optional_text_array(table, "premises")?;
+            let mut open_obligations = optional_text_array(table, "open_obligations")?;
+            let mut out_of_scope = optional_text_array(table, "out_of_scope")?;
+            let mut registered_inputs = optional_text_array(table, "source_roots")?;
+            let mut foundational_axioms = optional_text_array(table, "foundational_axioms")?;
+            for values in [
+                &mut cited_evidence,
+                &mut assumptions,
+                &mut premises,
+                &mut open_obligations,
+                &mut out_of_scope,
+                &mut registered_inputs,
+                &mut foundational_axioms,
+            ] {
+                values.sort();
+            }
+            let claim = IrClaim {
+                id,
+                subject: required_text(table, "subject")?,
+                source: Some(Artifact {
+                    logical_name: source.path.clone(),
+                    sha256: source.sha256.clone(),
+                    size_bytes: bytes.len() as u64,
+                }),
+                node: None,
+                meaning: Some(IrClaimMeaning {
+                    schema: required_text(table, "schema")?,
+                    statement: required_text(table, "statement")?,
+                    formal_declaration: optional_text(table, "formal_declaration")?,
+                    statement_encoding: optional_text(table, "statement_encoding")?,
+                    statement_sha256: optional_text(table, "statement_sha256")?,
+                    foundational_axioms,
+                    bounded_domain: table
+                        .get("bounded_domain")
+                        .map(serde_json::to_value)
+                        .transpose()
+                        .context("convert bounded domain")?,
+                    registered_domain_language: optional_text(table, "registered_domain_language")?,
+                }),
+                presentation: Some(IrClaimPresentation {
+                    title: required_text(table, "title")?,
+                    public_language: optional_text(table, "public_language")?,
+                    public_statement: None,
+                }),
+                cited_evidence,
+                assumptions,
+                premises,
+                open_obligations,
+                out_of_scope,
+                registered_inputs,
+                admission: Some(IrClaimAdmission {
+                    policy: required_text(table, "profile")?,
+                    tier: table
+                        .get("tier")
+                        .and_then(toml::Value::as_integer)
+                        .map(|value| value as u64),
+                    primary_linkage: optional_text(table, "primary_linkage")?,
+                }),
+            };
+            ensure!(
+                claim_source_projection(table)? == claim_ir_projection(&claim)?,
+                "claim {} is not lossless under the registered semantic projection",
+                claim.id
+            );
+            Ok(claim)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    claims.sort_by(|left, right| left.id.cmp(&right.id));
+    let projected_ids = claims
+        .iter()
+        .map(|claim| claim.id.clone())
+        .collect::<Vec<_>>();
+    let mut expected_ids = case.claim_ids.clone();
+    expected_ids.sort();
+    ensure!(
+        claims.is_empty() || projected_ids == expected_ids,
+        "claim source attribution differs for {}",
+        case.id
+    );
+    Ok(claims)
+}
+
+fn claim_source_projection(table: &toml::value::Table) -> Result<Value> {
+    let sorted = |field| {
+        let mut values = optional_text_array(table, field)?;
+        values.sort();
+        Ok::<_, anyhow::Error>(values)
+    };
+    Ok(serde_json::json!({
+        "schema": required_text(table, "schema")?,
+        "id": required_text(table, "id")?,
+        "title": required_text(table, "title")?,
+        "statement": required_text(table, "statement")?,
+        "public_language": optional_text(table, "public_language")?,
+        "subject": required_text(table, "subject")?,
+        "formal_declaration": optional_text(table, "formal_declaration")?,
+        "statement_encoding": optional_text(table, "statement_encoding")?,
+        "statement_sha256": optional_text(table, "statement_sha256")?,
+        "foundational_axioms": sorted("foundational_axioms")?,
+        "policy": required_text(table, "profile")?,
+        "tier": table.get("tier").and_then(toml::Value::as_integer).map(|value| value as u64),
+        "primary_linkage": optional_text(table, "primary_linkage")?,
+        "cited_evidence": sorted("evidence")?,
+        "assumptions": sorted("assumptions")?,
+        "premises": sorted("premises")?,
+        "open_obligations": sorted("open_obligations")?,
+        "out_of_scope": sorted("out_of_scope")?,
+        "registered_inputs": sorted("source_roots")?,
+        "bounded_domain": table.get("bounded_domain").map(serde_json::to_value).transpose()?,
+        "registered_domain_language": optional_text(table, "registered_domain_language")?,
+    }))
+}
+
+fn claim_ir_projection(claim: &IrClaim) -> Result<Value> {
+    let meaning = claim.meaning.as_ref().context("claim meaning is missing")?;
+    let presentation = claim
+        .presentation
+        .as_ref()
+        .context("claim presentation is missing")?;
+    let admission = claim
+        .admission
+        .as_ref()
+        .context("claim admission is missing")?;
+    Ok(serde_json::json!({
+        "schema": meaning.schema,
+        "id": claim.id,
+        "title": presentation.title,
+        "statement": meaning.statement,
+        "public_language": presentation.public_language,
+        "subject": claim.subject,
+        "formal_declaration": meaning.formal_declaration,
+        "statement_encoding": meaning.statement_encoding,
+        "statement_sha256": meaning.statement_sha256,
+        "foundational_axioms": meaning.foundational_axioms,
+        "policy": admission.policy,
+        "tier": admission.tier,
+        "primary_linkage": admission.primary_linkage,
+        "cited_evidence": claim.cited_evidence,
+        "assumptions": claim.assumptions,
+        "premises": claim.premises,
+        "open_obligations": claim.open_obligations,
+        "out_of_scope": claim.out_of_scope,
+        "registered_inputs": claim.registered_inputs,
+        "bounded_domain": meaning.bounded_domain,
+        "registered_domain_language": meaning.registered_domain_language,
+    }))
+}
+
+fn registration_program(
+    case: &CorpusCase,
+    source_size: u64,
+    registration: &RegistrationProjection,
+    claims: Vec<IrClaim>,
+) -> CaseProgram {
     let mut claim_ids = registration.claims.clone();
     claim_ids.sort();
     let mut assumptions = registration.assumptions.clone();
     assumptions.sort();
-    let claims = claim_ids
-        .iter()
-        .map(|claim_id| IrClaim {
-            id: claim_id.clone(),
-            subject: format!("subject:{claim_id}"),
-            assumptions: assumptions.clone(),
-            open_obligations: Vec::new(),
-        })
-        .collect::<Vec<_>>();
     let kind = family_kind(&case.evidence_family)
         .expect("frozen registration family must have an IR mapping");
     let detail = family_detail(
         kind,
         claims.first().map(|claim| claim.subject.as_str()),
         &case.source,
+        source_size,
         Some(&registration.family_configuration_sha256),
     );
     let retained_facts = if kind == "sampled-property" {
@@ -415,8 +697,26 @@ fn registration_program(case: &CorpusCase, registration: &RegistrationProjection
     let evidence = vec![IrEvidence {
         authority: "registered".to_owned(),
         unit: registration.unit_id.clone(),
+        node: None,
         claims: claim_ids,
+        outcome: None,
+        evaluation: registration.evaluation_mode.clone(),
+        binding: registration.binding_mode.clone(),
+        inventory: registration.inventory.clone(),
         assumptions,
+        premises: registration.premises.clone(),
+        open_obligation: registration.open_obligation.clone(),
+        request: Some(IrEvidenceRequest {
+            schema: registration.schema.clone(),
+            adapter: registration.adapter.clone(),
+            tier: registration.tier,
+            input_names: registration.inputs.clone(),
+            output_names: registration.outputs.clone(),
+            environment_allowlist: registration.environment_allowlist.clone(),
+            resource_budget: registration.resource_budget.clone(),
+            operation: registration.operation_configuration.clone(),
+            family_configuration: registration.family_configuration.clone(),
+        }),
         family: IrFamily {
             kind: kind.to_owned(),
             detail,
@@ -435,7 +735,7 @@ fn registration_program(case: &CorpusCase, registration: &RegistrationProjection
         schema: assurance::CASE_SCHEMA.to_owned(),
         case_id: case.id.clone(),
         evidence_family: case.evidence_family.clone(),
-        source: source_artifact(&case.source),
+        source: source_artifact(&case.source, source_size),
         claims,
         evidence,
         cache,
@@ -447,7 +747,7 @@ fn registration_program(case: &CorpusCase, registration: &RegistrationProjection
     }
 }
 
-fn semantic_program(case: &CorpusCase, selected: &Value) -> Result<CaseProgram> {
+fn semantic_program(case: &CorpusCase, source_size: u64, selected: &Value) -> Result<CaseProgram> {
     let expected = selected
         .get("expected")
         .and_then(Value::as_object)
@@ -461,11 +761,20 @@ fn semantic_program(case: &CorpusCase, selected: &Value) -> Result<CaseProgram> 
         .map(|claim_id| IrClaim {
             id: claim_id.clone(),
             subject: format!("subject:{claim_id}"),
+            source: None,
+            node: None,
+            meaning: None,
+            presentation: None,
+            cited_evidence: Vec::new(),
             assumptions: assumptions.clone(),
+            premises: Vec::new(),
             open_obligations: obligations.clone(),
+            out_of_scope: Vec::new(),
+            registered_inputs: Vec::new(),
+            admission: None,
         })
         .collect::<Vec<_>>();
-    let source = source_artifact(&case.source);
+    let source = source_artifact(&case.source, source_size);
     let evidence_values = selected
         .get("evidence")
         .and_then(Value::as_array)
@@ -485,14 +794,36 @@ fn semantic_program(case: &CorpusCase, selected: &Value) -> Result<CaseProgram> 
             Ok(IrEvidence {
                 authority: "derived-conformance".to_owned(),
                 unit: unit.to_owned(),
+                node: None,
                 claims: claim_ids.clone(),
+                outcome: Some("passed".to_owned()),
+                evaluation: item
+                    .get("evaluation")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                binding: None,
+                inventory: Vec::new(),
                 assumptions: assumptions.clone(),
+                premises: item
+                    .get("premises")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                open_obligation: None,
+                request: None,
                 family: IrFamily {
                     kind: kind.to_owned(),
                     detail: family_detail(
                         kind,
                         claims.first().map(|claim| claim.subject.as_str()),
                         &case.source,
+                        source_size,
                         None,
                     ),
                 },
@@ -526,14 +857,13 @@ fn semantic_program(case: &CorpusCase, selected: &Value) -> Result<CaseProgram> 
     })
 }
 
-fn release_program(case: &CorpusCase, bytes: &[u8]) -> Result<CaseProgram> {
+fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<CaseProgram> {
     let receipt: Value = serde_json::from_slice(bytes).context("decode release receipt")?;
     let records = receipt
         .get("evidence")
         .and_then(Value::as_array)
         .context("release evidence is missing")?;
     let mut evidence = Vec::with_capacity(records.len());
-    let mut all_assumptions = Vec::new();
     for wrapped in records {
         let record = wrapped.get("record").context("release record is missing")?;
         let source_kind = record
@@ -546,7 +876,6 @@ fn release_program(case: &CorpusCase, bytes: &[u8]) -> Result<CaseProgram> {
             .and_then(Value::as_str)
             .context("release evidence unit is missing")?;
         let assumptions = json_text_array_value(record, "assumptions")?;
-        all_assumptions.extend(assumptions.iter().cloned());
         let provenance = record
             .get("provenance")
             .and_then(Value::as_object)
@@ -574,11 +903,39 @@ fn release_program(case: &CorpusCase, bytes: &[u8]) -> Result<CaseProgram> {
         evidence.push(IrEvidence {
             authority: "portable-receipt".to_owned(),
             unit: unit.to_owned(),
+            node: record
+                .get("node_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             claims: case.claim_ids.clone(),
+            outcome: record
+                .get("outcome")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            evaluation: record
+                .get("evaluation_mode")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            binding: record
+                .get("binding_mode")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            inventory: json_text_array_value(record, "inventoried_targets")?,
             assumptions,
+            premises: json_text_array_optional(
+                record
+                    .as_object()
+                    .context("release record must be an object")?,
+                "premises",
+            )?,
+            open_obligation: record
+                .get("open_obligation")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            request: None,
             family: IrFamily {
                 kind: kind.to_owned(),
-                detail: family_detail(kind, Some("subject:c"), &case.source, None),
+                detail: family_detail(kind, Some("subject:c"), &case.source, source_size, None),
             },
             backend: IrBackend {
                 retained_facts: Vec::new(),
@@ -593,23 +950,19 @@ fn release_program(case: &CorpusCase, bytes: &[u8]) -> Result<CaseProgram> {
             },
         });
     }
-    all_assumptions.sort();
-    all_assumptions.dedup();
-    let claims = case
-        .claim_ids
+    let receipt_claims = receipt
+        .get("claims")
+        .and_then(Value::as_array)
+        .context("release claims are missing")?;
+    let claims = receipt_claims
         .iter()
-        .map(|claim_id| IrClaim {
-            id: claim_id.clone(),
-            subject: format!("subject:{claim_id}"),
-            assumptions: all_assumptions.clone(),
-            open_obligations: Vec::new(),
-        })
-        .collect();
+        .map(|claim| release_claim(claim, &receipt))
+        .collect::<Result<Vec<_>>>()?;
     Ok(CaseProgram {
         schema: assurance::CASE_SCHEMA.to_owned(),
         case_id: case.id.clone(),
         evidence_family: case.evidence_family.clone(),
-        source: source_artifact(&case.source),
+        source: source_artifact(&case.source, source_size),
         claims,
         evidence,
         cache: IrCache {
@@ -621,6 +974,98 @@ fn release_program(case: &CorpusCase, bytes: &[u8]) -> Result<CaseProgram> {
         },
         reported: case.expected_claim.clone(),
         exact_status: true,
+    })
+}
+
+fn release_claim(claim: &Value, receipt: &Value) -> Result<IrClaim> {
+    let object = claim
+        .as_object()
+        .context("release claim is not an object")?;
+    let id = object
+        .get("id")
+        .and_then(Value::as_str)
+        .context("release claim ID is missing")?;
+    let mut cited_evidence = json_text_array_optional(object, "cited_evidence")?;
+    let mut assumptions = json_text_array_optional(object, "assumptions")?;
+    let mut premises = json_text_array_optional(object, "premises")?;
+    let mut open_obligations = json_text_array_optional(object, "open_obligations")?;
+    let mut out_of_scope = json_text_array_optional(object, "out_of_scope")?;
+    let mut registered_inputs = json_text_array_optional(object, "registered_inputs")?;
+    for values in [
+        &mut cited_evidence,
+        &mut assumptions,
+        &mut premises,
+        &mut open_obligations,
+        &mut out_of_scope,
+        &mut registered_inputs,
+    ] {
+        values.sort();
+    }
+    let public_statement = receipt
+        .get("reported_statuses")
+        .and_then(Value::as_array)
+        .and_then(|statuses| {
+            statuses
+                .iter()
+                .find(|status| status.get("claim_id").and_then(Value::as_str) == Some(id))
+        })
+        .and_then(|status| status.get("public_statement"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    Ok(IrClaim {
+        id: id.to_owned(),
+        subject: object
+            .get("subject")
+            .and_then(Value::as_str)
+            .context("release claim subject is missing")?
+            .to_owned(),
+        source: None,
+        node: object
+            .get("node_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        meaning: Some(IrClaimMeaning {
+            schema: object
+                .get("schema")
+                .and_then(Value::as_str)
+                .context("release claim schema is missing")?
+                .to_owned(),
+            statement: object
+                .get("statement")
+                .and_then(Value::as_str)
+                .context("release claim statement is missing")?
+                .to_owned(),
+            formal_declaration: value_optional_text(object, "formal_declaration")?,
+            statement_encoding: value_optional_text(object, "statement_encoding")?,
+            statement_sha256: value_optional_text(object, "statement_sha256")?,
+            foundational_axioms: json_text_array_optional(object, "foundational_axioms")?,
+            bounded_domain: object.get("bounded_domain").cloned(),
+            registered_domain_language: value_optional_text(object, "registered_domain_language")?,
+        }),
+        presentation: Some(IrClaimPresentation {
+            title: object
+                .get("title")
+                .and_then(Value::as_str)
+                .context("release claim title is missing")?
+                .to_owned(),
+            public_language: value_optional_text(object, "public_language")?,
+            public_statement,
+        }),
+        cited_evidence,
+        assumptions,
+        premises,
+        open_obligations,
+        out_of_scope,
+        registered_inputs,
+        admission: Some(IrClaimAdmission {
+            policy: object
+                .get("policy")
+                .and_then(Value::as_str)
+                .context("release claim policy is missing")?
+                .to_owned(),
+            tier: object.get("tier").and_then(Value::as_u64),
+            primary_linkage: value_optional_text(object, "primary_linkage")?,
+        }),
     })
 }
 
@@ -656,6 +1101,7 @@ fn family_detail(
     kind: &str,
     subject: Option<&str>,
     source: &Source,
+    source_size: u64,
     configuration_sha256: Option<&str>,
 ) -> Value {
     let schema = family_schema(kind).expect("mapped family kind must have a detail schema");
@@ -666,7 +1112,7 @@ fn family_detail(
         }),
         "artifact-correspondence" => serde_json::json!({
             "schema": schema,
-            "artifact": source_artifact(source),
+            "artifact": source_artifact(source, source_size),
         }),
         "sampled-property" => serde_json::json!({
             "schema": schema,
@@ -691,10 +1137,11 @@ fn empty_provenance(unit: &str) -> IrProvenance {
     }
 }
 
-fn source_artifact(source: &Source) -> Artifact {
+fn source_artifact(source: &Source, size_bytes: u64) -> Artifact {
     Artifact {
         logical_name: source.path.clone(),
         sha256: source.sha256.clone(),
+        size_bytes,
     }
 }
 
@@ -719,6 +1166,28 @@ fn json_text_array_value(value: &Value, field: &str) -> Result<Vec<String>> {
             .with_context(|| format!("parent of {field} must be an object"))?,
         field,
     )
+}
+
+fn json_text_array_optional(
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<Vec<String>> {
+    match object.get(field) {
+        Some(Value::Array(_)) => json_text_array(object, field),
+        Some(_) => bail!("{field} must be an array"),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn value_optional_text(
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<Option<String>> {
+    match object.get(field) {
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(Value::Null) | None => Ok(None),
+        Some(_) => bail!("{field} must be text or null"),
+    }
 }
 
 fn verify_release_case(root: &Path, case: &CorpusCase, bytes: &[u8]) -> Result<()> {
@@ -784,6 +1253,14 @@ fn required_text(table: &toml::value::Table, field: &str) -> Result<String> {
         .with_context(|| format!("{field} must be text"))
 }
 
+fn optional_text(table: &toml::value::Table, field: &str) -> Result<Option<String>> {
+    match table.get(field) {
+        Some(toml::Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => bail!("{field} must be text"),
+        None => Ok(None),
+    }
+}
+
 fn text_array(table: &toml::value::Table, field: &str) -> Result<Vec<String>> {
     let values = table
         .get(field)
@@ -824,6 +1301,43 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.cases.len(), 20);
         assert!(first.projection_sha256.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn registration_projection_retains_claim_and_request_meaning() {
+        let root = root();
+        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let projection = project_corpus(&root, &corpus).unwrap();
+        let case = projection
+            .cases
+            .iter()
+            .find(|case| case.id == "IR-PY-001")
+            .unwrap();
+        let claim = &case.program.claims[0];
+        assert_eq!(
+            claim.subject,
+            "python:proofbound-python-inventory::inventory_service.reservations.reserve"
+        );
+        assert!(
+            claim
+                .meaning
+                .as_ref()
+                .unwrap()
+                .statement
+                .starts_with("For the registered examples")
+        );
+        assert_eq!(claim.assumptions, ["PY-RUNTIME-001"]);
+        assert!(claim.source.as_ref().unwrap().size_bytes > 0);
+
+        let evidence = &case.program.evidence[0];
+        assert_eq!(
+            evidence.inventory,
+            ["test_reservations::test_rejects_request_beyond_remaining_capacity"]
+        );
+        let request = evidence.request.as_ref().unwrap();
+        assert_eq!(request.schema, "proofbound-evidence-unit/1");
+        assert_eq!(request.environment_allowlist, ["PATH"]);
+        assert_eq!(request.operation["type"], "pytest");
     }
 
     #[test]

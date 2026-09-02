@@ -25,25 +25,82 @@ pub struct CaseProgram {
 pub struct Artifact {
     pub logical_name: String,
     pub sha256: String,
+    pub size_bytes: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrClaim {
     pub id: String,
     pub subject: String,
+    pub source: Option<Artifact>,
+    pub node: Option<String>,
+    pub meaning: Option<IrClaimMeaning>,
+    pub presentation: Option<IrClaimPresentation>,
+    pub cited_evidence: Vec<String>,
     pub assumptions: Vec<String>,
+    pub premises: Vec<String>,
     pub open_obligations: Vec<String>,
+    pub out_of_scope: Vec<String>,
+    pub registered_inputs: Vec<String>,
+    pub admission: Option<IrClaimAdmission>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrClaimMeaning {
+    pub schema: String,
+    pub statement: String,
+    pub formal_declaration: Option<String>,
+    pub statement_encoding: Option<String>,
+    pub statement_sha256: Option<String>,
+    pub foundational_axioms: Vec<String>,
+    pub bounded_domain: Option<Value>,
+    pub registered_domain_language: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrClaimPresentation {
+    pub title: String,
+    pub public_language: Option<String>,
+    pub public_statement: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrClaimAdmission {
+    pub policy: String,
+    pub tier: Option<u64>,
+    pub primary_linkage: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrEvidence {
     pub authority: String,
     pub unit: String,
+    pub node: Option<String>,
     pub claims: Vec<String>,
+    pub outcome: Option<String>,
+    pub evaluation: Option<String>,
+    pub binding: Option<String>,
+    pub inventory: Vec<String>,
     pub assumptions: Vec<String>,
+    pub premises: Vec<String>,
+    pub open_obligation: Option<String>,
+    pub request: Option<IrEvidenceRequest>,
     pub family: IrFamily,
     pub backend: IrBackend,
     pub provenance: IrProvenance,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrEvidenceRequest {
+    pub schema: String,
+    pub adapter: String,
+    pub tier: u64,
+    pub input_names: Vec<String>,
+    pub output_names: Vec<String>,
+    pub environment_allowlist: Vec<String>,
+    pub resource_budget: Value,
+    pub operation: Value,
+    pub family_configuration: Value,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -218,8 +275,36 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
     let mut obligations = false;
     for claim in claims {
         let claim = value_object(claim)?;
+        text(claim, "subject")?;
         let assumptions = text_array(claim, "assumptions")?;
         require_sorted_unique(&assumptions)?;
+        for field in [
+            "cited_evidence",
+            "premises",
+            "open_obligations",
+            "out_of_scope",
+            "registered_inputs",
+        ] {
+            require_sorted_unique(&text_array(claim, field)?)?;
+        }
+        if !matches!(claim.get("source"), None | Some(Value::Null)) {
+            let source = object_field(claim, "source")?;
+            text(source, "logical_name")?;
+            text(source, "sha256")?;
+            if source.get("size_bytes").and_then(Value::as_u64).is_none() {
+                return Err(IrValidationError::new(
+                    "IR-DECODE-INVALID",
+                    "claim source size is required",
+                ));
+            }
+            let meaning = object_field(claim, "meaning")?;
+            text(meaning, "schema")?;
+            text(meaning, "statement")?;
+            let presentation = object_field(claim, "presentation")?;
+            text(presentation, "title")?;
+            let admission = object_field(claim, "admission")?;
+            text(admission, "policy")?;
+        }
         obligations |= !array_field(claim, "open_obligations")?.is_empty();
         claim_assumptions.push(assumptions);
     }
@@ -243,10 +328,16 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         }
         let assumptions = text_array(item, "assumptions")?;
         require_sorted_unique(&assumptions)?;
-        if claim_assumptions
-            .iter()
-            .any(|expected| expected != &assumptions)
-        {
+        let inventory = text_array(item, "inventory")?;
+        require_sorted_unique(&inventory)?;
+        if text(item, "authority")? == "registered" {
+            object_field(item, "request")?;
+        }
+        if claim_assumptions.iter().any(|registered| {
+            assumptions
+                .iter()
+                .any(|assumption| !registered.contains(assumption))
+        }) {
             return Err(IrValidationError::new(
                 "IR-ASSUMPTION-JOIN",
                 "claim and evidence assumptions differ",
