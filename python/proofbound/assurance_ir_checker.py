@@ -457,6 +457,41 @@ def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> No
         _typed_policy(_as_object(policy))
     for artifact in _list(programme, "sealed_artifacts"):
         _validate_artifact(_as_object(artifact))
+    components = [
+        _as_object(component) for component in _list(programme, "tcb_components")
+    ]
+    identities = []
+    for component in components:
+        _require_exact_fields(component, {"name", "version", "identity_sha256"})
+        identities.append(
+            (
+                _required_text(component, "name"),
+                _required_text(component, "version"),
+                _required_text(component, "identity_sha256"),
+            )
+        )
+    if identities != sorted(set(identities)):
+        _fail("IR-PROGRAMME-TCB-MISMATCH", "TCB components must be sorted and unique")
+    if components:
+        ledger = {"components": components, "schema": "proofbound-tcb-ledger/1"}
+        data = canonical_json(ledger)
+        sealed = next(
+            (
+                _as_object(artifact)
+                for artifact in _list(programme, "sealed_artifacts")
+                if artifact.get("logical_name") == "tcb-ledger.json"
+            ),
+            None,
+        )
+        if (
+            sealed is None
+            or sealed.get("sha256") != _sha256(data)
+            or sealed.get("size_bytes") != len(data)
+        ):
+            _fail(
+                "IR-PROGRAMME-TCB-MISMATCH",
+                "typed TCB components differ from the sealed ledger identity",
+            )
     for field in ("assumptions", "premises", "publication_blockers"):
         _list(programme, field)
 
@@ -537,6 +572,27 @@ def _validate_portable_joins(
             "publication blockers differ from non-admitted statuses",
         )
     _validate_ledger_joins(programme, claim_ids, evidence)
+    tcb_components = [
+        _as_object(component) for component in _list(programme, "tcb_components")
+    ]
+    for item in (_as_object(value) for value in evidence):
+        provenance = _object(item, "provenance")
+        for role in ("tool", "adapter"):
+            identity = provenance.get(role)
+            if identity is None:
+                continue
+            identity = _as_object(identity)
+            if not any(
+                all(
+                    component.get(field) == identity.get(field)
+                    for field in ("name", "version", "identity_sha256")
+                )
+                for component in tcb_components
+            ):
+                _fail(
+                    "IR-PROGRAMME-TCB-MISMATCH",
+                    "observed tool or adapter is absent from the typed TCB ledger",
+                )
     for item_value in evidence:
         item = _as_object(item_value)
         if _required_text(item, "authority") != "portable-receipt":
@@ -848,7 +904,7 @@ def _project_case(
         program = _semantic_program(case, len(source_bytes), selected)
     elif case["role"] == "positive-portable-release":
         _verify_release_case(root, case, source_bytes)
-        program = _release_program(case, len(source_bytes), source_bytes)
+        program = _release_program(root, case, len(source_bytes), source_bytes)
     else:
         raise AssuranceIrError(f"unsupported case role {case['role']}")
 
@@ -1315,10 +1371,53 @@ def _semantic_program(
     }
 
 
+def _release_tcb_components(
+    root: Path, case: dict[str, Any], receipt: dict[str, Any]
+) -> list[dict[str, str]]:
+    sealed = next(
+        (
+            artifact
+            for artifact in receipt["sealed_files"]
+            if artifact.get("path", artifact.get("logical_name")) == "tcb-ledger.json"
+        ),
+        None,
+    )
+    if sealed is None:
+        raise AssuranceIrError("portable release does not seal tcb-ledger.json")
+    path = (root / case["source"]["path"]).parent / "tcb-ledger.json"
+    data = path.read_bytes()
+    if _sha256(data) != sealed["sha256"] or len(data) != sealed["size_bytes"]:
+        raise AssuranceIrError("sealed TCB ledger identity differs from its bytes")
+    ledger = _strict_json(data, require_canonical=True)
+    _require_keys(ledger, {"schema", "components"}, "TCB ledger")
+    if ledger["schema"] != "proofbound-tcb-ledger/1":
+        raise AssuranceIrError("unsupported TCB ledger schema")
+    components = []
+    for component in ledger["components"]:
+        _require_keys(
+            component, {"name", "version", "identity_sha256"}, "TCB component"
+        )
+        components.append(
+            {
+                "name": _required_text(component, "name"),
+                "version": _required_text(component, "version"),
+                "identity_sha256": _required_text(component, "identity_sha256"),
+            }
+        )
+    identities = [
+        (component["name"], component["version"], component["identity_sha256"])
+        for component in components
+    ]
+    if not components or identities != sorted(set(identities)):
+        raise AssuranceIrError("TCB components must be sorted and unique")
+    return components
+
+
 def _release_program(
-    case: dict[str, Any], source_size: int, data: bytes
+    root: Path, case: dict[str, Any], source_size: int, data: bytes
 ) -> dict[str, Any]:
     receipt = _strict_json(data, require_canonical=False)
+    tcb_components = _release_tcb_components(root, case, receipt)
     evidence = []
     for wrapped in receipt["evidence"]:
         record = wrapped["record"]
@@ -1435,13 +1534,13 @@ def _release_program(
         "evidence": evidence,
         "cache": {"registered_inputs": [], "execution_inputs": []},
         "policy": {"required_components": ["ledger"]},
-        "programme": _release_programme(receipt),
+        "programme": _release_programme(receipt, tcb_components),
         "reported": case["expected_claim"],
         "exact_status": True,
     }
-    if _release_source_semantics(receipt, case, source_size) != _release_ir_semantics(
-        program
-    ):
+    if _release_source_semantics(
+        receipt, case, source_size, tcb_components
+    ) != _release_ir_semantics(program):
         raise AssuranceIrError(
             "portable release is not lossless under the registered semantic projection"
         )
@@ -1459,12 +1558,15 @@ def _empty_programme() -> dict[str, Any]:
         "policies": [],
         "closures": [],
         "sealed_artifacts": [],
+        "tcb_components": [],
         "publication_blockers": [],
         "reported_statuses": [],
     }
 
 
-def _release_programme(receipt: dict[str, Any]) -> dict[str, Any]:
+def _release_programme(
+    receipt: dict[str, Any], tcb_components: list[dict[str, str]]
+) -> dict[str, Any]:
     return {
         "release_schema": receipt["schema"],
         "project": {
@@ -1493,6 +1595,7 @@ def _release_programme(receipt: dict[str, Any]) -> dict[str, Any]:
         "sealed_artifacts": [
             _portable_artifact(artifact) for artifact in receipt["sealed_files"]
         ],
+        "tcb_components": tcb_components,
         "publication_blockers": sorted(
             status["claim_id"]
             for status in receipt["reported_statuses"]
@@ -1675,7 +1778,10 @@ def _require_exact_fields(
 
 
 def _release_source_semantics(
-    receipt: dict[str, Any], case: dict[str, Any], source_size: int
+    receipt: dict[str, Any],
+    case: dict[str, Any],
+    source_size: int,
+    tcb_components: list[dict[str, str]],
 ) -> dict[str, Any]:
     return {
         "claims": [
@@ -1686,7 +1792,7 @@ def _release_source_semantics(
             _release_evidence_source_projection(wrapped, case["source"], source_size)
             for wrapped in receipt["evidence"]
         ],
-        "programme": _release_programme_source_projection(receipt),
+        "programme": _release_programme_source_projection(receipt, tcb_components),
     }
 
 
@@ -1806,7 +1912,9 @@ def _release_evidence_source_projection(
     }
 
 
-def _release_programme_source_projection(receipt: dict[str, Any]) -> dict[str, Any]:
+def _release_programme_source_projection(
+    receipt: dict[str, Any], tcb_components: list[dict[str, str]]
+) -> dict[str, Any]:
     return {
         "release_schema": receipt.get("schema"),
         "project": {
@@ -1836,6 +1944,7 @@ def _release_programme_source_projection(receipt: dict[str, Any]) -> dict[str, A
             _source_artifact_projection(artifact)
             for artifact in receipt["sealed_files"]
         ],
+        "tcb_components": tcb_components,
         "publication_blockers": sorted(
             status["claim_id"]
             for status in receipt["reported_statuses"]

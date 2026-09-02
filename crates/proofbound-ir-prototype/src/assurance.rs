@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use proofbound_evidence::{canonical_json, domain_hash};
+use proofbound_evidence::{canonical_json, domain_hash, sha256_bytes};
 use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::{Map, Number, Value};
 
@@ -33,8 +33,16 @@ pub struct IrProgrammeContext {
     pub policies: Vec<IrPolicyRecord>,
     pub closures: Vec<IrClosure>,
     pub sealed_artifacts: Vec<Artifact>,
+    pub tcb_components: Vec<IrTcbComponent>,
     pub publication_blockers: Vec<String>,
     pub reported_statuses: Vec<IrReportedStatus>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+pub struct IrTcbComponent {
+    pub name: String,
+    pub version: String,
+    pub identity_sha256: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -512,15 +520,7 @@ pub fn cache_key(unit: &str, prior_receipt: Option<&str>) -> String {
 }
 
 pub fn validate_case_program(bytes: &[u8]) -> Result<(), IrValidationError> {
-    let StrictValue(value) = serde_json::from_slice(bytes).map_err(|error| {
-        let message = error.to_string();
-        let code = if message.contains("duplicate object key") {
-            "IR-DECODE-DUPLICATE-KEY"
-        } else {
-            "IR-DECODE-INVALID"
-        };
-        IrValidationError::new(code, message)
-    })?;
+    let value = decode_strict_json(bytes)?;
     let canonical = canonical_json(&value)
         .map_err(|error| IrValidationError::new("IR-DECODE-INVALID", error.to_string()))?;
     if canonical != bytes {
@@ -530,6 +530,19 @@ pub fn validate_case_program(bytes: &[u8]) -> Result<(), IrValidationError> {
         ));
     }
     validate_value(&value)
+}
+
+pub(crate) fn decode_strict_json(bytes: &[u8]) -> Result<Value, IrValidationError> {
+    let StrictValue(value) = serde_json::from_slice(bytes).map_err(|error| {
+        let message = error.to_string();
+        let code = if message.contains("duplicate object key") {
+            "IR-DECODE-DUPLICATE-KEY"
+        } else {
+            "IR-DECODE-INVALID"
+        };
+        IrValidationError::new(code, message)
+    })?;
+    Ok(value)
 }
 
 fn validate_value(root: &Value) -> Result<(), IrValidationError> {
@@ -922,6 +935,25 @@ fn validate_portable_joins(
     }
 
     validate_ledger_joins(programme, &claim_ids, evidence)?;
+    let tcb_components = array_field(programme, "tcb_components")?;
+    for item in evidence {
+        let provenance = object_field(value_object(item)?, "provenance")?;
+        for role in ["tool", "adapter"] {
+            let Some(identity) = provenance.get(role).and_then(Value::as_object) else {
+                continue;
+            };
+            if !tcb_components.iter().any(|component| {
+                component.get("name") == identity.get("name")
+                    && component.get("version") == identity.get("version")
+                    && component.get("identity_sha256") == identity.get("identity_sha256")
+            }) {
+                return Err(IrValidationError::new(
+                    "IR-PROGRAMME-TCB-MISMATCH",
+                    "observed tool or adapter is absent from the typed TCB ledger",
+                ));
+            }
+        }
+    }
     for item in evidence {
         let item = value_object(item)?;
         if text(item, "authority")? != "portable-receipt" {
@@ -1125,6 +1157,56 @@ fn validate_programme(
     }
     for artifact in array_field(programme, "sealed_artifacts")? {
         validate_artifact(value_object(artifact)?)?;
+    }
+    let components = array_field(programme, "tcb_components")?;
+    let mut identities = Vec::with_capacity(components.len());
+    for component in components {
+        let component = value_object(component)?;
+        exact_fields(component, &["name", "version", "identity_sha256"], &[])?;
+        identities.push((
+            text(component, "name")?.to_owned(),
+            text(component, "version")?.to_owned(),
+            text(component, "identity_sha256")?.to_owned(),
+        ));
+    }
+    if identities != {
+        let mut canonical = identities.clone();
+        canonical.sort();
+        canonical.dedup();
+        canonical
+    } {
+        return Err(IrValidationError::new(
+            "IR-PROGRAMME-TCB-MISMATCH",
+            "TCB components must be sorted and unique",
+        ));
+    }
+    if !components.is_empty() {
+        let ledger = serde_json::json!({
+            "components": components,
+            "schema": "proofbound-tcb-ledger/1",
+        });
+        let bytes = canonical_json(&ledger)
+            .map_err(|error| IrValidationError::new("IR-DECODE-INVALID", error.to_string()))?;
+        let sealed = array_field(programme, "sealed_artifacts")?
+            .iter()
+            .find(|artifact| {
+                artifact.get("logical_name").and_then(Value::as_str) == Some("tcb-ledger.json")
+            })
+            .and_then(Value::as_object)
+            .ok_or_else(|| {
+                IrValidationError::new(
+                    "IR-PROGRAMME-TCB-MISMATCH",
+                    "typed TCB ledger is not present in the sealed artifact set",
+                )
+            })?;
+        if text(sealed, "sha256")? != sha256_bytes(&bytes)
+            || sealed.get("size_bytes").and_then(Value::as_u64) != Some(bytes.len() as u64)
+        {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-TCB-MISMATCH",
+                "typed TCB components differ from the sealed ledger identity",
+            ));
+        }
     }
     for field in ["assumptions", "premises", "publication_blockers"] {
         array_field(programme, field)?;

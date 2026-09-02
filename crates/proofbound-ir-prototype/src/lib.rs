@@ -21,8 +21,8 @@ pub use assurance::{
     IrMutationRegistration, IrMutualTheoremGroup, IrNativePremiseRule, IrPolicy, IrPolicyRecord,
     IrPremise, IrPremiseDischarge, IrProgrammeContext, IrProject, IrPropertyRegistration,
     IrProvenance, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun, IrSubjectClosure,
-    IrTool, IrUsage, IrValidationError, RetainedFact, cache_key, family_kind, family_schema,
-    validate_case_program,
+    IrTcbComponent, IrTool, IrUsage, IrValidationError, RetainedFact, cache_key, family_kind,
+    family_schema, validate_case_program,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";
@@ -257,7 +257,7 @@ fn project_case(root: &Path, case: &CorpusCase) -> Result<ProjectionCase> {
             (
                 None,
                 None,
-                release_program(case, source_bytes.len() as u64, &source_bytes)?,
+                release_program(root, case, source_bytes.len() as u64, &source_bytes)?,
             )
         }
         role => bail!("case {} has unsupported role {role}", case.id),
@@ -879,8 +879,14 @@ fn semantic_program(case: &CorpusCase, source_size: u64, selected: &Value) -> Re
     })
 }
 
-fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<CaseProgram> {
+fn release_program(
+    root: &Path,
+    case: &CorpusCase,
+    source_size: u64,
+    bytes: &[u8],
+) -> Result<CaseProgram> {
     let receipt: Value = serde_json::from_slice(bytes).context("decode release receipt")?;
+    let tcb_components = release_tcb_components(root, case, &receipt)?;
     let records = receipt
         .get("evidence")
         .and_then(Value::as_array)
@@ -1100,11 +1106,11 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
         policy: IrPolicy {
             required_components: vec!["ledger".to_owned()],
         },
-        programme: release_programme(&receipt)?,
+        programme: release_programme(&receipt, tcb_components.clone())?,
         reported: case.expected_claim.clone(),
         exact_status: true,
     };
-    let source_semantics = release_source_semantics(&receipt, case, source_size)?;
+    let source_semantics = release_source_semantics(&receipt, case, source_size, &tcb_components)?;
     let ir_semantics = release_ir_semantics(&program)?;
     if source_semantics != ir_semantics {
         bail!(
@@ -1126,12 +1132,71 @@ fn empty_programme() -> IrProgrammeContext {
         policies: Vec::new(),
         closures: Vec::new(),
         sealed_artifacts: Vec::new(),
+        tcb_components: Vec::new(),
         publication_blockers: Vec::new(),
         reported_statuses: Vec::new(),
     }
 }
 
-fn release_programme(receipt: &Value) -> Result<IrProgrammeContext> {
+fn release_tcb_components(
+    root: &Path,
+    case: &CorpusCase,
+    receipt: &Value,
+) -> Result<Vec<IrTcbComponent>> {
+    let sealed = required_value_array(receipt, "sealed_files")?
+        .iter()
+        .find(|artifact| {
+            artifact
+                .get("path")
+                .or_else(|| artifact.get("logical_name"))
+                .and_then(Value::as_str)
+                == Some("tcb-ledger.json")
+        })
+        .context("portable release does not seal tcb-ledger.json")?;
+    let release_root = root
+        .join(&case.source.path)
+        .parent()
+        .context("portable receipt has no release directory")?
+        .to_path_buf();
+    let bytes = fs::read(release_root.join("tcb-ledger.json")).context("read sealed TCB ledger")?;
+    ensure!(
+        sha256_bytes(&bytes) == required_value_text(sealed, "sha256")?
+            && bytes.len() as u64
+                == sealed
+                    .get("size_bytes")
+                    .and_then(Value::as_u64)
+                    .context("sealed TCB ledger size is missing")?,
+        "sealed TCB ledger identity differs from its bytes"
+    );
+    let ledger = assurance::decode_strict_json(&bytes).context("decode sealed TCB ledger")?;
+    ensure!(
+        required_value_text(&ledger, "schema")? == "proofbound-tcb-ledger/1",
+        "unsupported TCB ledger schema"
+    );
+    let components = required_value_array(&ledger, "components")?
+        .iter()
+        .map(|component| {
+            Ok(IrTcbComponent {
+                name: required_value_text(component, "name")?.to_owned(),
+                version: required_value_text(component, "version")?.to_owned(),
+                identity_sha256: required_value_text(component, "identity_sha256")?.to_owned(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut canonical = components.clone();
+    canonical.sort();
+    canonical.dedup();
+    ensure!(
+        !components.is_empty() && components == canonical,
+        "TCB components must be sorted and unique"
+    );
+    Ok(components)
+}
+
+fn release_programme(
+    receipt: &Value,
+    tcb_components: Vec<IrTcbComponent>,
+) -> Result<IrProgrammeContext> {
     let project = IrProject {
         id: required_value_text(receipt, "project")?.to_owned(),
         revision: required_value_text(receipt, "project_revision")?.to_owned(),
@@ -1211,12 +1276,18 @@ fn release_programme(receipt: &Value) -> Result<IrProgrammeContext> {
             .collect::<Result<Vec<_>>>()?,
         closures,
         sealed_artifacts,
+        tcb_components,
         publication_blockers,
         reported_statuses,
     })
 }
 
-fn release_source_semantics(receipt: &Value, case: &CorpusCase, source_size: u64) -> Result<Value> {
+fn release_source_semantics(
+    receipt: &Value,
+    case: &CorpusCase,
+    source_size: u64,
+    tcb_components: &[IrTcbComponent],
+) -> Result<Value> {
     let claims = required_value_array(receipt, "claims")?
         .iter()
         .map(|claim| release_claim_source_projection(claim, receipt))
@@ -1228,7 +1299,7 @@ fn release_source_semantics(receipt: &Value, case: &CorpusCase, source_size: u64
     Ok(serde_json::json!({
         "claims": claims,
         "evidence": evidence,
-        "programme": release_programme_source_projection(receipt)?,
+        "programme": release_programme_source_projection(receipt, tcb_components)?,
     }))
 }
 
@@ -1377,7 +1448,10 @@ fn release_provenance_source_projection(unit: &str, provenance: &Value) -> Resul
     }))
 }
 
-fn release_programme_source_projection(receipt: &Value) -> Result<Value> {
+fn release_programme_source_projection(
+    receipt: &Value,
+    tcb_components: &[IrTcbComponent],
+) -> Result<Value> {
     let closures = required_value_array(receipt, "closures")?
         .iter()
         .map(|closure| {
@@ -1416,6 +1490,7 @@ fn release_programme_source_projection(receipt: &Value) -> Result<Value> {
         "policies": receipt.get("policies").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
         "closures": closures,
         "sealed_artifacts": artifact_array_source_projection(receipt, "sealed_files")?,
+        "tcb_components": tcb_components,
         "publication_blockers": blockers,
         "reported_statuses": statuses,
     }))
@@ -2373,6 +2448,7 @@ mod tests {
             program.programme.sealed_artifacts[0].logical_name,
             "tcb-ledger.json"
         );
+        assert_eq!(program.programme.tcb_components.len(), 2);
 
         let evidence = &program.evidence[0];
         assert_eq!(
@@ -2420,6 +2496,21 @@ mod tests {
         let error =
             validate_case_program(&canonical_json(&unknown_policy_field).unwrap()).unwrap_err();
         assert_eq!(error.code, "IR-PROGRAMME-TYPED-RECORD");
+
+        let mut substituted_tcb = serde_json::to_value(program).unwrap();
+        substituted_tcb["programme"]["tcb_components"][0]["identity_sha256"] =
+            Value::String(format!("sha256:{}", "2".repeat(64)));
+        let ledger = serde_json::json!({
+            "components": substituted_tcb["programme"]["tcb_components"],
+            "schema": "proofbound-tcb-ledger/1",
+        });
+        let ledger_bytes = canonical_json(&ledger).unwrap();
+        substituted_tcb["programme"]["sealed_artifacts"][0]["sha256"] =
+            Value::String(sha256_bytes(&ledger_bytes));
+        substituted_tcb["programme"]["sealed_artifacts"][0]["size_bytes"] =
+            Value::from(ledger_bytes.len() as u64);
+        let error = validate_case_program(&canonical_json(&substituted_tcb).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-TCB-MISMATCH");
     }
 
     #[test]

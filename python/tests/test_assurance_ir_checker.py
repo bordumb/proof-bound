@@ -93,6 +93,7 @@ def test_portable_projection_retains_programme_and_execution_meaning() -> None:
     )
     assert program["programme"]["graph"]["nodes"][0]["kind"] == "claim"
     assert program["programme"]["policies"][0]["id"] == "ledger-ci"
+    assert len(program["programme"]["tcb_components"]) == 2
     evidence = program["evidence"][0]
     assert (
         evidence["content_sha256"]
@@ -143,6 +144,25 @@ def test_portable_projection_retains_programme_and_execution_meaning() -> None:
     with pytest.raises(AssuranceIrError) as caught:
         validate_case_program(canonical_json(unknown_policy_field))
     assert caught.value.code == "IR-PROGRAMME-TYPED-RECORD"
+
+    substituted_tcb = json.loads(json.dumps(program))
+    substituted_tcb["programme"]["tcb_components"][0]["identity_sha256"] = (
+        f"sha256:{'2' * 64}"
+    )
+    ledger = {
+        "components": substituted_tcb["programme"]["tcb_components"],
+        "schema": "proofbound-tcb-ledger/1",
+    }
+    ledger_bytes = canonical_json(ledger)
+    substituted_tcb["programme"]["sealed_artifacts"][0]["sha256"] = (
+        f"sha256:{hashlib.sha256(ledger_bytes).hexdigest()}"
+    )
+    substituted_tcb["programme"]["sealed_artifacts"][0]["size_bytes"] = len(
+        ledger_bytes
+    )
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(substituted_tcb))
+    assert caught.value.code == "IR-PROGRAMME-TCB-MISMATCH"
 
 
 def test_registration_cache_binds_actual_input_bytes() -> None:
