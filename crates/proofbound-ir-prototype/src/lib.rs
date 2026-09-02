@@ -234,11 +234,12 @@ fn project_case(root: &Path, case: &CorpusCase) -> Result<ProjectionCase> {
         "positive-registration" => {
             let registration = project_registration(case, &source_bytes)?;
             let program = registration_program(
+                root,
                 case,
                 source_bytes.len() as u64,
                 &registration,
                 registered_claims,
-            );
+            )?;
             (Some(registration), None, program)
         }
         "positive-semantic-status" => {
@@ -666,11 +667,12 @@ fn claim_ir_projection(claim: &IrClaim) -> Result<Value> {
 }
 
 fn registration_program(
+    root: &Path,
     case: &CorpusCase,
     source_size: u64,
     registration: &RegistrationProjection,
     claims: Vec<IrClaim>,
-) -> CaseProgram {
+) -> Result<CaseProgram> {
     let mut claim_ids = registration.claims.clone();
     claim_ids.sort();
     let mut assumptions = registration.assumptions.clone();
@@ -693,7 +695,7 @@ fn registration_program(
     } else {
         Vec::new()
     };
-    let cache = registration_cache(registration);
+    let cache = registration_cache(root, case, registration)?;
     let evidence = vec![IrEvidence {
         authority: "registered".to_owned(),
         unit: registration.unit_id.clone(),
@@ -725,7 +727,7 @@ fn registration_program(
         backend: IrBackend { retained_facts },
         provenance: empty_provenance(&registration.unit_id),
     }];
-    CaseProgram {
+    Ok(CaseProgram {
         schema: assurance::CASE_SCHEMA.to_owned(),
         case_id: case.id.clone(),
         evidence_family: case.evidence_family.clone(),
@@ -739,7 +741,7 @@ fn registration_program(
         programme: empty_programme(),
         reported: case.expected_claim.clone(),
         exact_status: false,
-    }
+    })
 }
 
 fn semantic_program(case: &CorpusCase, source_size: u64, selected: &Value) -> Result<CaseProgram> {
@@ -1318,7 +1320,12 @@ fn budget_from_value(value: &Value) -> Result<IrBudget> {
     })
 }
 
-fn registration_cache(registration: &RegistrationProjection) -> IrCache {
+fn registration_cache(
+    root: &Path,
+    case: &CorpusCase,
+    registration: &RegistrationProjection,
+) -> Result<IrCache> {
+    let project_root = registration_project_root(root, case, &registration.inputs)?;
     let mutation_target = (registration.declared_kind == "mutation-witness")
         .then(|| {
             registration
@@ -1330,20 +1337,46 @@ fn registration_cache(registration: &RegistrationProjection) -> IrCache {
     let mut inputs = registration
         .inputs
         .iter()
-        .map(|path| CacheInput {
-            selector: if mutation_target == Some(path) {
-                "target-preimage".to_owned()
-            } else {
-                path.clone()
-            },
-            identity: sha256_bytes(path.as_bytes()),
+        .map(|path| {
+            let bytes = fs::read(project_root.join(path))
+                .with_context(|| format!("read registered cache input {path}"))?;
+            Ok(CacheInput {
+                selector: if mutation_target == Some(path) {
+                    "target-preimage".to_owned()
+                } else {
+                    path.clone()
+                },
+                identity: sha256_bytes(&bytes),
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
     inputs.sort();
-    IrCache {
+    Ok(IrCache {
         registered_inputs: inputs.clone(),
         execution_inputs: inputs,
-    }
+    })
+}
+
+fn registration_project_root(
+    root: &Path,
+    case: &CorpusCase,
+    inputs: &[String],
+) -> Result<std::path::PathBuf> {
+    let source = root.join(&case.source.path);
+    let mut candidates = source
+        .parent()
+        .context("registration source has no parent")?
+        .ancestors()
+        .take_while(|candidate| candidate.starts_with(root))
+        .filter(|candidate| inputs.iter().all(|path| candidate.join(path).is_file()));
+    let project_root = candidates
+        .next()
+        .context("registration inputs do not resolve from a project root")?;
+    ensure!(
+        candidates.next().is_none(),
+        "registration inputs resolve from more than one project root"
+    );
+    Ok(project_root.to_path_buf())
 }
 
 fn family_detail(
@@ -1624,6 +1657,16 @@ mod tests {
         assert_eq!(request.schema, "proofbound-evidence-unit/1");
         assert_eq!(request.environment_allowlist, ["PATH"]);
         assert_eq!(request.operation["type"], "pytest");
+        let pyproject =
+            fs::read(root.join("demo/python-inventory-service/pyproject.toml")).unwrap();
+        let cache_input = case
+            .program
+            .cache
+            .registered_inputs
+            .iter()
+            .find(|input| input.selector == "pyproject.toml")
+            .unwrap();
+        assert_eq!(cache_input.identity, sha256_bytes(&pyproject));
     }
 
     #[test]

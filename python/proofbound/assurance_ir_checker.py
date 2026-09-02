@@ -498,7 +498,7 @@ def _project_case(
     if case["role"] == "positive-registration":
         registration = _project_registration(case, source_bytes)
         program = _registration_program(
-            case, len(source_bytes), registration, registered_claims
+            root, case, len(source_bytes), registration, registered_claims
         )
     elif case["role"] == "positive-semantic-status":
         semantic_case_id, selected = _project_semantic_case(case, source_bytes)
@@ -806,6 +806,7 @@ def _claim_ir_projection(claim: dict[str, Any]) -> dict[str, Any]:
 
 
 def _registration_program(
+    root: Path,
     case: dict[str, Any],
     source_size: int,
     registration: dict[str, Any],
@@ -825,7 +826,7 @@ def _registration_program(
                 },
             }
         )
-    cache = _registration_cache(registration)
+    cache = _registration_cache(root, case, registration)
     unit = registration["unit_id"]
     return {
         "schema": CASE_SCHEMA,
@@ -1112,7 +1113,10 @@ def _release_programme(receipt: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _registration_cache(registration: dict[str, Any]) -> dict[str, Any]:
+def _registration_cache(
+    root: Path, case: dict[str, Any], registration: dict[str, Any]
+) -> dict[str, Any]:
+    project_root = _registration_project_root(root, case, registration["inputs"])
     mutation_target = None
     if registration["declared_kind"] == "mutation-witness":
         mutation_target = next(
@@ -1127,13 +1131,30 @@ def _registration_cache(registration: dict[str, Any]) -> dict[str, Any]:
         (
             {
                 "selector": "target-preimage" if path == mutation_target else path,
-                "identity": _sha256(path.encode()),
+                "identity": _sha256((project_root / path).read_bytes()),
             }
             for path in registration["inputs"]
         ),
         key=lambda item: (item["selector"], item["identity"]),
     )
     return {"registered_inputs": inputs, "execution_inputs": inputs}
+
+
+def _registration_project_root(
+    root: Path, case: dict[str, Any], inputs: list[str]
+) -> Path:
+    source = root / case["source"]["path"]
+    candidates = [
+        candidate
+        for candidate in (source.parent, *source.parent.parents)
+        if candidate.is_relative_to(root)
+        and all((candidate / path).is_file() for path in inputs)
+    ]
+    if len(candidates) != 1:
+        raise AssuranceIrError(
+            "registration inputs must resolve from exactly one project root"
+        )
+    return candidates[0]
 
 
 def _release_claim(claim: dict[str, Any], receipt: dict[str, Any]) -> dict[str, Any]:

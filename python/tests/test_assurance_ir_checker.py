@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 import subprocess
 
@@ -105,6 +106,20 @@ def test_portable_projection_retains_programme_and_execution_meaning() -> None:
     with pytest.raises(AssuranceIrError) as caught:
         validate_case_program(canonical_json(wrong_revision))
     assert caught.value.code == "IR-PROGRAMME-PROVENANCE-MISMATCH"
+
+
+def test_registration_cache_binds_actual_input_bytes() -> None:
+    projection = json.loads(producer_projection())
+    program = next(
+        case["program"] for case in projection["cases"] if case["id"] == "IR-PY-001"
+    )
+    cache_input = next(
+        item
+        for item in program["cache"]["registered_inputs"]
+        if item["selector"] == "pyproject.toml"
+    )
+    data = (ROOT / "demo/python-inventory-service/pyproject.toml").read_bytes()
+    assert cache_input["identity"] == f"sha256:{hashlib.sha256(data).hexdigest()}"
 
 
 def test_both_implementations_reject_every_preregistered_attack() -> None:
