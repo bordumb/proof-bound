@@ -79,6 +79,10 @@ contract. Eleven of sixteen Q1 rows are complete; five remain partial.
   property label plus an exact source digest is not a typed sampling contract:
   only Python Hypothesis currently retains framework and seed semantics on the
   portable wire.
+- A separate closed portable-family projection now covers all 45 captured
+  records in Rust and Python, including human review and typed observed detail.
+  It deliberately retains the TypeScript and Rust property records as legacy
+  sampling and rejects a self-consistently rehashed semantic upgrade.
 
 ## Current decision
 

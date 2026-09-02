@@ -29,6 +29,7 @@
 | EXP-0005-A023 | `results/2026-09-02-q1-completion-capture-audit.json` | immutable gap result, `sha256:fabd22157e49fd3d700a5a5759667bae7c99d78e1ca9c839f2e94ca88f7e2336` | Records three verified captures and the exact unsupported portable conversion probe; Q1 remains failed |
 | EXP-0005-A024 | `portable-family-coverage-r1.json` | immutable executed family audit, revision 1, `sha256:96ccef77e4a709f3c98c55afc03fb5e3e725d331aa2a6ff940eb0b1feb39e6a8` | Enumerates all 45 captured portable evidence records and identifies the two property records without typed sampling semantics |
 | EXP-0005-A025 | `results/2026-09-02-portable-property-semantics-gap.json` | immutable stop-condition result, `sha256:278391af9dcba2ea4f643831e2f90901b7996ab34141fa1410c6abeae85e771a` | Records why exact source and configuration identities cannot substitute for a portable sampling contract; Q1-FIELD-012 remains partial |
+| EXP-0005-A026 | `results/2026-09-02-portable-family-projection.json` | immutable projection result, `sha256:77a5b47d38b2b84b507db92f7f6fe8e6e59173d046a7006eb5d63f1726e4ce6c` | Rust/Python agreement on a closed eleven-constructor projection over all 45 captured records, with two visibly legacy sampling records and no false losslessness claim |
 
 Content digests identify frozen research inputs. Revisions must receive a new
 artifact digest; existing frozen bytes are not edited in place after an

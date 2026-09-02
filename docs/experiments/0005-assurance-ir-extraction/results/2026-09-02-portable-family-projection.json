@@ -1,0 +1,56 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "run": "portable-family-projection",
+  "date": "2026-09-02",
+  "implementation": "git:3dce3e3e71cc856c407224af282b72052bece776",
+  "inputs": {
+    "capture_index_path": "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json",
+    "capture_index_sha256": "sha256:54ff0bddf5251b1889e608bed86591600157335b0921f0c99b7584f4fae1c998",
+    "family_coverage_path": "docs/experiments/0005-assurance-ir-extraction/portable-family-coverage-r1.json",
+    "family_coverage_sha256": "sha256:96ccef77e4a709f3c98c55afc03fb5e3e725d331aa2a6ff940eb0b1feb39e6a8",
+    "losslessness_matrix_path": "docs/experiments/0005-assurance-ir-extraction/q1-losslessness-matrix-r4.json",
+    "losslessness_matrix_sha256": "sha256:068b361e99f68f8d08985d0dba6375cf3f652da58d338f81ff30f2a1496944ea"
+  },
+  "projection": {
+    "schema": "proofbound-ir-portable-family-projection/1",
+    "projection_sha256": "sha256:8c533939e8146266b3d74a92bf75e67f7600b0a4674cbbd314cf995b10c01c60",
+    "records": 45,
+    "constructors": {
+      "artifact-correspondence": 2,
+      "bounded-model-check": 1,
+      "example": 12,
+      "human-review": 6,
+      "independent-observation": 2,
+      "mutation-witness": 7,
+      "reproducible-artifact": 2,
+      "sampled-property": 3,
+      "static-consistency": 2,
+      "trusted-transcription": 1,
+      "universal-source-proof": 7
+    },
+    "explicit_sampling_records": 1,
+    "legacy_sampling_records": 2,
+    "rust_python_projection_equal": true
+  },
+  "validation": {
+    "rust_package_tests": 10,
+    "python_checker_tests": 12,
+    "fast_check_tests": 41,
+    "self_consistently_rehashed_sampling_upgrade_rejected": true,
+    "unknown_or_conflicting_family_detail_rejected": true,
+    "source_family_records_strictly_decoded": true
+  },
+  "outcome": {
+    "portable_review_supported": true,
+    "typed_portable_constructors_projected": true,
+    "q1_field_012": "partial",
+    "q1_pass": false,
+    "assurance_ir_1_frozen": false,
+    "go_holdout_preregistered": false,
+    "trace_attacks_executed": false
+  },
+  "interpretation": "A closed backend-neutral sum can represent every family shape present in the complete captures without importing a production adapter or application toolchain. That result does not erase the source-wire gap: two sampled-property records remain explicitly legacy because their framework, seed, generator, and run-budget semantics are absent. The projection proves migration honesty and constructor coverage, not full losslessness.",
+  "next_step": "Specify and prototype a versioned explicit-sampling observation boundary. Until that source fact exists, keep Q1-FIELD-012 partial and do not execute the preregistered derivation-trace attacks."
+}

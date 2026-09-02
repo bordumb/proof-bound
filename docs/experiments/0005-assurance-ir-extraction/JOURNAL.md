@@ -322,3 +322,22 @@ sampling. Q1-FIELD-012 remains partial and the preregistered derivation-trace
 attacks remain unexecuted. The next implementation can still convert the other
 closed portable constructors; closing the property divergence requires a new
 versioned producer wire rather than inference from TypeScript or Rust source.
+
+## 2026-09-02 — Closed portable family projection
+
+At implementation `3dce3e3`, added a separate typed projection over all 45
+captured portable evidence records. Rust and Python independently reconstruct
+the same eleven-constructor family sum, including human review, typed
+mutation/static/distribution/theorem/bounded/artifact/transcription detail,
+one explicit Hypothesis sampling record, and two visible legacy sampling
+records. The canonical projection identity is
+`sha256:8c533939e8146266b3d74a92bf75e67f7600b0a4674cbbd314cf995b10c01c60`.
+
+A negative test replaces the TypeScript legacy state with invented fast-check
+framework and seed data, recomputes the outer projection identity, and is
+rejected by the independent reconstruction. This closes the converter's
+unsupported-review and placeholder-family behavior for the captured shapes,
+but it does not close Q1-FIELD-012: the two legacy records still lack portable
+sampling meaning at their source boundary. Matrix revision 4 therefore remains
+the current losslessness decision and the derivation-trace attacks remain
+unexecuted.

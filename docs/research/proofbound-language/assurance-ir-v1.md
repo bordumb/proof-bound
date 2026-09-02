@@ -254,10 +254,13 @@ projections currently type property seed/framework, mutation registry, distribut
 format/artifact/epoch, bounded-domain, theorem, subject, and bound-artifact
 meaning. The detail must reconstruct the registered family configuration
 exactly; a parallel opaque configuration digest is not sufficient. Complete
-portable captures show that conversion is still incomplete for observed
-mutation, property, static-check, independent-check, distribution, theorem,
-bounded-check, artifact, transcription, and human-review detail. Draft `/1`
-therefore does not yet satisfy this intended rule across a full release.
+portable captures initially showed that conversion was incomplete for
+observed mutation, property, static-check, independent-check, distribution,
+theorem, bounded-check, artifact, transcription, and human-review detail. A
+subsequent closed Rust/Python projection now covers all 45 captured family
+records and rejects family-detail substitution independently. Draft `/1` still
+does not satisfy the lossless rule across a full release because two property
+records can only inhabit the explicit legacy state described below.
 
 ## 8. Closed evidence algebra
 
