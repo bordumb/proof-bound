@@ -5,10 +5,12 @@
 [Positive cases](cases.json) ·
 [Adversarial cases](adversarial-cases.json) ·
 [Q1 adversarial cases](q1-adversarial-cases.json) ·
+[Q1 completion preregistration](../q1-completion-preregistration.json) ·
 [Canonical vectors](canonical-vectors.json)
 
 - **Status:** positive revision 2 and adversarial revision 2 executed;
-  Q1 adversarial revision 1 preregistered but not executed
+  Q1 adversarial revision 1 executed; Q1 completion corpus preregistered but
+  not executed
 - **Baseline:** `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
 - **Positive corpus revision:** 2
 - **Adversarial corpus revision:** 2
@@ -16,6 +18,7 @@
 - **Case count:** 20
 - **Adversarial case count:** 20
 - **Q1 adversarial case count:** 12
+- **Q1 completion vertical count:** 3
 
 The corpus freezes tracked registration and portable-fixture bytes from the
 experiment baseline. It does not copy generated caches, local tool output, or
@@ -85,7 +88,15 @@ Q1 adversarial revision 1 was frozen after the initial field-preservation and
 portable reverse-projection work, but before programme-level graph, policy,
 status, and ledger-join validation was extended. It is a separate corpus so
 the earlier 20-case adversarial result remains immutable and its preregistered
-scope is not rewritten after execution.
+scope is not rewritten after execution. Both independent implementations have
+since rejected all twelve cases with their exact registered codes.
+
+The Q1 completion preregistration was frozen after matrix revision 3 exposed a
+different limitation: registration-only language cases cannot prove complete
+observation, artifact, cache, and policy semantics. It selects full Python,
+TypeScript, and Rust verticals and registers their trace, artifact, and cache
+attacks before those captures or trace implementations exist. The Go case is
+excluded because it remains the future holdout.
 
 `canonical-vectors.json` freezes five new research-only domain strings and
 independent expected digests over three canonical values. These domains do not

@@ -244,3 +244,20 @@ The remaining gaps are complete admission derivation traces,
 registration-to-observation artifact identity, and transitive execution-cache
 dependency completeness. Q1 therefore remains failed, Assurance IR `/1`
 remains unfrozen, and a Go holdout is still premature.
+
+## 2026-09-02 — Q1 completion corpus preregistration
+
+Before collecting new observations or implementing admission traces, froze a
+completion protocol over full Python, TypeScript, and Rust verticals at subject
+commit `f3a5362`. The original corpus intentionally emphasizes registration
+and one portable fixture; it cannot by itself prove the remaining
+registration-to-observation artifact, transitive cache, and policy-derivation
+joins.
+
+The new protocol registers exact capture roles, six derivation-trace attacks,
+five artifact attacks, seven cache invalidations, a presentation-only control,
+and row-specific decision rules. Missing tools or incomplete identities are
+not passes. The experiment will retain bounded semantic records rather than
+dependency directories or native binaries. Go remains excluded as the future
+holdout and cannot begin until all sixteen Q1 rows pass and Assurance IR `/1`
+is frozen.
