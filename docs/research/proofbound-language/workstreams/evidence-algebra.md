@@ -34,3 +34,6 @@ or artifact evidence.
   shows that Hypothesis and fast-check can emit one explicit, independently
   checked sampling contract through an adapter-owned driver, while ordinary
   runner instrumentation cannot. A Rust framework remains the holdout.
+- [EXP-0007](../../../experiments/0007-rust-sampling-holdout/README.md)
+  tests proptest as the third-ecosystem holdout before any production wire is
+  proposed.
