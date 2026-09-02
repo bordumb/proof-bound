@@ -248,6 +248,7 @@ def validate_case_program(data: bytes) -> None:
             _object(item, "request")
         if authority == "portable-receipt":
             portable_receipt = True
+            _required_text(item, "schema")
             _required_text(item, "content_sha256")
         if any(
             any(assumption not in registered for assumption in assumptions)
@@ -331,7 +332,7 @@ def validate_case_program(data: bytes) -> None:
 
     _validate_programme(programme, portable_receipt)
     if portable_receipt:
-        _validate_portable_joins(programme, evidence)
+        _validate_portable_joins(programme, claims, evidence)
 
     cache = _object(root, "cache")
     registered = _cache_inputs(cache, "registered_inputs")
@@ -350,12 +351,20 @@ def validate_case_program(data: bytes) -> None:
 
 def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> None:
     if portable_receipt:
+        _required_text(programme, "release_schema")
         project = _object(programme, "project")
         for field in ("id", "revision", "tree_state"):
             _required_text(project, field)
         if not isinstance(project.get("tier"), int):
             _fail("IR-DECODE-INVALID", "portable project tier is required")
-        _object(programme, "graph")
+        graph = _object(programme, "graph")
+        graph_schema = _required_text(graph, "schema")
+        graph_sha256 = _required_text(programme, "graph_sha256")
+        if domain_hash(graph_schema, canonical_json(graph)) != graph_sha256:
+            _fail(
+                "IR-PROGRAMME-GRAPH-IDENTITY",
+                "portable graph identity does not match its typed content",
+            )
         if not _list(programme, "policies"):
             _fail(
                 "IR-PROGRAMME-POLICY-OMITTED",
@@ -363,17 +372,35 @@ def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> No
             )
     for closure_value in _list(programme, "closures"):
         closure = _as_object(closure_value)
-        _required_text(closure, "sha256")
-        _required_text(closure, "kind")
+        schema = _required_text(closure, "schema")
+        sha256 = _required_text(closure, "sha256")
+        kind = _required_text(closure, "kind")
+        source_members = []
         for member in _list(closure, "members"):
-            _validate_artifact(_as_object(member))
+            artifact = _as_object(member)
+            _validate_artifact(artifact)
+            source_members.append(
+                {
+                    "path": artifact["logical_name"],
+                    "sha256": artifact["sha256"],
+                    "size_bytes": artifact["size_bytes"],
+                }
+            )
+        source_record = {"schema": schema, "kind": kind, "members": source_members}
+        if domain_hash(schema, canonical_json(source_record)) != sha256:
+            _fail(
+                "IR-PROGRAMME-CLOSURE-IDENTITY",
+                "portable closure identity does not match its typed content",
+            )
     for artifact in _list(programme, "sealed_artifacts"):
         _validate_artifact(_as_object(artifact))
     for field in ("assumptions", "premises", "publication_blockers"):
         _list(programme, field)
 
 
-def _validate_portable_joins(programme: dict[str, Any], evidence: list[object]) -> None:
+def _validate_portable_joins(
+    programme: dict[str, Any], claims: list[object], evidence: list[object]
+) -> None:
     project = _object(programme, "project")
     revision = _required_text(project, "revision")
     tree_state = _required_text(project, "tree_state")
@@ -381,6 +408,24 @@ def _validate_portable_joins(programme: dict[str, Any], evidence: list[object]) 
         _required_text(_as_object(closure), "sha256")
         for closure in _list(programme, "closures")
     }
+    claim_ids = {_required_text(_as_object(claim), "id") for claim in claims}
+    statuses = [_as_object(status) for status in _list(programme, "reported_statuses")]
+    status_claims = {_required_text(status, "claim_id") for status in statuses}
+    if claim_ids != status_claims:
+        _fail(
+            "IR-PROGRAMME-STATUS-MISMATCH",
+            "portable reported statuses do not cover the exact claim set",
+        )
+    blockers = [
+        status["claim_id"]
+        for status in statuses
+        if status.get("policy_admitted") is False
+    ]
+    if _text_list(programme, "publication_blockers") != blockers:
+        _fail(
+            "IR-PROGRAMME-BLOCKER-MISMATCH",
+            "publication blockers differ from non-admitted statuses",
+        )
     for item_value in evidence:
         item = _as_object(item_value)
         if _required_text(item, "authority") != "portable-receipt":
@@ -755,6 +800,7 @@ def _claim_source_projection(claim: dict[str, Any]) -> dict[str, Any]:
         "title": _required_text(claim, "title"),
         "statement": _required_text(claim, "statement"),
         "public_language": claim.get("public_language"),
+        "public_statement": None,
         "subject": _required_text(claim, "subject"),
         "formal_declaration": claim.get("formal_declaration"),
         "statement_encoding": claim.get("statement_encoding"),
@@ -786,6 +832,7 @@ def _claim_ir_projection(claim: dict[str, Any]) -> dict[str, Any]:
         "title": presentation["title"],
         "statement": meaning["statement"],
         "public_language": presentation["public_language"],
+        "public_statement": presentation["public_statement"],
         "subject": claim["subject"],
         "formal_declaration": meaning["formal_declaration"],
         "statement_encoding": meaning["statement_encoding"],
@@ -828,7 +875,7 @@ def _registration_program(
         )
     cache = _registration_cache(root, case, registration)
     unit = registration["unit_id"]
-    return {
+    program = {
         "schema": CASE_SCHEMA,
         "case_id": case["id"],
         "evidence_family": case["evidence_family"],
@@ -837,6 +884,7 @@ def _registration_program(
         "evidence": [
             {
                 "authority": "registered",
+                "schema": None,
                 "unit": unit,
                 "content_sha256": None,
                 "node": None,
@@ -879,6 +927,7 @@ def _registration_program(
         "reported": case["expected_claim"],
         "exact_status": False,
     }
+    return program
 
 
 def _semantic_program(
@@ -913,6 +962,7 @@ def _semantic_program(
         evidence.append(
             {
                 "authority": "derived-conformance",
+                "schema": None,
                 "unit": unit,
                 "content_sha256": None,
                 "node": None,
@@ -969,6 +1019,7 @@ def _release_program(
         evidence.append(
             {
                 "authority": "portable-receipt",
+                "schema": record.get("schema"),
                 "unit": unit,
                 "content_sha256": wrapped["sha256"],
                 "node": record.get("node_id"),
@@ -992,6 +1043,10 @@ def _release_program(
                     "revision": provenance.get("project_revision"),
                     "tree_state": provenance.get("tree_state"),
                     "semantic_closure": provenance.get("semantic_closure"),
+                    "additional_closures": [
+                        {"kind": closure["kind"], "sha256": closure["sha256"]}
+                        for closure in provenance.get("additional_closures", [])
+                    ],
                     "input_artifacts": [
                         _portable_artifact(item)
                         for item in provenance["input_artifacts"]
@@ -1040,6 +1095,15 @@ def _release_program(
                         "disk_bytes": provenance["actual_cost"]["disk_bytes"],
                         "peak_memory": provenance["actual_cost"]["memory_bytes"],
                     },
+                    "python_plugins": [
+                        {
+                            "module": plugin["module"],
+                            "distribution": plugin["distribution"],
+                            "version": plugin["version"],
+                            "origin_sha256": plugin["origin_sha256"],
+                        }
+                        for plugin in provenance.get("python_plugins", [])
+                    ],
                     "cache": {
                         "prior_receipt": prior_receipt,
                         "key": _cache_key(unit, prior_receipt),
@@ -1051,7 +1115,7 @@ def _release_program(
             }
         )
     claims = [_release_claim(claim, receipt) for claim in receipt["claims"]]
-    return {
+    program = {
         "schema": CASE_SCHEMA,
         "case_id": case["id"],
         "evidence_family": case["evidence_family"],
@@ -1064,23 +1128,34 @@ def _release_program(
         "reported": case["expected_claim"],
         "exact_status": True,
     }
+    if _release_source_semantics(receipt, case, source_size) != _release_ir_semantics(
+        program
+    ):
+        raise AssuranceIrError(
+            "portable release is not lossless under the registered semantic projection"
+        )
+    return program
 
 
 def _empty_programme() -> dict[str, Any]:
     return {
+        "release_schema": None,
         "project": None,
         "graph": None,
+        "graph_sha256": None,
         "assumptions": [],
         "premises": [],
         "policies": [],
         "closures": [],
         "sealed_artifacts": [],
         "publication_blockers": [],
+        "reported_statuses": [],
     }
 
 
 def _release_programme(receipt: dict[str, Any]) -> dict[str, Any]:
     return {
+        "release_schema": receipt["schema"],
         "project": {
             "id": receipt["project"],
             "revision": receipt["project_revision"],
@@ -1088,12 +1163,14 @@ def _release_programme(receipt: dict[str, Any]) -> dict[str, Any]:
             "tree_state": receipt["tree_state"],
         },
         "graph": receipt["graph"],
+        "graph_sha256": receipt["graph_sha256"],
         "assumptions": receipt["assumptions"],
         "premises": receipt["premises"],
         "policies": receipt["policies"],
         "closures": [
             {
                 "sha256": closure["sha256"],
+                "schema": closure["record"]["schema"],
                 "kind": closure["record"]["kind"],
                 "members": [
                     _portable_artifact(member)
@@ -1110,6 +1187,217 @@ def _release_programme(receipt: dict[str, Any]) -> dict[str, Any]:
             for status in receipt["reported_statuses"]
             if status["policy_admitted"] is False
         ),
+        "reported_statuses": [
+            {
+                "claim_id": status["claim_id"],
+                "formal": status["formal"],
+                "linkage": status["linkage"],
+                "assumption": status["assumption"],
+                "policy_admitted": status["policy_admitted"],
+                "public_statement": status["public_statement"],
+                "assumptions": status["assumptions"],
+                "undischarged_premises": status["undischarged_premises"],
+            }
+            for status in receipt["reported_statuses"]
+        ],
+    }
+
+
+def _release_source_semantics(
+    receipt: dict[str, Any], case: dict[str, Any], source_size: int
+) -> dict[str, Any]:
+    return {
+        "claims": [
+            _release_claim_source_projection(claim, receipt)
+            for claim in receipt["claims"]
+        ],
+        "evidence": [
+            _release_evidence_source_projection(wrapped, case["source"], source_size)
+            for wrapped in receipt["evidence"]
+        ],
+        "programme": _release_programme_source_projection(receipt),
+    }
+
+
+def _release_ir_semantics(program: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "claims": [_claim_ir_projection(claim) for claim in program["claims"]],
+        "evidence": program["evidence"],
+        "programme": program["programme"],
+    }
+
+
+def _release_claim_source_projection(
+    claim: dict[str, Any], receipt: dict[str, Any]
+) -> dict[str, Any]:
+    status = next(
+        item for item in receipt["reported_statuses"] if item["claim_id"] == claim["id"]
+    )
+    return {
+        "schema": claim["schema"],
+        "id": claim["id"],
+        "title": claim["title"],
+        "statement": claim["statement"],
+        "public_language": claim.get("public_language"),
+        "public_statement": status["public_statement"],
+        "subject": claim["subject"],
+        "formal_declaration": claim.get("formal_declaration"),
+        "statement_encoding": claim.get("statement_encoding"),
+        "statement_sha256": claim.get("statement_sha256"),
+        "foundational_axioms": sorted(claim.get("foundational_axioms", [])),
+        "policy": claim["policy"],
+        "tier": claim.get("tier"),
+        "primary_linkage": claim.get("primary_linkage"),
+        "cited_evidence": sorted(claim.get("cited_evidence", [])),
+        "assumptions": sorted(claim.get("assumptions", [])),
+        "premises": sorted(claim.get("premises", [])),
+        "open_obligations": sorted(claim.get("open_obligations", [])),
+        "out_of_scope": sorted(claim.get("out_of_scope", [])),
+        "registered_inputs": sorted(claim.get("registered_inputs", [])),
+        "bounded_domain": claim.get("bounded_domain"),
+        "registered_domain_language": claim.get("registered_domain_language"),
+    }
+
+
+def _release_evidence_source_projection(
+    wrapped: dict[str, Any], source: dict[str, Any], source_size: int
+) -> dict[str, Any]:
+    record = wrapped["record"]
+    provenance = record["provenance"]
+    kind = _family_kind(record["kind"])
+    unit = record["unit_id"]
+    prior_receipt = provenance.get("reused_from")
+    return {
+        "authority": "portable-receipt",
+        "schema": record.get("schema"),
+        "unit": unit,
+        "content_sha256": wrapped.get("sha256"),
+        "node": record.get("node_id"),
+        "claims": record.get("claim_ids", []),
+        "outcome": record.get("outcome"),
+        "evaluation": record.get("evaluation_mode"),
+        "binding": record.get("binding_mode"),
+        "inventory": record.get("inventoried_targets", []),
+        "assumptions": record.get("assumptions", []),
+        "premises": record.get("premises", []),
+        "open_obligation": record.get("open_obligation"),
+        "request": None,
+        "family": {
+            "kind": kind,
+            "detail": _family_detail(kind, "subject:c", source, source_size, None),
+        },
+        "backend": {"retained_facts": []},
+        "provenance": {
+            "revision": provenance.get("project_revision"),
+            "tree_state": provenance.get("tree_state"),
+            "semantic_closure": provenance.get("semantic_closure"),
+            "additional_closures": provenance.get("additional_closures", []),
+            "input_artifacts": [
+                _source_artifact_projection(item)
+                for item in provenance.get("input_artifacts", [])
+            ],
+            "generated_artifacts": [
+                _source_artifact_projection(item)
+                for item in provenance.get("generated_artifacts", [])
+            ],
+            "tool": provenance.get("tool"),
+            "adapter": provenance.get("adapter"),
+            "execution_kind": provenance.get("execution_kind"),
+            "commands": [
+                _source_command_projection(command)
+                for command in provenance.get("commands", [])
+            ],
+            "runs": provenance.get("runs", []),
+            "normalization": provenance.get("normalization"),
+            "reproduction": _source_command_projection(
+                provenance["reproduction_command"]
+            ),
+            "started_unix_ms": provenance.get("started_unix_ms"),
+            "completed_unix_ms": provenance.get("completed_unix_ms"),
+            "result_sha256": provenance.get("deterministic_result_sha256"),
+            "unit_configuration_sha256": provenance.get("unit_configuration_sha256"),
+            "budget": provenance.get("resource_budget"),
+            "usage": {
+                "time_ms": provenance["actual_cost"].get("time_ms"),
+                "disk_bytes": provenance["actual_cost"].get("disk_bytes"),
+                "peak_memory": provenance["actual_cost"].get("memory_bytes"),
+            },
+            "python_plugins": provenance.get("python_plugins", []),
+            "cache": {
+                "prior_receipt": prior_receipt,
+                "key": _cache_key(unit, prior_receipt),
+                "source_key": provenance.get("cache_key"),
+                "origin": "reused" if prior_receipt is not None else "executed",
+                "reuse_eligible": True,
+            },
+        },
+    }
+
+
+def _release_programme_source_projection(receipt: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "release_schema": receipt.get("schema"),
+        "project": {
+            "id": receipt["project"],
+            "revision": receipt["project_revision"],
+            "tier": receipt["project_tier"],
+            "tree_state": receipt["tree_state"],
+        },
+        "graph": receipt.get("graph"),
+        "graph_sha256": receipt.get("graph_sha256"),
+        "assumptions": receipt.get("assumptions", []),
+        "premises": receipt.get("premises", []),
+        "policies": receipt.get("policies", []),
+        "closures": [
+            {
+                "schema": closure["record"]["schema"],
+                "sha256": closure["sha256"],
+                "kind": closure["record"]["kind"],
+                "members": [
+                    _source_artifact_projection(member)
+                    for member in closure["record"]["members"]
+                ],
+            }
+            for closure in receipt["closures"]
+        ],
+        "sealed_artifacts": [
+            _source_artifact_projection(artifact)
+            for artifact in receipt["sealed_files"]
+        ],
+        "publication_blockers": sorted(
+            status["claim_id"]
+            for status in receipt["reported_statuses"]
+            if status["policy_admitted"] is False
+        ),
+        "reported_statuses": [
+            {
+                "claim_id": status["claim_id"],
+                "formal": status["formal"],
+                "linkage": status["linkage"],
+                "assumption": status["assumption"],
+                "policy_admitted": status["policy_admitted"],
+                "public_statement": status["public_statement"],
+                "assumptions": status["assumptions"],
+                "undischarged_premises": status["undischarged_premises"],
+            }
+            for status in receipt["reported_statuses"]
+        ],
+    }
+
+
+def _source_artifact_projection(artifact: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "logical_name": artifact.get("logical_name", artifact.get("path")),
+        "sha256": artifact["sha256"],
+        "size_bytes": artifact["size_bytes"],
+    }
+
+
+def _source_command_projection(command: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "program": command["program"],
+        "args": command["args"],
+        "environment_allowlist": command["environment_allowlist"],
     }
 
 
@@ -1311,6 +1599,7 @@ def _empty_provenance(unit: str) -> dict[str, Any]:
         "revision": None,
         "tree_state": None,
         "semantic_closure": None,
+        "additional_closures": [],
         "input_artifacts": [],
         "generated_artifacts": [],
         "tool": None,
@@ -1326,6 +1615,7 @@ def _empty_provenance(unit: str) -> dict[str, Any]:
         "unit_configuration_sha256": None,
         "budget": None,
         "usage": {"time_ms": None, "disk_bytes": None, "peak_memory": None},
+        "python_plugins": [],
         "cache": {
             "prior_receipt": None,
             "key": _cache_key(unit, None),

@@ -24,14 +24,29 @@ pub struct CaseProgram {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrProgrammeContext {
+    pub release_schema: Option<String>,
     pub project: Option<IrProject>,
     pub graph: Option<Value>,
+    pub graph_sha256: Option<String>,
     pub assumptions: Vec<Value>,
     pub premises: Vec<Value>,
     pub policies: Vec<Value>,
     pub closures: Vec<IrClosure>,
     pub sealed_artifacts: Vec<Artifact>,
     pub publication_blockers: Vec<String>,
+    pub reported_statuses: Vec<IrReportedStatus>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrReportedStatus {
+    pub claim_id: String,
+    pub formal: String,
+    pub linkage: String,
+    pub assumption: String,
+    pub policy_admitted: bool,
+    pub public_statement: String,
+    pub assumptions: Vec<String>,
+    pub undischarged_premises: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -44,6 +59,7 @@ pub struct IrProject {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrClosure {
+    pub schema: String,
     pub sha256: String,
     pub kind: String,
     pub members: Vec<Artifact>,
@@ -102,6 +118,7 @@ pub struct IrClaimAdmission {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrEvidence {
     pub authority: String,
+    pub schema: Option<String>,
     pub unit: String,
     pub content_sha256: Option<String>,
     pub node: Option<String>,
@@ -155,6 +172,7 @@ pub struct IrProvenance {
     pub revision: Option<String>,
     pub tree_state: Option<String>,
     pub semantic_closure: Option<String>,
+    pub additional_closures: Vec<IrClosureReference>,
     pub input_artifacts: Vec<Artifact>,
     pub generated_artifacts: Vec<Artifact>,
     pub tool: Option<IrTool>,
@@ -170,7 +188,22 @@ pub struct IrProvenance {
     pub unit_configuration_sha256: Option<String>,
     pub budget: Option<IrBudget>,
     pub usage: IrUsage,
+    pub python_plugins: Vec<IrPythonPlugin>,
     pub cache: IrCacheProvenance,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrClosureReference {
+    pub kind: String,
+    pub sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrPythonPlugin {
+    pub module: String,
+    pub distribution: String,
+    pub version: String,
+    pub origin_sha256: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -421,6 +454,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         }
         if authority == "portable-receipt" {
             portable_receipt = true;
+            text(item, "schema")?;
             text(item, "content_sha256")?;
         }
         if claim_assumptions.iter().any(|registered| {
@@ -530,7 +564,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
 
     validate_programme(programme, portable_receipt)?;
     if portable_receipt {
-        validate_portable_joins(programme, evidence)?;
+        validate_portable_joins(programme, claims, evidence)?;
     }
 
     let cache = object_field(object, "cache")?;
@@ -558,6 +592,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
 
 fn validate_portable_joins(
     programme: &Map<String, Value>,
+    claims: &[Value],
     evidence: &[Value],
 ) -> Result<(), IrValidationError> {
     let project = object_field(programme, "project")?;
@@ -567,6 +602,36 @@ fn validate_portable_joins(
         .iter()
         .map(|closure| text(value_object(closure)?, "sha256"))
         .collect::<Result<BTreeSet<_>, _>>()?;
+    let claim_ids = claims
+        .iter()
+        .map(|claim| text(value_object(claim)?, "id"))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let statuses = array_field(programme, "reported_statuses")?;
+    let status_claims = statuses
+        .iter()
+        .map(|status| text(value_object(status)?, "claim_id"))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    if claim_ids != status_claims {
+        return Err(IrValidationError::new(
+            "IR-PROGRAMME-STATUS-MISMATCH",
+            "portable reported statuses do not cover the exact claim set",
+        ));
+    }
+    let blockers = statuses
+        .iter()
+        .filter_map(|status| {
+            let status = status.as_object()?;
+            (status.get("policy_admitted").and_then(Value::as_bool) == Some(false))
+                .then(|| status.get("claim_id")?.as_str())
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    if text_array(programme, "publication_blockers")? != blockers {
+        return Err(IrValidationError::new(
+            "IR-PROGRAMME-BLOCKER-MISMATCH",
+            "publication blockers differ from non-admitted statuses",
+        ));
+    }
     for item in evidence {
         let item = value_object(item)?;
         if text(item, "authority")? != "portable-receipt" {
@@ -597,6 +662,7 @@ fn validate_programme(
     portable_receipt: bool,
 ) -> Result<(), IrValidationError> {
     if portable_receipt {
+        text(programme, "release_schema")?;
         let project = object_field(programme, "project")?;
         for field in ["id", "revision", "tree_state"] {
             text(project, field)?;
@@ -607,7 +673,17 @@ fn validate_programme(
                 "portable project tier is required",
             ));
         }
-        object_field(programme, "graph")?;
+        let graph = object_field(programme, "graph")?;
+        let graph_schema = text(graph, "schema")?;
+        let graph_sha256 = text(programme, "graph_sha256")?;
+        let graph_bytes = canonical_json(&Value::Object(graph.clone()))
+            .map_err(|error| IrValidationError::new("IR-DECODE-INVALID", error.to_string()))?;
+        if domain_hash(graph_schema, &graph_bytes) != graph_sha256 {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-GRAPH-IDENTITY",
+                "portable graph identity does not match its typed content",
+            ));
+        }
         if array_field(programme, "policies")?.is_empty() {
             return Err(IrValidationError::new(
                 "IR-PROGRAMME-POLICY-OMITTED",
@@ -618,10 +694,30 @@ fn validate_programme(
 
     for closure in array_field(programme, "closures")? {
         let closure = value_object(closure)?;
-        text(closure, "sha256")?;
-        text(closure, "kind")?;
+        let schema = text(closure, "schema")?;
+        let kind = text(closure, "kind")?;
+        let mut source_members = Vec::new();
         for member in array_field(closure, "members")? {
-            validate_artifact(value_object(member)?)?;
+            let member = value_object(member)?;
+            validate_artifact(member)?;
+            source_members.push(serde_json::json!({
+                "path": text(member, "logical_name")?,
+                "sha256": text(member, "sha256")?,
+                "size_bytes": member.get("size_bytes").and_then(Value::as_u64).expect("validated artifact size"),
+            }));
+        }
+        let source_record = serde_json::json!({
+            "schema": schema,
+            "kind": kind,
+            "members": source_members,
+        });
+        let closure_bytes = canonical_json(&source_record)
+            .map_err(|error| IrValidationError::new("IR-DECODE-INVALID", error.to_string()))?;
+        if domain_hash(schema, &closure_bytes) != text(closure, "sha256")? {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-CLOSURE-IDENTITY",
+                "portable closure identity does not match its typed content",
+            ));
         }
     }
     for artifact in array_field(programme, "sealed_artifacts")? {

@@ -9,15 +9,16 @@ use std::{collections::BTreeMap, fs, path::Path};
 use anyhow::{Context, Result, bail, ensure};
 use proofbound_evidence::{canonical_json, domain_hash, sha256_bytes};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 mod assurance;
 
 pub use assurance::{
     Artifact, CacheInput, CaseProgram, IrBackend, IrBudget, IrCache, IrCacheProvenance, IrClaim,
-    IrClaimAdmission, IrClaimMeaning, IrClaimPresentation, IrClosure, IrCommand, IrEnvironment,
-    IrEvidence, IrEvidenceRequest, IrFamily, IrPolicy, IrProgrammeContext, IrProject, IrProvenance,
-    IrRun, IrTool, IrUsage, IrValidationError, RetainedFact, cache_key, family_kind, family_schema,
+    IrClaimAdmission, IrClaimMeaning, IrClaimPresentation, IrClosure, IrClosureReference,
+    IrCommand, IrEnvironment, IrEvidence, IrEvidenceRequest, IrFamily, IrPolicy,
+    IrProgrammeContext, IrProject, IrProvenance, IrPythonPlugin, IrReportedStatus, IrRun, IrTool,
+    IrUsage, IrValidationError, RetainedFact, cache_key, family_kind, family_schema,
     validate_case_program,
 };
 
@@ -612,6 +613,7 @@ fn claim_source_projection(table: &toml::value::Table) -> Result<Value> {
         "title": required_text(table, "title")?,
         "statement": required_text(table, "statement")?,
         "public_language": optional_text(table, "public_language")?,
+        "public_statement": Value::Null,
         "subject": required_text(table, "subject")?,
         "formal_declaration": optional_text(table, "formal_declaration")?,
         "statement_encoding": optional_text(table, "statement_encoding")?,
@@ -647,6 +649,7 @@ fn claim_ir_projection(claim: &IrClaim) -> Result<Value> {
         "title": presentation.title,
         "statement": meaning.statement,
         "public_language": presentation.public_language,
+        "public_statement": presentation.public_statement,
         "subject": claim.subject,
         "formal_declaration": meaning.formal_declaration,
         "statement_encoding": meaning.statement_encoding,
@@ -698,6 +701,7 @@ fn registration_program(
     let cache = registration_cache(root, case, registration)?;
     let evidence = vec![IrEvidence {
         authority: "registered".to_owned(),
+        schema: None,
         unit: registration.unit_id.clone(),
         content_sha256: None,
         node: None,
@@ -790,6 +794,7 @@ fn semantic_program(case: &CorpusCase, source_size: u64, selected: &Value) -> Re
                 .context("semantic evidence ID is missing")?;
             Ok(IrEvidence {
                 authority: "derived-conformance".to_owned(),
+                schema: None,
                 unit: unit.to_owned(),
                 content_sha256: None,
                 node: None,
@@ -915,6 +920,12 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
         let prior_receipt = provenance.get("reused_from").and_then(Value::as_str);
         evidence.push(IrEvidence {
             authority: "portable-receipt".to_owned(),
+            schema: value_optional_text(
+                record
+                    .as_object()
+                    .context("release record must be an object")?,
+                "schema",
+            )?,
             unit: unit.to_owned(),
             content_sha256: wrapped
                 .get("sha256")
@@ -961,6 +972,17 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
                 revision: value_optional_text(provenance, "project_revision")?,
                 tree_state: value_optional_text(provenance, "tree_state")?,
                 semantic_closure: value_optional_text(provenance, "semantic_closure")?,
+                additional_closures: provenance
+                    .get("additional_closures")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .map(closure_reference_from_value)
+                            .collect::<Result<Vec<_>>>()
+                    })
+                    .transpose()?
+                    .unwrap_or_default(),
                 input_artifacts: provenance
                     .get("input_artifacts")
                     .and_then(Value::as_array)
@@ -1013,6 +1035,17 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
                         .and_then(Value::as_u64),
                     peak_memory,
                 },
+                python_plugins: provenance
+                    .get("python_plugins")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .map(python_plugin_from_value)
+                            .collect::<Result<Vec<_>>>()
+                    })
+                    .transpose()?
+                    .unwrap_or_default(),
                 cache: IrCacheProvenance {
                     prior_receipt: prior_receipt.map(str::to_owned),
                     key: cache_key(unit, prior_receipt),
@@ -1053,19 +1086,30 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
         reported: case.expected_claim.clone(),
         exact_status: true,
     };
+    let source_semantics = release_source_semantics(&receipt, case, source_size)?;
+    let ir_semantics = release_ir_semantics(&program)?;
+    if source_semantics != ir_semantics {
+        bail!(
+            "portable release is not lossless at {}",
+            first_json_difference(&source_semantics, &ir_semantics, "$")
+        );
+    }
     Ok(program)
 }
 
 fn empty_programme() -> IrProgrammeContext {
     IrProgrammeContext {
+        release_schema: None,
         project: None,
         graph: None,
+        graph_sha256: None,
         assumptions: Vec::new(),
         premises: Vec::new(),
         policies: Vec::new(),
         closures: Vec::new(),
         sealed_artifacts: Vec::new(),
         publication_blockers: Vec::new(),
+        reported_statuses: Vec::new(),
     }
 }
 
@@ -1089,6 +1133,7 @@ fn release_programme(receipt: &Value) -> Result<IrProgrammeContext> {
                 .get("record")
                 .context("release closure record is missing")?;
             Ok(IrClosure {
+                schema: required_value_text(record, "schema")?.to_owned(),
                 sha256: required_value_text(closure, "sha256")?.to_owned(),
                 kind: required_value_text(record, "kind")?.to_owned(),
                 members: record
@@ -1120,16 +1165,306 @@ fn release_programme(receipt: &Value) -> Result<IrProgrammeContext> {
                 .context("blocked release status has no claim ID")
         })
         .collect::<Result<Vec<_>>>()?;
+    let reported_statuses = receipt
+        .get("reported_statuses")
+        .and_then(Value::as_array)
+        .context("release statuses are missing")?
+        .iter()
+        .map(reported_status_from_value)
+        .collect::<Result<Vec<_>>>()?;
     Ok(IrProgrammeContext {
+        release_schema: Some(required_value_text(receipt, "schema")?.to_owned()),
         project: Some(project),
         graph: receipt.get("graph").cloned(),
+        graph_sha256: Some(required_value_text(receipt, "graph_sha256")?.to_owned()),
         assumptions: required_value_array(receipt, "assumptions")?.clone(),
         premises: required_value_array(receipt, "premises")?.clone(),
         policies: required_value_array(receipt, "policies")?.clone(),
         closures,
         sealed_artifacts,
         publication_blockers,
+        reported_statuses,
     })
+}
+
+fn release_source_semantics(receipt: &Value, case: &CorpusCase, source_size: u64) -> Result<Value> {
+    let claims = required_value_array(receipt, "claims")?
+        .iter()
+        .map(|claim| release_claim_source_projection(claim, receipt))
+        .collect::<Result<Vec<_>>>()?;
+    let evidence = required_value_array(receipt, "evidence")?
+        .iter()
+        .map(|wrapped| release_evidence_source_projection(wrapped, case, source_size))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(serde_json::json!({
+        "claims": claims,
+        "evidence": evidence,
+        "programme": release_programme_source_projection(receipt)?,
+    }))
+}
+
+fn release_ir_semantics(program: &CaseProgram) -> Result<Value> {
+    let claims = program
+        .claims
+        .iter()
+        .map(claim_ir_projection)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(serde_json::json!({
+        "claims": claims,
+        "evidence": program.evidence,
+        "programme": program.programme,
+    }))
+}
+
+fn release_claim_source_projection(claim: &Value, receipt: &Value) -> Result<Value> {
+    let claim_id = required_value_text(claim, "id")?;
+    let status = required_value_array(receipt, "reported_statuses")?
+        .iter()
+        .find(|status| status.get("claim_id").and_then(Value::as_str) == Some(claim_id))
+        .context("release claim has no reported status")?;
+    let mut projection = Map::new();
+    projection.insert("schema".to_owned(), claim["schema"].clone());
+    projection.insert("id".to_owned(), claim["id"].clone());
+    projection.insert("title".to_owned(), claim["title"].clone());
+    projection.insert("statement".to_owned(), claim["statement"].clone());
+    projection.insert(
+        "public_language".to_owned(),
+        claim.get("public_language").cloned().unwrap_or(Value::Null),
+    );
+    projection.insert("subject".to_owned(), claim["subject"].clone());
+    for field in [
+        "formal_declaration",
+        "statement_encoding",
+        "statement_sha256",
+        "bounded_domain",
+        "registered_domain_language",
+    ] {
+        projection.insert(
+            field.to_owned(),
+            claim.get(field).cloned().unwrap_or(Value::Null),
+        );
+    }
+    projection.insert(
+        "foundational_axioms".to_owned(),
+        sorted_value_text_array(claim, "foundational_axioms")?,
+    );
+    projection.insert("policy".to_owned(), claim["policy"].clone());
+    projection.insert(
+        "tier".to_owned(),
+        claim.get("tier").cloned().unwrap_or(Value::Null),
+    );
+    projection.insert(
+        "primary_linkage".to_owned(),
+        claim.get("primary_linkage").cloned().unwrap_or(Value::Null),
+    );
+    for field in [
+        "cited_evidence",
+        "assumptions",
+        "premises",
+        "open_obligations",
+        "out_of_scope",
+        "registered_inputs",
+    ] {
+        projection.insert(field.to_owned(), sorted_value_text_array(claim, field)?);
+    }
+    projection.insert(
+        "public_statement".to_owned(),
+        status["public_statement"].clone(),
+    );
+    Ok(Value::Object(projection))
+}
+
+fn release_evidence_source_projection(
+    wrapped: &Value,
+    case: &CorpusCase,
+    source_size: u64,
+) -> Result<Value> {
+    let record = wrapped.get("record").context("release record is missing")?;
+    let kind = family_kind(required_value_text(record, "kind")?)
+        .context("unsupported release evidence kind")?;
+    let unit = required_value_text(record, "unit_id")?;
+    let provenance = record
+        .get("provenance")
+        .context("release provenance is missing")?;
+    Ok(serde_json::json!({
+        "authority": "portable-receipt",
+        "schema": record.get("schema").cloned().unwrap_or(Value::Null),
+        "unit": unit,
+        "content_sha256": wrapped.get("sha256").cloned().unwrap_or(Value::Null),
+        "node": record.get("node_id").cloned().unwrap_or(Value::Null),
+        "claims": record.get("claim_ids").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "outcome": record.get("outcome").cloned().unwrap_or(Value::Null),
+        "evaluation": record.get("evaluation_mode").cloned().unwrap_or(Value::Null),
+        "binding": record.get("binding_mode").cloned().unwrap_or(Value::Null),
+        "inventory": record.get("inventoried_targets").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "assumptions": record.get("assumptions").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "premises": record.get("premises").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "open_obligation": record.get("open_obligation").cloned().unwrap_or(Value::Null),
+        "request": Value::Null,
+        "family": {
+            "kind": kind,
+            "detail": family_detail(kind, Some("subject:c"), &case.source, source_size, None),
+        },
+        "backend": {"retained_facts": []},
+        "provenance": release_provenance_source_projection(unit, provenance)?,
+    }))
+}
+
+fn release_provenance_source_projection(unit: &str, provenance: &Value) -> Result<Value> {
+    let prior = provenance.get("reused_from").and_then(Value::as_str);
+    Ok(serde_json::json!({
+        "revision": provenance.get("project_revision").cloned().unwrap_or(Value::Null),
+        "tree_state": provenance.get("tree_state").cloned().unwrap_or(Value::Null),
+        "semantic_closure": provenance.get("semantic_closure").cloned().unwrap_or(Value::Null),
+        "additional_closures": provenance.get("additional_closures").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "input_artifacts": artifact_array_source_projection(provenance, "input_artifacts")?,
+        "generated_artifacts": artifact_array_source_projection(provenance, "generated_artifacts")?,
+        "tool": provenance.get("tool").cloned().unwrap_or(Value::Null),
+        "adapter": provenance.get("adapter").cloned().unwrap_or(Value::Null),
+        "execution_kind": provenance.get("execution_kind").cloned().unwrap_or(Value::Null),
+        "commands": command_array_source_projection(provenance, "commands")?,
+        "runs": provenance.get("runs").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "normalization": provenance.get("normalization").cloned().unwrap_or(Value::Null),
+        "reproduction": command_source_projection(provenance.get("reproduction_command").context("release reproduction command is missing")?)?,
+        "started_unix_ms": provenance.get("started_unix_ms").cloned().unwrap_or(Value::Null),
+        "completed_unix_ms": provenance.get("completed_unix_ms").cloned().unwrap_or(Value::Null),
+        "result_sha256": provenance.get("deterministic_result_sha256").cloned().unwrap_or(Value::Null),
+        "unit_configuration_sha256": provenance.get("unit_configuration_sha256").cloned().unwrap_or(Value::Null),
+        "budget": provenance.get("resource_budget").cloned().unwrap_or(Value::Null),
+        "usage": {
+            "time_ms": provenance.pointer("/actual_cost/time_ms").cloned().unwrap_or(Value::Null),
+            "disk_bytes": provenance.pointer("/actual_cost/disk_bytes").cloned().unwrap_or(Value::Null),
+            "peak_memory": provenance.pointer("/actual_cost/memory_bytes").cloned().unwrap_or(Value::Null),
+        },
+        "python_plugins": provenance.get("python_plugins").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "cache": {
+            "prior_receipt": provenance.get("reused_from").cloned().unwrap_or(Value::Null),
+            "key": cache_key(unit, prior),
+            "source_key": provenance.get("cache_key").cloned().unwrap_or(Value::Null),
+            "origin": if prior.is_some() {"reused"} else {"executed"},
+            "reuse_eligible": true,
+        },
+    }))
+}
+
+fn release_programme_source_projection(receipt: &Value) -> Result<Value> {
+    let closures = required_value_array(receipt, "closures")?
+        .iter()
+        .map(|closure| {
+            let record = closure
+                .get("record")
+                .context("release closure record is missing")?;
+            Ok(serde_json::json!({
+                "schema": record["schema"],
+                "sha256": closure["sha256"],
+                "kind": record["kind"],
+                "members": artifact_array_source_projection(record, "members")?,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let statuses = required_value_array(receipt, "reported_statuses")?
+        .iter()
+        .map(|status| serde_json::to_value(reported_status_from_value(status)?).map_err(Into::into))
+        .collect::<Result<Vec<_>>>()?;
+    let blockers = required_value_array(receipt, "reported_statuses")?
+        .iter()
+        .filter(|status| status.get("policy_admitted").and_then(Value::as_bool) == Some(false))
+        .map(|status| required_value_text(status, "claim_id").map(str::to_owned))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(serde_json::json!({
+        "release_schema": receipt.get("schema").cloned().unwrap_or(Value::Null),
+        "project": {
+            "id": receipt["project"],
+            "revision": receipt["project_revision"],
+            "tier": receipt["project_tier"],
+            "tree_state": receipt["tree_state"],
+        },
+        "graph": receipt.get("graph").cloned().unwrap_or(Value::Null),
+        "graph_sha256": receipt.get("graph_sha256").cloned().unwrap_or(Value::Null),
+        "assumptions": receipt.get("assumptions").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "premises": receipt.get("premises").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "policies": receipt.get("policies").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        "closures": closures,
+        "sealed_artifacts": artifact_array_source_projection(receipt, "sealed_files")?,
+        "publication_blockers": blockers,
+        "reported_statuses": statuses,
+    }))
+}
+
+fn artifact_array_source_projection(value: &Value, field: &str) -> Result<Vec<Value>> {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .with_context(|| format!("{field} must be an array"))?
+        .iter()
+        .map(|artifact| {
+            Ok(serde_json::json!({
+                "logical_name": artifact.get("logical_name").or_else(|| artifact.get("path")).context("artifact logical name is missing")?,
+                "sha256": artifact.get("sha256").context("artifact digest is missing")?,
+                "size_bytes": artifact.get("size_bytes").context("artifact size is missing")?,
+            }))
+        })
+        .collect()
+}
+
+fn command_array_source_projection(value: &Value, field: &str) -> Result<Vec<Value>> {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .with_context(|| format!("{field} must be an array"))?
+        .iter()
+        .map(command_source_projection)
+        .collect()
+}
+
+fn command_source_projection(command: &Value) -> Result<Value> {
+    Ok(serde_json::json!({
+        "program": command.get("program").context("command program is missing")?,
+        "args": command.get("args").context("command args are missing")?,
+        "environment_allowlist": command.get("environment_allowlist").context("command environment is missing")?,
+    }))
+}
+
+fn sorted_value_text_array(value: &Value, field: &str) -> Result<Value> {
+    let mut values = json_text_array_optional(
+        value
+            .as_object()
+            .context("projection source must be an object")?,
+        field,
+    )?;
+    values.sort();
+    Ok(serde_json::to_value(values)?)
+}
+
+fn first_json_difference(left: &Value, right: &Value, path: &str) -> String {
+    match (left, right) {
+        (Value::Object(left), Value::Object(right)) => {
+            for key in left.keys().chain(right.keys()) {
+                match (left.get(key), right.get(key)) {
+                    (Some(left), Some(right)) if left != right => {
+                        return first_json_difference(left, right, &format!("{path}.{key}"));
+                    }
+                    (None, Some(_)) | (Some(_), None) => return format!("{path}.{key}"),
+                    _ => {}
+                }
+            }
+            path.to_owned()
+        }
+        (Value::Array(left), Value::Array(right)) => {
+            let length = left.len().max(right.len());
+            for index in 0..length {
+                match (left.get(index), right.get(index)) {
+                    (Some(left), Some(right)) if left != right => {
+                        return first_json_difference(left, right, &format!("{path}[{index}]"));
+                    }
+                    (None, Some(_)) | (Some(_), None) => return format!("{path}[{index}]"),
+                    _ => {}
+                }
+            }
+            path.to_owned()
+        }
+        _ => path.to_owned(),
+    }
 }
 
 fn release_claim(claim: &Value, receipt: &Value) -> Result<IrClaim> {
@@ -1242,6 +1577,38 @@ fn artifact_from_value(value: &Value) -> Result<Artifact> {
             .get("size_bytes")
             .and_then(Value::as_u64)
             .context("artifact size is missing")?,
+    })
+}
+
+fn closure_reference_from_value(value: &Value) -> Result<IrClosureReference> {
+    Ok(IrClosureReference {
+        kind: required_value_text(value, "kind")?.to_owned(),
+        sha256: required_value_text(value, "sha256")?.to_owned(),
+    })
+}
+
+fn python_plugin_from_value(value: &Value) -> Result<IrPythonPlugin> {
+    Ok(IrPythonPlugin {
+        module: required_value_text(value, "module")?.to_owned(),
+        distribution: required_value_text(value, "distribution")?.to_owned(),
+        version: required_value_text(value, "version")?.to_owned(),
+        origin_sha256: required_value_text(value, "origin_sha256")?.to_owned(),
+    })
+}
+
+fn reported_status_from_value(value: &Value) -> Result<IrReportedStatus> {
+    Ok(IrReportedStatus {
+        claim_id: required_value_text(value, "claim_id")?.to_owned(),
+        formal: required_value_text(value, "formal")?.to_owned(),
+        linkage: required_value_text(value, "linkage")?.to_owned(),
+        assumption: required_value_text(value, "assumption")?.to_owned(),
+        policy_admitted: value
+            .get("policy_admitted")
+            .and_then(Value::as_bool)
+            .context("reported policy decision is missing")?,
+        public_statement: required_value_text(value, "public_statement")?.to_owned(),
+        assumptions: json_text_array_value(value, "assumptions")?,
+        undischarged_premises: json_text_array_value(value, "undischarged_premises")?,
     })
 }
 
@@ -1413,6 +1780,7 @@ fn empty_provenance(unit: &str) -> IrProvenance {
         revision: None,
         tree_state: None,
         semantic_closure: None,
+        additional_closures: Vec::new(),
         input_artifacts: Vec::new(),
         generated_artifacts: Vec::new(),
         tool: None,
@@ -1432,6 +1800,7 @@ fn empty_provenance(unit: &str) -> IrProvenance {
             disk_bytes: None,
             peak_memory: None,
         },
+        python_plugins: Vec::new(),
         cache: IrCacheProvenance {
             prior_receipt: None,
             key: cache_key(unit, None),
@@ -1712,6 +2081,26 @@ mod tests {
             Value::String("rev-substituted".to_owned());
         let error = validate_case_program(&canonical_json(&wrong_revision).unwrap()).unwrap_err();
         assert_eq!(error.code, "IR-PROGRAMME-PROVENANCE-MISMATCH");
+
+        let mut wrong_graph = serde_json::to_value(program).unwrap();
+        wrong_graph["programme"]["graph"]["nodes"][0]["kind"] = Value::String("subject".to_owned());
+        let error = validate_case_program(&canonical_json(&wrong_graph).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-GRAPH-IDENTITY");
+
+        let mut wrong_closure = serde_json::to_value(program).unwrap();
+        wrong_closure["programme"]["closures"][0]["members"][0]["size_bytes"] = Value::from(13);
+        let error = validate_case_program(&canonical_json(&wrong_closure).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-CLOSURE-IDENTITY");
+
+        let mut missing_status = serde_json::to_value(program).unwrap();
+        missing_status["programme"]["reported_statuses"] = Value::Array(Vec::new());
+        let error = validate_case_program(&canonical_json(&missing_status).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-STATUS-MISMATCH");
+
+        let mut false_blocker = serde_json::to_value(program).unwrap();
+        false_blocker["programme"]["publication_blockers"] = serde_json::json!(["c"]);
+        let error = validate_case_program(&canonical_json(&false_blocker).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-BLOCKER-MISMATCH");
     }
 
     #[test]

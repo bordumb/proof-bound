@@ -107,6 +107,30 @@ def test_portable_projection_retains_programme_and_execution_meaning() -> None:
         validate_case_program(canonical_json(wrong_revision))
     assert caught.value.code == "IR-PROGRAMME-PROVENANCE-MISMATCH"
 
+    wrong_graph = json.loads(json.dumps(program))
+    wrong_graph["programme"]["graph"]["nodes"][0]["kind"] = "subject"
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(wrong_graph))
+    assert caught.value.code == "IR-PROGRAMME-GRAPH-IDENTITY"
+
+    wrong_closure = json.loads(json.dumps(program))
+    wrong_closure["programme"]["closures"][0]["members"][0]["size_bytes"] = 13
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(wrong_closure))
+    assert caught.value.code == "IR-PROGRAMME-CLOSURE-IDENTITY"
+
+    missing_status = json.loads(json.dumps(program))
+    missing_status["programme"]["reported_statuses"] = []
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(missing_status))
+    assert caught.value.code == "IR-PROGRAMME-STATUS-MISMATCH"
+
+    false_blocker = json.loads(json.dumps(program))
+    false_blocker["programme"]["publication_blockers"] = ["c"]
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(false_blocker))
+    assert caught.value.code == "IR-PROGRAMME-BLOCKER-MISMATCH"
+
 
 def test_registration_cache_binds_actual_input_bytes() -> None:
     projection = json.loads(producer_projection())
