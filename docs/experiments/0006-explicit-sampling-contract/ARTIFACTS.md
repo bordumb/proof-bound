@@ -10,6 +10,7 @@
 | EXP-0006-S002 | `demo/python-inventory-service/evidence/reservation-property.toml` | frozen registration, `sha256:c3d5b220067293b37d696e853f9e3c69574aa97e38e69275d72815c0683afa79` | Existing Python property evidence registration |
 | EXP-0006-S003 | `demo/typescript-codec/src/roundtrip.test.ts` | frozen subject, `sha256:997293b3bbc8a965093ce13a56ba73bdacf72a9d4e49ed56c201c020e937680d` | Application source containing the selected fast-check property |
 | EXP-0006-S004 | `demo/typescript-codec/evidence/bounded-roundtrip.toml` | frozen registration, `sha256:ab6fbaffa27f04a2b32d88d8721260eb8fb799fca4354759fa0e31af691aba1b` | Existing TypeScript property evidence registration |
+| EXP-0006-X001 | `results/2026-09-02-ordinary-runner-observation.json` | immutable failed-route result, `sha256:eb01cd11ce3953ff53c8f716677c671f869966e4dfe6e4ddcdf31ee15a13feea` | Shows that unchanged pytest/Vitest execution does not emit an authoritative complete sampling observation |
 
 Executed results are immutable files under `results/`; bounded fixtures belong
 under `corpus/`. Dependency trees and framework caches are never committed.
