@@ -35,5 +35,6 @@ or artifact evidence.
   checked sampling contract through an adapter-owned driver, while ordinary
   runner instrumentation cannot. A Rust framework remains the holdout.
 - [EXP-0007](../../../experiments/0007-rust-sampling-holdout/README.md)
-  tests proptest as the third-ecosystem holdout before any production wire is
-  proposed.
+  falsifies the EXP-0006 shape as one complete execution contract: proptest
+  needs a bound RNG algorithm and cannot authoritatively expose the same
+  counter set. The next candidate is a layered intent/plan/observation model.

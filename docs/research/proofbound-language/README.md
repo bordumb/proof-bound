@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-02
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiments:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md) and [Experiment 0007 — Rust sampled-property holdout](../../experiments/0007-rust-sampling-holdout/README.md); [Experiment 0006](../../experiments/0006-explicit-sampling-contract/README.md) concluded the Python/TypeScript sampling slice
+- **Active experiment:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md); [Experiment 0006](../../experiments/0006-explicit-sampling-contract/README.md) concluded the Python/TypeScript sampling slice and [Experiment 0007](../../experiments/0007-rust-sampling-holdout/README.md) concluded the Rust holdout
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -89,13 +89,20 @@ contract. Eleven of sixteen Q1 rows are complete; five remain partial.
   and contract identities and reject all ten registered attacks. The result
   resolves the Python/TypeScript part of OQ-001 without upgrading old receipts;
   Rust sampling remains the holdout.
+- Experiment 0007 then falsifies the EXP-0006 shape as one exact
+  three-framework execution contract. Proptest exposes an independently
+  configurable RNG algorithm absent from the common contract, while its
+  stable typed API does not expose the required success, rejection, and
+  accepted-shrink counters. The evidence supports a layered sampling model,
+  not a framework-named kernel branch.
 
 ## Current decision
 
 Continue Gate 1 only. Preserve old property records as explicit legacy
-sampling. Register a Rust property-framework holdout against the EXP-0006
-contract before proposing a production wire; then recapture the portable
-family only after versioned producer adoption. Do not execute the
+sampling. Prototype a layered common sampling intent, typed backend plan, and
+capability-indexed observation across all three frameworks before proposing a
+production wire. Recapture the portable family only after versioned producer
+adoption. Do not execute the
 preregistered derivation-trace attacks, freeze Assurance IR `/1`, preregister
 the Go holdout, or design final syntax and native executable semantics until
 the lossless boundary passes. Versioned migration remains the subsequent Q5
