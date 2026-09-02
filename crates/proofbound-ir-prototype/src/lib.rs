@@ -2337,6 +2337,39 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rejects_every_preregistered_q1_adversarial_case() {
+        let root = root();
+        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let projection = project_corpus(&root, &corpus).unwrap();
+        let base = &projection
+            .cases
+            .iter()
+            .find(|case| case.id == "IR-REL-001")
+            .unwrap()
+            .program;
+        let path = root
+            .join("docs/experiments/0005-assurance-ir-extraction/corpus/q1-adversarial-cases.json");
+        let adversarial: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(adversarial.get("revision").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            adversarial.get("status").and_then(Value::as_str),
+            Some("preregistered-not-executed")
+        );
+        let attacks = adversarial.get("cases").and_then(Value::as_array).unwrap();
+        assert_eq!(attacks.len(), 12);
+
+        for attack in attacks {
+            let bytes = mutate_case(base, attack);
+            let expected = attack
+                .pointer("/expected/code")
+                .and_then(Value::as_str)
+                .unwrap();
+            let error = validate_case_program(&bytes).unwrap_err();
+            assert_eq!(error.code, expected, "attack {}", attack["id"]);
+        }
+    }
+
     fn mutate_case(base: &CaseProgram, attack: &Value) -> Vec<u8> {
         let mutation = attack.get("mutation").unwrap();
         let operation = mutation.get("operation").and_then(Value::as_str).unwrap();
@@ -2400,6 +2433,51 @@ mod tests {
                 array.push(mutation.get("value").unwrap().clone());
                 array.sort_by_key(|item| item.as_str().unwrap().to_owned());
             }
+            "add-object-field" => {
+                let object = value
+                    .pointer_mut(mutation.get("path").and_then(Value::as_str).unwrap())
+                    .and_then(Value::as_object_mut)
+                    .unwrap();
+                let field = mutation.get("field").and_then(Value::as_str).unwrap();
+                object.insert(field.to_owned(), mutation.get("value").unwrap().clone());
+            }
+            "add-array-member" => {
+                let array = value
+                    .pointer_mut(mutation.get("path").and_then(Value::as_str).unwrap())
+                    .and_then(Value::as_array_mut)
+                    .unwrap();
+                array.push(mutation.get("value").unwrap().clone());
+            }
+            "delete-array-member" => {
+                let array = value
+                    .pointer_mut(mutation.get("path").and_then(Value::as_str).unwrap())
+                    .and_then(Value::as_array_mut)
+                    .unwrap();
+                let index = mutation.get("index").and_then(Value::as_u64).unwrap() as usize;
+                array.remove(index);
+            }
+            "duplicate-array-member" => {
+                let array = value
+                    .pointer_mut(mutation.get("path").and_then(Value::as_str).unwrap())
+                    .and_then(Value::as_array_mut)
+                    .unwrap();
+                let index = mutation.get("index").and_then(Value::as_u64).unwrap() as usize;
+                array.insert(index, array[index].clone());
+            }
+            "add-graph-edge-and-rehash" => {
+                let graph = value.pointer_mut("/programme/graph").unwrap();
+                graph
+                    .get_mut("edges")
+                    .and_then(Value::as_array_mut)
+                    .unwrap()
+                    .push(mutation.get("value").unwrap().clone());
+                rehash_programme_graph(&mut value);
+            }
+            "replace-and-rehash-graph" => {
+                let path = mutation.get("path").and_then(Value::as_str).unwrap();
+                *value.pointer_mut(path).unwrap() = mutation.get("value").unwrap().clone();
+                rehash_programme_graph(&mut value);
+            }
             "encode-noncanonical" => {
                 let mut bytes = canonical_json(&value).unwrap();
                 bytes.push(b'\n');
@@ -2418,6 +2496,13 @@ mod tests {
             other => panic!("unsupported adversarial operation {other}"),
         }
         canonical_json(&value).unwrap()
+    }
+
+    fn rehash_programme_graph(value: &mut Value) {
+        let graph = value.pointer("/programme/graph").unwrap();
+        let schema = graph.get("schema").and_then(Value::as_str).unwrap();
+        let digest = domain_hash(schema, &canonical_json(graph).unwrap());
+        value["programme"]["graph_sha256"] = Value::String(digest);
     }
 
     fn delete_pointer(value: &mut Value, pointer: &str) {

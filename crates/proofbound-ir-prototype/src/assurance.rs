@@ -551,7 +551,12 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         }
         if authority == "portable-receipt" {
             portable_receipt = true;
-            text(item, "schema")?;
+            if item.get("schema").and_then(Value::as_str) != Some("proofbound-evidence/3") {
+                return Err(IrValidationError::new(
+                    "IR-PORTABLE-EVIDENCE-SCHEMA",
+                    "portable evidence schema is missing or unsupported",
+                ));
+            }
             text(item, "content_sha256")?;
         }
         if claim_assumptions.iter().any(|registered| {
@@ -660,8 +665,15 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
     }
 
     validate_programme(programme, portable_receipt)?;
+    let reported = object_field(object, "reported")?;
     if portable_receipt {
-        validate_portable_joins(programme, claims, evidence)?;
+        validate_portable_joins(
+            programme,
+            claims,
+            evidence,
+            reported,
+            object_field(object, "policy")?,
+        )?;
     }
 
     let cache = object_field(object, "cache")?;
@@ -674,7 +686,6 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         ));
     }
 
-    let reported = object_field(object, "reported")?;
     let exact_status = object
         .get("exact_status")
         .and_then(Value::as_bool)
@@ -691,6 +702,8 @@ fn validate_portable_joins(
     programme: &Map<String, Value>,
     claims: &[Value],
     evidence: &[Value],
+    reported: &Map<String, Value>,
+    derived_policy: &Map<String, Value>,
 ) -> Result<(), IrValidationError> {
     let project = object_field(programme, "project")?;
     let revision = text(project, "revision")?;
@@ -708,11 +721,72 @@ fn validate_portable_joins(
         .iter()
         .map(|status| text(value_object(status)?, "claim_id"))
         .collect::<Result<BTreeSet<_>, _>>()?;
+    if status_claims.len() != statuses.len() {
+        return Err(IrValidationError::new(
+            "IR-DECODE-DUPLICATE",
+            "portable reported statuses contain duplicate claim ownership",
+        ));
+    }
     if claim_ids != status_claims {
         return Err(IrValidationError::new(
             "IR-PROGRAMME-STATUS-MISMATCH",
             "portable reported statuses do not cover the exact claim set",
         ));
+    }
+    for status in statuses {
+        let status = value_object(status)?;
+        let claim_id = text(status, "claim_id")?;
+        let claim = claims
+            .iter()
+            .find(|claim| claim.get("id").and_then(Value::as_str) == Some(claim_id))
+            .and_then(Value::as_object)
+            .expect("status coverage proves claim exists");
+        let public_statement = object_field(claim, "presentation")?
+            .get("public_statement")
+            .and_then(Value::as_str);
+        if status.get("public_statement").and_then(Value::as_str) != public_statement {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-PRESENTATION-MISMATCH",
+                "reported public statement differs from the claim presentation",
+            ));
+        }
+        for field in ["formal", "linkage", "assumption"] {
+            if status.get(field) != reported.get(field) {
+                return Err(IrValidationError::new(
+                    "IR-PROGRAMME-STATUS-MISMATCH",
+                    "portable reported status differs from independent derivation",
+                ));
+            }
+        }
+        if status.get("policy_admitted") != reported.get("policy_admitted") {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-STATUS-MISMATCH",
+                "portable policy decision differs from independent derivation",
+            ));
+        }
+    }
+
+    let policies = array_field(programme, "policies")?;
+    let required_components = text_array(derived_policy, "required_components")?;
+    for claim in claims {
+        let claim = value_object(claim)?;
+        let policy_id = text(object_field(claim, "admission")?, "policy")?;
+        let policy = policies
+            .iter()
+            .find(|policy| policy.get("id").and_then(Value::as_str) == Some(policy_id))
+            .and_then(Value::as_object)
+            .ok_or_else(|| {
+                IrValidationError::new(
+                    "IR-PROGRAMME-POLICY-MISMATCH",
+                    "claim policy is absent from the effective policy set",
+                )
+            })?;
+        if text_array(policy, "components")? != required_components {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-POLICY-MISMATCH",
+                "effective policy differs from the policy used by status derivation",
+            ));
+        }
     }
     let blockers = statuses
         .iter()
@@ -729,6 +803,8 @@ fn validate_portable_joins(
             "publication blockers differ from non-admitted statuses",
         ));
     }
+
+    validate_ledger_joins(programme, &claim_ids, evidence)?;
     for item in evidence {
         let item = value_object(item)?;
         if text(item, "authority")? != "portable-receipt" {
@@ -748,6 +824,64 @@ fn validate_portable_joins(
             return Err(IrValidationError::new(
                 "IR-PROGRAMME-CLOSURE-MISSING",
                 "portable evidence names an unregistered semantic closure",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_ledger_joins(
+    programme: &Map<String, Value>,
+    claim_ids: &BTreeSet<&str>,
+    evidence: &[Value],
+) -> Result<(), IrValidationError> {
+    let graph = object_field(programme, "graph")?;
+    let nodes = array_field(graph, "nodes")?
+        .iter()
+        .map(|node| {
+            let node = value_object(node)?;
+            Ok((text(node, "id")?, text(node, "kind")?))
+        })
+        .collect::<Result<std::collections::BTreeMap<_, _>, IrValidationError>>()?;
+    let evidence_ids = evidence
+        .iter()
+        .filter_map(|item| item.get("content_sha256").and_then(Value::as_str))
+        .collect::<BTreeSet<_>>();
+    for assumption in array_field(programme, "assumptions")? {
+        let assumption = value_object(assumption)?;
+        let node_id = text(assumption, "node_id")?;
+        let affected = text_array(assumption, "affected_claims")?;
+        let reviews = text_array(assumption, "review_evidence")?;
+        if nodes.get(node_id) != Some(&"assumption")
+            || affected
+                .iter()
+                .any(|claim| !claim_ids.contains(claim.as_str()))
+            || reviews
+                .iter()
+                .any(|review| !evidence_ids.contains(review.as_str()))
+        {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-LEDGER-JOIN",
+                "assumption ledger references absent programme identities",
+            ));
+        }
+    }
+    for premise in array_field(programme, "premises")? {
+        let premise = value_object(premise)?;
+        let node_id = text(premise, "node_id")?;
+        let theorem = premise.get("theorem_evidence").and_then(Value::as_str);
+        let discharge = premise
+            .get("discharge")
+            .and_then(Value::as_object)
+            .and_then(|value| value.get("theorem_evidence"))
+            .and_then(Value::as_str);
+        if nodes.get(node_id) != Some(&"premise")
+            || theorem.is_some_and(|id| !evidence_ids.contains(id))
+            || discharge.is_some_and(|id| !evidence_ids.contains(id))
+        {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-LEDGER-JOIN",
+                "premise ledger references absent programme identities",
             ));
         }
     }
@@ -838,16 +972,54 @@ fn validate_programme(
 }
 
 fn validate_graph(graph: &Map<String, Value>) -> Result<(), IrValidationError> {
+    const NODE_KINDS: &[&str] = &[
+        "claim",
+        "theorem",
+        "subject",
+        "artifact",
+        "source-closure",
+        "translation-unit",
+        "model-check-unit",
+        "test-suite",
+        "assumption",
+        "premise",
+        "toolchain",
+        "tcb-component",
+        "review",
+        "policy",
+    ];
+    const EDGE_KINDS: &[&str] = &[
+        "proves",
+        "refines",
+        "decodes",
+        "checks",
+        "generated-from",
+        "depends-on",
+        "assumes",
+        "discharged-by",
+        "cross-checks",
+        "covers-bounded-domain",
+        "binds-digest",
+        "reviewed-by",
+        "admitted-by-policy",
+    ];
     exact_fields(
         graph,
         &["schema", "nodes", "edges", "mutual_theorem_groups"],
         &[],
     )?;
+    let mut node_ids = BTreeSet::new();
     for node in array_field(graph, "nodes")? {
         let node = value_object(node)?;
         exact_fields(node, &["id", "kind"], &["proof_environment"])?;
-        text(node, "id")?;
-        text(node, "kind")?;
+        let id = text(node, "id")?;
+        let kind = text(node, "kind")?;
+        if !node_ids.insert(id) || !NODE_KINDS.contains(&kind) {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-GRAPH-SEMANTICS",
+                "graph contains a duplicate node or unknown node kind",
+            ));
+        }
         optional_text_value(node, "proof_environment")?;
     }
     for edge in array_field(graph, "edges")? {
@@ -855,6 +1027,15 @@ fn validate_graph(graph: &Map<String, Value>) -> Result<(), IrValidationError> {
         exact_fields(edge, &["from", "to", "kind"], &[])?;
         for field in ["from", "to", "kind"] {
             text(edge, field)?;
+        }
+        if !node_ids.contains(text(edge, "from")?)
+            || !node_ids.contains(text(edge, "to")?)
+            || !EDGE_KINDS.contains(&text(edge, "kind")?)
+        {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-GRAPH-SEMANTICS",
+                "graph edge has an absent endpoint or unknown kind",
+            ));
         }
     }
     for group in array_field(graph, "mutual_theorem_groups")? {

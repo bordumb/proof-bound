@@ -248,7 +248,11 @@ def validate_case_program(data: bytes) -> None:
             _object(item, "request")
         if authority == "portable-receipt":
             portable_receipt = True
-            _required_text(item, "schema")
+            if item.get("schema") != "proofbound-evidence/3":
+                _fail(
+                    "IR-PORTABLE-EVIDENCE-SCHEMA",
+                    "portable evidence schema is missing or unsupported",
+                )
             _required_text(item, "content_sha256")
         if any(
             any(assumption not in registered for assumption in assumptions)
@@ -331,8 +335,15 @@ def validate_case_program(data: bytes) -> None:
             )
 
     _validate_programme(programme, portable_receipt)
+    reported = _object(root, "reported")
     if portable_receipt:
-        _validate_portable_joins(programme, claims, evidence)
+        _validate_portable_joins(
+            programme,
+            claims,
+            evidence,
+            reported,
+            _object(root, "policy"),
+        )
 
     cache = _object(root, "cache")
     registered = _cache_inputs(cache, "registered_inputs")
@@ -346,7 +357,7 @@ def validate_case_program(data: bytes) -> None:
     if not isinstance(exact, bool):
         _fail("IR-DECODE-INVALID", "missing exact_status")
     assumed = any(bool(items) for items in claim_assumptions)
-    _validate_reported(_object(root, "reported"), kinds, assumed or obligations, exact)
+    _validate_reported(reported, kinds, assumed or obligations, exact)
 
 
 def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> None:
@@ -358,7 +369,7 @@ def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> No
         if not isinstance(project.get("tier"), int):
             _fail("IR-DECODE-INVALID", "portable project tier is required")
         graph = _object(programme, "graph")
-        _typed_graph(graph)
+        _validate_graph_semantics(graph)
         graph_schema = _required_text(graph, "schema")
         graph_sha256 = _required_text(programme, "graph_sha256")
         if domain_hash(graph_schema, canonical_json(graph)) != graph_sha256:
@@ -387,18 +398,18 @@ def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> No
                     "size_bytes": artifact["size_bytes"],
                 }
             )
-    for assumption in _list(programme, "assumptions"):
-        _typed_assumption(_as_object(assumption))
-    for premise in _list(programme, "premises"):
-        _typed_premise(_as_object(premise))
-    for policy in _list(programme, "policies"):
-        _typed_policy(_as_object(policy))
         source_record = {"schema": schema, "kind": kind, "members": source_members}
         if domain_hash(schema, canonical_json(source_record)) != sha256:
             _fail(
                 "IR-PROGRAMME-CLOSURE-IDENTITY",
                 "portable closure identity does not match its typed content",
             )
+    for assumption in _list(programme, "assumptions"):
+        _typed_assumption(_as_object(assumption))
+    for premise in _list(programme, "premises"):
+        _typed_premise(_as_object(premise))
+    for policy in _list(programme, "policies"):
+        _typed_policy(_as_object(policy))
     for artifact in _list(programme, "sealed_artifacts"):
         _validate_artifact(_as_object(artifact))
     for field in ("assumptions", "premises", "publication_blockers"):
@@ -406,7 +417,11 @@ def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> No
 
 
 def _validate_portable_joins(
-    programme: dict[str, Any], claims: list[object], evidence: list[object]
+    programme: dict[str, Any],
+    claims: list[object],
+    evidence: list[object],
+    reported: dict[str, Any],
+    derived_policy: dict[str, Any],
 ) -> None:
     project = _object(programme, "project")
     revision = _required_text(project, "revision")
@@ -418,11 +433,54 @@ def _validate_portable_joins(
     claim_ids = {_required_text(_as_object(claim), "id") for claim in claims}
     statuses = [_as_object(status) for status in _list(programme, "reported_statuses")]
     status_claims = {_required_text(status, "claim_id") for status in statuses}
+    if len(status_claims) != len(statuses):
+        _fail(
+            "IR-DECODE-DUPLICATE",
+            "portable reported statuses contain duplicate claim ownership",
+        )
     if claim_ids != status_claims:
         _fail(
             "IR-PROGRAMME-STATUS-MISMATCH",
             "portable reported statuses do not cover the exact claim set",
         )
+    claims_by_id = {
+        _required_text(_as_object(claim), "id"): _as_object(claim) for claim in claims
+    }
+    for status in statuses:
+        claim = claims_by_id[_required_text(status, "claim_id")]
+        presentation = _object(claim, "presentation")
+        if status.get("public_statement") != presentation.get("public_statement"):
+            _fail(
+                "IR-PROGRAMME-PRESENTATION-MISMATCH",
+                "reported public statement differs from the claim presentation",
+            )
+        if any(
+            status.get(field) != reported.get(field)
+            for field in ("formal", "linkage", "assumption")
+        ):
+            _fail(
+                "IR-PROGRAMME-STATUS-MISMATCH",
+                "portable reported status differs from independent derivation",
+            )
+        if status.get("policy_admitted") != reported.get("policy_admitted"):
+            _fail(
+                "IR-PROGRAMME-STATUS-MISMATCH",
+                "portable policy decision differs from independent derivation",
+            )
+
+    policies = {
+        _required_text(policy, "id"): policy
+        for policy in (_as_object(item) for item in _list(programme, "policies"))
+    }
+    required_components = _text_list(derived_policy, "required_components")
+    for claim in claims_by_id.values():
+        policy_id = _required_text(_object(claim, "admission"), "policy")
+        policy = policies.get(policy_id)
+        if policy is None or _text_list(policy, "components") != required_components:
+            _fail(
+                "IR-PROGRAMME-POLICY-MISMATCH",
+                "effective policy differs from the policy used by status derivation",
+            )
     blockers = [
         status["claim_id"]
         for status in statuses
@@ -433,6 +491,7 @@ def _validate_portable_joins(
             "IR-PROGRAMME-BLOCKER-MISMATCH",
             "publication blockers differ from non-admitted statuses",
         )
+    _validate_ledger_joins(programme, claim_ids, evidence)
     for item_value in evidence:
         item = _as_object(item_value)
         if _required_text(item, "authority") != "portable-receipt":
@@ -450,6 +509,50 @@ def _validate_portable_joins(
             _fail(
                 "IR-PROGRAMME-CLOSURE-MISSING",
                 "portable evidence names an unregistered semantic closure",
+            )
+
+
+def _validate_ledger_joins(
+    programme: dict[str, Any], claim_ids: set[str], evidence: list[object]
+) -> None:
+    graph = _object(programme, "graph")
+    nodes = {
+        _required_text(node, "id"): _required_text(node, "kind")
+        for node in (_as_object(item) for item in _list(graph, "nodes"))
+    }
+    evidence_ids = {
+        item["content_sha256"]
+        for item in (_as_object(value) for value in evidence)
+        if isinstance(item.get("content_sha256"), str)
+    }
+    for assumption in (_as_object(item) for item in _list(programme, "assumptions")):
+        node_id = _required_text(assumption, "node_id")
+        affected = _text_list(assumption, "affected_claims")
+        reviews = _text_list(assumption, "review_evidence")
+        if (
+            nodes.get(node_id) != "assumption"
+            or any(claim not in claim_ids for claim in affected)
+            or any(review not in evidence_ids for review in reviews)
+        ):
+            _fail(
+                "IR-PROGRAMME-LEDGER-JOIN",
+                "assumption ledger references absent programme identities",
+            )
+    for premise in (_as_object(item) for item in _list(programme, "premises")):
+        node_id = _required_text(premise, "node_id")
+        theorem = premise.get("theorem_evidence")
+        discharge = premise.get("discharge")
+        discharged_by = (
+            discharge.get("theorem_evidence") if isinstance(discharge, dict) else None
+        )
+        if (
+            nodes.get(node_id) != "premise"
+            or (theorem is not None and theorem not in evidence_ids)
+            or (discharged_by is not None and discharged_by not in evidence_ids)
+        ):
+            _fail(
+                "IR-PROGRAMME-LEDGER-JOIN",
+                "premise ledger references absent programme identities",
             )
 
 
@@ -1227,6 +1330,68 @@ def _typed_graph(graph: dict[str, Any]) -> dict[str, Any]:
             for group in graph["mutual_theorem_groups"]
         ],
     }
+
+
+def _validate_graph_semantics(graph: dict[str, Any]) -> None:
+    node_kinds = {
+        "claim",
+        "theorem",
+        "subject",
+        "artifact",
+        "source-closure",
+        "translation-unit",
+        "model-check-unit",
+        "test-suite",
+        "assumption",
+        "premise",
+        "toolchain",
+        "tcb-component",
+        "review",
+        "policy",
+    }
+    edge_kinds = {
+        "proves",
+        "refines",
+        "decodes",
+        "checks",
+        "generated-from",
+        "depends-on",
+        "assumes",
+        "discharged-by",
+        "cross-checks",
+        "covers-bounded-domain",
+        "binds-digest",
+        "reviewed-by",
+        "admitted-by-policy",
+    }
+    typed = _typed_graph(graph)
+    node_ids: set[str] = set()
+    for node in typed["nodes"]:
+        node_id = _required_text(node, "id")
+        kind = _required_text(node, "kind")
+        if node_id in node_ids or kind not in node_kinds:
+            _fail(
+                "IR-PROGRAMME-GRAPH-SEMANTICS",
+                "graph contains a duplicate node or unknown node kind",
+            )
+        node_ids.add(node_id)
+    for edge in typed["edges"]:
+        source = _required_text(edge, "from")
+        target = _required_text(edge, "to")
+        kind = _required_text(edge, "kind")
+        if source not in node_ids or target not in node_ids or kind not in edge_kinds:
+            _fail(
+                "IR-PROGRAMME-GRAPH-SEMANTICS",
+                "graph edge has an absent endpoint or unknown kind",
+            )
+    for group in typed["mutual_theorem_groups"]:
+        members = _text_list(group, "members")
+        _require_sorted_unique(members)
+        if any(member not in node_ids for member in members):
+            _fail(
+                "IR-PROGRAMME-GRAPH-SEMANTICS",
+                "mutual theorem group names an absent graph node",
+            )
 
 
 def _typed_assumption(value: dict[str, Any]) -> dict[str, Any]:

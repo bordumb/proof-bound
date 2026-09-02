@@ -10,6 +10,7 @@ from proofbound.assurance_ir_checker import (
     canonical_json,
     check_canonical_vectors,
     check_projection,
+    domain_hash,
     validate_case_program,
 )
 
@@ -21,6 +22,10 @@ VECTORS = (
 )
 ADVERSARIAL = (
     ROOT / "docs/experiments/0005-assurance-ir-extraction/corpus/adversarial-cases.json"
+)
+Q1_ADVERSARIAL = (
+    ROOT
+    / "docs/experiments/0005-assurance-ir-extraction/corpus/q1-adversarial-cases.json"
 )
 
 
@@ -180,6 +185,35 @@ def test_both_implementations_reject_every_preregistered_attack() -> None:
         assert rust.stderr.decode().startswith(f"{expected}:"), attack["id"]
 
 
+def test_both_implementations_reject_every_preregistered_q1_attack() -> None:
+    projection = json.loads(producer_projection())
+    programs = {case["id"]: case["program"] for case in projection["cases"]}
+    adversarial = json.loads(Q1_ADVERSARIAL.read_bytes())
+    assert adversarial["revision"] == 1
+    assert adversarial["status"] == "preregistered-not-executed"
+    attacks = adversarial["cases"]
+    assert len(attacks) == 12
+    base = programs[adversarial["base_case"]]
+    rust_validator = ROOT / "target/debug/proofbound-ir-prototype"
+
+    for attack in attacks:
+        data = mutate_case(base, attack["mutation"])
+        expected = attack["expected"]["code"]
+        with pytest.raises(AssuranceIrError) as caught:
+            validate_case_program(data)
+        assert caught.value.code == expected, attack["id"]
+
+        rust = subprocess.run(
+            [rust_validator, "validate"],
+            cwd=ROOT,
+            input=data,
+            capture_output=True,
+            check=False,
+        )
+        assert rust.returncode == 1, attack["id"]
+        assert rust.stderr.decode().startswith(f"{expected}:"), attack["id"]
+
+
 def mutate_case(program: dict[str, object], mutation: dict[str, object]) -> bytes:
     """Apply one preregistered transformation to an isolated base case."""
 
@@ -187,10 +221,16 @@ def mutate_case(program: dict[str, object], mutation: dict[str, object]) -> byte
     operation = mutation["operation"]
     if operation == "delete":
         parent, field = pointer_parent(value, str(mutation["path"]))
-        del parent[field]
+        if isinstance(parent, list):
+            del parent[int(field)]
+        else:
+            del parent[field]
     elif operation in {"replace", "replace-reported-status"}:
         parent, field = pointer_parent(value, str(mutation["path"]))
-        parent[field] = mutation["value"]
+        if isinstance(parent, list):
+            parent[int(field)] = mutation["value"]
+        else:
+            parent[field] = mutation["value"]
     elif operation == "duplicate-set-member":
         items = pointer(value, str(mutation["path"]))
         index = int(mutation["index"])
@@ -214,6 +254,33 @@ def mutate_case(program: dict[str, object], mutation: dict[str, object]) -> byte
         items = pointer(value, str(mutation["path"]))
         items.append(mutation["value"])
         items.sort()
+    elif operation == "add-object-field":
+        parent = pointer(value, str(mutation["path"]))
+        parent[mutation["field"]] = mutation["value"]
+    elif operation == "add-array-member":
+        pointer(value, str(mutation["path"])).append(mutation["value"])
+    elif operation == "delete-array-member":
+        del pointer(value, str(mutation["path"]))[int(mutation["index"])]
+    elif operation == "duplicate-array-member":
+        items = pointer(value, str(mutation["path"]))
+        index = int(mutation["index"])
+        items.insert(index, json.loads(json.dumps(items[index])))
+    elif operation == "add-graph-edge-and-rehash":
+        graph = value["programme"]["graph"]
+        graph["edges"].append(mutation["value"])
+        value["programme"]["graph_sha256"] = domain_hash(
+            graph["schema"], canonical_json(graph)
+        )
+    elif operation == "replace-and-rehash-graph":
+        parent, field = pointer_parent(value, str(mutation["path"]))
+        if isinstance(parent, list):
+            parent[int(field)] = mutation["value"]
+        else:
+            parent[field] = mutation["value"]
+        graph = value["programme"]["graph"]
+        value["programme"]["graph_sha256"] = domain_hash(
+            graph["schema"], canonical_json(graph)
+        )
     elif operation == "encode-noncanonical":
         return canonical_json(value) + b"\n"
     elif operation == "encode-duplicate-object-key":
