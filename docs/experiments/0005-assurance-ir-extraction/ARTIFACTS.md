@@ -15,6 +15,7 @@
 | EXP-0005-A009 | `results/2026-09-01-initial-projection-parity.json` | immutable result, `sha256:29a272074ebd379f6db3c9c243e19b4dbd2eb5f59d26534a69bd7f1b75a6da67` | Rust/Python agreement on 20 positive projections and 15 canonical vectors |
 | EXP-0005-A010 | `results/2026-09-02-adversarial-evidence-algebra.json` | immutable result, `sha256:36a312a1366fb7075532daea8b97d4fdd60f5bbe1c63b6c3d9874415cdb268fa` | Rust/Python agreement on 20 positives, 20 exact adversarial rejections, 15 canonical vectors, and bounded Q2-Q4 outcomes |
 | EXP-0005-A011 | `q1-losslessness-matrix.json` | frozen gap audit, revision 1, `sha256:0cde656cc329800792d6ace3eaf5a8a6b43b51f8a8029052352195f7b38e399b` | Sixteen-row Q1 accounting matrix; one row forward-complete and zero reverse-complete at implementation `f577a55` |
+| EXP-0005-A012 | `results/2026-09-02-q1-forward-projection-progress.json` | immutable progress result, `sha256:7d7f57c38137ddd7340c2bffeb5b035d22ea7a0ade4191cb0d50462d61a2ac39`; Q1 remains failed | Rust/Python agreement on 20 expanded programmes, complete portable forward projection for the frozen fixture, and matched omission/join attacks |
 
 Content digests identify frozen research inputs. Revisions must receive a new
 artifact digest; existing frozen bytes are not edited in place after an

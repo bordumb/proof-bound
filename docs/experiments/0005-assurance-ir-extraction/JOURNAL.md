@@ -164,3 +164,24 @@ claim ID cannot satisfy that contract.
 
 No Q1 comparison has run against revision 2. The expected statuses, evidence
 registrations, semantic conformance pointers, and release fixture are unchanged.
+
+## 2026-09-02 — Q1 forward-projection progress run
+
+At implementation commit `6f9b89e`, ran corpus revision 2 through the expanded
+Rust projection and independent Python reconstruction. Both implementations
+agreed on all 20 canonical programmes with projection identity
+`sha256:7e44e8f988292bc5895efa9a83a67a228fd8da2e5c033e545925c5a1aea68dd4`.
+
+Registration cases now retain actual claim meaning and the complete evidence
+request rather than placeholders or configuration-only hashes. The portable
+case now retains the evidence content address, complete execution provenance,
+project identity, graph and ledgers, policies, closures, sealed artifacts, and
+publication blockers. Both validators reject a missing portable policy and a
+project/provenance revision substitution with matching stable codes.
+
+This does not pass Q1. The portable programme does not yet reverse-project to
+the receipt's registered semantic value, registration cache dependencies remain
+a research placeholder, and graph, policy, assumption, and premise values are
+preserved but not yet independently interpreted as typed kernel records. The
+machine-readable result records these limits so forward completeness cannot be
+mistaken for losslessness.
