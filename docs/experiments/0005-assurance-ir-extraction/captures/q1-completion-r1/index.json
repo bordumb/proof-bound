@@ -1,0 +1,117 @@
+{
+  "schema": "proofbound-research-q1-completion-capture/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "revision": 1,
+  "status": "captured-not-yet-analyzed",
+  "subject": "git:f3a5362fda0bcdfc444bd9f9db06e94b84ae1784",
+  "preregistration": {
+    "path": "docs/experiments/0005-assurance-ir-extraction/q1-completion-preregistration.json",
+    "sha256": "sha256:0815675e11a73cb0a6e3b76179b9e5d39152135b1f1bbf4a7113f6982862ca50"
+  },
+  "environment": {
+    "operating_system": "Darwin",
+    "release": "27.0.0",
+    "architecture": "arm64",
+    "proofbound": {
+      "version": "0.0.1",
+      "sha256": "sha256:d07131ee088a10b35b4532d64967592bcae7e1b811072b7134f52b188938d303",
+      "size_bytes": 31141368
+    },
+    "proofbound_verify": {
+      "version": "0.0.1",
+      "sha256": "sha256:a5322e64a7a7e54da64619e4d1360df3f9f819d1876ca911b853db106259328b",
+      "size_bytes": 8774608
+    },
+    "common_tools": [
+      "git version 2.54.0 (Apple Git-156)",
+      "rustc 1.94.0 (4a4ef493e 2026-03-02)",
+      "cargo 1.94.0 (85eff7c80 2026-01-15)",
+      "Lean 4.33.0 commit d8b18978322de05a8f3dba51ef03cf5461676c17",
+      "Lake 5.0.0-src+d8b1897",
+      "Python 3.12.11",
+      "Node v22.22.2",
+      "npm 10.9.7",
+      "cargo-kani 0.67.0"
+    ]
+  },
+  "cases": [
+    {
+      "id": "Q1-VERTICAL-PYTHON",
+      "project": "proofbound-python-inventory",
+      "fresh_check": "passed",
+      "second_check": "passed; PY-RESERVATION-001 verified-now and PY-WHEEL-001 verified-from-cache",
+      "release_verdict": "receipt-consistent",
+      "publication_blocked": false,
+      "payload_sha256": "sha256:07c98a3265dd3fb5cfee86139b5ea68ac01e5835e78cd0f89db4694865b4dddc",
+      "selected_claims": [
+        {"claim_id": "PY-RESERVATION-001", "formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+        {"claim_id": "PY-WHEEL-001", "formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true}
+      ],
+      "evidence_records": 7,
+      "tcb_components": 7,
+      "preconditions": ["The registered development environment was supplied on PATH; doctor confirmed pytest, mypy, build, and the Hypothesis plugin before execution."],
+      "files": [
+        {"path": "python/compiled-receipt.json", "sha256": "sha256:a7f09e3674d3b324900309cc05369bcb5ed51b2ab43817130c91ac315f662188", "size_bytes": 67008},
+        {"path": "python/release.json", "sha256": "sha256:54060876cefbac4fb513e8689507cd73699e0e3fb9791347d9bd7409c19f3e90", "size_bytes": 167},
+        {"path": "python/tcb-ledger.json", "sha256": "sha256:0df58bba8ab5a3f3832b17833150f7c3e7b61bd4f09b3e03c0317afe71b9acb2", "size_bytes": 1266}
+      ]
+    },
+    {
+      "id": "Q1-VERTICAL-TYPESCRIPT",
+      "project": "proofbound-typescript-codec",
+      "fresh_check": "passed after registered npm access was available",
+      "second_check": "passed; both selected claims verified-from-cache",
+      "release_verdict": "receipt-consistent",
+      "publication_blocked": false,
+      "payload_sha256": "sha256:0e164a62cb0c97d7cb98f216ae3706ffb4b3f70bbf7c979a1d11763f37dd8ed5",
+      "selected_claims": [
+        {"claim_id": "TS-CODEC-001", "formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
+        {"claim_id": "TS-PACKAGE-001", "formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true}
+      ],
+      "evidence_records": 6,
+      "tcb_components": 6,
+      "preconditions": [
+        "npm ci --ignore-scripts installed the registered dependency closure before doctor.",
+        "A first sandboxed fresh check failed closed with every tool-produced record missing because sealed npm installs lacked network/cache authority.",
+        "The repeated fresh check used approved npm access and passed; the failed attempt produced no admitted technical evidence."
+      ],
+      "files": [
+        {"path": "typescript/compiled-receipt.json", "sha256": "sha256:181243a0347df7fab9c779776d8adb281d679bf06c87d79c139c1165f2ffd104", "size_bytes": 71970},
+        {"path": "typescript/release.json", "sha256": "sha256:9eadc68ffded301793589e25baf3152268258b73e46c5f663de0dc75488d74fa", "size_bytes": 167},
+        {"path": "typescript/tcb-ledger.json", "sha256": "sha256:cffbf670ecffe3bed176fafae8b75577fa010444d6ccfb878932c26635108ccf", "size_bytes": 1035}
+      ]
+    },
+    {
+      "id": "Q1-VERTICAL-RUST",
+      "project": "proofbound",
+      "fresh_check": "passed for the selected claim and then for the full project",
+      "second_check": "selected claim passed verified-from-cache",
+      "release_verdict": "receipt-consistent",
+      "publication_blocked": false,
+      "payload_sha256": "sha256:da44aacad6a30e79746aa6fa177605fbb3d361e8f67326eabec8e1b71bbe42cd",
+      "selected_claims": [
+        {"claim_id": "DEMO-TRANSFER-003", "formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true}
+      ],
+      "evidence_records": 32,
+      "tcb_components": 15,
+      "preconditions": [
+        "The demo manifest is repository-relative, so execution used the repository project root and a claim filter.",
+        "The first selected-claim check failed closed because the detached worktree had no compiled Lean modules even though doctor found Lean and Lake.",
+        "lake build established the registered module environment; the repeated fresh selected-claim check passed.",
+        "Proofbound correctly refused release after a filtered check. A full fresh project check passed before the portable release was created."
+      ],
+      "files": [
+        {"path": "rust/compiled-receipt.json", "sha256": "sha256:3a474a30db3c66fb187a02a6ce95dbc2660430fc80efb02004f9acb1b7fbebcb", "size_bytes": 396481},
+        {"path": "rust/release.json", "sha256": "sha256:860015ad815f7499efad772c41b26ffcfb774fc7fa51331fcd5deb182ad5d659", "size_bytes": 167},
+        {"path": "rust/tcb-ledger.json", "sha256": "sha256:02b622c5cfde337af72da811bdda00871f0b553884b6db3b3e81a215b1d9b032", "size_bytes": 2463}
+      ]
+    }
+  ],
+  "retention": {
+    "included": ["compiled receipts", "release envelopes", "TCB ledgers", "capture identities and outcomes"],
+    "excluded": ["native binaries", "dependency directories", "Proofbound private caches", "duplicate public schemas", "full temporary release directories"],
+    "verification_note": "Independent verification ran successfully against each complete temporary release before pruning. The committed semantic subset is not itself a standalone release because sealed binaries, schemas, and auxiliary ledgers are intentionally excluded."
+  },
+  "decision": "Capture succeeded. No Q1 row closes until the registered artifact/cache attacks and independent derivation traces are implemented and executed over these exact records."
+}

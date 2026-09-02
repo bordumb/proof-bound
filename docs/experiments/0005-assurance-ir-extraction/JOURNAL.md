@@ -261,3 +261,27 @@ not passes. The experiment will retain bounded semantic records rather than
 dependency directories or native binaries. Go remains excluded as the future
 holdout and cannot begin until all sixteen Q1 rows pass and Assurance IR `/1`
 is frozen.
+
+## 2026-09-02 — Q1 completion vertical capture
+
+Executed all three preregistered verticals in a detached clean worktree at
+`f3a5362`. Python passed a fresh check, a second mixed executed/reused check,
+portable release, and standalone verification. TypeScript first failed closed
+when the sandbox denied npm access inside its sealed install; with explicit npm
+authority, its fresh check passed, its unchanged replay verified both selected
+claims from cache, and its release verified independently. No record from the
+failed attempt was admitted.
+
+The Rust claim first failed closed because a detached source worktree had no
+compiled Lean modules even though doctor found Lean and Lake. After the
+registered project completed `lake build`, the selected fresh claim and cache
+replay passed. Proofbound rejected a release after the filtered check, so the
+complete repository fresh check was run and passed before release; the
+standalone verifier then returned receipt-consistent.
+
+The committed capture retains compiled receipts, release envelopes, TCB
+ledgers, identities, and execution observations but excludes binaries,
+dependency trees, private caches, and duplicate schemas. It is therefore a
+semantic research capture rather than a standalone release distribution. No
+Q1 row closes from capture alone. The registered trace, artifact, and cache
+attacks remain unexecuted.

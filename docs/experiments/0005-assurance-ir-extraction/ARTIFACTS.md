@@ -23,6 +23,8 @@
 | EXP-0005-A017 | `results/2026-09-02-q1-representation-hardening.json` | immutable progress result, `sha256:1f22128eedad6d3d629c70f2bcd1671c3aa11d8df033bcc19a9f15b08f05e8c0` | Rust/Python evidence that three known representation gaps closed without freezing Assurance IR `/1` or beginning the holdout |
 | EXP-0005-A018 | `q1-completion-preregistration.json` | preregistered, revision 1, `sha256:0815675e11a73cb0a6e3b76179b9e5d39152135b1f1bbf4a7113f6982862ca50`; not executed | Three complete language verticals plus fixed derivation-trace, artifact-role, and cache-invalidation acceptance rules |
 | EXP-0005-A019 | `q1-completion-plan.md` | preregistered protocol, `sha256:ba47b094ed9e9f4b4dd621ffbae1b0bad1d304fcd340a2384e733fe58df85676`; not executed | Human-readable capture, storage, ordering, and stop-condition protocol for closing or falsifying the four remaining Q1 rows |
+| EXP-0005-A020 | `captures/q1-completion-r1/index.json` | captured, revision 1, `sha256:54ff0bddf5251b1889e608bed86591600157335b0921f0c99b7584f4fae1c998`; analysis pending | Exact identity index and execution record for three complete language vertical captures; binds the nine retained receipt/envelope/TCB files |
+| EXP-0005-A021 | `captures/q1-completion-r1/README.md` | capture contract, `sha256:fb58bd806a3090014282f0493937c66d0281eff1e2cbf87701a6def84420d087` | Explains why the retained semantic subset is not itself a standalone portable release |
 
 Content digests identify frozen research inputs. Revisions must receive a new
 artifact digest; existing frozen bytes are not edited in place after an
