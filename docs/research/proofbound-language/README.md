@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-02
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md); [Experiment 0006](../../experiments/0006-explicit-sampling-contract/README.md) concluded the Python/TypeScript sampling slice and [Experiment 0007](../../experiments/0007-rust-sampling-holdout/README.md) concluded the Rust holdout
+- **Active experiments:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md) and [Experiment 0008 — layered sampling model](../../experiments/0008-layered-sampling-model/README.md); [Experiment 0006](../../experiments/0006-explicit-sampling-contract/README.md) concluded the Python/TypeScript slice and [Experiment 0007](../../experiments/0007-rust-sampling-holdout/README.md) concluded the Rust holdout
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -49,7 +49,7 @@ contract. Eleven of sixteen Q1 rows are complete; five remain partial.
 | ID | Workstream | Status | Hypotheses | Active experiment |
 |---|---|---|---|---|
 | WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | running | H1, H2 | EXP-0005 |
-| WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | running | H2 | EXP-0005; EXP-0007 |
+| WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | running | H2 | EXP-0005; EXP-0008 |
 | WS-IN | [Invalidation](workstreams/invalidation.md) | planned | H3 | — |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | blocked by Gate 1 | H4 | — |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | planned | H5 | — |

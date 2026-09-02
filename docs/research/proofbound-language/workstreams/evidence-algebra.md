@@ -38,3 +38,6 @@ or artifact evidence.
   falsifies the EXP-0006 shape as one complete execution contract: proptest
   needs a bound RNG algorithm and cannot authoritatively expose the same
   counter set. The next candidate is a layered intent/plan/observation model.
+- [EXP-0008](../../../experiments/0008-layered-sampling-model/README.md)
+  tests that layered model, including whether unavailable telemetry produces a
+  consequence only when an admission rule actually requires it.

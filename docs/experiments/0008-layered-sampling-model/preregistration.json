@@ -1,0 +1,39 @@
+{
+  "schema": "proofbound-research-layered-sampling-preregistration/1",
+  "experiment": "EXP-0008",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-02",
+  "subject": "git:dcdffb77d01f2eba293d28cd48c5e466f9fea5b8",
+  "frozen_sources": [
+    {"path": "docs/experiments/0006-explicit-sampling-contract/corpus/contracts/hypothesis.json", "sha256": "sha256:2a4e3bcf036592ddc67c7ef14366aac9df73139a56371e881f80f468930f6677", "size_bytes": 958},
+    {"path": "docs/experiments/0006-explicit-sampling-contract/corpus/contracts/fast-check.json", "sha256": "sha256:7d95e10bbbe68ecad4df458d10720ed762481eac4796189393709883f2a280d5", "size_bytes": 933},
+    {"path": "docs/experiments/0006-explicit-sampling-contract/results/2026-09-02-adapter-owned-driver.json", "sha256": "sha256:2f22817442b6857585d469c1c4e3c0dcd89df4d8cd9451df0473d5501aaa506f", "size_bytes": 5957},
+    {"path": "docs/experiments/0007-rust-sampling-holdout/results/2026-09-02-proptest-holdout.json", "sha256": "sha256:663c984f6a87aaf6e2aa2dced71ea54a87aa19232988f669ca44e6a2486935ae", "size_bytes": 4192}
+  ],
+  "schemas": {
+    "intent": "proofbound-sampling-intent/1",
+    "plan": "proofbound-backend-sampling-plan/1",
+    "observation": "proofbound-layered-sampling-observation/1",
+    "fact_authority": ["observed", "derived", "unavailable"]
+  },
+  "attacks": [
+    {"id": "EXP-0008-A001", "mutation": "move proptest RNG algorithm from plan into common intent", "expected": "sampling-layer-violation"},
+    {"id": "EXP-0008-A002", "mutation": "omit RNG algorithm from the proptest plan", "expected": "sampling-plan-invalid"},
+    {"id": "EXP-0008-A003", "mutation": "replace one plan field and retain plan identity", "expected": "sampling-plan-identity-mismatch"},
+    {"id": "EXP-0008-A004", "mutation": "label a derived successful count as observed", "expected": "sampling-authority-mismatch"},
+    {"id": "EXP-0008-A005", "mutation": "replace unavailable shrink count with observed zero", "expected": "sampling-authority-mismatch"},
+    {"id": "EXP-0008-A006", "mutation": "remove a dependency from a derived fact", "expected": "sampling-derivation-incomplete"},
+    {"id": "EXP-0008-A007", "mutation": "admit a pass with completed budget unavailable", "expected": "sampling-admission-blocked"},
+    {"id": "EXP-0008-A008", "mutation": "require shrink count for a rule that does not consume it", "expected": "sampling-rule-overreach"},
+    {"id": "EXP-0008-A009", "mutation": "remove unused shrink telemetry", "expected": "no-admission-consequence"},
+    {"id": "EXP-0008-A010", "mutation": "substitute one same-count target", "expected": "sampling-inventory-mismatch"},
+    {"id": "EXP-0008-A011", "mutation": "reinterpret an EXP-0006 record as layered", "expected": "sampling-schema-mismatch"},
+    {"id": "EXP-0008-A012", "mutation": "reinterpret legacy Rust evidence as layered", "expected": "sampling-schema-mismatch"}
+  ],
+  "decision": {
+    "pass": "Q1–Q5 pass in Rust and Python with no framework branch in common intent validation or admission.",
+    "revise": "A falsifier identifies one bounded layer or authority-rule correction that remains backend-neutral.",
+    "stop": "The model requires framework-named common derivation, inferred facts, or schema reinterpretation."
+  }
+}
