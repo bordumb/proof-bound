@@ -173,8 +173,9 @@ Corrections are new entries rather than edits to earlier observations.
 The [artifact ledger](ARTIFACTS.md) indexes human and machine-readable research
 artifacts. Inventory revision 2 classifies the complete registered structural
 surface at the pinned baseline. Positive projection and adversarial
-evidence-algebra parity have now run; the result remains bounded by incomplete
-forward and reverse field coverage.
+evidence-algebra parity have now run. Post-decision representation hardening
+closes three more Q1 rows; the result remains bounded by four incomplete
+forward-and-reverse rows.
 
 ## Findings
 
@@ -185,10 +186,12 @@ forward and reverse field coverage.
 | EXP-0005-F003 | The current case projection omits fields required by Q1, including complete inventory, output, subject, closure, normalization, and TCB meaning; successful adversarial parity is not semantic sufficiency. | Result limitations and registered Q1 projection | Continue Gate 1 with a field-by-field losslessness matrix and reverse conversion. |
 | EXP-0005-F004 | A strict Q1 audit finds one of 16 rows forward-complete and none reverse-complete; opaque configuration hashes and synthetic cache/subject values are insufficient substitutes for registered meaning. | `q1-losslessness-matrix.json` | Freeze the matrix as the forward and reverse acceptance gate. |
 | EXP-0005-F005 | Portable reverse projection and twelve matched semantic attacks materially improve the IR, but seven of sixteen registered rows remain partial. Passing adversarial tests does not erase known representation gaps. | `q1-losslessness-matrix-r2.json`; `results/2026-09-02-q1-losslessness-decision.json` | Keep Gate 1 open. Close the seven rows before freezing `/1` or preregistering the Go holdout. |
+| EXP-0005-F006 | Closed family records, canonical subject closures, and typed sealed TCB components remove three known gaps, but admission traces and complete invalidation inputs remain incomplete. | `q1-losslessness-matrix-r3.json`; `results/2026-09-02-q1-representation-hardening.json` | Keep Gate 1 open. Do not freeze `/1` or preregister the Go holdout while four rows remain partial. |
 
 ## Outcome
 
 Running. Q2, Q3, and Q4 have bounded passes over the registered corpus. Q1 has
-an executed failed decision: nine of sixteen losslessness rows pass and seven
-remain partial. Q5 remains unanswered. Assurance IR `/1` is not frozen, the Go
-holdout has not started, and programme Gate 1 remains open.
+an executed failed decision followed by bounded representation hardening:
+twelve of sixteen losslessness rows pass and four remain partial. Q5 remains
+unanswered. Assurance IR `/1` is not frozen, the Go holdout has not started,
+and programme Gate 1 remains open.

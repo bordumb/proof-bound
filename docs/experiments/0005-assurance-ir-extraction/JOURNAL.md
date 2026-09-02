@@ -221,3 +221,26 @@ semantics. These are representation gaps, not attack-test failures.
 Accordingly, Assurance IR `/1` is not frozen and the Go holdout is not
 preregistered. Doing either now would turn known omissions into compatibility
 commitments and would make a holdout measure adaptation to an incomplete IR.
+
+## 2026-09-02 — Q1 representation hardening
+
+After the failed Q1 decision, closed three of its seven known representation
+gaps without changing the frozen corpus or either preregistered adversarial
+suite. Registration claims now carry a domain-separated subject closure over
+normalized selectors and exact source bytes. Evidence-family meaning is a
+closed typed record whose registered projection must exactly reconstruct the
+source family configuration. Known retained backend facts are typed, and the
+portable TCB ledger is strictly decoded into typed components, reconstructed
+against its sealed bytes, and joined to observed tool and adapter identities.
+
+Rust and Python independently project the same twenty cases, reject all twelve
+existing Q1 attacks with their registered codes, and reject additional
+post-decision substitution tests for subject selectors, family configuration,
+retained facts, artifact roles, and TCB components. Those added tests are
+regressions, not retrospectively preregistered attacks.
+
+Matrix revision 3 records twelve of sixteen rows complete and four partial.
+The remaining gaps are complete admission derivation traces,
+registration-to-observation artifact identity, and transitive execution-cache
+dependency completeness. Q1 therefore remains failed, Assurance IR `/1`
+remains unfrozen, and a Go holdout is still premature.

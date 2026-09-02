@@ -4,16 +4,18 @@
 [Field inventory](../../experiments/0005-assurance-ir-extraction/semantic-field-inventory.md) ·
 [Frozen corpus](../../experiments/0005-assurance-ir-extraction/corpus/README.md)
 
-- **Status:** research draft; non-normative; unimplemented
+- **Status:** research draft; non-normative; partially implemented; not frozen
 - **Draft version:** `proofbound-assurance-ir/1`
 - **Input baseline:** `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
 - **Experiment:** EXP-0005
 - **Wire status:** this is not a replacement for any current Proofbound schema
 
-This document proposes the smallest semantic boundary found in inventory
-revision 2. It is a design to test, not a claim that EXP-0005 has passed. No
-current manifest, receipt, cache, release, or verifier may emit or accept the
-schema name above until a later normative specification adopts it.
+This document records the smallest semantic boundary found in inventory
+revision 2 and refined by the current Rust/Python research prototype. It is a
+design under test, not a claim that EXP-0005 has passed. The revision-3 Q1 audit
+finds twelve of sixteen semantic rows complete and four partial. No current
+manifest, receipt, cache, release, or verifier may emit or accept the schema
+name above until a later normative specification adopts it.
 
 ## 1. Goal
 
@@ -107,6 +109,7 @@ AssuranceProgram {
   graph: AssuranceGraph
   closures: Set<SourceClosure>
   sealed_artifacts: Set<ArtifactIdentity>
+  tcb_components: Set<TcbComponent>
   backend_bindings: Set<BackendBinding>
 }
 
@@ -150,6 +153,12 @@ BackendDependency {
   version: BoundedText
   identity: Sha256
 }
+
+TcbComponent {
+  name: BoundedText
+  version: BoundedText
+  identity: Sha256
+}
 ```
 
 An artifact is equal only when logical name, digest, and size are equal. A
@@ -163,6 +172,7 @@ identity without embedding `python_plugins` in common provenance.
 Claim {
   id: ClaimId
   subject: NodeId
+  subject_closure: SubjectClosure
   machine_meaning: ClaimMeaning
   presentation: Option<ClaimPresentation>
   cited_evidence: Set<EvidenceId>
@@ -172,6 +182,13 @@ Claim {
   out_of_scope: Set<Exclusion>
   registered_inputs: Set<LogicalName>
   admission: ClaimAdmission
+}
+
+SubjectClosure {
+  schema: "proofbound-ir-subject-closure/1"
+  identity: Sha256
+  selectors: Set<LogicalName>
+  members: Set<ArtifactIdentity>
 }
 
 ClaimMeaning {
@@ -198,7 +215,10 @@ ClaimAdmission {
 The split answers only the structural portion of OQ-003. Whether some current
 free-form domain wording should become a richer proposition language remains
 open. Conversion must retain it as machine meaning until that question is
-resolved.
+resolved. A registration subject closure is computed from normalized,
+non-symlink project paths and exact member bytes. Its identity is independently
+recomputed; changing a selector and refreshing only the closure digest does not
+preserve meaning.
 
 ## 7. Evidence envelope
 
@@ -228,6 +248,12 @@ an existing `proofbound-evidence/3` identity domain.
 `outcome = Passed` means the registered observation completed and validated.
 It says nothing about evidence family strength. A failed or drifted cited
 record makes the relevant derivation fail closed.
+
+Every constructor detail is a closed typed record. Registration projections
+currently type property seed/framework, mutation registry, distribution
+format/artifact/epoch, bounded-domain, theorem, subject, and bound-artifact
+meaning. The detail must reconstruct the registered family configuration
+exactly; a parallel opaque configuration digest is not sufficient.
 
 ## 8. Closed evidence algebra
 
@@ -447,10 +473,12 @@ BackendProvenance {
 }
 ```
 
-`RetainedBackendFact` has a registered schema, canonical payload identity, and
-required/optional disposition. Unknown required fact schemas fail closed.
-Optional retained facts may be displayed and hashed but cannot participate in
-derivation. This is not an extension point for new evidence semantics.
+`RetainedBackendFact` has a registered schema, required/optional disposition,
+and either a closed typed value or a canonical payload identity. Known facts
+that carry semantic meaning must use the typed value. Unknown required fact
+schemas fail closed. Unknown optional facts may be displayed and hashed but
+cannot participate in derivation. This is not an extension point for new
+evidence semantics.
 
 Commands retain exact program, ordered arguments, and an environment allowlist
 whose values are represented as `Known<Sha256> | Unknown`. Runs retain exact
@@ -458,6 +486,15 @@ indices, required exit state, complete stream digests, normalized digest,
 truncation state, and duration. Passing ordinary runs require exit zero and no
 truncation; only a family constructor such as mutation may name an allowed
 expected-failure run.
+
+### 9.1 TCB ledger binding
+
+Portable conversion strictly decodes the sealed `proofbound-tcb-ledger/1`
+artifact into `TcbComponent` records, reconstructs its canonical bytes, and
+checks the sealed logical name, digest, and size. Every observed tool and
+adapter identity must then match one typed component. This prevents a
+self-consistently rehashed but semantically substituted TCB component from
+surviving as an opaque sealed-file change.
 
 ## 10. Cache dependency projection
 
@@ -678,6 +715,10 @@ positive corpus and reject at least:
 | OQ-003 claim language | Machine/presentation split, current strings retained | A typed proposition and bounded-domain study |
 | OQ-004 cache projection | Backend supplies typed dependencies; common code hashes them | Zero-false-retention invalidation experiment |
 | OQ-006 effects | Provenance records observed authority only | Static capability model plus OS enforcement experiment |
+
+The unresolved Q1 boundary is narrower than this broader question list:
+complete admission traces, registration-to-observation artifact identity, and
+complete transitive cache dependencies remain blockers to freezing `/1`.
 | OQ-008 frontend | IR is frontend-neutral | Equivalent TOML, Pkl/CUE, and DSL compilation study |
 
 ## 19. Acceptance boundary
