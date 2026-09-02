@@ -13,6 +13,7 @@ use serde_json::{Map, Value};
 
 mod assurance;
 mod portable;
+mod sampling;
 
 pub use assurance::{
     Artifact, CacheInput, CaseProgram, IrAssumption, IrBackend, IrBoundedDomain, IrBudget, IrCache,
@@ -28,6 +29,10 @@ pub use assurance::{
 pub use portable::{
     PORTABLE_FAMILY_PROJECTION_SCHEMA, PortableFamily, PortableFamilyProjection,
     PortableFamilyRecord, SamplingDetail, project_portable_families,
+};
+pub use sampling::{
+    SamplingContract, SamplingObservation, SamplingValidationError, SamplingValidationReport,
+    validate_sampling_observation,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";

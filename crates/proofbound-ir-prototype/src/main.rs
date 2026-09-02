@@ -5,7 +5,9 @@ use std::{
     process::ExitCode,
 };
 
-use proofbound_ir_prototype::{project_corpus, project_portable_families, validate_case_program};
+use proofbound_ir_prototype::{
+    project_corpus, project_portable_families, validate_case_program, validate_sampling_observation,
+};
 
 fn main() -> ExitCode {
     let mut args = env::args_os().skip(1);
@@ -57,6 +59,51 @@ fn main() -> ExitCode {
             },
             Err(error) => {
                 eprintln!("projection failed: {error:#}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-sampling")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype validate-sampling <repository-root> <contract.json> <observation.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(contract) = args.next().map(PathBuf::from) else {
+            eprintln!("missing sampling contract");
+            return ExitCode::from(2);
+        };
+        let Some(observation) = args.next().map(PathBuf::from) else {
+            eprintln!("missing sampling observation");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let outcome = std::fs::read(&contract)
+            .map_err(|error| error.to_string())
+            .and_then(|contract_bytes| {
+                std::fs::read(&observation)
+                    .map_err(|error| error.to_string())
+                    .and_then(|observation_bytes| {
+                        validate_sampling_observation(&root, &contract_bytes, &observation_bytes)
+                            .map_err(|error| error.to_string())
+                    })
+            });
+        return match outcome.and_then(|report| {
+            proofbound_evidence::canonical_json(&report).map_err(|error| error.to_string())
+        }) {
+            Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("failed to write validation: {error}");
+                    ExitCode::from(1)
+                }
+            },
+            Err(error) => {
+                eprintln!("{error}");
                 ExitCode::from(1)
             }
         };

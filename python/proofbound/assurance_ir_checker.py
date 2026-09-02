@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import tomllib
 from typing import Any
+import unicodedata
 
 
 CORPUS_SCHEMA = "proofbound-research-projection-corpus/1"
@@ -45,6 +46,25 @@ class CheckReport:
 
     case_count: int
     projection_sha256: str
+
+
+@dataclass(frozen=True)
+class SamplingCheckReport:
+    """Summary of one independently validated sampling observation.
+
+    Attributes:
+        framework: Registered sampling framework.
+        framework_version: Exact registered framework version.
+        contract_identity: Independently recomputed contract identity.
+        generator_identity: Independently recomputed generator identity.
+        result: Typed observation result.
+    """
+
+    framework: str
+    framework_version: str
+    contract_identity: str
+    generator_identity: str
+    result: str
 
 
 def canonical_json(value: object) -> bytes:
@@ -258,6 +278,106 @@ def check_portable_family_projection(
             "portable family projection differs from independent reconstruction"
         )
     return CheckReport(len(records), identity)
+
+
+def check_sampling_observation(
+    root: Path, contract_bytes: bytes, observation_bytes: bytes
+) -> SamplingCheckReport:
+    """Validate a backend-neutral sampling observation against registration.
+
+    Args:
+        root: Repository root containing the exact generator closure.
+        contract_bytes: Canonical registered sampling contract.
+        observation_bytes: Canonical driver observation.
+
+    Returns:
+        Independently recomputed identities and the typed result.
+
+    Raises:
+        AssuranceIrError: If the contract, closure, observation, or identity differs.
+    """
+
+    contract = _sampling_json(
+        contract_bytes, "sampling contract", allow_final_newline=True
+    )
+    observation = _sampling_json(
+        observation_bytes, "sampling observation", allow_final_newline=False
+    )
+    _validate_sampling_contract(root, contract)
+    _require_keys(
+        observation,
+        {
+            "schema",
+            "contract",
+            "contract_identity",
+            "actual_seed",
+            "completed_cases",
+            "skipped_cases",
+            "shrink_count",
+            "targets",
+            "result",
+        },
+        "sampling observation",
+    )
+    if (
+        contract.get("schema") != "proofbound-sampling-contract/1"
+        or observation.get("schema") != "proofbound-sampling-observation/1"
+    ):
+        _sampling_fail("sampling-schema-mismatch", "unsupported sampling schema")
+    observed = _as_object(observation["contract"])
+    if observed.get("framework") != contract["framework"]:
+        _sampling_fail("sampling-tool-mismatch", "framework differs")
+    if observed.get("generator") != contract["generator"]:
+        _sampling_fail("generator-identity-mismatch", "generator differs")
+    if (
+        observed.get("targets") != contract["targets"]
+        or observation["targets"] != contract["targets"]
+    ):
+        _sampling_fail("sampling-inventory-mismatch", "targets differ")
+    if observed != contract:
+        _sampling_fail("sampling-contract-mismatch", "contract differs")
+    identity = domain_hash("proofbound-sampling-contract/1", canonical_json(contract))
+    if (
+        observation["contract_identity"] != identity
+        or observation["actual_seed"] != contract["seed"]
+    ):
+        _sampling_fail("sampling-contract-mismatch", "observed execution differs")
+    if contract["shrinking"] == "disabled" and observation["shrink_count"] != 0:
+        _sampling_fail("sampling-contract-mismatch", "disabled shrinking was observed")
+    for field in ("completed_cases", "skipped_cases", "shrink_count"):
+        value = observation[field]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            _sampling_fail("sampling-report-invalid", f"{field} is invalid")
+    result = _as_object(observation["result"])
+    status = result.get("status")
+    if status == "passed":
+        _require_keys(result, {"status"}, "sampling result")
+        if observation["completed_cases"] != contract["successful_cases"]:
+            _sampling_fail(
+                "sampling-contract-mismatch", "completed case budget differs"
+            )
+    elif status == "counterexample":
+        _require_keys(
+            result,
+            {"status", "counterexample", "failure_kind"},
+            "sampling result",
+        )
+        _sampling_text(result["failure_kind"], "counterexample failure kind")
+        if observation["completed_cases"] >= contract["successful_cases"]:
+            _sampling_fail(
+                "sampling-report-invalid",
+                "counterexample follows a completed successful budget",
+            )
+    else:
+        _sampling_fail("sampling-report-invalid", "sampling result is invalid")
+    framework = _as_object(contract["framework"])
+    return SamplingCheckReport(
+        framework=framework["name"],
+        framework_version=framework["version"],
+        contract_identity=identity,
+        generator_identity=_as_object(contract["generator"])["identity_sha256"],
+        result=status,
+    )
 
 
 def _project_portable_record(wrapped: object) -> dict[str, Any]:
@@ -2637,6 +2757,132 @@ def _strict_json(data: bytes, *, require_canonical: bool) -> dict[str, Any]:
             "projection is not canonical JSON", code="IR-DECODE-NONCANONICAL"
         )
     return value
+
+
+def _sampling_json(
+    data: bytes, label: str, *, allow_final_newline: bool
+) -> dict[str, Any]:
+    document = data.removesuffix(b"\n") if allow_final_newline else data
+    try:
+        value = _strict_json(document, require_canonical=True)
+    except AssuranceIrError as error:
+        raise AssuranceIrError(str(error), code="sampling-report-invalid") from error
+    if not isinstance(value, dict):
+        _sampling_fail("sampling-report-invalid", f"{label} must be an object")
+    return value
+
+
+def _validate_sampling_contract(root: Path, contract: dict[str, Any]) -> None:
+    _require_keys(
+        contract,
+        {
+            "schema",
+            "framework",
+            "seed",
+            "successful_cases",
+            "generator",
+            "targets",
+            "replay",
+            "persistence",
+            "shrinking",
+        },
+        "sampling contract",
+    )
+    if contract["schema"] != "proofbound-sampling-contract/1":
+        _sampling_fail("sampling-schema-mismatch", "unsupported contract schema")
+    framework = _as_object(contract["framework"])
+    _require_keys(framework, {"name", "version"}, "sampling framework")
+    _sampling_text(framework["name"], "framework name")
+    _sampling_text(framework["version"], "framework version")
+    seed = _as_object(contract["seed"])
+    _require_keys(seed, {"encoding", "value"}, "sampling seed")
+    if (
+        seed["encoding"] != "decimal-u64"
+        or not isinstance(seed["value"], int)
+        or isinstance(seed["value"], bool)
+        or not 0 <= seed["value"] <= 2**64 - 1
+    ):
+        _sampling_fail("sampling-contract-mismatch", "seed is invalid")
+    cases = contract["successful_cases"]
+    if (
+        not isinstance(cases, int)
+        or isinstance(cases, bool)
+        or not 1 <= cases <= 1_000_000
+    ):
+        _sampling_fail("sampling-contract-mismatch", "case budget is invalid")
+    if contract["replay"] != "fresh-only" or contract["persistence"] != "disabled":
+        _sampling_fail("sampling-contract-mismatch", "state policy is invalid")
+    if contract["shrinking"] not in {"disabled", "enabled"}:
+        _sampling_fail("sampling-contract-mismatch", "shrinking policy is invalid")
+    targets = contract["targets"]
+    if not isinstance(targets, list) or not targets:
+        _sampling_fail("sampling-contract-mismatch", "targets are empty")
+    _sampling_sorted_text(targets, "sampling targets")
+    generator = _as_object(contract["generator"])
+    _require_keys(
+        generator,
+        {"entrypoint", "closure", "identity_sha256"},
+        "sampling generator",
+    )
+    _sampling_text(generator["entrypoint"], "generator entrypoint")
+    closure = generator["closure"]
+    if not isinstance(closure, list) or not closure:
+        _sampling_fail("generator-identity-mismatch", "generator closure is empty")
+    names: list[str] = []
+    for item in closure:
+        artifact = _as_object(item)
+        _require_keys(
+            artifact,
+            {"logical_name", "sha256", "size_bytes"},
+            "generator artifact",
+        )
+        logical_name = artifact["logical_name"]
+        _sampling_text(logical_name, "generator path")
+        relative = Path(logical_name)
+        if (
+            relative.is_absolute()
+            or "\\" in logical_name
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            _sampling_fail("generator-identity-mismatch", "generator path is unsafe")
+        try:
+            resolved = (root / relative).resolve(strict=True)
+            resolved.relative_to(root.resolve(strict=True))
+        except (OSError, ValueError) as error:
+            raise AssuranceIrError(
+                "generator path escapes or is missing",
+                code="generator-identity-mismatch",
+            ) from error
+        data = resolved.read_bytes()
+        if artifact["sha256"] != _sha256(data) or artifact["size_bytes"] != len(data):
+            _sampling_fail("generator-identity-mismatch", "generator bytes differ")
+        names.append(logical_name)
+    _sampling_sorted_text(names, "generator closure")
+    material = {"entrypoint": generator["entrypoint"], "closure": closure}
+    identity = domain_hash("proofbound-generator-closure/1", canonical_json(material))
+    if generator["identity_sha256"] != identity:
+        _sampling_fail("generator-identity-mismatch", "generator identity differs")
+
+
+def _sampling_sorted_text(values: list[Any], label: str) -> None:
+    for value in values:
+        _sampling_text(value, label)
+    if values != sorted(set(values)):
+        _sampling_fail("sampling-report-invalid", f"{label} is not canonical")
+
+
+def _sampling_text(value: Any, label: str) -> None:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or len(value) > 4096
+        or any(unicodedata.category(character) == "Cc" for character in value)
+    ):
+        _sampling_fail("sampling-report-invalid", f"{label} is invalid")
+
+
+def _sampling_fail(code: str, message: str) -> None:
+    raise AssuranceIrError(message, code=code)
 
 
 def _as_object(value: Any) -> dict[str, Any]:

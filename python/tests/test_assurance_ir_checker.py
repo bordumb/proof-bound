@@ -11,6 +11,7 @@ from proofbound.assurance_ir_checker import (
     check_canonical_vectors,
     check_portable_family_projection,
     check_projection,
+    check_sampling_observation,
     domain_hash,
     validate_case_program,
 )
@@ -32,6 +33,7 @@ COMPLETION_CAPTURE = (
     ROOT
     / "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json"
 )
+SAMPLING = ROOT / "docs/experiments/0006-explicit-sampling-contract/corpus"
 
 
 def producer_projection() -> bytes:
@@ -96,6 +98,82 @@ def test_independent_checker_agrees_on_portable_family_projection() -> None:
         "unit:bounded-roundtrip",
         "unit:rust-kernel-tests",
     ]
+
+
+def sampling_fixture(path: Path) -> bytes:
+    return path.read_bytes().removesuffix(b"\n")
+
+
+def test_independent_checker_agrees_on_backend_neutral_sampling() -> None:
+    for backend in ("hypothesis", "fast-check"):
+        report = check_sampling_observation(
+            ROOT,
+            sampling_fixture(SAMPLING / "contracts" / f"{backend}.json"),
+            sampling_fixture(SAMPLING / "observations" / f"{backend}-passed.json"),
+        )
+        assert report.framework == backend
+        assert report.result == "passed"
+        assert report.contract_identity.startswith("sha256:")
+
+
+def test_independent_checker_rejects_every_sampling_attack() -> None:
+    contract = json.loads(sampling_fixture(SAMPLING / "contracts" / "hypothesis.json"))
+    observation = json.loads(
+        sampling_fixture(SAMPLING / "observations" / "hypothesis-passed.json")
+    )
+    attacks = {
+        "EXP-0006-A001": "sampling-contract-mismatch",
+        "EXP-0006-A002": "sampling-contract-mismatch",
+        "EXP-0006-A003": "generator-identity-mismatch",
+        "EXP-0006-A004": "generator-identity-mismatch",
+        "EXP-0006-A005": "sampling-inventory-mismatch",
+        "EXP-0006-A006": "sampling-report-invalid",
+        "EXP-0006-A007": "sampling-contract-mismatch",
+        "EXP-0006-A008": "sampling-schema-mismatch",
+        "EXP-0006-A009": "sampling-contract-mismatch",
+        "EXP-0006-A010": "sampling-tool-mismatch",
+    }
+    for attack, expected in attacks.items():
+        registered = json.loads(json.dumps(contract))
+        observed = json.loads(json.dumps(observation))
+        if attack == "EXP-0006-A001":
+            registered["seed"]["value"] = 1
+        elif attack == "EXP-0006-A002":
+            registered["successful_cases"] = 101
+        elif attack == "EXP-0006-A003":
+            registered["generator"]["entrypoint"] = "substituted::property"
+            material = {
+                "entrypoint": registered["generator"]["entrypoint"],
+                "closure": registered["generator"]["closure"],
+            }
+            registered["generator"]["identity_sha256"] = domain_hash(
+                "proofbound-generator-closure/1", canonical_json(material)
+            )
+        elif attack == "EXP-0006-A004":
+            registered["generator"]["closure"][0]["sha256"] = "sha256:" + "0" * 64
+        elif attack == "EXP-0006-A005":
+            observed["contract"]["targets"] = ["substituted::target"]
+            observed["targets"] = ["substituted::target"]
+        elif attack == "EXP-0006-A007":
+            observed["actual_seed"]["value"] = 1
+        elif attack == "EXP-0006-A008":
+            observed["schema"] = "legacy-backend-sampling/1"
+        elif attack == "EXP-0006-A009":
+            observed["contract"]["persistence"] = "ambient-writable-database"
+        elif attack == "EXP-0006-A010":
+            observed["contract"]["framework"]["version"] = "6.113.0"
+        observation_bytes = canonical_json(observed)
+        if attack == "EXP-0006-A006":
+            observation_bytes = observation_bytes.replace(
+                b'"completed_cases":100',
+                b'"completed_cases":100,"completed_cases":100',
+                1,
+            )
+        with pytest.raises(AssuranceIrError) as caught:
+            check_sampling_observation(
+                ROOT, canonical_json(registered), observation_bytes
+            )
+        assert caught.value.code == expected, attack
 
 
 def test_portable_family_checker_rejects_sampling_upgrade() -> None:
