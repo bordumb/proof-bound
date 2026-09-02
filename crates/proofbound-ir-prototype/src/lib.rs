@@ -14,10 +14,11 @@ use serde_json::Value;
 mod assurance;
 
 pub use assurance::{
-    Artifact, CacheInput, CaseProgram, IrBackend, IrCache, IrCacheProvenance, IrClaim,
-    IrClaimAdmission, IrClaimMeaning, IrClaimPresentation, IrEvidence, IrEvidenceRequest, IrFamily,
-    IrPolicy, IrProvenance, IrRun, IrUsage, IrValidationError, RetainedFact, cache_key,
-    family_kind, family_schema, validate_case_program,
+    Artifact, CacheInput, CaseProgram, IrBackend, IrBudget, IrCache, IrCacheProvenance, IrClaim,
+    IrClaimAdmission, IrClaimMeaning, IrClaimPresentation, IrClosure, IrCommand, IrEnvironment,
+    IrEvidence, IrEvidenceRequest, IrFamily, IrPolicy, IrProgrammeContext, IrProject, IrProvenance,
+    IrRun, IrTool, IrUsage, IrValidationError, RetainedFact, cache_key, family_kind, family_schema,
+    validate_case_program,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";
@@ -693,10 +694,10 @@ fn registration_program(
         Vec::new()
     };
     let cache = registration_cache(registration);
-    let prior_receipt = None;
     let evidence = vec![IrEvidence {
         authority: "registered".to_owned(),
         unit: registration.unit_id.clone(),
+        content_sha256: None,
         node: None,
         claims: claim_ids,
         outcome: None,
@@ -722,14 +723,7 @@ fn registration_program(
             detail,
         },
         backend: IrBackend { retained_facts },
-        provenance: IrProvenance {
-            runs: Vec::new(),
-            usage: IrUsage { peak_memory: None },
-            cache: IrCacheProvenance {
-                prior_receipt: prior_receipt.map(str::to_owned),
-                key: cache_key(&registration.unit_id, prior_receipt),
-            },
-        },
+        provenance: empty_provenance(&registration.unit_id),
     }];
     CaseProgram {
         schema: assurance::CASE_SCHEMA.to_owned(),
@@ -742,6 +736,7 @@ fn registration_program(
         policy: IrPolicy {
             required_components: vec!["registered-aggregate".to_owned()],
         },
+        programme: empty_programme(),
         reported: case.expected_claim.clone(),
         exact_status: false,
     }
@@ -794,6 +789,7 @@ fn semantic_program(case: &CorpusCase, source_size: u64, selected: &Value) -> Re
             Ok(IrEvidence {
                 authority: "derived-conformance".to_owned(),
                 unit: unit.to_owned(),
+                content_sha256: None,
                 node: None,
                 claims: claim_ids.clone(),
                 outcome: Some("passed".to_owned()),
@@ -852,6 +848,7 @@ fn semantic_program(case: &CorpusCase, source_size: u64, selected: &Value) -> Re
         policy: IrPolicy {
             required_components: json_text_array(policy, "components")?,
         },
+        programme: empty_programme(),
         reported: case.expected_claim.clone(),
         exact_status: true,
     })
@@ -892,6 +889,20 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
                         .and_then(Value::as_u64)
                         .context("release run index is missing")?,
                     exit_code: run.get("exit_code").and_then(Value::as_i64),
+                    stdout_sha256: value_optional_text(
+                        run.as_object().context("release run must be an object")?,
+                        "stdout_sha256",
+                    )?,
+                    stderr_sha256: value_optional_text(
+                        run.as_object().context("release run must be an object")?,
+                        "stderr_sha256",
+                    )?,
+                    normalized_output_sha256: value_optional_text(
+                        run.as_object().context("release run must be an object")?,
+                        "normalized_output_sha256",
+                    )?,
+                    output_truncated: run.get("output_truncated").and_then(Value::as_bool),
+                    duration_ms: run.get("duration_ms").and_then(Value::as_u64),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -903,11 +914,15 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
         evidence.push(IrEvidence {
             authority: "portable-receipt".to_owned(),
             unit: unit.to_owned(),
+            content_sha256: wrapped
+                .get("sha256")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             node: record
                 .get("node_id")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
-            claims: case.claim_ids.clone(),
+            claims: json_text_array_value(record, "claim_ids")?,
             outcome: record
                 .get("outcome")
                 .and_then(Value::as_str)
@@ -941,11 +956,71 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
                 retained_facts: Vec::new(),
             },
             provenance: IrProvenance {
+                revision: value_optional_text(provenance, "project_revision")?,
+                tree_state: value_optional_text(provenance, "tree_state")?,
+                semantic_closure: value_optional_text(provenance, "semantic_closure")?,
+                input_artifacts: provenance
+                    .get("input_artifacts")
+                    .and_then(Value::as_array)
+                    .context("release input artifacts are missing")?
+                    .iter()
+                    .map(artifact_from_value)
+                    .collect::<Result<Vec<_>>>()?,
+                generated_artifacts: provenance
+                    .get("generated_artifacts")
+                    .and_then(Value::as_array)
+                    .context("release generated artifacts are missing")?
+                    .iter()
+                    .map(artifact_from_value)
+                    .collect::<Result<Vec<_>>>()?,
+                tool: provenance.get("tool").map(tool_from_value).transpose()?,
+                adapter: provenance.get("adapter").map(tool_from_value).transpose()?,
+                execution_kind: value_optional_text(provenance, "execution_kind")?,
+                commands: provenance
+                    .get("commands")
+                    .and_then(Value::as_array)
+                    .context("release commands are missing")?
+                    .iter()
+                    .map(command_from_value)
+                    .collect::<Result<Vec<_>>>()?,
                 runs,
-                usage: IrUsage { peak_memory },
+                normalization: value_optional_text(provenance, "normalization")?,
+                reproduction: provenance
+                    .get("reproduction_command")
+                    .map(command_from_value)
+                    .transpose()?,
+                started_unix_ms: provenance.get("started_unix_ms").and_then(Value::as_u64),
+                completed_unix_ms: provenance.get("completed_unix_ms").and_then(Value::as_u64),
+                result_sha256: value_optional_text(provenance, "deterministic_result_sha256")?,
+                unit_configuration_sha256: value_optional_text(
+                    provenance,
+                    "unit_configuration_sha256",
+                )?,
+                budget: provenance
+                    .get("resource_budget")
+                    .map(budget_from_value)
+                    .transpose()?,
+                usage: IrUsage {
+                    time_ms: provenance
+                        .get("actual_cost")
+                        .and_then(|usage| usage.get("time_ms"))
+                        .and_then(Value::as_u64),
+                    disk_bytes: provenance
+                        .get("actual_cost")
+                        .and_then(|usage| usage.get("disk_bytes"))
+                        .and_then(Value::as_u64),
+                    peak_memory,
+                },
                 cache: IrCacheProvenance {
                     prior_receipt: prior_receipt.map(str::to_owned),
                     key: cache_key(unit, prior_receipt),
+                    source_key: value_optional_text(provenance, "cache_key")?,
+                    origin: if prior_receipt.is_some() {
+                        "reused".to_owned()
+                    } else {
+                        "executed".to_owned()
+                    },
+                    reuse_eligible: true,
                 },
             },
         });
@@ -958,7 +1033,7 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
         .iter()
         .map(|claim| release_claim(claim, &receipt))
         .collect::<Result<Vec<_>>>()?;
-    Ok(CaseProgram {
+    let program = CaseProgram {
         schema: assurance::CASE_SCHEMA.to_owned(),
         case_id: case.id.clone(),
         evidence_family: case.evidence_family.clone(),
@@ -972,8 +1047,86 @@ fn release_program(case: &CorpusCase, source_size: u64, bytes: &[u8]) -> Result<
         policy: IrPolicy {
             required_components: vec!["ledger".to_owned()],
         },
+        programme: release_programme(&receipt)?,
         reported: case.expected_claim.clone(),
         exact_status: true,
+    };
+    Ok(program)
+}
+
+fn empty_programme() -> IrProgrammeContext {
+    IrProgrammeContext {
+        project: None,
+        graph: None,
+        assumptions: Vec::new(),
+        premises: Vec::new(),
+        policies: Vec::new(),
+        closures: Vec::new(),
+        sealed_artifacts: Vec::new(),
+        publication_blockers: Vec::new(),
+    }
+}
+
+fn release_programme(receipt: &Value) -> Result<IrProgrammeContext> {
+    let project = IrProject {
+        id: required_value_text(receipt, "project")?.to_owned(),
+        revision: required_value_text(receipt, "project_revision")?.to_owned(),
+        tier: receipt
+            .get("project_tier")
+            .and_then(Value::as_u64)
+            .context("release project tier is missing")?,
+        tree_state: required_value_text(receipt, "tree_state")?.to_owned(),
+    };
+    let closures = receipt
+        .get("closures")
+        .and_then(Value::as_array)
+        .context("release closures are missing")?
+        .iter()
+        .map(|closure| {
+            let record = closure
+                .get("record")
+                .context("release closure record is missing")?;
+            Ok(IrClosure {
+                sha256: required_value_text(closure, "sha256")?.to_owned(),
+                kind: required_value_text(record, "kind")?.to_owned(),
+                members: record
+                    .get("members")
+                    .and_then(Value::as_array)
+                    .context("release closure members are missing")?
+                    .iter()
+                    .map(artifact_from_value)
+                    .collect::<Result<Vec<_>>>()?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let sealed_artifacts = receipt
+        .get("sealed_files")
+        .and_then(Value::as_array)
+        .context("release sealed files are missing")?
+        .iter()
+        .map(artifact_from_value)
+        .collect::<Result<Vec<_>>>()?;
+    let publication_blockers = receipt
+        .get("reported_statuses")
+        .and_then(Value::as_array)
+        .context("release statuses are missing")?
+        .iter()
+        .filter(|status| status.get("policy_admitted").and_then(Value::as_bool) == Some(false))
+        .map(|status| {
+            required_value_text(status, "claim_id")
+                .map(str::to_owned)
+                .context("blocked release status has no claim ID")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(IrProgrammeContext {
+        project: Some(project),
+        graph: receipt.get("graph").cloned(),
+        assumptions: required_value_array(receipt, "assumptions")?.clone(),
+        premises: required_value_array(receipt, "premises")?.clone(),
+        policies: required_value_array(receipt, "policies")?.clone(),
+        closures,
+        sealed_artifacts,
+        publication_blockers,
     })
 }
 
@@ -1069,6 +1222,102 @@ fn release_claim(claim: &Value, receipt: &Value) -> Result<IrClaim> {
     })
 }
 
+fn artifact_from_value(value: &Value) -> Result<Artifact> {
+    let object = value.as_object().context("artifact must be an object")?;
+    let logical_name = object
+        .get("logical_name")
+        .or_else(|| object.get("path"))
+        .and_then(Value::as_str)
+        .context("artifact logical name is missing")?;
+    Ok(Artifact {
+        logical_name: logical_name.to_owned(),
+        sha256: object
+            .get("sha256")
+            .and_then(Value::as_str)
+            .context("artifact digest is missing")?
+            .to_owned(),
+        size_bytes: object
+            .get("size_bytes")
+            .and_then(Value::as_u64)
+            .context("artifact size is missing")?,
+    })
+}
+
+fn tool_from_value(value: &Value) -> Result<IrTool> {
+    let object = value.as_object().context("tool must be an object")?;
+    Ok(IrTool {
+        name: object
+            .get("name")
+            .and_then(Value::as_str)
+            .context("tool name is missing")?
+            .to_owned(),
+        version: object
+            .get("version")
+            .and_then(Value::as_str)
+            .context("tool version is missing")?
+            .to_owned(),
+        identity_sha256: object
+            .get("identity_sha256")
+            .and_then(Value::as_str)
+            .context("tool identity is missing")?
+            .to_owned(),
+    })
+}
+
+fn command_from_value(value: &Value) -> Result<IrCommand> {
+    let object = value.as_object().context("command must be an object")?;
+    let environment_allowlist = object
+        .get("environment_allowlist")
+        .and_then(Value::as_array)
+        .context("command environment is missing")?
+        .iter()
+        .map(|environment| {
+            let environment = environment
+                .as_object()
+                .context("environment entry must be an object")?;
+            Ok(IrEnvironment {
+                name: environment
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .context("environment name is missing")?
+                    .to_owned(),
+                value_sha256: value_optional_text(environment, "value_sha256")?,
+                secret: environment
+                    .get("secret")
+                    .and_then(Value::as_bool)
+                    .context("environment secret flag is missing")?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(IrCommand {
+        program: object
+            .get("program")
+            .and_then(Value::as_str)
+            .context("command program is missing")?
+            .to_owned(),
+        args: json_text_array(object, "args")?,
+        environment_allowlist,
+    })
+}
+
+fn budget_from_value(value: &Value) -> Result<IrBudget> {
+    let object = value.as_object().context("budget must be an object")?;
+    Ok(IrBudget {
+        time_ms: object
+            .get("time_ms")
+            .and_then(Value::as_u64)
+            .context("budget time is missing")?,
+        disk_bytes: object
+            .get("disk_bytes")
+            .and_then(Value::as_u64)
+            .context("budget disk is missing")?,
+        memory_bytes: object
+            .get("memory_bytes")
+            .and_then(Value::as_u64)
+            .context("budget memory is missing")?,
+    })
+}
+
 fn registration_cache(registration: &RegistrationProjection) -> IrCache {
     let mutation_target = (registration.declared_kind == "mutation-witness")
         .then(|| {
@@ -1128,11 +1377,34 @@ fn family_detail(
 
 fn empty_provenance(unit: &str) -> IrProvenance {
     IrProvenance {
+        revision: None,
+        tree_state: None,
+        semantic_closure: None,
+        input_artifacts: Vec::new(),
+        generated_artifacts: Vec::new(),
+        tool: None,
+        adapter: None,
+        execution_kind: None,
+        commands: Vec::new(),
         runs: Vec::new(),
-        usage: IrUsage { peak_memory: None },
+        normalization: None,
+        reproduction: None,
+        started_unix_ms: None,
+        completed_unix_ms: None,
+        result_sha256: None,
+        unit_configuration_sha256: None,
+        budget: None,
+        usage: IrUsage {
+            time_ms: None,
+            disk_bytes: None,
+            peak_memory: None,
+        },
         cache: IrCacheProvenance {
             prior_receipt: None,
             key: cache_key(unit, None),
+            source_key: None,
+            origin: "not-executed".to_owned(),
+            reuse_eligible: false,
         },
     }
 }
@@ -1143,6 +1415,20 @@ fn source_artifact(source: &Source, size_bytes: u64) -> Artifact {
         sha256: source.sha256.clone(),
         size_bytes,
     }
+}
+
+fn required_value_text<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .with_context(|| format!("{field} must be text"))
+}
+
+fn required_value_array<'a>(value: &'a Value, field: &str) -> Result<&'a Vec<Value>> {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .with_context(|| format!("{field} must be an array"))
 }
 
 fn json_text_array(object: &serde_json::Map<String, Value>, field: &str) -> Result<Vec<String>> {
@@ -1338,6 +1624,51 @@ mod tests {
         assert_eq!(request.schema, "proofbound-evidence-unit/1");
         assert_eq!(request.environment_allowlist, ["PATH"]);
         assert_eq!(request.operation["type"], "pytest");
+    }
+
+    #[test]
+    fn portable_projection_retains_programme_and_execution_meaning() {
+        let root = root();
+        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let projection = project_corpus(&root, &corpus).unwrap();
+        let program = &projection
+            .cases
+            .iter()
+            .find(|case| case.id == "IR-REL-001")
+            .unwrap()
+            .program;
+        let project = program.programme.project.as_ref().unwrap();
+        assert_eq!(project.id, "synthetic");
+        assert_eq!(project.revision, "rev-1");
+        assert_eq!(program.programme.closures.len(), 1);
+        assert_eq!(
+            program.programme.closures[0].members[0].logical_name,
+            "src/model.rs"
+        );
+        assert_eq!(
+            program.programme.sealed_artifacts[0].logical_name,
+            "tcb-ledger.json"
+        );
+
+        let evidence = &program.evidence[0];
+        assert_eq!(
+            evidence.content_sha256.as_deref(),
+            Some("sha256:0472956f8429866d293913903a3b1ac9ae42764e658078953dae8015939b44d4")
+        );
+        assert_eq!(evidence.provenance.commands[0].program, "synthetic-runner");
+        assert_eq!(evidence.provenance.runs[0].exit_code, Some(0));
+        assert_eq!(evidence.provenance.usage.disk_bytes, Some(1));
+
+        let mut missing_policy = serde_json::to_value(program).unwrap();
+        missing_policy["programme"]["policies"] = Value::Array(Vec::new());
+        let error = validate_case_program(&canonical_json(&missing_policy).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-POLICY-OMITTED");
+
+        let mut wrong_revision = serde_json::to_value(program).unwrap();
+        wrong_revision["evidence"][0]["provenance"]["revision"] =
+            Value::String("rev-substituted".to_owned());
+        let error = validate_case_program(&canonical_json(&wrong_revision).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-PROVENANCE-MISMATCH");
     }
 
     #[test]

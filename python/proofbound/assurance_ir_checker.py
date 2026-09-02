@@ -196,6 +196,7 @@ def validate_case_program(data: bytes) -> None:
     source_sha256 = _required_text(source, "sha256")
     claims = _list(root, "claims")
     evidence = _list(root, "evidence")
+    programme = _object(root, "programme")
     claim_ids = [_required_text(_as_object(claim), "id") for claim in claims]
     _require_sorted_unique(claim_ids)
     claim_assumptions: list[list[str]] = []
@@ -227,6 +228,7 @@ def validate_case_program(data: bytes) -> None:
         claim_assumptions.append(assumptions)
 
     kinds: list[str] = []
+    portable_receipt = False
     for evidence_value in evidence:
         item = _as_object(evidence_value)
         if "authority" not in item:
@@ -241,8 +243,12 @@ def validate_case_program(data: bytes) -> None:
         assumptions = _text_list(item, "assumptions")
         _require_sorted_unique(assumptions)
         _require_sorted_unique(_text_list(item, "inventory"))
-        if _required_text(item, "authority") == "registered":
+        authority = _required_text(item, "authority")
+        if authority == "registered":
             _object(item, "request")
+        if authority == "portable-receipt":
+            portable_receipt = True
+            _required_text(item, "content_sha256")
         if any(
             any(assumption not in registered for assumption in assumptions)
             for registered in claim_assumptions
@@ -323,6 +329,10 @@ def validate_case_program(data: bytes) -> None:
                 "cache key does not bind the prior receipt",
             )
 
+    _validate_programme(programme, portable_receipt)
+    if portable_receipt:
+        _validate_portable_joins(programme, evidence)
+
     cache = _object(root, "cache")
     registered = _cache_inputs(cache, "registered_inputs")
     execution = _cache_inputs(cache, "execution_inputs")
@@ -336,6 +346,66 @@ def validate_case_program(data: bytes) -> None:
         _fail("IR-DECODE-INVALID", "missing exact_status")
     assumed = any(bool(items) for items in claim_assumptions)
     _validate_reported(_object(root, "reported"), kinds, assumed or obligations, exact)
+
+
+def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> None:
+    if portable_receipt:
+        project = _object(programme, "project")
+        for field in ("id", "revision", "tree_state"):
+            _required_text(project, field)
+        if not isinstance(project.get("tier"), int):
+            _fail("IR-DECODE-INVALID", "portable project tier is required")
+        _object(programme, "graph")
+        if not _list(programme, "policies"):
+            _fail(
+                "IR-PROGRAMME-POLICY-OMITTED",
+                "portable programme must retain its policies",
+            )
+    for closure_value in _list(programme, "closures"):
+        closure = _as_object(closure_value)
+        _required_text(closure, "sha256")
+        _required_text(closure, "kind")
+        for member in _list(closure, "members"):
+            _validate_artifact(_as_object(member))
+    for artifact in _list(programme, "sealed_artifacts"):
+        _validate_artifact(_as_object(artifact))
+    for field in ("assumptions", "premises", "publication_blockers"):
+        _list(programme, field)
+
+
+def _validate_portable_joins(programme: dict[str, Any], evidence: list[object]) -> None:
+    project = _object(programme, "project")
+    revision = _required_text(project, "revision")
+    tree_state = _required_text(project, "tree_state")
+    closure_ids = {
+        _required_text(_as_object(closure), "sha256")
+        for closure in _list(programme, "closures")
+    }
+    for item_value in evidence:
+        item = _as_object(item_value)
+        if _required_text(item, "authority") != "portable-receipt":
+            continue
+        provenance = _object(item, "provenance")
+        if (
+            provenance.get("revision") != revision
+            or provenance.get("tree_state") != tree_state
+        ):
+            _fail(
+                "IR-PROGRAMME-PROVENANCE-MISMATCH",
+                "portable provenance differs from project identity",
+            )
+        if provenance.get("semantic_closure") not in closure_ids:
+            _fail(
+                "IR-PROGRAMME-CLOSURE-MISSING",
+                "portable evidence names an unregistered semantic closure",
+            )
+
+
+def _validate_artifact(artifact: dict[str, Any]) -> None:
+    _required_text(artifact, "logical_name")
+    _required_text(artifact, "sha256")
+    if not isinstance(artifact.get("size_bytes"), int):
+        _fail("IR-DECODE-INVALID", "artifact size is required")
 
 
 def _validate_reported(
@@ -767,6 +837,7 @@ def _registration_program(
             {
                 "authority": "registered",
                 "unit": unit,
+                "content_sha256": None,
                 "node": None,
                 "claims": claim_ids,
                 "outcome": None,
@@ -803,6 +874,7 @@ def _registration_program(
         ],
         "cache": cache,
         "policy": {"required_components": ["registered-aggregate"]},
+        "programme": _empty_programme(),
         "reported": case["expected_claim"],
         "exact_status": False,
     }
@@ -841,6 +913,7 @@ def _semantic_program(
             {
                 "authority": "derived-conformance",
                 "unit": unit,
+                "content_sha256": None,
                 "node": None,
                 "claims": claim_ids,
                 "outcome": "passed",
@@ -874,6 +947,7 @@ def _semantic_program(
         "evidence": evidence,
         "cache": {"registered_inputs": [], "execution_inputs": []},
         "policy": {"required_components": selected["policy"]["components"]},
+        "programme": _empty_programme(),
         "reported": case["expected_claim"],
         "exact_status": True,
     }
@@ -895,8 +969,9 @@ def _release_program(
             {
                 "authority": "portable-receipt",
                 "unit": unit,
+                "content_sha256": wrapped["sha256"],
                 "node": record.get("node_id"),
-                "claims": case["claim_ids"],
+                "claims": record["claim_ids"],
                 "outcome": record.get("outcome"),
                 "evaluation": record.get("evaluation_mode"),
                 "binding": record.get("binding_mode"),
@@ -913,17 +988,63 @@ def _release_program(
                 },
                 "backend": {"retained_facts": []},
                 "provenance": {
+                    "revision": provenance.get("project_revision"),
+                    "tree_state": provenance.get("tree_state"),
+                    "semantic_closure": provenance.get("semantic_closure"),
+                    "input_artifacts": [
+                        _portable_artifact(item)
+                        for item in provenance["input_artifacts"]
+                    ],
+                    "generated_artifacts": [
+                        _portable_artifact(item)
+                        for item in provenance["generated_artifacts"]
+                    ],
+                    "tool": _portable_tool(provenance["tool"]),
+                    "adapter": _portable_tool(provenance["adapter"]),
+                    "execution_kind": provenance.get("execution_kind"),
+                    "commands": [
+                        _portable_command(command) for command in provenance["commands"]
+                    ],
                     "runs": [
                         {
                             "command_index": run["command_index"],
                             "exit_code": run["exit_code"],
+                            "stdout_sha256": run.get("stdout_sha256"),
+                            "stderr_sha256": run.get("stderr_sha256"),
+                            "normalized_output_sha256": run.get(
+                                "normalized_output_sha256"
+                            ),
+                            "output_truncated": run.get("output_truncated"),
+                            "duration_ms": run.get("duration_ms"),
                         }
                         for run in provenance["runs"]
                     ],
-                    "usage": {"peak_memory": provenance["actual_cost"]["memory_bytes"]},
+                    "normalization": provenance.get("normalization"),
+                    "reproduction": _portable_command(
+                        provenance["reproduction_command"]
+                    ),
+                    "started_unix_ms": provenance.get("started_unix_ms"),
+                    "completed_unix_ms": provenance.get("completed_unix_ms"),
+                    "result_sha256": provenance.get("deterministic_result_sha256"),
+                    "unit_configuration_sha256": provenance.get(
+                        "unit_configuration_sha256"
+                    ),
+                    "budget": {
+                        "time_ms": provenance["resource_budget"]["time_ms"],
+                        "disk_bytes": provenance["resource_budget"]["disk_bytes"],
+                        "memory_bytes": provenance["resource_budget"]["memory_bytes"],
+                    },
+                    "usage": {
+                        "time_ms": provenance["actual_cost"]["time_ms"],
+                        "disk_bytes": provenance["actual_cost"]["disk_bytes"],
+                        "peak_memory": provenance["actual_cost"]["memory_bytes"],
+                    },
                     "cache": {
                         "prior_receipt": prior_receipt,
                         "key": _cache_key(unit, prior_receipt),
+                        "source_key": provenance.get("cache_key"),
+                        "origin": "reused" if prior_receipt is not None else "executed",
+                        "reuse_eligible": True,
                     },
                 },
             }
@@ -938,8 +1059,56 @@ def _release_program(
         "evidence": evidence,
         "cache": {"registered_inputs": [], "execution_inputs": []},
         "policy": {"required_components": ["ledger"]},
+        "programme": _release_programme(receipt),
         "reported": case["expected_claim"],
         "exact_status": True,
+    }
+
+
+def _empty_programme() -> dict[str, Any]:
+    return {
+        "project": None,
+        "graph": None,
+        "assumptions": [],
+        "premises": [],
+        "policies": [],
+        "closures": [],
+        "sealed_artifacts": [],
+        "publication_blockers": [],
+    }
+
+
+def _release_programme(receipt: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project": {
+            "id": receipt["project"],
+            "revision": receipt["project_revision"],
+            "tier": receipt["project_tier"],
+            "tree_state": receipt["tree_state"],
+        },
+        "graph": receipt["graph"],
+        "assumptions": receipt["assumptions"],
+        "premises": receipt["premises"],
+        "policies": receipt["policies"],
+        "closures": [
+            {
+                "sha256": closure["sha256"],
+                "kind": closure["record"]["kind"],
+                "members": [
+                    _portable_artifact(member)
+                    for member in closure["record"]["members"]
+                ],
+            }
+            for closure in receipt["closures"]
+        ],
+        "sealed_artifacts": [
+            _portable_artifact(artifact) for artifact in receipt["sealed_files"]
+        ],
+        "publication_blockers": sorted(
+            status["claim_id"]
+            for status in receipt["reported_statuses"]
+            if status["policy_admitted"] is False
+        ),
     }
 
 
@@ -1003,6 +1172,37 @@ def _release_claim(claim: dict[str, Any], receipt: dict[str, Any]) -> dict[str, 
             "tier": claim.get("tier"),
             "primary_linkage": claim.get("primary_linkage"),
         },
+    }
+
+
+def _portable_artifact(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "logical_name": value.get("logical_name", value.get("path")),
+        "sha256": value["sha256"],
+        "size_bytes": value["size_bytes"],
+    }
+
+
+def _portable_tool(value: dict[str, Any]) -> dict[str, str]:
+    return {
+        "name": value["name"],
+        "version": value["version"],
+        "identity_sha256": value["identity_sha256"],
+    }
+
+
+def _portable_command(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "program": value["program"],
+        "args": value["args"],
+        "environment_allowlist": [
+            {
+                "name": environment["name"],
+                "value_sha256": environment.get("value_sha256"),
+                "secret": environment["secret"],
+            }
+            for environment in value["environment_allowlist"]
+        ],
     }
 
 
@@ -1087,9 +1287,31 @@ def _cache_key(unit: str, prior_receipt: str | None) -> str:
 
 def _empty_provenance(unit: str) -> dict[str, Any]:
     return {
+        "revision": None,
+        "tree_state": None,
+        "semantic_closure": None,
+        "input_artifacts": [],
+        "generated_artifacts": [],
+        "tool": None,
+        "adapter": None,
+        "execution_kind": None,
+        "commands": [],
         "runs": [],
-        "usage": {"peak_memory": None},
-        "cache": {"prior_receipt": None, "key": _cache_key(unit, None)},
+        "normalization": None,
+        "reproduction": None,
+        "started_unix_ms": None,
+        "completed_unix_ms": None,
+        "result_sha256": None,
+        "unit_configuration_sha256": None,
+        "budget": None,
+        "usage": {"time_ms": None, "disk_bytes": None, "peak_memory": None},
+        "cache": {
+            "prior_receipt": None,
+            "key": _cache_key(unit, None),
+            "source_key": None,
+            "origin": "not-executed",
+            "reuse_eligible": False,
+        },
     }
 
 

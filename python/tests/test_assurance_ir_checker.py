@@ -67,6 +67,46 @@ def test_independent_canonical_vectors_match() -> None:
     assert check_canonical_vectors(VECTORS) == 15
 
 
+def test_portable_projection_retains_programme_and_execution_meaning() -> None:
+    projection = json.loads(producer_projection())
+    program = next(
+        case["program"] for case in projection["cases"] if case["id"] == "IR-REL-001"
+    )
+    assert program["programme"]["project"] == {
+        "id": "synthetic",
+        "revision": "rev-1",
+        "tier": 0,
+        "tree_state": "clean",
+    }
+    assert (
+        program["programme"]["closures"][0]["members"][0]["logical_name"]
+        == "src/model.rs"
+    )
+    assert (
+        program["programme"]["sealed_artifacts"][0]["logical_name"] == "tcb-ledger.json"
+    )
+    evidence = program["evidence"][0]
+    assert (
+        evidence["content_sha256"]
+        == "sha256:0472956f8429866d293913903a3b1ac9ae42764e658078953dae8015939b44d4"
+    )
+    assert evidence["provenance"]["commands"][0]["program"] == "synthetic-runner"
+    assert evidence["provenance"]["runs"][0]["exit_code"] == 0
+    assert evidence["provenance"]["usage"]["disk_bytes"] == 1
+
+    missing_policy = json.loads(json.dumps(program))
+    missing_policy["programme"]["policies"] = []
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(missing_policy))
+    assert caught.value.code == "IR-PROGRAMME-POLICY-OMITTED"
+
+    wrong_revision = json.loads(json.dumps(program))
+    wrong_revision["evidence"][0]["provenance"]["revision"] = "rev-substituted"
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(wrong_revision))
+    assert caught.value.code == "IR-PROGRAMME-PROVENANCE-MISMATCH"
+
+
 def test_both_implementations_reject_every_preregistered_attack() -> None:
     projection = json.loads(producer_projection())
     programs = {case["id"]: case["program"] for case in projection["cases"]}

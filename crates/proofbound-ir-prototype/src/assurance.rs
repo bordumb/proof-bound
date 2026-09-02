@@ -17,8 +17,36 @@ pub struct CaseProgram {
     pub evidence: Vec<IrEvidence>,
     pub cache: IrCache,
     pub policy: IrPolicy,
+    pub programme: IrProgrammeContext,
     pub reported: super::ExpectedClaim,
     pub exact_status: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrProgrammeContext {
+    pub project: Option<IrProject>,
+    pub graph: Option<Value>,
+    pub assumptions: Vec<Value>,
+    pub premises: Vec<Value>,
+    pub policies: Vec<Value>,
+    pub closures: Vec<IrClosure>,
+    pub sealed_artifacts: Vec<Artifact>,
+    pub publication_blockers: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrProject {
+    pub id: String,
+    pub revision: String,
+    pub tier: u64,
+    pub tree_state: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrClosure {
+    pub sha256: String,
+    pub kind: String,
+    pub members: Vec<Artifact>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -75,6 +103,7 @@ pub struct IrClaimAdmission {
 pub struct IrEvidence {
     pub authority: String,
     pub unit: String,
+    pub content_sha256: Option<String>,
     pub node: Option<String>,
     pub claims: Vec<String>,
     pub outcome: Option<String>,
@@ -123,26 +152,80 @@ pub struct RetainedFact {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrProvenance {
+    pub revision: Option<String>,
+    pub tree_state: Option<String>,
+    pub semantic_closure: Option<String>,
+    pub input_artifacts: Vec<Artifact>,
+    pub generated_artifacts: Vec<Artifact>,
+    pub tool: Option<IrTool>,
+    pub adapter: Option<IrTool>,
+    pub execution_kind: Option<String>,
+    pub commands: Vec<IrCommand>,
     pub runs: Vec<IrRun>,
+    pub normalization: Option<String>,
+    pub reproduction: Option<IrCommand>,
+    pub started_unix_ms: Option<u64>,
+    pub completed_unix_ms: Option<u64>,
+    pub result_sha256: Option<String>,
+    pub unit_configuration_sha256: Option<String>,
+    pub budget: Option<IrBudget>,
     pub usage: IrUsage,
     pub cache: IrCacheProvenance,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrTool {
+    pub name: String,
+    pub version: String,
+    pub identity_sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrCommand {
+    pub program: String,
+    pub args: Vec<String>,
+    pub environment_allowlist: Vec<IrEnvironment>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrEnvironment {
+    pub name: String,
+    pub value_sha256: Option<String>,
+    pub secret: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrRun {
     pub command_index: u64,
     pub exit_code: Option<i64>,
+    pub stdout_sha256: Option<String>,
+    pub stderr_sha256: Option<String>,
+    pub normalized_output_sha256: Option<String>,
+    pub output_truncated: Option<bool>,
+    pub duration_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrUsage {
+    pub time_ms: Option<u64>,
+    pub disk_bytes: Option<u64>,
     pub peak_memory: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct IrBudget {
+    pub time_ms: u64,
+    pub disk_bytes: u64,
+    pub memory_bytes: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IrCacheProvenance {
     pub prior_receipt: Option<String>,
     pub key: String,
+    pub source_key: Option<String>,
+    pub origin: String,
+    pub reuse_eligible: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -265,6 +348,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
     let source_sha256 = text(source, "sha256")?;
     let claims = array_field(object, "claims")?;
     let evidence = array_field(object, "evidence")?;
+    let programme = object_field(object, "programme")?;
     let claim_ids = claims
         .iter()
         .map(|claim| text(value_object(claim)?, "id").map(str::to_owned))
@@ -310,6 +394,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
     }
 
     let mut kinds = Vec::with_capacity(evidence.len());
+    let mut portable_receipt = false;
     for item in evidence {
         let item = value_object(item)?;
         if !item.contains_key("authority") {
@@ -330,8 +415,13 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         require_sorted_unique(&assumptions)?;
         let inventory = text_array(item, "inventory")?;
         require_sorted_unique(&inventory)?;
-        if text(item, "authority")? == "registered" {
+        let authority = text(item, "authority")?;
+        if authority == "registered" {
             object_field(item, "request")?;
+        }
+        if authority == "portable-receipt" {
+            portable_receipt = true;
+            text(item, "content_sha256")?;
         }
         if claim_assumptions.iter().any(|registered| {
             assumptions
@@ -438,6 +528,11 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         }
     }
 
+    validate_programme(programme, portable_receipt)?;
+    if portable_receipt {
+        validate_portable_joins(programme, evidence)?;
+    }
+
     let cache = object_field(object, "cache")?;
     let registered = cache_inputs(cache, "registered_inputs")?;
     let execution = cache_inputs(cache, "execution_inputs")?;
@@ -459,6 +554,95 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         !claim_assumptions.iter().all(Vec::is_empty) || obligations,
         exact_status,
     )
+}
+
+fn validate_portable_joins(
+    programme: &Map<String, Value>,
+    evidence: &[Value],
+) -> Result<(), IrValidationError> {
+    let project = object_field(programme, "project")?;
+    let revision = text(project, "revision")?;
+    let tree_state = text(project, "tree_state")?;
+    let closure_ids = array_field(programme, "closures")?
+        .iter()
+        .map(|closure| text(value_object(closure)?, "sha256"))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    for item in evidence {
+        let item = value_object(item)?;
+        if text(item, "authority")? != "portable-receipt" {
+            continue;
+        }
+        let provenance = object_field(item, "provenance")?;
+        if provenance.get("revision").and_then(Value::as_str) != Some(revision)
+            || provenance.get("tree_state").and_then(Value::as_str) != Some(tree_state)
+        {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-PROVENANCE-MISMATCH",
+                "portable provenance differs from project identity",
+            ));
+        }
+        let closure = text(provenance, "semantic_closure")?;
+        if !closure_ids.contains(closure) {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-CLOSURE-MISSING",
+                "portable evidence names an unregistered semantic closure",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_programme(
+    programme: &Map<String, Value>,
+    portable_receipt: bool,
+) -> Result<(), IrValidationError> {
+    if portable_receipt {
+        let project = object_field(programme, "project")?;
+        for field in ["id", "revision", "tree_state"] {
+            text(project, field)?;
+        }
+        if project.get("tier").and_then(Value::as_u64).is_none() {
+            return Err(IrValidationError::new(
+                "IR-DECODE-INVALID",
+                "portable project tier is required",
+            ));
+        }
+        object_field(programme, "graph")?;
+        if array_field(programme, "policies")?.is_empty() {
+            return Err(IrValidationError::new(
+                "IR-PROGRAMME-POLICY-OMITTED",
+                "portable programme must retain its policies",
+            ));
+        }
+    }
+
+    for closure in array_field(programme, "closures")? {
+        let closure = value_object(closure)?;
+        text(closure, "sha256")?;
+        text(closure, "kind")?;
+        for member in array_field(closure, "members")? {
+            validate_artifact(value_object(member)?)?;
+        }
+    }
+    for artifact in array_field(programme, "sealed_artifacts")? {
+        validate_artifact(value_object(artifact)?)?;
+    }
+    for field in ["assumptions", "premises", "publication_blockers"] {
+        array_field(programme, field)?;
+    }
+    Ok(())
+}
+
+fn validate_artifact(artifact: &Map<String, Value>) -> Result<(), IrValidationError> {
+    text(artifact, "logical_name")?;
+    text(artifact, "sha256")?;
+    if artifact.get("size_bytes").and_then(Value::as_u64).is_none() {
+        return Err(IrValidationError::new(
+            "IR-DECODE-INVALID",
+            "artifact size is required",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_reported(
