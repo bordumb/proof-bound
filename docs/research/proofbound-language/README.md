@@ -70,15 +70,15 @@ lossless and reversible projection required by Q1 and Q5.
 - Inventory revision 2 and the frozen 20-case corpus now support a concrete IR
   draft. The draft isolates backend conversion and invalidation from common
   validation and derivation.
-- The second differential slice has executable Rust/Python agreement on all 20
-  positive source projections, all 20 preregistered adversarial cases, and 15
-  canonical vectors. It provides bounded passes for EXP-0005 Q2-Q4, while Q1
-  and Q5 remain unanswered because the projection is not yet complete or
-  reversible.
+- The Q1 decision slice adds a portable semantic reverse projection and
+  executable Rust/Python agreement on twelve preregistered programme attacks.
+  Its strict re-audit passes nine of sixteen losslessness rows and leaves seven
+  partial, so Q1 fails despite the stronger prototype.
 
 ## Current decision
 
-Continue Gate 1 only. Extend the projection to every field registered by Q1,
-then implement reverse conversion and versioned migration for Q5. Do not design
-final syntax or native executable semantics until that lossless boundary and
-the invalidation model satisfy their preregistered criteria.
+Continue Gate 1 only. Close the seven rows named by the Q1 revision-2 matrix,
+then rerun the frozen acceptance contract. Do not freeze Assurance IR `/1`,
+preregister the Go holdout, or design final syntax and native executable
+semantics until the lossless boundary passes. Versioned migration remains the
+subsequent Q5 gate.

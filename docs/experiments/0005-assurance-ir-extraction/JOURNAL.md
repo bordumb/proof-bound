@@ -199,3 +199,25 @@ These cases have not been executed. The implementation-derived omission and
 identity tests run earlier remain useful regressions but are not retrospectively
 called preregistered. The new corpus fixes exact rejection codes before the
 kernel changes needed to satisfy them.
+
+## 2026-09-02 — Q1 losslessness decision
+
+At implementation commit `fb12290`, executed the twelve previously frozen Q1
+attacks without changing their bytes. Rust and Python independently rejected
+all twelve with their exact registered codes. The same implementations
+projected all twenty positive cases to canonical programmes with projection
+SHA-256 `3107fafe494d200f808951ed608f913692aff056d06ca53882dcd85968eb8fc4`.
+The portable fixture passed an explicit receipt-to-IR-to-receipt semantic
+comparison, including claim presentation, evidence and provenance, graph,
+policy, closure, ledger, status, and publication joins.
+
+The revision-2 losslessness audit nevertheless fails Q1. Nine of sixteen rows
+are forward-and-reverse complete; seven remain partial. Known gaps are a
+canonical subject-closure identity for registration projections, full
+admission traces, closed typed artifact-role and evidence-family records,
+complete transitive cache-dependency evidence, and typed backend/TCB component
+semantics. These are representation gaps, not attack-test failures.
+
+Accordingly, Assurance IR `/1` is not frozen and the Go holdout is not
+preregistered. Doing either now would turn known omissions into compatibility
+commitments and would make a holdout measure adaptation to an incomplete IR.

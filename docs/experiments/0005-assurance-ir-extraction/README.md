@@ -184,8 +184,11 @@ forward and reverse field coverage.
 | EXP-0005-F002 | Two independent implementations rejected all 20 registered ambiguity, substitution, join, cache, and status attacks with the exact same codes. | `results/2026-09-02-adversarial-evidence-algebra.json` | Bounded pass for Q2-Q4; preserve the corpus as a permanent regression suite. |
 | EXP-0005-F003 | The current case projection omits fields required by Q1, including complete inventory, output, subject, closure, normalization, and TCB meaning; successful adversarial parity is not semantic sufficiency. | Result limitations and registered Q1 projection | Continue Gate 1 with a field-by-field losslessness matrix and reverse conversion. |
 | EXP-0005-F004 | A strict Q1 audit finds one of 16 rows forward-complete and none reverse-complete; opaque configuration hashes and synthetic cache/subject values are insufficient substitutes for registered meaning. | `q1-losslessness-matrix.json` | Freeze the matrix as the forward and reverse acceptance gate. |
+| EXP-0005-F005 | Portable reverse projection and twelve matched semantic attacks materially improve the IR, but seven of sixteen registered rows remain partial. Passing adversarial tests does not erase known representation gaps. | `q1-losslessness-matrix-r2.json`; `results/2026-09-02-q1-losslessness-decision.json` | Keep Gate 1 open. Close the seven rows before freezing `/1` or preregistering the Go holdout. |
 
 ## Outcome
 
-Running. Q2, Q3, and Q4 have bounded passes over the registered corpus. Q1 and
-Q5 remain unanswered, so Experiment 0005 and programme Gate 1 remain open.
+Running. Q2, Q3, and Q4 have bounded passes over the registered corpus. Q1 has
+an executed failed decision: nine of sixteen losslessness rows pass and seven
+remain partial. Q5 remains unanswered. Assurance IR `/1` is not frozen, the Go
+holdout has not started, and programme Gate 1 remains open.
