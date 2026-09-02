@@ -9,6 +9,7 @@ from proofbound.assurance_ir_checker import (
     AssuranceIrError,
     canonical_json,
     check_canonical_vectors,
+    check_portable_family_projection,
     check_projection,
     domain_hash,
     validate_case_program,
@@ -26,6 +27,10 @@ ADVERSARIAL = (
 Q1_ADVERSARIAL = (
     ROOT
     / "docs/experiments/0005-assurance-ir-extraction/corpus/q1-adversarial-cases.json"
+)
+COMPLETION_CAPTURE = (
+    ROOT
+    / "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json"
 )
 
 
@@ -49,10 +54,74 @@ def producer_projection() -> bytes:
     ).stdout
 
 
+def producer_portable_family_projection() -> bytes:
+    return subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--locked",
+            "--offline",
+            "--quiet",
+            "-p",
+            "proofbound-ir-prototype",
+            "--",
+            "project-portable-families",
+            str(ROOT),
+            str(COMPLETION_CAPTURE),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
 def test_independent_checker_agrees_with_rust_projection() -> None:
     report = check_projection(ROOT, CORPUS, producer_projection())
     assert report.case_count == 20
     assert report.projection_sha256.startswith("sha256:")
+
+
+def test_independent_checker_agrees_on_portable_family_projection() -> None:
+    projection = producer_portable_family_projection()
+    report = check_portable_family_projection(ROOT, COMPLETION_CAPTURE, projection)
+    assert report.case_count == 45
+    value = json.loads(projection)
+    legacy = [
+        record
+        for record in value["records"]
+        if record["family"]["kind"] == "sampled-property"
+        and record["family"]["detail"]["sampling"]["mode"] == "legacy-backend"
+    ]
+    assert sorted(record["unit_id"] for record in legacy) == [
+        "unit:bounded-roundtrip",
+        "unit:rust-kernel-tests",
+    ]
+
+
+def test_portable_family_checker_rejects_sampling_upgrade() -> None:
+    value = json.loads(producer_portable_family_projection())
+    legacy = next(
+        record
+        for record in value["records"]
+        if record["unit_id"] == "unit:bounded-roundtrip"
+    )
+    legacy["family"]["detail"]["sampling"] = {
+        "mode": "explicit",
+        "schema": "invented-fast-check-property/1",
+        "framework": "fast-check",
+        "framework_version": "4.3.0",
+        "seed": 424242,
+    }
+    material = {
+        "capture_sha256": value["capture_sha256"],
+        "records": value["records"],
+        "schema": value["schema"],
+    }
+    value["projection_sha256"] = domain_hash(value["schema"], canonical_json(material))
+    with pytest.raises(AssuranceIrError, match="differs from independent"):
+        check_portable_family_projection(
+            ROOT, COMPLETION_CAPTURE, canonical_json(value)
+        )
 
 
 def test_checker_rejects_projection_semantic_drift() -> None:

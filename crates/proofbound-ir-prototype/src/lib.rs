@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 mod assurance;
+mod portable;
 
 pub use assurance::{
     Artifact, CacheInput, CaseProgram, IrAssumption, IrBackend, IrBoundedDomain, IrBudget, IrCache,
@@ -23,6 +24,10 @@ pub use assurance::{
     IrProvenance, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun, IrSubjectClosure,
     IrTcbComponent, IrTool, IrUsage, IrValidationError, RetainedFact, cache_key, family_kind,
     family_schema, validate_case_program,
+};
+pub use portable::{
+    PORTABLE_FAMILY_PROJECTION_SCHEMA, PortableFamily, PortableFamilyProjection,
+    PortableFamilyRecord, SamplingDetail, project_portable_families,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";
@@ -2371,6 +2376,36 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.cases.len(), 20);
         assert!(first.projection_sha256.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn portable_family_projection_covers_completion_captures() {
+        let root = root();
+        let index = root.join(
+            "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json",
+        );
+        let first = project_portable_families(&root, &index).unwrap();
+        let second = project_portable_families(&root, &index).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.records.len(), 45);
+        assert_eq!(
+            first
+                .records
+                .iter()
+                .filter(|record| matches!(
+                    &record.family,
+                    PortableFamily::SampledProperty(detail)
+                        if matches!(detail.sampling, SamplingDetail::LegacyBackend { .. })
+                ))
+                .count(),
+            2
+        );
+        assert!(
+            first
+                .records
+                .iter()
+                .any(|record| matches!(record.family, PortableFamily::HumanReview(_)))
+        );
     }
 
     #[test]

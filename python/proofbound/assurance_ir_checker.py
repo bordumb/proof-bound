@@ -21,6 +21,9 @@ PROJECTION_SCHEMA = "proofbound-assurance-ir-projection/1"
 PROJECTION_DOMAIN = "proofbound-assurance-ir-projection/1"
 CASE_SCHEMA = "proofbound-assurance-ir-case/1"
 CACHE_DOMAIN = "proofbound-assurance-ir-cache/1"
+PORTABLE_FAMILY_PROJECTION_SCHEMA = "proofbound-ir-portable-family-projection/1"
+PORTABLE_FAMILY_PROJECTION_DOMAIN = "proofbound-ir-portable-family-projection/1"
+LEGACY_SAMPLING_REASON = "sampling-detail-not-yet-portable"
 
 
 class AssuranceIrError(ValueError):
@@ -177,6 +180,297 @@ def check_canonical_vectors(path: Path) -> int:
                 )
             count += 1
     return count
+
+
+def check_portable_family_projection(
+    root: Path, capture_index_path: Path, projection_bytes: bytes
+) -> CheckReport:
+    """Independently reconstruct the portable evidence-family projection.
+
+    Args:
+        root: Repository root containing the immutable semantic captures.
+        capture_index_path: Identity index for the completion capture.
+        projection_bytes: Canonical bytes produced by the Rust prototype.
+
+    Returns:
+        Projected record count and independently recomputed identity.
+
+    Raises:
+        AssuranceIrError: If capture identities or family semantics differ.
+    """
+
+    index_bytes = capture_index_path.read_bytes()
+    index = _strict_json(index_bytes, require_canonical=False)
+    projection = _strict_json(projection_bytes, require_canonical=True)
+    if (
+        index.get("schema") != "proofbound-research-q1-completion-capture/1"
+        or index.get("revision") != 1
+    ):
+        raise AssuranceIrError("unsupported completion capture")
+    records: list[dict[str, Any]] = []
+    capture_root = capture_index_path.parent
+    for case in index["cases"]:
+        compiled_files = [
+            item
+            for item in case["files"]
+            if item["path"].endswith("/compiled-receipt.json")
+        ]
+        if len(compiled_files) != 1:
+            raise AssuranceIrError("capture case has no unique compiled receipt")
+        registered = compiled_files[0]
+        relative = Path(registered["path"])
+        if (
+            relative.is_absolute()
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or "\\" in registered["path"]
+        ):
+            raise AssuranceIrError("capture path is not normalized")
+        path = capture_root / relative
+        try:
+            path.resolve(strict=True).relative_to(root.resolve(strict=True))
+        except (OSError, ValueError) as error:
+            raise AssuranceIrError("capture path escapes repository") from error
+        data = path.read_bytes()
+        if (
+            _sha256(data) != registered["sha256"]
+            or len(data) != registered["size_bytes"]
+        ):
+            raise AssuranceIrError("captured compiled receipt identity differs")
+        receipt = _strict_json(data, require_canonical=False)
+        evidence = receipt.get("evidence")
+        if not isinstance(evidence, list) or len(evidence) != case["evidence_records"]:
+            raise AssuranceIrError("capture evidence count differs")
+        records.extend(_project_portable_record(item) for item in evidence)
+
+    records.sort(key=lambda item: item["content_sha256"])
+    identities = [item["content_sha256"] for item in records]
+    if len(identities) != len(set(identities)):
+        raise AssuranceIrError("duplicate portable evidence identity")
+    material = {
+        "capture_sha256": _sha256(index_bytes),
+        "records": records,
+        "schema": PORTABLE_FAMILY_PROJECTION_SCHEMA,
+    }
+    identity = domain_hash(PORTABLE_FAMILY_PROJECTION_DOMAIN, canonical_json(material))
+    expected = material | {"projection_sha256": identity}
+    if projection != expected:
+        raise AssuranceIrError(
+            "portable family projection differs from independent reconstruction"
+        )
+    return CheckReport(len(records), identity)
+
+
+def _project_portable_record(wrapped: object) -> dict[str, Any]:
+    item = _as_object(wrapped)
+    record = _as_object(item.get("record"))
+    source_kind = _required_text(record, "kind")
+    details = {
+        field
+        for field in (
+            "artifact_binding",
+            "bounded_check",
+            "distribution_reproduction",
+            "independence",
+            "mutation_witness",
+            "python_property",
+            "static_check",
+            "theorem",
+            "trusted_transcription",
+        )
+        if field in record
+    }
+    allowed = {
+        "artifact-soundness": {"artifact_binding"},
+        "bounded-check": {"bounded_check"},
+        "example-test": {"distribution_reproduction"},
+        "independent-check": {"independence"},
+        "mutation-witness": {"mutation_witness"},
+        "property-test": {"python_property"},
+        "review": set(),
+        "static-check": {"static_check"},
+        "theorem": {"theorem"},
+        "trusted-transcription": {"trusted_transcription"},
+    }.get(source_kind, set())
+    if len(details) > 1 or not details <= allowed:
+        raise AssuranceIrError("portable evidence contains conflicting family detail")
+
+    if source_kind == "example-test" and "distribution_reproduction" in record:
+        detail = _distribution_detail(record["distribution_reproduction"])
+        family = {"kind": "reproducible-artifact", "detail": detail}
+    elif source_kind == "example-test":
+        family = {"kind": "example", "detail": {}}
+    elif source_kind == "property-test":
+        property_value = record.get("python_property")
+        if property_value is None:
+            provenance = _as_object(record.get("provenance"))
+            sampling = {
+                "mode": "legacy-backend",
+                "contract_identity": _required_text(
+                    provenance, "unit_configuration_sha256"
+                ),
+                "reason": LEGACY_SAMPLING_REASON,
+            }
+        else:
+            property_detail = _as_object(property_value)
+            _require_keys(
+                property_detail,
+                {"schema", "framework", "seed", "framework_version"},
+                "property detail",
+            )
+            if not isinstance(property_detail["seed"], int):
+                raise AssuranceIrError("property seed is not an integer")
+            sampling = {
+                "mode": "explicit",
+                "schema": _required_text(property_detail, "schema"),
+                "framework": _required_text(property_detail, "framework"),
+                "framework_version": _required_text(
+                    property_detail, "framework_version"
+                ),
+                "seed": property_detail["seed"],
+            }
+        family = {"kind": "sampled-property", "detail": {"sampling": sampling}}
+    elif source_kind == "static-check":
+        detail = _copy_exact_detail(
+            record["static_check"],
+            {
+                "schema",
+                "tool",
+                "tool_version",
+                "configuration_sha256",
+                "targets",
+                "diagnostics",
+            },
+        )
+        detail["targets"] = sorted(detail["targets"])
+        family = {"kind": "static-consistency", "detail": detail}
+    elif source_kind == "independent-check":
+        mode = record.get("independence")
+        if mode not in {"independent", "common-origin"}:
+            raise AssuranceIrError("unknown independence mode")
+        family = {
+            "kind": "independent-observation",
+            "detail": {"independence": mode},
+        }
+    elif source_kind == "mutation-witness":
+        detail = _copy_exact_detail(
+            record["mutation_witness"],
+            {
+                "schema",
+                "mutation_id",
+                "subject",
+                "guard",
+                "mutation_sha256",
+                "registry",
+                "target_preimage",
+                "mutant_artifact",
+                "target_postimage",
+                "witness_source",
+                "check_id",
+                "baseline_run_index",
+                "expected_failure",
+                "proof_term_witness",
+            },
+        )
+        expected_failure = _as_object(detail["expected_failure"])
+        _require_keys(
+            expected_failure,
+            {"run_index", "allowed_exit_codes"},
+            "expected failure",
+        )
+        expected_failure["allowed_exit_codes"] = sorted(
+            expected_failure["allowed_exit_codes"]
+        )
+        family = {"kind": "mutation-witness", "detail": detail}
+    elif source_kind == "theorem":
+        detail = _copy_exact_detail(
+            record["theorem"],
+            {
+                "declaration",
+                "statement_encoding",
+                "statement_wire",
+                "statement_sha256",
+                "attributed_claim",
+                "proof_environment",
+                "axiom_audit_passed",
+                "contains_sorry_ax",
+                "foundational_axioms",
+                "project_axioms",
+            },
+        )
+        detail["foundational_axioms"] = sorted(detail["foundational_axioms"])
+        detail["project_axioms"] = sorted(detail["project_axioms"])
+        family = {"kind": "universal-source-proof", "detail": detail}
+    elif source_kind == "bounded-check":
+        detail = _copy_exact_detail(
+            record["bounded_check"],
+            {"domain", "solver", "harnesses", "unwind_bounds", "assumptions"},
+        )
+        domain = _as_object(detail["domain"])
+        allowed_domain = {"id", "description", "registration_sha256", "cardinality"}
+        if (
+            not {"id", "description", "registration_sha256"} <= domain.keys()
+            or not set(domain) <= allowed_domain
+        ):
+            raise AssuranceIrError("bounded domain has invalid fields")
+        detail["harnesses"] = sorted(detail["harnesses"])
+        family = {"kind": "bounded-model-check", "detail": detail}
+    elif source_kind == "artifact-soundness":
+        detail = _copy_exact_detail(
+            record["artifact_binding"], {"theorem_evidence", "artifact"}
+        )
+        family = {"kind": "artifact-correspondence", "detail": detail}
+    elif source_kind == "trusted-transcription":
+        detail = _copy_exact_detail(
+            record["trusted_transcription"],
+            {
+                "schema",
+                "source",
+                "committed_transcription",
+                "transcribed_candidate",
+                "reencoded_source",
+                "driver",
+                "transcriber",
+                "reencoder",
+            },
+        )
+        family = {"kind": "trusted-transcription", "detail": detail}
+    elif source_kind == "review":
+        family = {"kind": "human-review", "detail": {}}
+    else:
+        raise AssuranceIrError(f"unsupported portable evidence family {source_kind}")
+
+    return {
+        "content_sha256": _required_text(item, "sha256"),
+        "unit_id": _required_text(record, "unit_id"),
+        "claims": _text_list(record, "claim_ids"),
+        "inventory": _text_list(record, "inventoried_targets"),
+        "family": family,
+    }
+
+
+def _distribution_detail(value: object) -> dict[str, Any]:
+    detail = _as_object(value)
+    required = {
+        "schema",
+        "format",
+        "run_digests",
+        "registered_digest",
+        "source_date_epoch",
+        "build_backend_name",
+        "build_backend_version",
+    }
+    optional = {"npm_integrity", "member_inventory"}
+    if not required <= detail.keys() or not set(detail) <= required | optional:
+        raise AssuranceIrError("distribution detail has invalid fields")
+    result = dict(detail)
+    result.setdefault("member_inventory", [])
+    return result
+
+
+def _copy_exact_detail(value: object, fields: set[str]) -> dict[str, Any]:
+    detail = _as_object(value)
+    _require_keys(detail, fields, "portable family detail")
+    return json.loads(json.dumps(detail))
 
 
 def validate_case_program(data: bytes) -> None:

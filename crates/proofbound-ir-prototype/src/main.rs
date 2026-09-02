@@ -5,7 +5,7 @@ use std::{
     process::ExitCode,
 };
 
-use proofbound_ir_prototype::{project_corpus, validate_case_program};
+use proofbound_ir_prototype::{project_corpus, project_portable_families, validate_case_program};
 
 fn main() -> ExitCode {
     let mut args = env::args_os().skip(1);
@@ -24,6 +24,39 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("{error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("project-portable-families")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype project-portable-families <repository-root> <capture-index.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(index) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype project-portable-families <repository-root> <capture-index.json>"
+            );
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        return match project_portable_families(&root, &index).and_then(|projection| {
+            proofbound_evidence::canonical_json(&projection).map_err(anyhow::Error::from)
+        }) {
+            Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("failed to write projection: {error}");
+                    ExitCode::from(1)
+                }
+            },
+            Err(error) => {
+                eprintln!("projection failed: {error:#}");
                 ExitCode::from(1)
             }
         };
