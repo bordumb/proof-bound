@@ -188,11 +188,12 @@ forward-and-reverse rows.
 | EXP-0005-F005 | Portable reverse projection and twelve matched semantic attacks materially improve the IR, but seven of sixteen registered rows remain partial. Passing adversarial tests does not erase known representation gaps. | `q1-losslessness-matrix-r2.json`; `results/2026-09-02-q1-losslessness-decision.json` | Keep Gate 1 open. Close the seven rows before freezing `/1` or preregistering the Go holdout. |
 | EXP-0005-F006 | Closed family records, canonical subject closures, and typed sealed TCB components remove three known gaps, but admission traces and complete invalidation inputs remain incomplete. | `q1-losslessness-matrix-r3.json`; `results/2026-09-02-q1-representation-hardening.json` | Keep Gate 1 open. Do not freeze `/1` or preregister the Go holdout while four rows remain partial. |
 | EXP-0005-F007 | Executable presence and version are not sufficient readiness predicates: sealed npm execution additionally needed explicit dependency-fetch authority, and Lean evidence additionally needed compiled project modules. Both missing preconditions failed closed despite tool discovery succeeding. | `captures/q1-completion-r1/index.json` | Feed explicit execution capabilities into the effects/readiness workstream; do not infer runnable evidence from executable discovery alone. |
+| EXP-0005-F008 | Closed registration-family records do not imply lossless portable-family conversion. Full language receipts add observed detail and human review that the current converter rejects or would replace with placeholders. | `q1-losslessness-matrix-r4.json`; `results/2026-09-02-q1-completion-capture-audit.json` | Reopen the typed-family row and implement every portable constructor before derivation traces. |
 
 ## Outcome
 
 Running. Q2, Q3, and Q4 have bounded passes over the registered corpus. Q1 has
-an executed failed decision followed by bounded representation hardening:
-twelve of sixteen losslessness rows pass and four remain partial. Q5 remains
-unanswered. Assurance IR `/1` is not frozen, the Go holdout has not started,
-and programme Gate 1 remains open.
+an executed failed decision followed by bounded representation hardening and a
+larger completion-capture audit: eleven of sixteen losslessness rows pass and
+five remain partial. Q5 remains unanswered. Assurance IR `/1` is not frozen,
+the Go holdout has not started, and programme Gate 1 remains open.

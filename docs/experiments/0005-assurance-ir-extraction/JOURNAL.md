@@ -285,3 +285,21 @@ dependency trees, private caches, and duplicate schemas. It is therefore a
 semantic research capture rather than a standalone release distribution. No
 Q1 row closes from capture alone. The registered trace, artifact, and cache
 attacks remain unexecuted.
+
+## 2026-09-02 — Q1 completion capture gap audit
+
+Probed the current Rust producer with the exact captured Python compiled
+receipt as an additional portable-release case. It rejected the record as an
+unsupported evidence kind because the closed family map has no human-review
+constructor. Source inspection found the deeper gap: portable conversion still
+constructs several family details from a schema plus placeholder subject or
+source values instead of consuming the typed detail already present in the
+receipt. Its single aggregate policy helper also cannot explain a mixed-policy
+complete release.
+
+This falsifies the generality of matrix revision 3's family-detail row. That
+row was valid only over the earlier frozen cases' registration projections and
+minimal portable fixture. Matrix revision 4 reopens it, leaving eleven of
+sixteen rows complete and five partial. The prior matrix and result remain
+immutable; the new result records the expanded evidence and changed accounting.
+No trace, artifact, or cache attack has yet been executed.

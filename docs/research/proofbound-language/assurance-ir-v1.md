@@ -12,8 +12,8 @@
 
 This document records the smallest semantic boundary found in inventory
 revision 2 and refined by the current Rust/Python research prototype. It is a
-design under test, not a claim that EXP-0005 has passed. The revision-3 Q1 audit
-finds twelve of sixteen semantic rows complete and four partial. No current
+design under test, not a claim that EXP-0005 has passed. The completion-capture
+audit finds eleven of sixteen semantic rows complete and five partial. No current
 manifest, receipt, cache, release, or verifier may emit or accept the schema
 name above until a later normative specification adopts it.
 
@@ -249,11 +249,15 @@ an existing `proofbound-evidence/3` identity domain.
 It says nothing about evidence family strength. A failed or drifted cited
 record makes the relevant derivation fail closed.
 
-Every constructor detail is a closed typed record. Registration projections
-currently type property seed/framework, mutation registry, distribution
+Every constructor detail is intended to be a closed typed record. Registration
+projections currently type property seed/framework, mutation registry, distribution
 format/artifact/epoch, bounded-domain, theorem, subject, and bound-artifact
 meaning. The detail must reconstruct the registered family configuration
-exactly; a parallel opaque configuration digest is not sufficient.
+exactly; a parallel opaque configuration digest is not sufficient. Complete
+portable captures show that conversion is still incomplete for observed
+mutation, property, static-check, independent-check, distribution, theorem,
+bounded-check, artifact, transcription, and human-review detail. Draft `/1`
+therefore does not yet satisfy this intended rule across a full release.
 
 ## 8. Closed evidence algebra
 
@@ -717,8 +721,9 @@ positive corpus and reject at least:
 | OQ-006 effects | Provenance records observed authority only | Static capability model plus OS enforcement experiment |
 
 The unresolved Q1 boundary is narrower than this broader question list:
-complete admission traces, registration-to-observation artifact identity, and
-complete transitive cache dependencies remain blockers to freezing `/1`.
+complete portable family details, admission traces,
+registration-to-observation artifact identity, and complete transitive cache
+dependencies remain blockers to freezing `/1`.
 | OQ-008 frontend | IR is frontend-neutral | Equivalent TOML, Pkl/CUE, and DSL compilation study |
 
 ## 19. Acceptance boundary
