@@ -1,0 +1,29 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "run": "portable-property-semantics-gap",
+  "date": "2026-09-02",
+  "subject": "git:f3a5362fda0bcdfc444bd9f9db06e94b84ae1784",
+  "method": "Enumerate every evidence kind and family-specific field in the three captured compiled receipts, then compare all property-test records with their registered manifests, exact input artifacts, and command transcripts.",
+  "observations": {
+    "portable_records": 45,
+    "property_records": 3,
+    "property_records_with_typed_sampling_detail": 1,
+    "property_records_without_typed_sampling_detail": 2,
+    "python_hypothesis_detail": "proofbound-python-property/1 retains framework, framework version, and seed",
+    "typescript_fast_check_detail": "absent; seed and run count occur only in the registered test-source bytes",
+    "rust_property_detail": "absent; the property label has no typed sampling registration"
+  },
+  "falsifier_triggered": "Q1 requires typed family meaning to survive projection without prose interpretation or an opaque digest substituting for required semantics. An independent backend-neutral converter cannot reconstruct the TypeScript or Rust sampling contract from the portable receipt.",
+  "outcome": {
+    "q1": "remains failed",
+    "field": "Q1-FIELD-012",
+    "state": "partial",
+    "assurance_ir_1_frozen": false,
+    "go_holdout_preregistered": false,
+    "trace_attacks_executed": false
+  },
+  "design_consequence": "The Assurance IR needs an explicit legacy sampling constructor for current receipts and a distinct explicit sampling constructor for future versioned records. Artifact and configuration identities remain bound for audit and invalidation but do not become semantic substitutes.",
+  "next_step": "Implement closed projection for the typed portable constructors and human review while retaining TypeScript and Rust property evidence as LegacyBackendSampling. Do not mark Q1 complete or execute the preregistered trace attacks until a versioned producer wire can emit explicit sampling semantics."
+}

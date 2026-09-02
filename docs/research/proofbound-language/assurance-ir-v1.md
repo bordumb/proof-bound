@@ -317,9 +317,15 @@ IndependentObservationEvidence {
 ```
 
 `LegacyBackendSampling` is a visible migration state, not a silent default. It
-preserves the current TypeScript gap while OQ-001 remains open. Both sampling
-variants derive empirical `TESTED` at most. The constructor cannot be decoded
-as finite exhaustion or proof.
+preserves the current TypeScript and Rust gaps while OQ-001 remains open. The
+captured TypeScript receipt binds the exact test source and configuration
+identity, but does not retain its fast-check framework, version, seed, or run
+count as typed portable facts. The Rust property-labelled receipt likewise has
+no typed sampling record. A converter may use the configuration identity as a
+legacy contract identity for invalidation; it may not claim that the digest
+reconstructs the missing semantics. Both sampling variants derive empirical
+`TESTED` at most. Neither constructor can be decoded as finite exhaustion or
+proof.
 
 ### 8.2 Finite and bounded constructors
 

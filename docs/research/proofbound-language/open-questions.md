@@ -7,7 +7,7 @@ stop decision; questions are not deleted.
 
 | ID | Question | Related work | Required before |
 |---|---|---|---|
-| OQ-001 | Can Hypothesis and fast-check share one sampled-property semantic contract without discarding generator, seed, and framework meaning? | H1, H2, EXP-0005 | Assurance IR `/1` |
+| OQ-001 | Can Hypothesis, fast-check, and Rust property-labelled tests share one sampled-property semantic contract without discarding generator, seed, run-budget, and framework meaning? Current captures retain explicit sampling only for Hypothesis. | H1, H2, EXP-0005-F009 | Assurance IR `/1` |
 | OQ-002 | Should backend plugin identities remain common provenance, typed backend detail, or a general capability/dependency record? | H1, H5, EXP-0005 | Assurance IR `/1` and effects prototype |
 | OQ-003 | Which claim wording is machine meaning, bounded-domain meaning, and reader presentation? | H1, WS-IR | Claim IR design |
 | OQ-004 | Can cache eligibility be derived entirely from typed dependencies rather than maintained as a parallel manually assembled projection? | H3, WS-IN | Invalidation experiment |

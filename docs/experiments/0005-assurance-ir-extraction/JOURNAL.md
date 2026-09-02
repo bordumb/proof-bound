@@ -303,3 +303,22 @@ minimal portable fixture. Matrix revision 4 reopens it, leaving eleven of
 sixteen rows complete and five partial. The prior matrix and result remain
 immutable; the new result records the expanded evidence and changed accounting.
 No trace, artifact, or cache attack has yet been executed.
+
+## 2026-09-02 — Portable property semantics stop condition
+
+Enumerated all 45 portable evidence records across the Python, TypeScript, and
+Rust completion captures before implementing the missing family converters.
+The audit found that only the Python Hypothesis property carries typed sampling
+detail. The TypeScript fast-check seed and run count exist only inside the
+registered test-source bytes, while the Rust property-labelled suite likewise
+has no typed sampling record. Both receipts bind exact artifacts, commands,
+configuration identities, and results, but none of those values lets a
+backend-neutral checker reconstruct the missing sampling contract.
+
+This triggers Q1's prose-interpretation and opaque-identity falsifier. Draft
+Assurance IR may retain these records as an explicit
+`LegacyBackendSampling` migration state, but may not decode them as explicit
+sampling. Q1-FIELD-012 remains partial and the preregistered derivation-trace
+attacks remain unexecuted. The next implementation can still convert the other
+closed portable constructors; closing the property divergence requires a new
+versioned producer wire rather than inference from TypeScript or Rust source.

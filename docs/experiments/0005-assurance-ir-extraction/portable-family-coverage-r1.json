@@ -1,0 +1,113 @@
+{
+  "schema": "proofbound-research-portable-family-coverage/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "revision": 1,
+  "status": "executed-gap-audit",
+  "date": "2026-09-02",
+  "subject": "git:f3a5362fda0bcdfc444bd9f9db06e94b84ae1784",
+  "inputs": {
+    "capture_index_path": "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json",
+    "capture_index_sha256": "sha256:54ff0bddf5251b1889e608bed86591600157335b0921f0c99b7584f4fae1c998",
+    "losslessness_matrix_path": "docs/experiments/0005-assurance-ir-extraction/q1-losslessness-matrix-r4.json",
+    "losslessness_matrix_sha256": "sha256:068b361e99f68f8d08985d0dba6375cf3f652da58d338f81ff30f2a1496944ea"
+  },
+  "acceptance": "A portable family constructor is lossless only when its receipt carries every assurance-relevant family parameter as closed typed data, so an independent converter can reconstruct the family without parsing application source, interpreting prose, invoking the backend, or treating a digest as the missing meaning.",
+  "constructors": [
+    {
+      "source_kind": "artifact-soundness",
+      "portable_detail": "artifact_binding",
+      "state": "typed-on-wire",
+      "captured_records": 2
+    },
+    {
+      "source_kind": "bounded-check",
+      "portable_detail": "bounded_check",
+      "state": "typed-on-wire",
+      "captured_records": 1
+    },
+    {
+      "source_kind": "example-test",
+      "portable_detail": "none, or distribution_reproduction when the example route reproduces a distribution",
+      "state": "typed-on-wire",
+      "captured_records": 14
+    },
+    {
+      "source_kind": "independent-check",
+      "portable_detail": "independence",
+      "state": "typed-on-wire",
+      "captured_records": 2
+    },
+    {
+      "source_kind": "mutation-witness",
+      "portable_detail": "mutation_witness",
+      "state": "typed-on-wire",
+      "captured_records": 7
+    },
+    {
+      "source_kind": "property-test",
+      "portable_detail": "python_property for Hypothesis; absent for Vitest/fast-check and Rust property-labelled tests",
+      "state": "divergent",
+      "captured_records": 3,
+      "typed_records": 1,
+      "legacy_records": 2,
+      "record_ids": [
+        {
+          "unit_id": "unit:reservation-property",
+          "content_sha256": "sha256:62dc583c96abc12870462cbfce68bc785252a53b22ef7ea9c7e8df51b3c96bfe",
+          "typed_detail": "proofbound-python-property/1"
+        },
+        {
+          "unit_id": "unit:bounded-roundtrip",
+          "content_sha256": "sha256:ab14aab1cbc0921da04d4fbec96629063be986a752d2b06d251ad59bc268d692",
+          "typed_detail": null
+        },
+        {
+          "unit_id": "unit:rust-kernel-tests",
+          "content_sha256": "sha256:00da59fd060942a6f9d070c94b0ca27fe89926d14c1448742eed8ed457d72dba",
+          "typed_detail": null
+        }
+      ]
+    },
+    {
+      "source_kind": "review",
+      "portable_detail": "none",
+      "state": "closed-empty-constructor",
+      "captured_records": 6
+    },
+    {
+      "source_kind": "static-check",
+      "portable_detail": "static_check",
+      "state": "typed-on-wire",
+      "captured_records": 2
+    },
+    {
+      "source_kind": "theorem",
+      "portable_detail": "theorem",
+      "state": "typed-on-wire",
+      "captured_records": 7
+    },
+    {
+      "source_kind": "trusted-transcription",
+      "portable_detail": "trusted_transcription",
+      "state": "typed-on-wire",
+      "captured_records": 1
+    }
+  ],
+  "property_divergence": {
+    "typescript_registered_claim": "The demo describes a fast-check property with seed 424242 and 100 runs.",
+    "typescript_wire_fact": "The portable evidence carries the exact test-source artifact, unit-configuration identity, command transcript, and result identity, but no typed framework, version, seed, generator, or run-count record.",
+    "rust_wire_fact": "The Rust property-labelled evidence carries exact source and command provenance but no typed sampling contract.",
+    "why_artifact_identity_is_insufficient": "An independent assurance kernel can prove which bytes ran but cannot recover the sampling semantics from those bytes without a TypeScript or Rust parser and backend-specific interpretation.",
+    "why_configuration_identity_is_insufficient": "The unit-configuration digest detects change but cannot reconstruct or compare the missing framework, seed, generator, and run-count meaning.",
+    "safe_ir_state": "LegacyBackendSampling(contract_identity, reason=sampling-detail-not-yet-portable)",
+    "lossless_ir_state": "ExplicitSampling(framework, framework_version, seed, generator_identity, run_count or a typed generation budget)",
+    "migration_rule": "LegacyBackendSampling remains visibly weaker and cannot be silently decoded as ExplicitSampling. Existing records retain their current empirical ceiling; a new versioned observation/evidence schema is required to make sampling detail portable."
+  },
+  "decision": {
+    "q1_field_012_complete": false,
+    "continue_portable_family_conversion": true,
+    "execute_derivation_trace_attacks": false,
+    "reason": "The supported typed constructors can be projected next, but the sampled-property family is not lossless across the captured languages. The preregistered sequence forbids executing derivation attacks before portable family conversion is complete."
+  }
+}

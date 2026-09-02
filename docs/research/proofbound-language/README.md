@@ -24,10 +24,12 @@ invalidation boundaries.
 
 The positive semantic-projection corpus is frozen and a non-normative
 [Assurance IR `/1` draft](assurance-ir-v1.md) makes the proposed boundary
-falsifiable. Independent Rust and Python prototypes now agree on all 20
-positive cases and reject all 20 corrected preregistered attacks with their
-expected codes. The result is bounded: it does not yet provide the complete
-lossless and reversible projection required by Q1 and Q5.
+falsifiable. Independent Rust and Python prototypes agree on the original 20
+positive cases and their registered attacks. Three complete Python,
+TypeScript, and Rust release captures then falsified the earlier generality:
+the current converter does not cover all portable family constructors, and
+the TypeScript and Rust property receipts do not retain an explicit sampling
+contract. Eleven of sixteen Q1 rows are complete; five remain partial.
 
 ## Programme map
 
@@ -72,13 +74,19 @@ lossless and reversible projection required by Q1 and Q5.
   validation and derivation.
 - The Q1 decision slice adds a portable semantic reverse projection and
   executable Rust/Python agreement on twelve preregistered programme attacks.
-  Its strict re-audit passes nine of sixteen losslessness rows and leaves seven
-  partial, so Q1 fails despite the stronger prototype.
+- Later representation hardening and complete release captures leave eleven
+  of sixteen losslessness rows complete. The capture audit also shows why a
+  property label plus an exact source digest is not a typed sampling contract:
+  only Python Hypothesis currently retains framework and seed semantics on the
+  portable wire.
 
 ## Current decision
 
-Continue Gate 1 only. Close the seven rows named by the Q1 revision-2 matrix,
-then rerun the frozen acceptance contract. Do not freeze Assurance IR `/1`,
-preregister the Go holdout, or design final syntax and native executable
-semantics until the lossless boundary passes. Versioned migration remains the
-subsequent Q5 gate.
+Continue Gate 1 only. Implement the portable constructors that already have
+closed typed records and preserve the remaining property records as an
+explicit legacy migration state. A new versioned producer wire is required
+before TypeScript and Rust sampling can be called lossless. Do not execute the
+preregistered derivation-trace attacks, freeze Assurance IR `/1`, preregister
+the Go holdout, or design final syntax and native executable semantics until
+the lossless boundary passes. Versioned migration remains the subsequent Q5
+gate.
