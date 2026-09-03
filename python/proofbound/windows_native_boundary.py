@@ -25,6 +25,7 @@ from proofbound.windows_enforcement_probe import (
     SidAndAttributes,
     TokenMandatoryLabel,
 )
+from proofbound.windows_enforcement_execute import sha256_bytes
 
 
 CREATE_SUSPENDED = 0x00000004
@@ -359,6 +360,7 @@ def run_appcontainer_process(
     timeout_ms: int = 30_000,
     *,
     stage_application: bool = False,
+    staged_files: tuple[tuple[Path, str], ...] = (),
     options: WindowsBoundaryOptions | None = None,
 ) -> dict[str, Any]:
     """Run one command after all registered Windows boundary layers exist."""
@@ -368,6 +370,8 @@ def run_appcontainer_process(
         raise OSError("native Windows boundary requested on a non-Windows host")
     if not command or not Path(command[0]).is_absolute():
         raise ValueError("the application path must be absolute")
+    if staged_files and not stage_application:
+        raise ValueError("staged_files require stage_application")
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
     userenv = ctypes.WinDLL("userenv", use_last_error=True)
@@ -567,6 +571,7 @@ def run_appcontainer_process(
     station_name = f"proofbound-{uuid.uuid4().hex}"
     stdout_path: Path | None = None
     stderr_path: Path | None = None
+    staged_identities: list[dict[str, Any]] = []
     try:
         _hresult(
             userenv.CreateAppContainerProfile(
@@ -591,9 +596,49 @@ def run_appcontainer_process(
             application_root.mkdir(parents=True, exist_ok=False)
             application = application_root / Path(command[0]).name
             shutil.copy2(command[0], application)
+            staged_identities.append(
+                {
+                    "source": str(command[0]),
+                    "destination": application.name,
+                    "sha256": sha256_bytes(application.read_bytes()),
+                    "size_bytes": application.stat().st_size,
+                }
+            )
+            destinations = {application.name.casefold()}
+            for source, destination_text in staged_files:
+                destination_path = Path(destination_text)
+                if (
+                    "\\" in destination_text
+                    or destination_path.is_absolute()
+                    or not destination_path.parts
+                    or any(part in {"", ".", ".."} for part in destination_path.parts)
+                ):
+                    raise ValueError("staged file destination must be safely relative")
+                if source.is_symlink() or not source.is_file():
+                    raise ValueError("staged file source must be a regular non-symlink")
+                destination_key = str(destination_path).replace("\\", "/").casefold()
+                if destination_key in destinations:
+                    raise ValueError("staged file destinations must be unique")
+                destinations.add(destination_key)
+                destination = application_root / destination_path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                staged_identities.append(
+                    {
+                        "source": str(source),
+                        "destination": str(destination_path).replace("\\", "/"),
+                        "sha256": sha256_bytes(destination.read_bytes()),
+                        "size_bytes": destination.stat().st_size,
+                    }
+                )
             child_command[0] = str(application)
             child_cwd = application_root
         child_environment = dict(environment)
+        if stage_application:
+            child_environment = {
+                name: value.replace("{APPLICATION_ROOT}", str(application_root))
+                for name, value in child_environment.items()
+            }
         child_environment.update(
             {
                 "LOCALAPPDATA": str(profile_storage),
@@ -796,6 +841,7 @@ def run_appcontainer_process(
             "requested_command": command,
             "executed_command": child_command,
             "application_staged": stage_application,
+            "staged_files": staged_identities,
             "appcontainer_sid": sid,
             "restricted_token": True,
             "administrator_sids": "deny-only",

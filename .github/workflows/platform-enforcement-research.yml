@@ -108,32 +108,24 @@ jobs:
         with:
           python-version-file: .python-version
 
-      - name: Install the registered Node line
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
-      - name: Install the registered Rust toolchain
-        uses: dtolnay/rust-toolchain@1.94.0
-
-      - name: Probe Python, Node, and Rust entry
+      - name: Probe the sealed Python initialization closure
         shell: pwsh
         env:
           PYTHONPATH: ${{ github.workspace }}/python
         run: |
           $root = "$env:RUNNER_TEMP/exp0025-results"
           New-Item -ItemType Directory -Force $root
-          python -m proofbound.windows_runtime_entry_matrix `
-            "$root/runtime-entry-matrix.json"
+          python -m proofbound.windows_python_closure_discovery `
+            "$root/python-closure.json"
           if ($LASTEXITCODE -ne 0) {
-            throw "the bounded runtime-entry matrix did not complete"
+            throw "the Python initialization closure did not complete"
           }
 
-      - name: Retain the non-reusable runtime discovery
+      - name: Retain the non-reusable Python closure discovery
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: exp-0025-windows-runtime-entry-discovery
+          name: exp-0025-windows-python-closure-discovery
           path: ${{ runner.temp }}/exp0025-results
           if-no-files-found: error
           retention-days: 14
