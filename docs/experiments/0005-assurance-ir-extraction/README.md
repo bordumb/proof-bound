@@ -9,6 +9,12 @@
   pin later experiment implementation commits in each executed trial
 - **Operator:** Codex (GPT-5)
 
+The final two-row closure attempt is separately preregistered in
+[`q1-finalization-preregistration.json`](q1-finalization-preregistration.json).
+It treats the Rust property label as a source-classification defect, not as
+permission to infer sampling, and requires cache provenance to remain
+source-authored rather than reconstructed.
+
 ## Why this experiment
 
 Proofbound currently preserves assurance meaning across manifests, adapter
