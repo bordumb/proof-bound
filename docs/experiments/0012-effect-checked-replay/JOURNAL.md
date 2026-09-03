@@ -22,3 +22,11 @@ derives rather than accepts cache eligibility. Its self-tests execute every
 positive plan and all 23 attacks through the same validators and include a
 self-consistent trace-value substitution. No Python implementation existed
 when this entry was added.
+
+## 2026-09-03 — Independent checker implemented
+
+Implemented the second validator and runner in Python without invoking or
+importing the Rust implementation. Its focused tests pass, and its canonical
+model report is byte-identical to the Rust report for the frozen corpus and ten
+repetitions. This parity check is provisional until the retained experiment
+executor independently revalidates both outputs and metrics.

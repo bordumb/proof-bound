@@ -14,4 +14,6 @@
 | EXP-0012-C006 | `corpus/CONTRACT.md` | frozen, `sha256:3977fc75ef68fc30b4881f030b3ab91f14dd90766057d0b3801148e35ad57d6b` | Candidate normalization and measurement contract |
 | EXP-0012-I001 | `crates/proofbound-ir-prototype/src/effects.rs` | implemented | Typed Rust plan validator, mediated runner, trace validator, cache derivation, invalidation, and attacks |
 | EXP-0012-I002 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-effects` command |
+| EXP-0012-I003 | `python/proofbound/effects_research.py` | independently implemented | Closed Python validator, mediated host, trace recomputation, invalidation, and attack execution |
+| EXP-0012-I004 | `python/tests/test_effects_research.py` | passing | Independent positive, preflight, invalidation, and trace-forgery tests |
 | EXP-0012-E001 | `results/` | reserved | Immutable execution and independent-validation reports |
