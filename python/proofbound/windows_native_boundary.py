@@ -39,6 +39,7 @@ TOKEN_GROUPS = 2
 TOKEN_IS_APPCONTAINER = 29
 TOKEN_APPCONTAINER_SID = 31
 SE_GROUP_USE_FOR_DENY_ONLY = 0x00000010
+LUA_TOKEN = 0x00000004
 
 
 class StartupInfoW(ctypes.Structure):
@@ -365,7 +366,6 @@ def run_appcontainer_process(
 
     profile = f"proofbound.exp0023.{uuid.uuid4().hex}"
     appcontainer_sid = wintypes.LPVOID()
-    administrator_sid = wintypes.LPVOID()
     token = wintypes.HANDLE()
     restricted = wintypes.HANDLE()
     integrity_sid = wintypes.LPVOID()
@@ -397,18 +397,11 @@ def run_appcontainer_process(
             "OpenProcessToken",
         )
         _require(
-            advapi32.ConvertStringSidToSidW(
-                "S-1-5-32-544", ctypes.byref(administrator_sid)
-            ),
-            "ConvertStringSidToSidW(Administrators)",
-        )
-        disabled_administrator = SidAndAttributes(administrator_sid, 0)
-        _require(
             advapi32.CreateRestrictedToken(
                 token,
-                DISABLE_MAX_PRIVILEGE,
-                1,
-                ctypes.byref(disabled_administrator),
+                DISABLE_MAX_PRIVILEGE | LUA_TOKEN,
+                0,
+                None,
                 0,
                 None,
                 0,
@@ -566,8 +559,6 @@ def run_appcontainer_process(
             kernel32.CloseHandle(job)
         if integrity_sid:
             kernel32.LocalFree(integrity_sid)
-        if administrator_sid:
-            kernel32.LocalFree(administrator_sid)
         if restricted:
             kernel32.CloseHandle(restricted)
         if token:
