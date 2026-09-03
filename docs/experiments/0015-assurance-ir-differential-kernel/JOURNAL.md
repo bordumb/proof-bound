@@ -60,7 +60,15 @@ model reports were byte-identical, with stable valid and adversarial corpus
 identities. The Rust kernel has 1,576 measured lines, the Python kernel 855,
 the generated corpus is 4,701,210 bytes, and the canonical model report is
 10,241 bytes. The retained execution is
-`sha256:0e522fe8b960441e7e83359c6754040fd5a1eb51254593eff206a25ed09c5c53`.
+`sha256:e60392a918a77b2c922e68d351df9ea456fcee01807708446a8328c6a905c41e`.
+
+## 2026-09-03 — Retained-byte identity corrected
+
+The evaluator emitted canonical JSON without a trailing newline. The retained
+repository file uses the repository text-file newline, so its raw byte identity
+is `sha256:e60392a918a77b2c922e68d351df9ea456fcee01807708446a8328c6a905c41e`,
+not the pre-retention temporary output identity. No decoded result or question
+outcome changed.
 
 ## 2026-09-03 — Experiment concluded
 
