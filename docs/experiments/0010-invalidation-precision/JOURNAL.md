@@ -38,3 +38,21 @@ evaluation ambiguity: implementations must derive dependency uses from source
 manifests and route contracts, then look up affected units by selector. They
 may not parse prose or use the expected affected set to manufacture a passing
 projection.
+
+## 2026-09-03 — Candidate model execution
+
+Implemented the versioned dependency projection and invalidation trace in Rust
+and in an independently written Python module. Both implementations reject all
+fifteen registered attacks with the exact registered codes. An exact shared
+canonical vector also produces the same projection and trace identities.
+
+The source converter then read the fifteen controlled manifests, both pinned
+external holdouts, and two auxiliary fixtures. It derived nineteen projections
+without consulting registered affected sets. Generic invalidation matched all
+twenty-six scenario sets exactly: 57 affected-unit events, zero stale-retention
+events, zero over-invalidating scenarios, and 57/57 explanation coverage. Rust
+independently decoded the retained Python-produced report, recomputed every
+trace and metric, and accepted its canonical bytes.
+
+This is only the model-level stage. It does not yet establish Q1's required
+forced-fresh agreement or that current cache behavior retains these facts.

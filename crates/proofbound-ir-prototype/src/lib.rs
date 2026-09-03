@@ -41,11 +41,12 @@ pub use derivation::{
 pub use invalidation::{
     CacheDependencyEvidence, ChangedNode, ChangedNodeKind, DEPENDENCY_PROJECTION_DOMAIN,
     DEPENDENCY_PROJECTION_SCHEMA, DependencyNode, DependencyProjection, DependencyRole,
-    DependencyUse, EnvironmentState, INVALIDATION_TRACE_DOMAIN, INVALIDATION_TRACE_SCHEMA,
-    InvalidationPath, InvalidationTrace, PathState, PermissionModel, ResolutionCandidate,
+    DependencyUse, EnvironmentState, ExactRatio, INVALIDATION_TRACE_DOMAIN,
+    INVALIDATION_TRACE_SCHEMA, InvalidationExecutionReport, InvalidationMetrics, InvalidationPath,
+    InvalidationScenarioResult, InvalidationTrace, PathState, PermissionModel, ResolutionCandidate,
     dependency_node_id, derive_invalidation_trace, validate_cache_dependency_evidence,
-    validate_dependency_projection, validate_invalidation_trace,
-    validate_projection_against_source,
+    validate_dependency_projection, validate_invalidation_execution_report,
+    validate_invalidation_trace, validate_projection_against_source,
 };
 pub use layered_sampling::{
     LayeredSamplingCase, LayeredSamplingError, LayeredSamplingReport,

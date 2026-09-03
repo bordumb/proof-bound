@@ -8,8 +8,8 @@ use std::{
 use proofbound_ir_prototype::{
     audit_artifact_roles, derive_release_trace_bundle, generate_derivation_corpus, project_corpus,
     project_portable_families, project_portable_families_with_sampling, validate_case_program,
-    validate_derivation_program, validate_layered_sampling_case, validate_release_trace_bundle,
-    validate_sampling_observation,
+    validate_derivation_program, validate_invalidation_execution_report,
+    validate_layered_sampling_case, validate_release_trace_bundle, validate_sampling_observation,
 };
 
 fn main() -> ExitCode {
@@ -271,6 +271,32 @@ fn main() -> ExitCode {
                         validate_release_trace_bundle(&receipt_bytes, &trace_bytes)
                             .map_err(|error| error.to_string())
                     })
+            });
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-invalidation-execution")) {
+        let Some(report) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype validate-invalidation-execution <report.json>"
+            );
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(report)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_invalidation_execution_report(&bytes)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
             });
         return match result {
             Ok(()) => ExitCode::SUCCESS,

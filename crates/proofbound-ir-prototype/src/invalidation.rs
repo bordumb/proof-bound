@@ -4,6 +4,7 @@ use proofbound_evidence::{canonical_json, domain_hash};
 use serde::{Deserialize, Serialize};
 
 use crate::IrValidationError;
+use crate::assurance::decode_strict_json;
 
 pub const DEPENDENCY_PROJECTION_SCHEMA: &str = "proofbound-ir-dependency-projection/1";
 pub const DEPENDENCY_PROJECTION_DOMAIN: &str = "proofbound-ir-dependency-projection/1";
@@ -156,6 +157,53 @@ pub struct InvalidationTrace {
     pub affected_claims: Vec<String>,
     pub paths: Vec<InvalidationPath>,
     pub identity: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvalidationExecutionReport {
+    pub schema: String,
+    pub experiment: String,
+    pub programme_experiment: String,
+    pub source_revision: String,
+    pub projection_count: usize,
+    pub scenario_count: usize,
+    pub projections: Vec<DependencyProjection>,
+    pub scenarios: Vec<InvalidationScenarioResult>,
+    pub metrics: InvalidationMetrics,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvalidationScenarioResult {
+    pub scenario: String,
+    pub class: String,
+    pub scope: String,
+    pub scope_units: Vec<String>,
+    pub predicted_invalidated: Vec<String>,
+    pub registered_invalidated: Vec<String>,
+    pub exact: bool,
+    pub precision: ExactRatio,
+    pub recall: ExactRatio,
+    pub avoided_units: usize,
+    pub trace: InvalidationTrace,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvalidationMetrics {
+    pub exact_scenarios: usize,
+    pub stale_retention: usize,
+    pub overinvalidating_scenarios: usize,
+    pub invalidated_unit_events: usize,
+    pub explanation_coverage: ExactRatio,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExactRatio {
+    pub numerator: usize,
+    pub denominator: usize,
 }
 
 impl DependencyNode {
@@ -538,6 +586,161 @@ pub fn validate_invalidation_trace(
         );
     }
     Ok(())
+}
+
+pub fn validate_invalidation_execution_report(
+    bytes: &[u8],
+) -> Result<InvalidationExecutionReport, IrValidationError> {
+    let value = decode_strict_json(bytes)?;
+    if canonical_json(&value).map_err(json_error)? != bytes {
+        return invalid(
+            "IR-DEPENDENCY-NONCANONICAL",
+            "invalidation execution report is not canonical JSON",
+        );
+    }
+    let report: InvalidationExecutionReport = serde_json::from_value(value)
+        .map_err(|error| IrValidationError::new("IR-DEPENDENCY-OPAQUE", error.to_string()))?;
+    if report.schema != "proofbound-research-invalidation-execution/1"
+        || report.experiment != "EXP-0010"
+        || report.programme_experiment != "EXP-LANG-003"
+    {
+        return invalid(
+            "IR-DEPENDENCY-OPAQUE",
+            "unknown invalidation execution report",
+        );
+    }
+    require_digest(&report.source_revision)?;
+    if report.projection_count != report.projections.len()
+        || report.scenario_count != report.scenarios.len()
+    {
+        return invalid(
+            "IR-DEPENDENCY-BINDING-MISMATCH",
+            "reported corpus counts differ from retained records",
+        );
+    }
+    let mut projections = BTreeMap::new();
+    for projection in &report.projections {
+        validate_dependency_projection(projection)?;
+        if projections.insert(&projection.unit, projection).is_some() {
+            return invalid("IR-DEPENDENCY-DUPLICATE", "duplicate projected unit");
+        }
+    }
+    if report
+        .projections
+        .windows(2)
+        .any(|pair| pair[0].unit >= pair[1].unit)
+    {
+        return invalid(
+            "IR-DEPENDENCY-NONCANONICAL",
+            "projected units are not in canonical order",
+        );
+    }
+
+    let mut exact_scenarios = 0;
+    let mut stale_retention = 0;
+    let mut overinvalidating_scenarios = 0;
+    let mut invalidated_unit_events = 0;
+    let mut explained_unit_events = 0;
+    for scenario in &report.scenarios {
+        bounded_text(&scenario.scenario)?;
+        bounded_text(&scenario.class)?;
+        bounded_text(&scenario.scope)?;
+        require_sorted_unique_text(&scenario.scope_units)?;
+        require_sorted_unique_text(&scenario.predicted_invalidated)?;
+        require_sorted_unique_text(&scenario.registered_invalidated)?;
+        let scoped = scenario
+            .scope_units
+            .iter()
+            .map(|unit| {
+                projections.get(unit).copied().ok_or_else(|| {
+                    IrValidationError::new(
+                        "IR-DEPENDENCY-BINDING-MISMATCH",
+                        "scenario scope references an unknown unit",
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let scoped = scoped.into_iter().cloned().collect::<Vec<_>>();
+        validate_invalidation_trace(&scoped, &scenario.trace)?;
+        if scenario.predicted_invalidated != scenario.trace.invalidated_units {
+            return invalid(
+                "IR-DEPENDENCY-STALE-KEY",
+                "predicted invalidation differs from the retained trace",
+            );
+        }
+        let predicted = scenario
+            .predicted_invalidated
+            .iter()
+            .collect::<BTreeSet<_>>();
+        let registered = scenario
+            .registered_invalidated
+            .iter()
+            .collect::<BTreeSet<_>>();
+        let intersection = predicted.intersection(&registered).count();
+        let precision = exact_ratio(intersection, predicted.len());
+        let recall = exact_ratio(intersection, registered.len());
+        let exact = predicted == registered;
+        if scenario.exact != exact
+            || scenario.precision != precision
+            || scenario.recall != recall
+            || scenario.avoided_units != scenario.scope_units.len() - predicted.len()
+        {
+            return invalid(
+                "IR-DEPENDENCY-STALE-KEY",
+                "scenario metrics differ from retained invalidation sets",
+            );
+        }
+        exact_scenarios += usize::from(exact);
+        stale_retention += usize::from(!registered.is_subset(&predicted));
+        overinvalidating_scenarios += usize::from(!predicted.is_subset(&registered));
+        invalidated_unit_events += predicted.len();
+        let explained_units = scenario
+            .trace
+            .paths
+            .iter()
+            .map(|path| &path.unit)
+            .collect::<BTreeSet<_>>();
+        explained_unit_events += predicted.intersection(&explained_units).count();
+    }
+    if report
+        .scenarios
+        .windows(2)
+        .any(|pair| pair[0].scenario >= pair[1].scenario)
+    {
+        return invalid(
+            "IR-DEPENDENCY-NONCANONICAL",
+            "scenario results are not in canonical order",
+        );
+    }
+    let explanation_coverage = exact_ratio(explained_unit_events, invalidated_unit_events);
+    let expected_metrics = InvalidationMetrics {
+        exact_scenarios,
+        stale_retention,
+        overinvalidating_scenarios,
+        invalidated_unit_events,
+        explanation_coverage,
+    };
+    if report.metrics != expected_metrics {
+        return invalid(
+            "IR-DEPENDENCY-STALE-KEY",
+            "summary metrics differ from independently recomputed results",
+        );
+    }
+    Ok(report)
+}
+
+fn exact_ratio(numerator: usize, denominator: usize) -> ExactRatio {
+    if denominator == 0 {
+        ExactRatio {
+            numerator: 1,
+            denominator: 1,
+        }
+    } else {
+        ExactRatio {
+            numerator,
+            denominator,
+        }
+    }
 }
 
 fn derive_trace_without_validation(
@@ -1219,5 +1422,16 @@ mod tests {
             trace.identity,
             "sha256:6c74e55ab257d8cd3995652ed770b1ccd0e0d71068d57a2157c950ab72dcc005"
         );
+    }
+
+    #[test]
+    fn independently_validates_retained_invalidation_execution() {
+        let report = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/experiments/0010-invalidation-precision/results/execution.json");
+        let bytes = fs::read(report).unwrap();
+        let execution = validate_invalidation_execution_report(&bytes).unwrap();
+        assert_eq!(execution.projection_count, 19);
+        assert_eq!(execution.scenario_count, 26);
+        assert_eq!(execution.metrics.exact_scenarios, 26);
     }
 }

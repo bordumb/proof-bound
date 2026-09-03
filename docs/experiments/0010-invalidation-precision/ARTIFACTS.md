@@ -11,6 +11,7 @@
 | EXP-0010-C003 | `corpus/fixtures/mode-project/` | frozen executable-mode fixture; exact files and executable mode are bound by the corpus commit | A Cargo build whose same-byte helper permission is load-bearing |
 | EXP-0010-C004 | `corpus/extension-r2.json` | frozen corpus extension revision 2, `sha256:361697ae72217abdc6242655e3c421da0c8ced65a363d3b11841f74b1960a323` | Corrects the transitive-source interpretation with a selected package consuming a repository-owned source outside its package root |
 | EXP-0010-C005 | `corpus/scenario-bindings-r3.json` | frozen scenario binding revision 3, `sha256:b25d65993c24b335f6c344be39f9b254d4f5489a927a3d7761cdfd63b8f01e99` | Separates typed changed-node selectors from the independently registered expected affected sets |
+| EXP-0010-E001 | `results/execution.json` | model execution, `sha256:9d3f3dd4091aac0ccb00beb9e6e98a37d675731ea1e4eb1eab65395e38eaa141` | Nineteen source-derived projections and independently checked traces for all twenty-six registered scenarios; this is not forced-fresh route evidence |
 
 The registration rows receive their historical commit and digest in the first
 result closeout rather than changing the registered question text. Executed
