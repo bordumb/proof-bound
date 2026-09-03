@@ -21,6 +21,7 @@ mod layered_sampling;
 mod notifications;
 mod portable;
 mod sampling;
+mod specifications;
 
 pub use artifact_roles::{
     ArtifactRoleReport, ArtifactUnitRoles, BoundArtifactRole, audit_artifact_roles,
@@ -95,6 +96,19 @@ pub use portable::{
 pub use sampling::{
     SamplingContract, SamplingObservation, SamplingValidationError, SamplingValidationReport,
     validate_sampling_observation,
+};
+pub use specifications::{
+    SPECIFICATION_EXECUTIONS_SCHEMA, SPECIFICATION_MODEL_REPORT_SCHEMA,
+    SPECIFICATION_REPORT_SCHEMA, SPECIFICATION_SUITE_SCHEMA, SPECIFICATION_UNIVERSE_SCHEMA,
+    SpecificationAttack, SpecificationAttackAction, SpecificationAttackCorpus,
+    SpecificationAttackResult, SpecificationCarrier, SpecificationCase, SpecificationContract,
+    SpecificationContractResult, SpecificationCounterexample, SpecificationError,
+    SpecificationExecutions, SpecificationExpression, SpecificationImplementation,
+    SpecificationModelReport, SpecificationMutantResult, SpecificationReplacement,
+    SpecificationReport, SpecificationSuite, SpecificationType, SpecificationUniverse,
+    SpecificationValue, SpecificationVariable, SpecificationVariableRole,
+    derive_specification_report, execute_specification_corpus, load_specification_corpus,
+    validate_specification_report,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";

@@ -20,3 +20,13 @@ mutant execution tables, all 20 preregistered attacks, and complexity ceilings.
 The contract suite binds the separately hashed universe. No checker existed
 when the corpus was frozen, and the expected file contains no filled checker
 output.
+
+## 2026-09-03 — Rust checker implemented
+
+Implemented the first checker after the corpus commit. It validates the closed
+typed expression AST, external universe binding, complete finite carriers,
+explicit execution-table shape, reachable requirements, result-constraining
+postconditions, direct inconsistency and vacuous implication, correct-table
+obligations, and exact mutant counterexamples. Its focused tests accept all 34
+correct obligations, kill all six mutants, and reject all 20 frozen attacks
+with exact codes. No Python checker existed when this entry was added.

@@ -12,5 +12,7 @@
 | EXP-0014-C004 | `corpus/attacks.json` | frozen, `sha256:b768c253cc24c33817b6ab8773c092546cf5298b4919e2d2bd6295e90caa4747` | Twenty registered structural, vacuity, adequacy, identity, and ordering attacks |
 | EXP-0014-C005 | `corpus/expected.json` | frozen, `sha256:0470052e53dcebb0bc89e22e0a871934b4edee966401652a98ba88232230ac55` | Counts, ten repetitions, and AST/carrier/contract/report ceilings |
 | EXP-0014-C006 | `corpus/CONTRACT.md` | frozen, `sha256:cd1d9d98a9ec4a5558f81ed08356f6161ce525b2b3a4da62725f0ce46c856963` | Closed typing, evaluation, adequacy, identity, and oracle-opening contract |
-| EXP-0014-I001 | Rust/Python implementations | reserved | Independent typed validators and adequacy evaluators |
+| EXP-0014-I001 | `crates/proofbound-ir-prototype/src/specifications.rs` | implemented | Typed Rust corpus validator, expression checker/evaluator, adequacy report derivation, and exact attack executor |
+| EXP-0014-I002 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-specifications` command |
+| EXP-0014-I003 | Python implementation | reserved | Independent typed validator and adequacy evaluator |
 | EXP-0014-E001 | `results/` | reserved | Immutable execution and comparison report |
