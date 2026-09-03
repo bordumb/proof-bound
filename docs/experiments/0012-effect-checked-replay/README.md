@@ -5,7 +5,7 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-005
-- **Status:** planned; preregistered, not executed
+- **Status:** in progress; preregistration and corpus frozen, not executed
 - **Registered:** 2026-09-03
 - **Started / concluded:** — / —
 - **Subject:** Proofbound `6b32d47884bb07ade225cd322b94b0dadcf58472`
@@ -195,4 +195,5 @@ revision over-invalidation.
 
 ## Outcome
 
-Q1–Q5 are unanswered. No effect-plan corpus or implementation exists yet.
+Q1–Q5 are unanswered. The effect-plan corpus is frozen; neither independent
+implementation has executed it yet.
