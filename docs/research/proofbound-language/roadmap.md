@@ -60,6 +60,13 @@ All base and scheduling attacks pass independent validation. Gate 1 therefore
 has a bounded fast macOS candidate; Linux and Windows parity and a supported
 production mechanism still block production cache authority.
 
+EXP-LANG-013 / Experiment 0020 maps all nine authority classes to explicit
+Linux dispositions, but the available Linux arm64 VM returns `ENOSYS` for the
+Landlock ABI probe. It correctly produces no workload receipts and no fallback
+evidence. Gate 1 therefore remains blocked: the fail-closed availability path
+is supported, while live Linux enforcement is unanswered and Windows remains
+untested.
+
 ## Gate 2 — Authoring and authority
 
 Required: WS-DSL and WS-FX.

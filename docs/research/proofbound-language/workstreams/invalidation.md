@@ -47,3 +47,8 @@ This closes the retained falsifier for the frozen macOS corpus. EXP-LANG-012 /
 then repairs the timing ceiling with 51 separately sandboxed concurrent runs.
 Production adoption remains blocked by broad system reads outside home and
 absent Linux and Windows equivalents.
+
+EXP-LANG-013 / [Experiment 0020](../../../experiments/0020-linux-enforcement-portability/README.md)
+does not supply the missing Linux equivalence: its exact ABI probe was
+unsupported and therefore produced no reusable evidence. This is the required
+fail-closed result, while the portability question remains open.

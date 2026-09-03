@@ -21,6 +21,7 @@ mod enforced_batch;
 mod frontend;
 mod invalidation;
 mod layered_sampling;
+mod linux_enforcement;
 mod migration;
 mod native;
 mod notifications;
@@ -106,6 +107,12 @@ pub use invalidation::{
 pub use layered_sampling::{
     LayeredSamplingCase, LayeredSamplingError, LayeredSamplingReport,
     validate_layered_sampling_case,
+};
+pub use linux_enforcement::{
+    LINUX_CAPTURE_SCHEMA, LINUX_POLICY_SCHEMA, LINUX_REPORT_SCHEMA, LinuxAttackResult,
+    LinuxCapture, LinuxEnforcementError, LinuxMetrics, LinuxOutput, LinuxPlatform, LinuxPolicy,
+    LinuxPolicyPlatform, LinuxPortabilityDelta, LinuxReport, LinuxSlot, validate_linux_capture,
+    validate_linux_capture_bytes, validate_linux_report,
 };
 pub use migration::{
     FOREIGN_CALL_SCHEMA, FOREIGN_CONTRACT_SCHEMA, FOREIGN_OBSERVATIONS_SCHEMA, ForeignCall,

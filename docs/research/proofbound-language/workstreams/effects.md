@@ -1,6 +1,6 @@
 # WS-FX: effects and capabilities
 
-- **Status:** EXP-LANG-012 / Experiment 0019 concluded `pass`
+- **Status:** EXP-LANG-013 / Experiment 0020 concluded `unanswered`
 - **Hypotheses:** H5, H9
 - **Depends on:** WS-IR authority and dependency model
 - **Blocks:** Gate 2
@@ -63,3 +63,12 @@ in 6,048 ms, preserved distinct per-run roots and receipts, and rejected all
 30 inherited and ten scheduler attacks in independent implementations. The
 latency criterion is repaired without adopting a shared long-lived worker.
 Portability and production mechanism support remain open.
+
+## Linux portability result
+
+[EXP-LANG-013 / Experiment 0020](../../../experiments/0020-linux-enforcement-portability/README.md)
+compiled every authority class to an explicit Linux disposition. The
+available Linux arm64 VM returned `ENOSYS` for its exact Landlock ABI query,
+including without Docker's outer seccomp profile. The executor correctly
+emitted no workload receipt and admitted no container or unconfined fallback.
+This supports fail-closed availability handling, not Linux enforcement.

@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 5 — adoption bridge and language decision
-- **Latest experiment:** EXP-LANG-012 / Experiment 0019 concluded `pass`; concurrent isolated enforcement latency
+- **Latest experiment:** EXP-LANG-013 / Experiment 0020 concluded `unanswered`; Linux Landlock unavailable
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -82,6 +82,13 @@ scheduling them concurrently. The complete corpus fell from 93,574 ms to
 6,048 ms, all 40 base and scheduler attacks rejected exactly, and independent
 reports remained byte-identical. This repairs the bounded latency failure
 without introducing a shared worker; platform portability remains open.
+EXP-LANG-013 then compiled the same effect contract to explicit Landlock,
+`no_new_privs`, environment, and seccomp dispositions in two independent
+implementations. The available Linux arm64 VM returned `ENOSYS` for the
+Landlock ABI query, including with its outer seccomp profile disabled. The
+executor correctly emitted zero receipts and admitted no fallback, so the
+study is `unanswered`: it validates fail-closed availability handling, not a
+working Linux enforcement boundary.
 
 ## Programme map
 
@@ -103,9 +110,9 @@ without introducing a shared worker; platform portability remains open.
 |---|---|---|---|---|
 | WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | `/2` bounded candidate supported; production parity pending | H1, H2 | EXP-LANG-010 concluded |
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
-| WS-IN | [Invalidation](workstreams/invalidation.md) | enforced macOS candidate supported; portability open | H3, H9 | EXP-LANG-012 / Experiment 0019 concluded `pass` |
+| WS-IN | [Invalidation](workstreams/invalidation.md) | enforced macOS candidate supported; Linux live result unanswered | H3, H9 | EXP-LANG-013 / Experiment 0020 concluded `unanswered` |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
-| WS-FX | [Effects and capabilities](workstreams/effects.md) | fast macOS boundary supported; portable production mechanism open | H5, H9 | EXP-LANG-012 / Experiment 0019 concluded `pass` |
+| WS-FX | [Effects and capabilities](workstreams/effects.md) | fast macOS boundary supported; Linux Landlock environment unavailable | H5, H9 | EXP-LANG-013 / Experiment 0020 concluded `unanswered` |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | bounded research bytecode supported; broader native work open | H7 | EXP-LANG-007 concluded |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | bounded dual compilation; machine code open | H7 | EXP-LANG-007 concluded |
