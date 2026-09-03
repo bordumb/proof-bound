@@ -137,7 +137,6 @@ jobs:
           $root = "$env:RUNNER_TEMP/exp0025-results"
           $procmon = "$root/ProcessMonitor/Procmon64a.exe"
           $trace = "$root/initialization.pml"
-          $csv = "$root/initialization.csv"
           try {
             & $procmon /AcceptEula /Quiet /Minimized /BackingFile $trace
             Start-Sleep -Seconds 2
@@ -153,34 +152,47 @@ jobs:
           if (-not (Test-Path $trace)) {
             throw "Process Monitor did not retain the initialization trace"
           }
-          $export = Start-Process -FilePath $procmon -PassThru -ArgumentList @(
-            '/AcceptEula', '/Quiet', '/OpenLog', $trace, '/SaveAs', $csv
-          )
-          $deadline = (Get-Date).AddSeconds(60)
-          while ((-not (Test-Path $csv)) -and (Get-Date) -lt $deadline) {
-            Start-Sleep -Milliseconds 250
-          }
-          & $procmon /Terminate /Quiet
-          if ($export.HasExited -and $export.ExitCode -ne 0) {
-            throw "Process Monitor export failed with exit code $($export.ExitCode)"
-          }
-          if (-not (Test-Path $csv)) {
-            throw "Process Monitor did not export the initialization trace"
-          }
           Set-Content "$root/process-smoke-exit.txt" "$smokeExit"
 
-      - name: Summarize initialization failures
+      - name: Extract the bounded initialization process tree
         shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
         run: |
           $root = "$env:RUNNER_TEMP/exp0025-results"
-          Import-Csv "$root/initialization.csv" |
-            Where-Object {
-              $_.'Process Name' -eq 'cmd.exe' -or
-              $_.Result -in @('ACCESS DENIED', 'PATH NOT FOUND', 'NAME NOT FOUND')
-            } |
-            Select-Object 'Process Name', PID, Operation, Path, Result, Detail |
-            Export-Csv "$root/initialization-relevant.csv" -NoTypeInformation
-          Get-Content "$root/initialization-relevant.csv" | Select-Object -Last 200
+          $packages = "$root/parser-packages"
+          New-Item -ItemType Directory -Force $packages
+          python -m pip download `
+            --disable-pip-version-check `
+            --only-binary=:all: `
+            --dest $packages `
+            procmon-parser==0.3.13 construct==2.10.70 six==1.17.0
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to acquire the pinned PML parser closure"
+          }
+          Get-ChildItem "$packages/*.whl" | Sort-Object Name | ForEach-Object {
+            @{
+              name = $_.Name
+              sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            }
+          } | ConvertTo-Json | Set-Content "$root/parser-identities.json"
+          python -m pip install `
+            --disable-pip-version-check `
+            --no-index `
+            --find-links $packages `
+            procmon-parser==0.3.13 construct==2.10.70 six==1.17.0
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to install the pinned PML parser closure"
+          }
+          python -m proofbound.windows_procmon_discovery `
+            "$root/initialization.pml" `
+            "$root/process-smoke.json" `
+            "$root/initialization-process-tree.json"
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to extract the bounded initialization process tree"
+          }
+          $tree = Get-Content "$root/initialization-process-tree.json" | ConvertFrom-Json
+          $tree.processes | Select-Object process_name, pid, parent_pid, integrity, image_path
 
       - name: Retain the non-reusable discovery trace
         if: always()
