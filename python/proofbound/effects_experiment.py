@@ -267,6 +267,15 @@ def _summarize(
                 "reason": "mutation and distribution outputs are exact without ambient authority or reviewed writes",
             },
         },
+        "trace_identities": {
+            plan["id"]: plan["trace"]["identity"] for plan in rust_model["plans"]
+        },
+        "attack_results": rust_model["attacks"],
+        "invalidation_controls": {
+            control["id"]: control["decisions"][0]
+            for control in rust_model["invalidation"]
+        },
+        "route_outputs": rust_model["route_outputs"],
     }
 
 

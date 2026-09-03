@@ -18,4 +18,4 @@
 | EXP-0012-I004 | `python/tests/test_effects_research.py` | passing | Independent positive, preflight, invalidation, and trace-forgery tests |
 | EXP-0012-I005 | `python/proofbound/effects_experiment.py` | implemented | Two-implementation executor and independently derived Q1–Q5 metrics |
 | EXP-0012-I006 | `python/tests/test_effects_experiment.py` | passing | Metric and question derivation regression |
-| EXP-0012-E001 | `results/` | reserved | Immutable execution and independent-validation reports |
+| EXP-0012-E001 | `results/execution.json` | retained, `sha256:93c5df3762c3416c11bcd151da63aef3f69bd4ab277ab4b5d623e495aa20b484` | Ten-repetition execution, all attacks, metrics, trace identities, and Q1–Q5 outcomes |
