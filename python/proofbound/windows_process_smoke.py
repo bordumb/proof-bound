@@ -23,7 +23,11 @@ def main(argv: list[str] | None = None) -> int:
         result = run_appcontainer_process(
             [str(executable), "/all"],
             executable.parent,
-            {"PB_REGISTERED_VALUE": "registered-env"},
+            {
+                "PB_REGISTERED_VALUE": "registered-env",
+                "SystemDrive": os.environ["SystemDrive"],
+                "SystemRoot": os.environ["SystemRoot"],
+            },
         )
         value = {
             "schema": "proofbound-research-windows-process-smoke/1",
