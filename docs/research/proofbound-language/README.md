@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** next dependency-ordered experiment to be preregistered; EXP-LANG-006 is concluded
+- **Active experiment:** [EXP-LANG-009 / Experiment 0014 — specification falsifiers](../../experiments/0014-specification-falsifiers/README.md) is preregistered
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
