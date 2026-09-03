@@ -29,3 +29,15 @@ derive, and attack the candidate while reusing only the bound proof-search
 receipt. Pure tests do not require Z3; the separately gated live Z3 test also
 passed. The implementation is not experimental evidence until the independent
 Python checker exists and the frozen procedure is executed.
+
+## 2026-09-03 — Independent checker implemented
+
+Implemented a Python parser, type and effect checker, bytecode compiler, VM,
+certificate derivation and validator, solver-receipt validator, six-mutant
+evaluator, and attack executor. The checker never invokes Z3: it reads and
+hashes the registered executable, validates the retained proof-search receipt,
+then independently reconstructs the complete Rust report byte for byte. It
+rejects duplicate JSON keys and noncanonical report JSON before typed
+validation. Cross-language tests achieved exact report-byte equality and
+rejected a self-consistently rehashed scope upgrade and solver substitution.
+The registered questions remain unanswered until the retained evaluator runs.
