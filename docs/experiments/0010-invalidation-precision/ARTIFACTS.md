@@ -10,6 +10,7 @@
 | EXP-0010-C002 | `corpus/scenarios.json` | frozen scenario revision 1, `sha256:562e1db45e9a021fba982f4e4e188e8278f7f6a07e608b842af4fb25d4d9b7b1` | Twenty-five change scenarios with exact evaluation scopes and affected-unit sets |
 | EXP-0010-C003 | `corpus/fixtures/mode-project/` | frozen executable-mode fixture; exact files and executable mode are bound by the corpus commit | A Cargo build whose same-byte helper permission is load-bearing |
 | EXP-0010-C004 | `corpus/extension-r2.json` | frozen corpus extension revision 2, `sha256:361697ae72217abdc6242655e3c421da0c8ced65a363d3b11841f74b1960a323` | Corrects the transitive-source interpretation with a selected package consuming a repository-owned source outside its package root |
+| EXP-0010-C005 | `corpus/scenario-bindings-r3.json` | frozen scenario binding revision 3, `sha256:b25d65993c24b335f6c344be39f9b254d4f5489a927a3d7761cdfd63b8f01e99` | Separates typed changed-node selectors from the independently registered expected affected sets |
 
 The registration rows receive their historical commit and digest in the first
 result closeout rather than changing the registered question text. Executed

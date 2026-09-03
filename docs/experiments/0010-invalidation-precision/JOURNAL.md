@@ -29,3 +29,12 @@ outside the immediate package. Corpus extension revision 2 therefore adds a
 workspace member that imports a root-level `shared.rs` through `#[path]` and
 freezes `INV-SC-026` with only that unit affected. Revision 1 remains unchanged;
 the effective corpus contains 26 scenarios.
+
+## 2026-09-03 — Typed scenario selectors frozen
+
+Before validator implementation, added a separate revision-3 binding from each
+scenario ID to one typed, stable changed-node selector. This closes an
+evaluation ambiguity: implementations must derive dependency uses from source
+manifests and route contracts, then look up affected units by selector. They
+may not parse prose or use the expected affected set to manufacture a passing
+projection.

@@ -20,6 +20,12 @@ selected member consumes `shared.rs` from outside its immediate package. It
 corrects revision 1's narrower interpretation of “transitive” before any
 validator implementation or result. Revision 1 remains immutable.
 
+[`scenario-bindings-r3.json`](scenario-bindings-r3.json) gives every frozen
+scenario a typed stable changed-node selector. This prevents an implementation
+from parsing human change descriptions or consulting the expected affected set
+while compiling dependencies. The scenario expectations remain a separate
+comparison target.
+
 The controlled subject Git revision binds all registered source bytes and
 modes. Each external holdout is bound by upstream revision plus its generated
 semantic closure identity and exact local Proofbound manifest identities.
