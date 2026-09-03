@@ -34,4 +34,9 @@ def test_retained_result_matches_fresh_execution() -> None:
     if not retained_path.exists():
         return
     retained = json.loads(retained_path.read_bytes())
-    assert retained == native_experiment.execute_experiment(ROOT, BINARY)
+    fresh = native_experiment.execute_experiment(ROOT, BINARY)
+    retained_elapsed = retained["metrics"].pop("elapsed_ms")
+    fresh_elapsed = fresh["metrics"].pop("elapsed_ms")
+    assert retained == fresh
+    assert retained_elapsed <= 30_000
+    assert fresh_elapsed <= 30_000

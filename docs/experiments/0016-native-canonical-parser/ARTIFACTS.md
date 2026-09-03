@@ -16,4 +16,4 @@
 | EXP-0016-I001 | `crates/proofbound-ir-prototype/src/native.rs` | implemented | Rust native parser, compiler, VM, VC and certificate producer |
 | EXP-0016-I002 | `python/proofbound/native_research.py` | implemented | Independent Python parser, compiler, VM and certificate checker |
 | EXP-0016-I003 | `python/proofbound/native_experiment.py` | implemented | Frozen expected-value evaluator and Q1--Q5 decision procedure |
-| EXP-0016-E001 | `results/execution.json` | absent | Retained independent comparison and Q1--Q5 decisions |
+| EXP-0016-E001 | `results/execution.json` | executed, `sha256:18573d6dce99c646cf4e1707566592887dd7d8cc8c590f7518dc64986e62d4e3` | Retained independent comparison and Q1--Q5 decisions |

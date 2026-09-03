@@ -5,7 +5,7 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-007
-- **Status:** evaluator ready; retained execution pending
+- **Status:** executed; conclusion pending
 - **Registered:** 2026-09-03
 - **Started / concluded:** — / —
 - **Subject:** Proofbound `d809a9968f2e00805d4a82e5c01b02b9e5b16bf7`
@@ -136,7 +136,7 @@ corpus.
 
 ## Outcome
 
-Q1--Q5 remain unanswered until the retained execution is complete. The frozen
-corpus, Rust producer, and independently implemented Python checker now exist;
-their implementation tests are not treated as the registered experimental
-result.
+The retained execution passes Q1--Q5 over the frozen source, finite carriers,
+solver route, six semantic mutants, and 28 attacks. The programme-level
+conclusion remains pending so that the measured result can be reviewed without
+silently expanding its scope.

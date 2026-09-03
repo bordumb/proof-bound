@@ -50,3 +50,16 @@ expected values, verifies the preregistered attack inventory, measures source,
 artifact, certificate, SMT, report, implementation, and elapsed-time ceilings,
 and decides Q1--Q5 independently. Its focused tests pass. No retained result
 existed when this entry was added.
+
+## 2026-09-03 — Experiment executed
+
+Executed the frozen evaluator with Z3 4.15.2. The Rust producer and independent
+Python checker emitted the same 25,973-byte canonical model report, all five
+negated verification conditions were unsatisfiable, all 160 finite certificate
+rows reconstructed exactly, all six semantic mutants were killed, and all 28
+attacks rejected with their registered codes. Ten full parser, compiler, VM,
+certificate, and attack repetitions retained one report identity. The measured
+run completed in 811 ms; the 856-byte source, 22-byte artifact, 21,214-byte
+certificate, 955-byte SMT input, 1,276-line Rust module, and 874-line Python
+checker remained inside every frozen ceiling. Q1--Q5 passed over the registered
+scope. No programme-level conclusion was written before retaining this result.

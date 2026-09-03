@@ -1,0 +1,58 @@
+{
+  "experiment": "EXP-0016",
+  "identities": {
+    "artifact": "sha256:1fe9ee82ee28420f7cd02d70617de5a2f56cbf5115ee410c784358a17a711384",
+    "certificate": "sha256:27ff98de778cff63de6621b9e8de368b0803fee74cd5e4dcb4242826d4b93420",
+    "report": "sha256:9b57f984278a2260f7c1a46d791286ab424a0ee2b33caa3cb107cf7f154eee2b",
+    "smt_sha256": "sha256:539f931d5613273818129ffa03e541216250305da568ee5025a423c1947819d9",
+    "solver_executable_sha256": "sha256:3cba01be85ac4e279f137964c8582d5f14b47d3287bdc66596f49b20dcb51c89",
+    "source_sha256": "sha256:47a20d5b10ffeb1088b836f72b260ca48116d8ebb92ea9b35a34f619743b44c2"
+  },
+  "implementations": {
+    "canonical_reports_equal": true,
+    "independent_report_sha256": "sha256:b9f706c9dfd7a9116a7e57b7bccfd2d5882f7618e064acc2016e0b70814be262",
+    "python_checker_sha256": "sha256:4faeb4da852a654b9429380baf5b44c802b3cf74b8446ed0c9d3cb9d9dae3844",
+    "rust_binary_sha256": "sha256:af30d21608b422b87dc6bf52085b2a5fed57b0117088d8ec2984993d579e80ce",
+    "rust_report_sha256": "sha256:b9f706c9dfd7a9116a7e57b7bccfd2d5882f7618e064acc2016e0b70814be262"
+  },
+  "metrics": {
+    "artifact_bytes": 22,
+    "attack_count": 28,
+    "certificate_bytes": 21214,
+    "certificate_input_rows": 156,
+    "certificate_value_rows": 4,
+    "elapsed_ms": 811,
+    "exact_attack_rejections": 28,
+    "killed_semantic_mutants": 6,
+    "python_checker_lines": 874,
+    "report_bytes": 25973,
+    "rust_native_lines": 1276,
+    "smt_bytes": 955,
+    "source_bytes": 856
+  },
+  "programme_experiment": "EXP-LANG-007",
+  "questions": {
+    "Q1": {
+      "passed": true,
+      "reason": "both parsers accept one canonical source and reject all source attacks exactly"
+    },
+    "Q2": {
+      "passed": true,
+      "reason": "five VCs are unsat and the independent checker reconstructs every finite certificate obligation"
+    },
+    "Q3": {
+      "passed": true,
+      "reason": "independent compilation is byte-identical across ten stable repetitions and all artifact attacks reject"
+    },
+    "Q4": {
+      "passed": true,
+      "reason": "finite universality, bounded exhaustiveness, tests, and artifact assumptions remain distinct"
+    },
+    "Q5": {
+      "passed": true,
+      "reason": "all semantic mutants reject and every frozen size, source, and elapsed-time ceiling holds"
+    }
+  },
+  "repetitions": 10,
+  "schema": "proofbound-research-native-execution/1"
+}
