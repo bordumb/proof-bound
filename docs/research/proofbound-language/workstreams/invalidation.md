@@ -1,6 +1,6 @@
 # WS-IN: dependency and invalidation semantics
 
-- **Status:** running — EXP-LANG-003 preregistered
+- **Status:** concluded — candidate rejected; effect-boundary revision pending
 - **Hypothesis:** H3
 - **Depends on:** EXP-0005 cache-dependency falsifier
 - **Blocks:** trustworthy incremental language feedback
@@ -10,13 +10,13 @@
 Derive exactly which conclusions lose support when code, tools, permissions,
 absence, configuration, assumptions, policies, or external contracts change.
 
-## Active experiment
+## Concluded experiment
 
 [EXP-LANG-003 / Experiment 0010](../../../experiments/0010-invalidation-precision/README.md)
-tests fifteen controlled units across fourteen route shapes and two external
-holdouts. Its registration fixes the dependency constructors, twelve change
-classes, fifteen attacks, exact invalidation-set criterion, and forced-fresh
-comparison before implementation.
+tested fifteen controlled units across fourteen route shapes and two external
+holdouts. Its closed model exactly matched all 26 registered invalidation sets,
+but a real subprocess falsifier showed that declared dependencies are not
+necessarily the dependencies a tool consumes.
 
 ## Method
 
@@ -29,7 +29,11 @@ that make reuse valid, including typed roles and absence or metadata facts when
 they affect execution. It must compare predicted invalidation with fresh
 execution and measure irrelevant invalidation separately from false retention.
 
-## Exit criteria
+## Result
 
-Zero false retention in the registered corpus, narrow handling of unrelated
-changes, and a specific changed-dependency path for every invalidation.
+The workstream did not meet its exit criteria. Declared-only identity can
+retain stale evidence after an undeclared read, while a repository revision
+identity invalidates unrelated units and lacks an actionable dependency path.
+Q1–Q4 failed and Q5 passed. The next candidate must integrate with the
+effect/capability workstream so a runner cannot silently consume authority
+outside its registered projection.

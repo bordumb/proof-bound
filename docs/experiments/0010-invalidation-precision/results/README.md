@@ -9,5 +9,14 @@ entry.
 `execution.json` is the first model execution. It retains source-derived
 projections, all registered scenario traces, and exact metrics. The result is
 canonical JSON and is independently recomputed by the Rust research checker.
-It deliberately does not claim forced-fresh cache agreement, which remains a
-separate required stage before the experiment can be concluded.
+It deliberately does not claim forced-fresh cache agreement.
+
+`forced-fresh-smoke.json` retains the subsequent clean-worktree baselines,
+external holdout outcomes, and two auxiliary load-bearing mutations. It also
+records that the required change matrix is incomplete and that the Lean route
+remains unanswered.
+
+`revision-falsifier.json` is the decisive executable counterexample. A checker
+reads an undeclared file: declared-only identity permits stale reuse, while a
+global revision identity invalidates an unrelated unit. The experiment is
+therefore concluded with the candidate rejected rather than left pending.

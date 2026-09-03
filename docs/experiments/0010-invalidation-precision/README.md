@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-003
-- **Status:** planned; preregistered, not executed
+- **Status:** concluded; candidate rejected
 - **Registered:** 2026-09-03
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** Proofbound `74fada0ddb077f11b97b99fa10b73dce651c5329`;
   external holdouts are pinned in the machine preregistration
 - **Proofbound:** `74fada0ddb077f11b97b99fa10b73dce651c5329`
@@ -199,8 +199,26 @@ unanswered, never passed.
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0010-F001 | Reserved for execution. | — | pending |
+| EXP-0010-F001 | The source-derived model exactly predicted all 26 frozen scenarios: 57 invalidated-unit events, no stale retention, no extra invalidation, and 57/57 concrete explanation paths. | `results/execution.json`; independent Rust validation | Supports the typed dependency constructors within the closed model, but is not evidence that the model captures all dependencies consumed by real tools. |
+| EXP-0010-F002 | A checker can read an undeclared file. Holding the registered projection fixed then permits stale reuse; including the Git revision prevents that reuse but also changes an unrelated unit's identity. | `results/revision-falsifier.json` | Falsifies the candidate's joint soundness-and-precision claim. Dependency declarations require an enforced or independently observed read/effect boundary. |
+| EXP-0010-F003 | Thirteen of fourteen controlled route shapes had runnable fresh baselines. The registered Lean theorem route remained unanswered, and the frozen Vitest holdout discovered 161 tests against six registered tests. | `results/forced-fresh-smoke.json` | The required route-by-change forced-fresh matrix is incomplete and cannot strengthen the model result into a production cache claim. The holdout mismatch is retained rather than repaired after observation. |
+| EXP-0010-F004 | Rust and Python independently validate, invalidate, and canonicalize registered projections and attacks, but only the Python implementation derives projections from source manifests. | implementation and focused test corpus | Fails Q3's stronger requirement that both implementations independently produce every positive projection. Shared canonical bytes do not substitute for independent extraction. |
+| EXP-0010-F005 | A global revision-induced miss has no typed changed dependency, while ignoring the revision can retain evidence after an undeclared read changes behavior. | `results/revision-falsifier.json` | Falsifies Q4 for the candidate. Actionable notifications require captured effects, not generic revision drift. |
 
 ## Outcome
 
-Q1–Q5 are unanswered. No experiment execution has started.
+| Question | Result | Reason |
+|---|---|---|
+| Q1 — Dependency completeness | **Fail** | The executable revision falsifier changes checker behavior through an undeclared read while a fixed declared projection remains reusable. A global revision avoids retention only by ceasing to be a complete, typed account of the consumed dependency. |
+| Q2 — Invalidation precision | **Fail** | A global revision change invalidates both the consuming unit and an unrelated unit, violating the exact-set and negative-control criteria. |
+| Q3 — Canonical independent interpretation | **Fail** | Rust and Python agree on validation and canonical model vectors, but the preregistration required both to produce every positive projection; source extraction exists only in Python. |
+| Q4 — Actionable explanation | **Fail** | Global revision drift produces a cache miss without a concrete changed-dependency path. Ignoring it recreates stale retention. Model-only 57/57 explanation coverage does not satisfy the executable falsifier. |
+| Q5 — Honest migration | **Pass** | Complete projections use new research schema IDs, and legacy opaque cache records are never independently reusable. No historical Proofbound wire identifier was reinterpreted. |
+
+The candidate is rejected and Assurance IR `/1` remains unfrozen. The closed
+model demonstrates that typed dependency nodes can explain known changes, but
+the executable falsifier shows that declarations alone cannot establish that
+the list is complete. EXP-LANG-005 must test an enforceable effect boundary;
+EXP-LANG-004 may proceed in dependency order, but its frontend-equivalence
+claim must not assume that dependency declarations are authoritative merely
+because their canonical bytes agree.

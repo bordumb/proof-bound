@@ -56,3 +56,42 @@ trace and metric, and accepted its canonical bytes.
 
 This is only the model-level stage. It does not yet establish Q1's required
 forced-fresh agreement or that current cache behavior retains these facts.
+
+## 2026-09-03 — Forced-fresh baselines and frozen holdouts
+
+Executed fresh checks from a clean detached worktree at `99f77d5`. All six
+Python and all five TypeScript controlled units passed. The Rust mutation,
+Cargo test, and Kani units relevant to `DEMO-TRANSFER-003` passed, but its Lean
+theorem evidence remained missing despite the doctor reporting the unit
+runnable. Thirteen of fourteen registered route shapes therefore have a
+passing baseline; the Lean route remains unanswered.
+
+The Click holdout passed its exact existing-test route after its frozen
+environment preparation. The Vitest Coverage Report Action holdout failed
+closed: Vitest discovered 161 tests while its preregistered instrumentation
+named six. The mismatch was not repaired after observation. Both auxiliary
+fixtures confirmed their registered facts were load-bearing: changing only
+the executable bit of the mode helper failed the Cargo build, and changing the
+repository-level transitive source changed the selected package's result.
+
+These executions are retained in `results/forced-fresh-smoke.json`. They do not
+constitute the complete forced-fresh change matrix required to pass Q1.
+
+## 2026-09-03 — Revision/read-boundary falsifier and conclusion
+
+Added a real subprocess checker that reads a presentation file absent from its
+declared dependency projection. The baseline exits zero and a presentation
+change makes the checker exit one. Under the fixed declared projection, the
+identity does not change and stale reuse is possible. Under the candidate's
+global Git-revision strategy, both the reader and a deliberately unrelated
+unit change identity, producing over-invalidation.
+
+The two strategies expose the missing invariant. A dependency list is not
+complete merely because it is typed and canonical; the evidence runner must be
+prevented from, or accountable for, reading outside that list. The retained
+falsifier is `results/revision-falsifier.json`.
+
+Concluded Q1, Q2, Q3, and Q4 as failures and Q5 as a pass. The successful
+26-scenario model execution remains evidence about the closed model, not a
+claim about arbitrary tool execution. Assurance IR `/1` remains unfrozen, and
+the missing effect boundary is promoted to EXP-LANG-005.

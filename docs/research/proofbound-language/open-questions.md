@@ -10,7 +10,7 @@ stop decision; questions are not deleted.
 | OQ-001 | Can Hypothesis, fast-check, and Rust property-labelled tests share one sampled-property semantic contract without discarding generator, seed, run-budget, and framework meaning? | H1, H2, EXP-0005-F009, EXP-0008 | resolved by layered model |
 | OQ-002 | Should backend plugin identities remain common provenance, typed backend detail, or a general capability/dependency record? | H1, H5, EXP-0005 | Assurance IR `/1` and effects prototype |
 | OQ-003 | Which claim wording is machine meaning, bounded-domain meaning, and reader presentation? | H1, WS-IR | Claim IR design |
-| OQ-004 | Can cache eligibility be derived entirely from typed dependencies rather than maintained as a parallel manually assembled projection? | H3, WS-IN | Invalidation experiment |
+| OQ-004 | Can cache eligibility be derived entirely from typed dependencies rather than maintained as a parallel manually assembled projection? | H3, WS-IN, EXP-LANG-003 | split: declarations require an enforced effect boundary |
 | OQ-005 | What proof object can an SMT-backed native prototype emit for independent checking without trusting proof search? | H7, WS-NE, WS-IK | Native parser experiment |
 | OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, WS-FX | Gate 2 |
 | OQ-007 | How should uncertainty differ from assumptions, exclusions, open obligations, stale evidence, and conflicting evidence? | H6, WS-UQ | Notification study |
@@ -31,6 +31,20 @@ stop decision; questions are not deleted.
   field. Notify only when an unavailable fact is consumed by a registered
   rule.
 - **Promoted to:** Assurance IR derivation-trace and migration research
+
+### OQ-004 — split by execution authority
+
+- **Date:** 2026-09-03
+- **Evidence:** EXP-LANG-003 model execution and executable revision/read
+  falsifier
+- **Resolution:** Typed dependencies can derive precise invalidation inside a
+  closed model, but declarations alone cannot establish that a subprocess read
+  nothing else. A global source revision closes that retention hole only by
+  over-invalidating unrelated evidence.
+- **Consequence:** Keep typed dependencies as the explanation and identity
+  substrate, but require an enforced or independently observed effect boundary
+  before treating the projection as complete for cache reuse.
+- **Promoted to:** EXP-LANG-005 effect-checked replay
 
 ## Resolution format
 

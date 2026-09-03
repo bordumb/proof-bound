@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** [EXP-LANG-003 / Experiment 0010 — source-retained invalidation precision](../../experiments/0010-invalidation-precision/README.md) is preregistered; Experiments 0005–0009 are concluded
+- **Active experiment:** EXP-LANG-004 is next; [EXP-LANG-003 / Experiment 0010 — source-retained invalidation precision](../../experiments/0010-invalidation-precision/README.md) is concluded with its candidate rejected
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -24,9 +24,13 @@ The positive semantic-projection corpus is frozen and a non-normative
 tested. Independent Rust and Python implementations agree on the registered
 positive and adversarial corpora. Versioned sampling extensions, exact
 admission traces, and artifact-role closure closed every remaining row except
-cache dependency semantics. Draft `/1` is therefore not frozen. The next
-dependency-ordered step is EXP-LANG-003, which must test a source-retained
-dependency model and its invalidation precision.
+cache dependency semantics. EXP-LANG-003 then showed why adding a typed list
+is insufficient: a real checker can read an undeclared file. Declared-only
+identity permits stale reuse, while a global Git revision over-invalidates an
+unrelated unit and cannot explain the miss through a changed dependency.
+Draft `/1` is therefore not frozen. EXP-LANG-004 is the next
+dependency-ordered experiment, while EXP-LANG-005 now owns the prerequisite
+question of enforcing the read/effect boundary that invalidation requires.
 
 ## Programme map
 
@@ -45,9 +49,9 @@ dependency model and its invalidation precision.
 
 | ID | Workstream | Status | Hypotheses | Active experiment |
 |---|---|---|---|---|
-| WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | blocked by invalidation result | H1, H2 | EXP-0005 concluded |
+| WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | revision blocked by effect boundary | H1, H2 | EXP-0005 and EXP-LANG-003 concluded |
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
-| WS-IN | [Invalidation](workstreams/invalidation.md) | preregistered | H3 | EXP-LANG-003 / Experiment 0010 |
+| WS-IN | [Invalidation](workstreams/invalidation.md) | candidate rejected; effect boundary required | H3 | EXP-LANG-003 / Experiment 0010 concluded |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | blocked by Gate 1 | H4 | — |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | planned | H5 | — |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | planned | H6 | — |
@@ -118,12 +122,23 @@ dependency model and its invalidation precision.
   only under the producer that computed it; it does not expose which code,
   permissions, tools, absence facts, or external contracts made that equality
   assurance-relevant.
+- EXP-LANG-003's closed model then derives all 26 frozen invalidation sets
+  exactly in Rust and Python, with 57/57 explanation paths and no model-level
+  stale retention. Its executable falsifier rejects the broader claim: a
+  checker can consume an undeclared file. Keeping only declared dependencies
+  permits stale reuse; adding a global source revision invalidates unrelated
+  evidence and yields no typed cause. Thirteen of fourteen controlled route
+  shapes had fresh baselines, one of two external holdouts passed, and the
+  frozen Vitest holdout failed closed on a 6-versus-161 inventory mismatch.
 
 ## Current decision
 
-Continue Gate 1 only. EXP-0005 is closed rather than extended indefinitely.
+Continue Gate 1 only. EXP-0005 and EXP-LANG-003 are closed rather than extended
+indefinitely.
 Preserve the experimentally supported family algebra, layered sampling,
 admission traces, and artifact roles, but do not freeze Assurance IR `/1`.
-EXP-LANG-003 must make dependencies source-retained and test exact invalidation
-against both load-bearing and irrelevant changes. Final syntax and native
-executable semantics remain downstream of that decision.
+EXP-LANG-004 may compare frontend semantics next, but its canonical equality
+must not imply dependency completeness. EXP-LANG-005 must test whether an
+enforceable effect boundary can make source-retained invalidation sound and
+precise at once. Final syntax and native executable semantics remain
+downstream of those decisions.

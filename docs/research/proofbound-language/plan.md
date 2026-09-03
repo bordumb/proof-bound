@@ -632,7 +632,7 @@ experiment before execution.
 |---|---|---|---|
 | EXP-LANG-001 Assurance IR extraction | H1, H2 | Current Python, TypeScript, Rust, Lean, Kani, and release fixtures | Semantic parity and core/backend field boundary |
 | EXP-LANG-002 Generated evidence algebra | H2 | Property-generated valid and adversarial evidence graphs | Producer/verifier agreement and forbidden coercions |
-| EXP-LANG-003 Invalidation precision | H3 | Controlled changes across demos and external trials | Zero false retention and measured re-execution reduction |
+| EXP-LANG-003 Invalidation precision | H3 | Controlled changes across demos and external trials | Concluded: closed model exact; executable declaration-only candidate rejected |
 | EXP-LANG-004 Dual frontend equivalence | H4 | One Python, one TypeScript, and one Rust project in TOML and DSL | Byte-identical Assurance IR and authoring comparison |
 | EXP-LANG-005 Effect-checked replay | H5 | Mutation and distribution routes with known attack fixtures | Static prevention and observed-effect parity |
 | EXP-LANG-006 Notification comparison | H6 | Synthetic incident/change scenarios with practitioners | Impact accuracy, time, and alert-volume comparison |

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
-from proofbound.invalidation_experiment import execute_corpus
+from proofbound.invalidation_experiment import (
+    execute_corpus,
+    execute_revision_falsifier,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,3 +36,26 @@ def test_negative_controls_do_not_invalidate_technical_evidence() -> None:
     ]
     assert len(controls) == 4
     assert all(not scenario["predicted_invalidated"] for scenario in controls)
+
+
+def test_global_revision_or_unenforced_declarations_cannot_meet_both_targets() -> None:
+    report = execute_revision_falsifier()
+    assert report["baseline_exit_code"] == 0
+    assert report["changed_exit_code"] == 1
+    assert report["fixed_snapshot_strategy"]["stale_reuse"] is True
+    assert report["global_revision_strategy"]["reader_identity_changed"] is True
+    assert report["global_revision_strategy"]["unrelated_identity_changed"] is True
+    assert report["global_revision_strategy"]["overinvalidates"] is True
+
+
+def test_retained_forced_fresh_smoke_does_not_overstate_coverage() -> None:
+    result = json.loads(
+        (
+            ROOT
+            / "docs/experiments/0010-invalidation-precision/results/forced-fresh-smoke.json"
+        ).read_bytes()
+    )
+    assert result["summary"]["route_shapes_registered"] == 14
+    assert result["summary"]["route_shapes_with_passing_baseline"] == 13
+    assert result["summary"]["required_forced_fresh_change_matrix_complete"] is False
+    assert result["summary"]["external_holdouts_passing"] == 1

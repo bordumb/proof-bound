@@ -16,6 +16,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import tomllib
 from typing import Any
 
@@ -167,6 +168,101 @@ def write_report(repository: Path, destination: Path) -> None:
     """Execute the corpus and write canonical JSON to one destination."""
 
     destination.write_bytes(canonical_json(execute_corpus(repository)))
+
+
+def execute_revision_falsifier() -> dict[str, Any]:
+    """Demonstrate the soundness/precision conflict for an undeclared read.
+
+    Returns:
+        Deterministic observations for fixed-snapshot and global-revision cache
+        strategies around one real subprocess whose undeclared input changes.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="proofbound-invalidation-") as raw_root:
+        root = Path(raw_root)
+        program = root / "gate.py"
+        declared = root / "unrelated.py"
+        presentation = root / "presentation.txt"
+        program.write_text(
+            "from pathlib import Path\n"
+            "raise SystemExit(0 if Path('presentation.txt').read_text() == 'allow\\n' else 1)\n"
+        )
+        declared.write_text("VALUE = 7\n")
+        presentation.write_text("allow\n")
+        baseline_exit = subprocess.run(
+            [sys.executable, program.name], cwd=root, check=False
+        ).returncode
+
+        revision_a = _digest_text("revision-a")
+        reader_node = _standalone_artifact("fixture/gate.py", program)
+        unrelated_node = _standalone_artifact("fixture/unrelated.py", declared)
+        reader_a = make_dependency_projection(
+            unit="hidden-reader",
+            route="independent-check",
+            source_revision=revision_a,
+            claims=["HIDDEN-READ-CLAIM"],
+            nodes=[reader_node],
+            uses=[_use(reader_node, "execution", "execute registered checker")],
+        )
+        unrelated_a = make_dependency_projection(
+            unit="unrelated-unit",
+            route="independent-check",
+            source_revision=revision_a,
+            claims=["UNRELATED-CLAIM"],
+            nodes=[unrelated_node],
+            uses=[_use(unrelated_node, "semantic", "load registered source")],
+        )
+
+        presentation.write_text("deny\n")
+        changed_exit = subprocess.run(
+            [sys.executable, program.name], cwd=root, check=False
+        ).returncode
+        fixed_reader = make_dependency_projection(
+            unit="hidden-reader",
+            route="independent-check",
+            source_revision=revision_a,
+            claims=["HIDDEN-READ-CLAIM"],
+            nodes=[_standalone_artifact("fixture/gate.py", program)],
+            uses=[_use(reader_node, "execution", "execute registered checker")],
+        )
+        revision_b = _digest_text("revision-b")
+        global_reader = make_dependency_projection(
+            unit="hidden-reader",
+            route="independent-check",
+            source_revision=revision_b,
+            claims=["HIDDEN-READ-CLAIM"],
+            nodes=[_standalone_artifact("fixture/gate.py", program)],
+            uses=[_use(reader_node, "execution", "execute registered checker")],
+        )
+        global_unrelated = make_dependency_projection(
+            unit="unrelated-unit",
+            route="independent-check",
+            source_revision=revision_b,
+            claims=["UNRELATED-CLAIM"],
+            nodes=[_standalone_artifact("fixture/unrelated.py", declared)],
+            uses=[_use(unrelated_node, "semantic", "load registered source")],
+        )
+        return {
+            "schema": "proofbound-research-invalidation-revision-falsifier/1",
+            "experiment": "EXP-0010",
+            "baseline_exit_code": baseline_exit,
+            "changed_exit_code": changed_exit,
+            "fixed_snapshot_strategy": {
+                "reader_identity_before": reader_a["identity"],
+                "reader_identity_after": fixed_reader["identity"],
+                "stale_reuse": reader_a["identity"] == fixed_reader["identity"]
+                and baseline_exit != changed_exit,
+            },
+            "global_revision_strategy": {
+                "reader_identity_changed": reader_a["identity"]
+                != global_reader["identity"],
+                "unrelated_identity_changed": unrelated_a["identity"]
+                != global_unrelated["identity"],
+                "overinvalidates": unrelated_a["identity"]
+                != global_unrelated["identity"],
+            },
+            "conclusion": "dependency declarations require an enforced read boundary",
+        }
 
 
 def _project_sources(
@@ -388,6 +484,26 @@ def _artifact_node(source: ProjectSource, path: str) -> dict[str, Any]:
         "id": dependency_node_id("artifact", selector),
         "selector": selector,
         "sha256": _digest_bytes(absolute.read_bytes()),
+        "size_bytes": metadata.st_size,
+        "permissions": permissions,
+    }
+
+
+def _standalone_artifact(selector: str, path: Path) -> dict[str, Any]:
+    metadata = path.stat()
+    permissions: dict[str, Any]
+    if os.name == "posix":
+        permissions = {"model": "unix-mode", "mode": stat.S_IMODE(metadata.st_mode)}
+    else:
+        permissions = {
+            "model": "readonly",
+            "readonly": not os.access(path, os.W_OK),
+        }
+    return {
+        "kind": "artifact",
+        "id": dependency_node_id("artifact", selector),
+        "selector": selector,
+        "sha256": _digest_bytes(path.read_bytes()),
         "size_bytes": metadata.st_size,
         "permissions": permissions,
     }

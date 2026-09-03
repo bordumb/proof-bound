@@ -24,7 +24,7 @@ Required: golden current outputs, evidence-family inventory, trust-boundary
 map, known adversarial regressions, and preregistered shared-semantics
 experiments.
 
-Status: substantially complete; Experiment 0005 owns remaining field coverage.
+Status: substantially complete; Experiment 0005 is concluded.
 
 ## Gate 1 — Shared semantics
 
@@ -37,6 +37,9 @@ Exit only if:
 - every status derivation is explicit;
 - sampled, bounded, formal, and artifact evidence remain distinct; and
 - invalidation has zero known false retention.
+
+Current result: blocked. EXP-LANG-003 rejected declaration-only invalidation;
+an enforceable read/effect boundary must be tested before this gate can exit.
 
 ## Gate 2 — Authoring and authority
 

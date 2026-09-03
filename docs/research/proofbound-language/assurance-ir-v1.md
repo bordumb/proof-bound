@@ -531,11 +531,13 @@ CacheObservation =
 ```
 
 The common kernel computes the cache key from canonical
-`CacheDependencies`. A backend converter is responsible for discovering a
-complete `execution_inputs` set under its sealed execution model. The kernel
-does not know Cargo workspaces, Python import rules, or npm locks; the backend
-cannot omit a required dependency without failing its typed conversion and
-adversarial invalidation tests.
+`CacheDependencies`. This candidate assigned a backend converter responsibility
+for discovering a complete `execution_inputs` set under its sealed execution
+model. EXP-LANG-003 rejected that declaration-only responsibility: a real
+checker read an undeclared file without failing conversion. The kernel does
+not know Cargo workspaces, Python import rules, or npm locks, so a future
+candidate must pair typed conversion with an enforceable or independently
+observed effect boundary.
 
 Generated artifacts, child output, timestamps, usage, and prior receipt are not
 pre-execution dependencies. A reused record retains both the new cache key and
@@ -543,8 +545,9 @@ the exact prior receipt identity. An executed record retains the exact source
 cache key. The IR never synthesizes a replacement key from the unit and prior
 receipt, and it does not invent a `reuse_eligible` Boolean: eligibility is a
 derivation over the complete dependency projection, while this sum records
-what actually happened. This remains a provisional answer shape for OQ-004
-until the registered invalidation matrix has executed.
+what actually happened. EXP-LANG-003 concluded that this shape is insufficient
+without a completeness boundary and split OQ-004 into dependency meaning and
+execution authority.
 
 ## 11. Graph, assumptions, and policy
 
@@ -766,7 +769,7 @@ positive corpus and reject at least:
 | OQ-001 sampled properties | Explicit sampling where registered; visible legacy contract otherwise | A cross-framework registration and observation experiment |
 | OQ-002 plugin identity | Typed backend dependencies outside common provenance | Cache, effects, and portability tests across Python and Node plugins |
 | OQ-003 claim language | Machine/presentation split, current strings retained | A typed proposition and bounded-domain study |
-| OQ-004 cache projection | Backend supplies typed dependencies; common code hashes them | Zero-false-retention invalidation experiment |
+| OQ-004 cache projection | Backend supplies typed dependencies; common code hashes them | Rejected alone by EXP-LANG-003; revise with enforced effects in EXP-LANG-005 |
 | OQ-006 effects | Provenance records observed authority only | Static capability model plus OS enforcement experiment |
 
 The unresolved Q1 boundary is narrower than this broader question list:
