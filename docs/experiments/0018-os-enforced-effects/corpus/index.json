@@ -1,0 +1,19 @@
+{
+  "schema": "proofbound-research-enforced-corpus/1",
+  "experiment": "EXP-0018",
+  "files": [
+    {"path": "README.md", "sha256": "sha256:525529f33f5508a1765209a2c841db4acc34c94b3578c811348b5e8409bfe465", "size_bytes": 1902},
+    {"path": "contract.json", "sha256": "sha256:589244f93383788fcc61587ec665ddc9e38ebf96ce59f82da2fce9e7510d967d", "size_bytes": 2202},
+    {"path": "expected.json", "sha256": "sha256:7a5c4e50e3374249f9e696814f28cdcaa240fc97a3293d7598f6918527b4f876", "size_bytes": 793},
+    {"path": "workspace/nested/outside.txt", "sha256": "sha256:7dc1a2303f933c6d8a83acf9402a4599fc9c7a2e8859259706b9fe74394dae8a", "size_bytes": 24},
+    {"path": "workspace/registered.txt", "sha256": "sha256:61ca9cc9ccb5a5eafba984dff6d75f429bcbb685ce17cd30ef57060e17d914e8", "size_bytes": 17},
+    {"path": "workspace/reviewed.txt", "sha256": "sha256:2eaf1f957be4630a9bb6fe975727bb828991c3a83f9bcb0c4531aec3168c563e", "size_bytes": 18},
+    {"path": "workspace/subjects/node_subject.mjs", "sha256": "sha256:2e90355a4c9646ca0d3bd7eb86d799abeaa712723e1dcbdcb1192470ff3b6489", "size_bytes": 1975},
+    {"path": "workspace/subjects/python_subject.py", "sha256": "sha256:b85e4fecf2cf306d996fcd114f100f77c37317bd4e157344f9508f6243c7cba5", "size_bytes": 1484},
+    {"path": "workspace/subjects/rust_subject.rs", "sha256": "sha256:f43a091de90caaf5fc43c1b22b389f476d9997e03a0ba76366d5b1d89f0a155f", "size_bytes": 1513},
+    {"path": "workspace/unrelated.txt", "sha256": "sha256:8ee17206ded0b287d0f4947a798526dde07638947f2eb880231e49a1ed63db12", "size_bytes": 18}
+  ],
+  "intentionally_absent": [
+    "workspace/must-remain-absent.txt"
+  ]
+}
