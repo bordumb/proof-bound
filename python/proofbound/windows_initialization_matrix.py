@@ -25,7 +25,31 @@ VARIANTS = [
         WindowsBoundaryOptions(active_process_limit=None, private_desktop=False),
     ),
     (
-        "visible-console",
+        "private-console-kill-only",
+        WindowsBoundaryOptions(
+            active_process_limit=None,
+            private_desktop=True,
+            create_no_window=False,
+        ),
+    ),
+    (
+        "private-console-broker-capacity",
+        WindowsBoundaryOptions(
+            active_process_limit=2,
+            private_desktop=True,
+            create_no_window=False,
+        ),
+    ),
+    (
+        "private-console-registered-job",
+        WindowsBoundaryOptions(
+            active_process_limit=1,
+            private_desktop=True,
+            create_no_window=False,
+        ),
+    ),
+    (
+        "parent-console",
         WindowsBoundaryOptions(
             active_process_limit=None,
             private_desktop=False,

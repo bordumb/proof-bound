@@ -13,13 +13,19 @@ def test_initialization_matrix_peels_one_boundary_at_a_time() -> None:
         ("broker-capacity", 2, True),
         ("kill-only", None, True),
         ("parent-station", None, False),
-        ("visible-console", None, False),
+        ("private-console-kill-only", None, True),
+        ("private-console-broker-capacity", 2, True),
+        ("private-console-registered-job", 1, True),
+        ("parent-console", None, False),
     ]
     assert [options.create_no_window for _, options in VARIANTS] == [
         True,
         True,
         True,
         True,
+        False,
+        False,
+        False,
         False,
     ]
 
