@@ -16,7 +16,7 @@ under `docs/experiments/`.
 | WS-UQ | [Uncertainty](uncertainty.md) | bounded machine phase concluded; participant study pending |
 | WS-NE | [Native executable prototype](native-runtime.md) | bounded bytecode experiment concluded; broader native questions open |
 | WS-AC | [Artifact correspondence](artifact-correspondence.md) | bounded dual-compilation result; machine-code work open |
-| WS-FB | [Foreign boundaries](foreign-boundaries.md) | EXP-LANG-008 next |
+| WS-FB | [Foreign boundaries](foreign-boundaries.md) | EXP-LANG-008 concluded; bounded bridge supported |
 | WS-IK | [Independent kernel](independent-kernel.md) | bounded `/2` and native differential results supported |
 
 Each file records objective, questions, dependencies, deliverables, exit and

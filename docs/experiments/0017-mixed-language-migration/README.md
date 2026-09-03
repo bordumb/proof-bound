@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-008
-- **Status:** executed; conclusion pending
+- **Status:** concluded — bounded support
 - **Registered:** 2026-09-03
-- **Started / concluded:** 2026-09-03 / —
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** Proofbound `8e210c8da2d40ed5231e407d3e90d159ddddefdc`
 - **Operator:** Codex (GPT-5)
 
@@ -127,14 +127,25 @@ boundary.
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0017-F001 | All 48 registered calls agreed across two languages and two phases. | Retained execution, 12 semantic projections | observed |
-| EXP-0017-F002 | Independent kernels emitted the same 8,477-byte report in ten repetitions. | Matching `sha256:a34b6298…07e2` raw reports | observed |
-| EXP-0017-F003 | Every registered attack rejected with its exact code. | 30/30 attack results | observed |
-| EXP-0017-F004 | Both foreign claims remained tested while the native source claim remained finite and artifact-assumption-bound. | Baseline/migrated derivation reports | observed |
-| EXP-0017-F005 | All frozen complexity and backend-neutrality ceilings held. | 162/154 caller lines, 1,395/877 kernel lines, 3,387 ms | observed |
+| EXP-0017-F001 | All 48 registered calls agreed across two languages and two phases. | Retained execution, 12 semantic projections | supports Q1 |
+| EXP-0017-F002 | Independent kernels emitted the same 8,477-byte report in ten repetitions. | Matching `sha256:a34b6298…07e2` raw reports | supports Q4 |
+| EXP-0017-F003 | Every registered attack rejected with its exact code. | 30/30 attack results | supports Q1--Q4 |
+| EXP-0017-F004 | Both foreign claims remained tested while the native source claim remained finite and artifact-assumption-bound. | Baseline/migrated derivation reports | supports Q2 |
+| EXP-0017-F005 | All frozen complexity and backend-neutrality ceilings held. | 162/154 caller lines, 1,395/877 kernel lines, 3,387 ms | supports Q5 |
 
 ## Outcome
 
-Q1--Q5 await their written conclusion. The preregistered procedure has been
-executed and retained: all five machine decisions passed, but the scope and
-strategic interpretation have not yet been adjudicated in this document.
+Q1--Q5 pass over the exact frozen contract, artifact, two runtimes, twelve
+cases, mixed graph, and attack corpus. The result gives bounded support to a
+Proofbound adoption bridge: a native component can strengthen a registered
+dependency while foreign application evidence remains tested, artifact
+correspondence remains assumption-bound, and runtime and bridge assumptions
+remain explicit. Independent backend-neutral kernels can validate and explain
+that distinction within the registered complexity budget.
+
+This is not evidence for arbitrary FFI safety, production deployment, shared
+memory, concurrency, callbacks, cross-boundary exceptions, or machine-code
+correspondence. It does not prove either foreign application and does not
+decide that Proofbound should become a native language. The result supports
+continuing with a bridge-first architecture while the still-open native,
+frontend, enforcement, and human-usability questions are tested separately.

@@ -80,3 +80,15 @@ The run completed in 3,387 ms. Callers measured 162 and 154 lines; kernels
 measured 1,395 and 877 lines. No forbidden common backend name occurred. The
 raw retained result is `sha256:e4bf92b8…0f2c`. Interpretive conclusions were
 deliberately deferred to the next commit.
+
+## 2026-09-03 — Concluded with bounded support
+
+Accepted Q1--Q5 within the frozen scope. The decisive result is not that a
+native proof transfers to either application; it is that the graph refuses
+that transfer while still recording a useful artifact-bound strengthening.
+The foreign applications remain tested, the native property remains universal
+only over the declared four-value type, and compiler correspondence, bridge,
+and runtime assumptions remain visible. The two independent common kernels do
+not require backend-named rules for this contract. The result supports a
+bridge-first language path, not general FFI safety, verified machine code, a
+production language, or a final language-versus-framework decision.

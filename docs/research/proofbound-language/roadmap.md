@@ -102,6 +102,14 @@ Proceed to a language specification only if mixed-language migration is honest
 and usable, the independent implementations agree, and existing-language
 Proofbound remains a first-class product.
 
+Current result: EXP-LANG-008 passes the bounded technical honesty and
+independent-agreement criteria for one pure packet ABI, two runtimes, and a
+finite corpus. It keeps foreign application claims tested and preserves all
+remaining assumptions while selectively strengthening their artifact linkage.
+Gate 5 does not fully exit: human usability, broader FFI semantics, production
+enforcement, and the requirement that existing-language Proofbound remain a
+first-class product need evidence beyond this research fixture.
+
 ## Strategic outcomes
 
 - **Remain a framework** if no compact cross-ecosystem semantic core survives.

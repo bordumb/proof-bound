@@ -637,7 +637,7 @@ experiment before execution.
 | EXP-LANG-005 Effect-checked replay | H5 | Mutation and distribution routes with known attack fixtures | Concluded: bounded static prevention, exact trace parity, and narrow invalidation; OS enforcement untested |
 | EXP-LANG-006 Notification comparison | H6 | Synthetic incident/change scenarios with practitioners | Impact accuracy, time, and alert-volume comparison |
 | EXP-LANG-007 Native parser | H7 | Small canonical binary format | Independently checked functional proof and artifact |
-| EXP-LANG-008 Mixed-language migration | H8 | Python or TypeScript application calling native parser | Honest strengthening across the foreign boundary |
+| EXP-LANG-008 Mixed-language migration | H8 | Python and TypeScript applications calling native parser | Concluded: bounded honest strengthening across the frozen foreign boundary |
 | EXP-LANG-009 Specification falsifiers | H2, H7 | Vacuous and inconsistent contracts | Detection of always-success, empty-domain, and weak-postcondition specifications |
 | EXP-LANG-010 Kernel differential validation | H1, H2 | Generated canonical IR corpus | Agreement between independent implementations |
 

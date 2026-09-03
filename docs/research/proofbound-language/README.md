@@ -7,8 +7,8 @@
 - **Status:** active
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
-- **Current gate:** Gate 4 — native feasibility and mixed-language bridge
-- **Active experiment:** EXP-LANG-008 is next; EXP-LANG-007 and EXP-LANG-010 are concluded
+- **Current gate:** Gate 5 — adoption bridge and language decision
+- **Active experiment:** dependency-ordered EXP-LANG-001 and EXP-LANG-003--010 programme concluded; follow-on validation not yet registered
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -61,6 +61,14 @@ compilers, VMs, and certificate checkers agree exactly; five Z3 obligations,
 limits. This is bounded evidence for native assurance semantics, not a verified
 machine-code compiler or a production language result. It unblocks the honest
 mixed-language boundary test in EXP-LANG-008.
+EXP-LANG-008 then executes that boundary across two foreign callers, two
+phases, 48 calls, and a mixed claim graph. Independent Rust and Python kernels
+produce the same canonical report and reject all 30 attacks. The native source
+fact remains finite, the artifact remains assumption-bound, and both foreign
+applications remain tested with explicit bridge and runtime assumptions. This
+supports a bounded bridge-first architecture; it does not establish general
+FFI safety, verified machine code, production usability, or a final language
+decision.
 
 ## Programme map
 
@@ -88,8 +96,8 @@ mixed-language boundary test in EXP-LANG-008.
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | bounded research bytecode supported; broader native work open | H7 | EXP-LANG-007 concluded |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | bounded dual compilation; machine code open | H7 | EXP-LANG-007 concluded |
-| WS-FB | [Foreign boundaries](workstreams/foreign-boundaries.md) | native artifact available | H8 | EXP-LANG-008 next |
-| WS-IK | [Independent kernel](workstreams/independent-kernel.md) | bounded `/2` and native differential results | H1, H2, H7 | EXP-LANG-010 and EXP-LANG-007 concluded |
+| WS-FB | [Foreign boundaries](workstreams/foreign-boundaries.md) | bounded bridge supported; broader boundaries open | H8 | EXP-LANG-008 concluded |
+| WS-IK | [Independent kernel](workstreams/independent-kernel.md) | bounded `/2`, native, and mixed-graph differential results | H1, H2, H7, H8 | EXP-LANG-010, EXP-LANG-007, and EXP-LANG-008 concluded |
 
 ## Current evidence
 
@@ -199,12 +207,18 @@ mixed-language boundary test in EXP-LANG-008.
   invoking Z3, all six mutants and 28 attacks reject, and ten reports agree.
   The result is finite and assumption-bound at the artifact boundary; it does
   not establish machine-code or production-language correctness.
+- EXP-LANG-008 joins that exact artifact to independent Python and TypeScript
+  callers without transferring proof status across the boundary. All 48 calls,
+  30 attacks, and ten report repetitions agree in independent kernels; the
+  unrelated claim stays byte-identical and every runtime, bridge, and compiler
+  assumption remains explicit. The result is limited to the frozen pure ABI.
 
 ## Current decision
 
-Use the EXP-LANG-007 research bytecode and Assurance IR `/2` result as bounded
-inputs to the mixed-language experiment, not as production wires. EXP-0005,
-EXP-LANG-003 through EXP-LANG-007, EXP-LANG-009, and EXP-LANG-010 are closed.
+Use the EXP-LANG-007 research bytecode, Assurance IR `/2`, and EXP-LANG-008
+mixed-graph result as bounded research inputs, not production wires. EXP-0005
+and the dependency-ordered EXP-LANG-001 and EXP-LANG-003--010 programme are
+closed.
 Preserve the experimentally supported family algebra, layered sampling,
 admission traces, and artifact roles in `/2`, but do not freeze `/1` or adopt
 `/2` as a production wire.
@@ -215,4 +229,7 @@ any successor. The successor now incorporates EXP-LANG-005's
 mediated/opaque/external boundary and EXP-LANG-006's typed
 uncertainty/claim-impact boundary without claiming current adapters are
 sandboxed or that machine volume predicts human fatigue. Final syntax and
-native executable semantics remain downstream.
+native executable semantics remain downstream. Preserve existing-language
+Proofbound as the adoption bridge: the current evidence supports honest mixed
+graphs, not abandoning the framework or beginning an unrestricted language
+implementation.
