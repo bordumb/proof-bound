@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
+from pathlib import Path
+
+import pytest
 
 from proofbound.invalidation_experiment import (
     execute_corpus,
@@ -12,6 +14,22 @@ from proofbound.invalidation_experiment import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _external_subjects_present() -> bool:
+    return all(
+        path.is_file()
+        for path in (
+            ROOT
+            / "other_repos/python-click-acceptance/proofbound/evidence/existing-tests.toml",
+            ROOT
+            / "other_repos/typescript-vitest-coverage-action/proofbound/evidence/existing-tests.toml",
+        )
+    )
+
+
+@pytest.mark.skipif(
+    not _external_subjects_present(),
+    reason="requires the exact out-of-tree external research subjects",
+)
 def test_executes_frozen_invalidation_corpus_without_using_expected_sets() -> None:
     report = execute_corpus(ROOT)
     assert report["projection_count"] == 19
@@ -23,6 +41,10 @@ def test_executes_frozen_invalidation_corpus_without_using_expected_sets() -> No
     assert coverage["numerator"] == coverage["denominator"]
 
 
+@pytest.mark.skipif(
+    not _external_subjects_present(),
+    reason="requires the exact out-of-tree external research subjects",
+)
 def test_negative_controls_do_not_invalidate_technical_evidence() -> None:
     report = execute_corpus(ROOT)
     controls = [
@@ -59,3 +81,16 @@ def test_retained_forced_fresh_smoke_does_not_overstate_coverage() -> None:
     assert result["summary"]["route_shapes_with_passing_baseline"] == 13
     assert result["summary"]["required_forced_fresh_change_matrix_complete"] is False
     assert result["summary"]["external_holdouts_passing"] == 1
+
+
+def test_retained_execution_names_both_external_holdout_projections() -> None:
+    result = json.loads(
+        (
+            ROOT / "docs/experiments/0010-invalidation-precision/results/execution.json"
+        ).read_bytes()
+    )
+    units = {projection["unit"] for projection in result["projections"]}
+    assert {
+        "external-click-existing-tests",
+        "external-vitest-action-existing-tests",
+    } <= units

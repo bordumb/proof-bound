@@ -33,3 +33,10 @@ Execution will expand these roots into path-level projections. Dependency
 directories, build output, private caches, and executable binaries remain
 outside Git; their bounded identities and relevant metadata are retained
 instead.
+
+The two external repositories intentionally remain outside Proofbound history.
+Exact source projection can therefore be replayed only when both pinned local
+subjects are present. Clean-clone validation skips those two filesystem
+replays explicitly, continues to run the self-contained kernel and falsifier
+corpora, and checks that the immutable retained execution contains both exact
+external projections. Absence is never represented as a fresh external run.
