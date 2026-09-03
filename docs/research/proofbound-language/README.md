@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 5 — adoption bridge and language decision
-- **Latest experiment:** EXP-LANG-017 / Experiment 0024 concluded `pass`; Windows confirmation pending
+- **Latest experiment:** EXP-LANG-016 / Experiment 0023 concluded `revise`; Windows process initialization closure remains open
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -106,7 +106,11 @@ EXP-LANG-017 then implemented that exact role. On a native Ubuntu ARM64 host
 with Landlock ABI 7, all 30 permitted runs completed, all 21 authority probes
 were denied without reusable evidence, and independent validators agreed
 across 40 attack evaluations. The bounded Linux execution-closure repair
-passes; Windows confirmation remains open.
+passes. EXP-LANG-016 subsequently reached a native Windows 11 ARM64 host and
+verified the suspended AppContainer child token and job ordering, but the
+staged signed process terminated before workload entry with
+`STATUS_DLL_INIT_FAILED`. Windows therefore remains a `revise` result pending
+an exact executable/DLL/profile initialization closure.
 
 ## Programme map
 

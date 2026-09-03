@@ -81,6 +81,16 @@ restricted-token, job-object, and exact-ACL design. No supported Windows 11
 host was available. The platform gate emitted zero receipts and no fallback,
 so the result makes the policy delta explicit without claiming enforcement.
 
+## Windows confirmation result
+
+[EXP-LANG-016 / Experiment 0023](../../../experiments/0023-windows-enforcement-confirmation/README.md)
+ran on native Windows 11 ARM64. The launcher verified a suspended AppContainer
+child at low integrity, deny-only Administrators, and inside the one-process
+job before resume. The staged signed process then terminated with
+`STATUS_DLL_INIT_FAILED` before workload entry. The result is `revise` with
+zero reusable evidence: the next candidate must preregister the minimum Windows
+executable, DLL, profile, registry, and object-manager initialization closure.
+
 ## Linux confirmation result
 
 [EXP-LANG-015 / Experiment 0022](../../../experiments/0022-linux-enforcement-confirmation/README.md)
@@ -100,4 +110,5 @@ identity-bound interpreter gained execution authority. Rust and Python reports
 were byte-identical and both rejected all 20 registered attacks exactly.
 
 This closes the bounded Linux loader falsifier. It does not establish arbitrary
-platform closure discovery or Windows enforcement.
+platform closure discovery; EXP-LANG-016 independently shows that Windows needs
+its own explicit initialization closure.

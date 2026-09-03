@@ -1,6 +1,6 @@
 # Experiment 0023: native Windows enforcement confirmation
 
-- **Status:** preregistered — not executed
+- **Status:** concluded — revise
 - **Registered:** 2026-09-03
 - **Subject:** the frozen EXP-0018 effect contract and EXP-0021 Windows policy
 - **Operator:** Codex
@@ -57,3 +57,25 @@ layer, container, or non-Windows simulation is ineligible.
 
 The immutable registration is [preregistration.json](preregistration.json).
 
+## Result
+
+The native `windows-11-arm` run qualified Windows 11 ARM64 and every required
+API. It then created a real suspended child whose token was independently
+inspected before resume: the token was an AppContainer token at low integrity,
+the Administrators SID was deny-only, and the child had already been assigned
+to a kill-on-close one-process job. No fallback was used.
+
+The child nevertheless terminated before workload entry with
+`0xc0000142` (`STATUS_DLL_INIT_FAILED`). The same result held after placing the
+signed executable inside the AppContainer-owned profile and attaching a fresh
+private window station and desktop with an AppContainer-specific ACL. Because
+the entry gate failed, zero positive workloads and zero authority probes ran,
+and zero reusable evidence was emitted.
+
+The preregistered decision is **revise**. The Windows policy needs a separately
+registered executable/DLL/profile initialization closure before the 30+21
+corpus may run. The exact successful research workflow is
+[GitHub Actions run 33814855635](https://github.com/bordumb/proof-bound/actions/runs/33814855635).
+
+See [CONCLUSION.md](CONCLUSION.md), [JOURNAL.md](JOURNAL.md), and
+[results/](results/README.md) for the retained evidence and interpretation.

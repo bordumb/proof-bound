@@ -12,7 +12,7 @@ stop decision; questions are not deleted.
 | OQ-003 | Which claim wording is machine meaning, bounded-domain meaning, and reader presentation? | H1, WS-IR | Claim IR design |
 | OQ-004 | Can cache eligibility be derived entirely from typed dependencies rather than maintained as a parallel manually assembled projection? | H3, WS-IN, EXP-LANG-003, EXP-LANG-005 | resolved for mediated operations; opaque processes remain non-reusable |
 | OQ-005 | What proof object can an SMT-backed native prototype emit for independent checking without trusting proof search? | H7, WS-NE, WS-IK | Native parser experiment |
-| OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, H9, WS-FX, EXP-LANG-005, EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014, EXP-LANG-015, EXP-LANG-017 | bounded fast macOS and exact-loader Linux project boundaries tested; Windows and broader system effects open |
+| OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, H9, WS-FX, EXP-LANG-005, EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014, EXP-LANG-015, EXP-LANG-016, EXP-LANG-017 | bounded fast macOS and exact-loader Linux project boundaries tested; Windows initialization closure and broader system effects open |
 | OQ-007 | How should uncertainty differ from assumptions, exclusions, open obligations, stale evidence, and conflicting evidence? | H6, WS-UQ, EXP-LANG-006 | split structurally; human validation pending |
 | OQ-008 | Is a custom DSL materially better than a restricted Pkl or CUE frontend once effective-program review and evaluator identity are included? | H4, WS-DSL, EXP-LANG-004 | split; no frontend selected |
 
@@ -80,7 +80,7 @@ remain open.
 EXP-LANG-013 supplies an explicit Linux mapping and shows that availability
 must be established by the exact Landlock ABI probe, not inferred from a
 kernel version. The available VM returned `ENOSYS`, so it emitted no receipts.
-Live Linux equivalence and all Windows enforcement questions remain open.
+Live Windows workload equivalence remains open; Linux has bounded confirmation.
 
 EXP-LANG-014 adds a typed Windows policy candidate but no live result. Its
 AppContainer, token, job, ACL, runtime-loader, NTFS, and reparse-point premises
@@ -90,8 +90,9 @@ EXP-LANG-015 reaches a native Landlock ABI 7 host and falsifies the first Linux
 execution closure because it omits exact ELF-interpreter execution authority.
 EXP-LANG-017 adds only that identity-bound role and passes all frozen permitted
 and denied cases. This closes the bounded Linux branch without treating broad
-system-read roots as executable. Windows and more general system effects remain
-open.
+system-read roots as executable. EXP-LANG-016 then confirms the Windows host,
+token, and job layers but reaches `STATUS_DLL_INIT_FAILED` before workload entry.
+The Windows initialization closure and more general system effects remain open.
 
 ### OQ-007 — split between typed semantics and human effect
 
