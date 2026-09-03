@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** EXP-LANG-005 effect-checked replay is next; [EXP-LANG-004 / Experiment 0011](../../experiments/0011-dual-frontend-equivalence/README.md) is concluded but non-confirmatory
+- **Active experiment:** [EXP-LANG-005 / Experiment 0012 — effect-checked replay](../../experiments/0012-effect-checked-replay/README.md) is preregistered; EXP-LANG-004 is concluded but non-confirmatory
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -59,7 +59,7 @@ invalidation requires.
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
 | WS-IN | [Invalidation](workstreams/invalidation.md) | candidate rejected; effect boundary required | H3 | EXP-LANG-003 / Experiment 0010 concluded |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
-| WS-FX | [Effects and capabilities](workstreams/effects.md) | next dependency-ordered experiment | H5 | planned EXP-LANG-005 |
+| WS-FX | [Effects and capabilities](workstreams/effects.md) | effect-checked replay preregistered | H5 | EXP-LANG-005 / Experiment 0012 |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | planned | H6 | — |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | blocked by Gate 3 | H7 | — |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | planned | H7 | — |

@@ -1,6 +1,6 @@
 # WS-FX: effects and capabilities
 
-- **Status:** next; EXP-LANG-005 preregistration required
+- **Status:** EXP-LANG-005 / Experiment 0012 preregistered
 - **Hypothesis:** H5
 - **Depends on:** WS-IR authority and dependency model
 - **Blocks:** Gate 2
@@ -21,6 +21,13 @@ EXP-LANG-003 makes the first experiment narrower and testable: compare an
 enforced effect boundary with declaration-only and global-revision cache
 strategies against the retained undeclared-read falsifier and representative
 mutation/distribution operations.
+
+## Active experiment
+
+[EXP-LANG-005 / Experiment 0012](../../../experiments/0012-effect-checked-replay/README.md)
+tests a mediated effect machine, the retained hidden-read falsifier, bounded
+mutation and distribution workloads, and honest opaque/external subprocess
+boundaries. It does not claim that existing adapters are OS-sandboxed.
 
 ## Exit criteria
 
