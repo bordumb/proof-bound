@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
                 "SystemDrive": os.environ["SystemDrive"],
                 "SystemRoot": os.environ["SystemRoot"],
             },
+            stage_application=True,
         )
         token_verified = (
             result["exit_code"] == 0

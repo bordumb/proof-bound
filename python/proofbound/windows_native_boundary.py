@@ -6,6 +6,7 @@ import ctypes
 from ctypes import wintypes
 from pathlib import Path
 import os
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -338,6 +339,8 @@ def run_appcontainer_process(
     cwd: Path,
     environment: dict[str, str],
     timeout_ms: int = 30_000,
+    *,
+    stage_application: bool = False,
 ) -> dict[str, Any]:
     """Run one command after all registered Windows boundary layers exist."""
 
@@ -561,6 +564,15 @@ def run_appcontainer_process(
         profile_storage = _appcontainer_folder(userenv, ole32, sid)
         profile_temp = profile_storage / "Temp"
         profile_temp.mkdir(parents=True, exist_ok=True)
+        child_command = list(command)
+        child_cwd = cwd
+        if stage_application:
+            application_root = profile_storage / "Application"
+            application_root.mkdir(parents=True, exist_ok=False)
+            application = application_root / Path(command[0]).name
+            shutil.copy2(command[0], application)
+            child_command[0] = str(application)
+            child_cwd = application_root
         child_environment = dict(environment)
         child_environment.update(
             {
@@ -703,13 +715,13 @@ def run_appcontainer_process(
             startup.startup_info.desktop = f"{station_name}\\default"
             startup.attribute_list = ctypes.cast(attribute_buffer, wintypes.LPVOID)
             command_line = ctypes.create_unicode_buffer(
-                subprocess.list2cmdline(command)
+                subprocess.list2cmdline(child_command)
             )
             environment_block = _environment_block(child_environment)
             _require(
                 advapi32.CreateProcessAsUserW(
                     restricted,
-                    command[0],
+                    child_command[0],
                     command_line,
                     None,
                     None,
@@ -719,7 +731,7 @@ def run_appcontainer_process(
                     | EXTENDED_STARTUPINFO_PRESENT
                     | CREATE_NO_WINDOW,
                     environment_block,
-                    str(cwd),
+                    str(child_cwd),
                     ctypes.byref(startup.startup_info),
                     ctypes.byref(process),
                 ),
@@ -755,6 +767,9 @@ def run_appcontainer_process(
                 "private": True,
                 "appcontainer_acl": True,
             },
+            "requested_command": command,
+            "executed_command": child_command,
+            "application_staged": stage_application,
             "appcontainer_sid": sid,
             "restricted_token": True,
             "administrator_sids": "deny-only",
