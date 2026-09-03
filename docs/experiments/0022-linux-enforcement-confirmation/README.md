@@ -1,7 +1,8 @@
 # Experiment 0022: native Linux enforcement confirmation
 
-- **Status:** preregistered — not executed
+- **Status:** concluded — revise
 - **Registered:** 2026-09-03
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** the frozen EXP-0020 Linux corpus and implementation
 - **Operator:** Codex
 - **Programme ID:** EXP-LANG-015
@@ -69,4 +70,7 @@ EXP-0022 decision still requires supported availability and Q1–Q5.
   receipts without fallback.
 - **Stop:** the runner falls back to container confinement or an unconfined
   execution, or any denied execution becomes reusable.
+
+The retained outcome is documented in [CONCLUSION.md](CONCLUSION.md), and its
+machine evidence is indexed by [ARTIFACTS.md](ARTIFACTS.md).
 

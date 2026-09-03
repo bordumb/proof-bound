@@ -73,6 +73,12 @@ produces zero receipts and no simulated result. Gate 1 therefore retains only
 bounded macOS execution evidence; both portable live boundaries still require
 confirmatory runs.
 
+EXP-LANG-015 / Experiment 0022 reaches a real Landlock ABI 7 host and executes
+all 51 frozen slots. It falsifies the first live Linux policy: all 30 permitted
+workloads are denied before entry because the registered dynamic-loader
+premise is not represented as execute authority. Linux is now a concrete
+`revise`, rather than an availability `unanswered`; Windows remains untested.
+
 ## Gate 2 — Authoring and authority
 
 Required: WS-DSL and WS-FX.

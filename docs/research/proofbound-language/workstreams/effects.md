@@ -1,6 +1,6 @@
 # WS-FX: effects and capabilities
 
-- **Status:** EXP-LANG-014 / Experiment 0021 concluded `unanswered`
+- **Status:** EXP-LANG-015 / Experiment 0022 concluded `revise`
 - **Hypotheses:** H5, H9
 - **Depends on:** WS-IR authority and dependency model
 - **Blocks:** Gate 2
@@ -80,3 +80,12 @@ compiles the same authority classes to a conjunctive AppContainer,
 restricted-token, job-object, and exact-ACL design. No supported Windows 11
 host was available. The platform gate emitted zero receipts and no fallback,
 so the result makes the policy delta explicit without claiming enforcement.
+
+## Linux confirmation result
+
+[EXP-LANG-015 / Experiment 0022](../../../experiments/0022-linux-enforcement-confirmation/README.md)
+ran the frozen Linux corpus on an Ubuntu ARM64 host with Landlock ABI 7. All
+51 slots reached the native launcher, but all 30 permitted workloads failed at
+runtime execution. The candidate named the dynamic-loader premise without
+granting its exact execute closure. The next candidate must bind that closure
+without turning broad system-read roots into executable authority.
