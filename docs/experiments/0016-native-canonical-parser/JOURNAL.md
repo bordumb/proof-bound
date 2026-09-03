@@ -63,3 +63,13 @@ run completed in 811 ms; the 856-byte source, 22-byte artifact, 21,214-byte
 certificate, 955-byte SMT input, 1,276-line Rust module, and 874-line Python
 checker remained inside every frozen ceiling. Q1--Q5 passed over the registered
 scope. No programme-level conclusion was written before retaining this result.
+
+## 2026-09-03 — Experiment concluded
+
+Concluded Q1--Q5 as passing over the frozen native subset. The result supports
+a canonical source, a deterministic research bytecode artifact, separation of
+proof search from independent checking, and explicit assurance scope. It does
+not establish a verified compiler, native machine-code correspondence,
+arbitrary-byte theorems, production integration, or superiority over a mature
+verified-language component. EXP-LANG-008 may now test the same parser through
+an honest foreign boundary.

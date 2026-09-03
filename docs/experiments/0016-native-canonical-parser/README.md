@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-007
-- **Status:** executed; conclusion pending
+- **Status:** concluded; Q1--Q5 passed over the frozen finite native subset
 - **Registered:** 2026-09-03
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** Proofbound `d809a9968f2e00805d4a82e5c01b02b9e5b16bf7`
 - **Operator:** Codex (GPT-5)
 
@@ -132,11 +132,30 @@ corpus.
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0016-F001 | Reserved for execution. | — | pending |
+| EXP-0016-F001 | Independent parsers, compilers, VMs, and certificate checkers reconstruct one complete native result. | Canonical model report `sha256:b9f706c9dfd7a9116a7e57b7bccfd2d5882f7618e064acc2016e0b70814be262`; ten stable repetitions | retain the source, bytecode, and certificate shapes as bounded inputs to EXP-LANG-008 |
+| EXP-0016-F002 | Proof search can be separated from checking for the frozen programme. | five Z3 `unsat` results; Python checker invokes no solver and independently reconstructs four universal value rows plus 156 bounded input rows | retain solver provenance as evidence, never as a substitute for the certificate |
+| EXP-0016-F003 | Independent dual compilation makes every byte of the research artifact reviewable and substitution-sensitive. | exact 22-byte artifact; seven artifact attacks reject; artifact and semantic identities agree | retain source proof and artifact correspondence as distinct facets |
+| EXP-0016-F004 | The native result preserves assurance scope rather than collapsing finite exhaustiveness into proof. | universal round trip over four declared values; bounded input properties over alphabet `0..4`, length `0..3`; examples remain tests; `artifact_proved=false` | carry these distinctions across the mixed-language boundary |
+| EXP-0016-F005 | A useful native semantic slice fits within the frozen complexity budget, but it is a research VM rather than native machine code. | 856-byte source; 1,276 Rust lines; 874 Python lines; 25,973-byte report; 811 ms; six of six mutants killed | bounded support for H7; machine-code, release, and mature-language comparisons remain open |
 
 ## Outcome
 
-The retained execution passes Q1--Q5 over the frozen source, finite carriers,
-solver route, six semantic mutants, and 28 attacks. The programme-level
-conclusion remains pending so that the measured result can be reviewed without
-silently expanding its scope.
+All five questions pass over the frozen finite native subset:
+
+- **Q1 passed:** both parsers accepted the exact canonical source and rejected
+  all ten source attacks with their registered codes.
+- **Q2 passed:** Z3 returned five `unsat` results, while the independent checker
+  reconstructed every value and bounded-input obligation without proof search.
+- **Q3 passed:** both compilers emitted the same 22 bytes in ten complete
+  repetitions, and every artifact mutation rejected.
+- **Q4 passed:** the report kept finite-type universality, bounded input
+  exhaustiveness, examples, and compiler correspondence distinct.
+- **Q5 passed:** all six semantic mutants were killed and every source,
+  artifact, certificate, SMT, implementation, report, and elapsed-time ceiling
+  held.
+
+This supports a small native assurance semantics and independently checkable
+research bytecode as the subject for EXP-LANG-008. It does not prove either
+implementation, verify a machine-code compiler, establish arbitrary-byte
+properties, integrate a release pipeline, or show that a new language is more
+cost-effective than a Verus, Lean, or Dafny component.

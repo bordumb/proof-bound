@@ -1,6 +1,6 @@
 # WS-FB: foreign and mixed-language boundaries
 
-- **Status:** blocked by native prototype
+- **Status:** native research artifact available; EXP-LANG-008 next
 - **Hypothesis:** H8
 - **Depends on:** WS-NE, WS-AC, existing-language adapters
 - **Blocks:** Gate 5

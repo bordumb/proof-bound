@@ -86,7 +86,13 @@ five-role contract suite against six semantic mutants and 20 adequacy attacks.
 This prevents the known frozen vacuity and weak-specification forms; it does
 not provide evidence about native code or artifacts. EXP-LANG-010 then
 validates the joined semantic target across a 500/500 differential corpus.
-Native execution work may begin.
+EXP-LANG-007 now validates one canonical source and deterministic research
+bytecode artifact with independent Rust/Python compilation and checking. Five
+Z3 conditions, 160 certificate rows, six semantic mutants, and 28 attacks pass
+within the frozen budget. This supports bounded native semantics and unblocks
+mixed-language research, but Gate 4 remains open: the artifact is VM bytecode,
+not native machine code; dual compilation is assumption-bound; and no release
+or mature-language cost comparison was performed.
 
 ## Gate 5 — Adoption bridge
 

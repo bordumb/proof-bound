@@ -13,8 +13,8 @@ new one; it does not rewrite the original claim after results are known.
 | H4 | bounded support; confirmatory retest required | A typed assurance DSL can reduce authoring errors and duplication while compiling identically to existing manifests. | Equivalent frontends diverge or the effective programme is harder to review. | EXP-LANG-004 / Experiment 0011 |
 | H5 | bounded support; OS enforcement untested | An effect and capability model can prevent demonstrated ambient-authority defects before evidence execution. | Known defects pass static checks or useful operations require effectively unrestricted authority. | EXP-LANG-005 / Experiment 0012 |
 | H6 | bounded structural support; human effect unanswered | First-class uncertainty yields more actionable, lower-volume signals than tool-oriented alerts. | Users miss more critical consequences or gain no measurable reduction in irrelevant escalation. | EXP-LANG-006 / Experiment 0013 |
-| H7 | specification and differential-kernel prerequisites supported; native test pending | A small native executable subset can bind code, specification, proof, build, and release more strongly than existing-language adapters. | Trusted complexity exceeds the gain or an existing verified language provides the same outcome more simply. | EXP-LANG-009, EXP-LANG-010, then EXP-LANG-007 |
-| H8 | planned | Native and foreign components can share one graph without presenting empirical correspondence as formal proof. | Foreign boundaries become untyped escape hatches or obscure claim meaning. | planned EXP-LANG-008 |
+| H7 | bounded research-bytecode support; machine code, release, and comparison open | A small native executable subset can bind code, specification, proof, build, and release more strongly than existing-language adapters. | Trusted complexity exceeds the gain or an existing verified language provides the same outcome more simply. | EXP-LANG-009, EXP-LANG-010, EXP-LANG-007 |
+| H8 | ready to test | Native and foreign components can share one graph without presenting empirical correspondence as formal proof. | Foreign boundaries become untyped escape hatches or obscure claim meaning. | planned EXP-LANG-008 |
 
 ## Current interpretation
 
@@ -70,3 +70,13 @@ uncertainty, invalidation, and derivation without backend-named common rules.
 Independent kernels agree over 500 valid and 500 adversarial programmes. This
 does not erase `/1`'s falsification or establish complete production-route
 parity; both versions and their evidence remain explicit.
+
+EXP-LANG-007 adds bounded support for H7 without deciding it. A canonical
+source, independent compilers and VMs, five solver obligations, a separately
+checked 160-row certificate, six killed mutants, and 28 exact attack
+rejections fit inside the registered complexity budget. The strongest source
+property is universal only over the complete four-value type; byte-input
+properties remain bounded; and dual compilation leaves the artifact explicitly
+assumption-bound. The experiment uses research bytecode rather than native
+machine code and does not test a release or compare integration cost against a
+mature verified language, so H7's broader claim remains open.

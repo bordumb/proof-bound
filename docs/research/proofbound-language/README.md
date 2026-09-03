@@ -7,8 +7,8 @@
 - **Status:** active
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
-- **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** next dependency-ordered experiment is EXP-LANG-007; EXP-LANG-010 is concluded
+- **Current gate:** Gate 4 — native feasibility and mixed-language bridge
+- **Active experiment:** EXP-LANG-008 is next; EXP-LANG-007 and EXP-LANG-010 are concluded
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -54,6 +54,13 @@ candidate. Independent kernels agreed across 500 valid and 500 adversarial
 programmes and rejected all 28 named attacks without backend-specific common
 rules. The candidate remains finite and non-production, but it unblocks the
 semantic prerequisite for EXP-LANG-007.
+EXP-LANG-007 then implements one canonical parser/serializer in native research
+syntax and deterministic bytecode. Independent Rust and Python parsers,
+compilers, VMs, and certificate checkers agree exactly; five Z3 obligations,
+160 certificate rows, six semantic mutants, and 28 attacks pass within frozen
+limits. This is bounded evidence for native assurance semantics, not a verified
+machine-code compiler or a production language result. It unblocks the honest
+mixed-language boundary test in EXP-LANG-008.
 
 ## Programme map
 
@@ -79,10 +86,10 @@ semantic prerequisite for EXP-LANG-007.
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | bounded candidate supported; OS enforcement untested | H5 | EXP-LANG-005 / Experiment 0012 concluded |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
-| WS-NE | [Native executable prototype](workstreams/native-runtime.md) | specification and differential-kernel prerequisites supported | H7 | EXP-LANG-007 next |
-| WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | planned | H7 | — |
-| WS-FB | [Foreign boundaries](workstreams/foreign-boundaries.md) | blocked by native prototype | H8 | — |
-| WS-IK | [Independent kernel](workstreams/independent-kernel.md) | bounded `/2` differential result; native validation next | H1, H2, H7 | EXP-LANG-010 concluded |
+| WS-NE | [Native executable prototype](workstreams/native-runtime.md) | bounded research bytecode supported; broader native work open | H7 | EXP-LANG-007 concluded |
+| WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | bounded dual compilation; machine code open | H7 | EXP-LANG-007 concluded |
+| WS-FB | [Foreign boundaries](workstreams/foreign-boundaries.md) | native artifact available | H8 | EXP-LANG-008 next |
+| WS-IK | [Independent kernel](workstreams/independent-kernel.md) | bounded `/2` and native differential results | H1, H2, H7 | EXP-LANG-010 and EXP-LANG-007 concluded |
 
 ## Current evidence
 
@@ -186,12 +193,18 @@ semantic prerequisite for EXP-LANG-007.
   1,000 generated programmes, every named attack rejects exactly, and both
   kernels remain below their frozen size limits. This is bounded differential
   evidence, not a production parity or formal-correctness result.
+- EXP-LANG-007 parses and compiles one 856-byte native programme to exact
+  22-byte research bytecode in independent Rust and Python implementations.
+  The independent checker reconstructs all 160 certificate rows without
+  invoking Z3, all six mutants and 28 attacks reject, and ten reports agree.
+  The result is finite and assumption-bound at the artifact boundary; it does
+  not establish machine-code or production-language correctness.
 
 ## Current decision
 
-Use Assurance IR `/2` as the bounded target for the first native experiment,
-not as a production wire. EXP-0005, EXP-LANG-003 through EXP-LANG-006,
-EXP-LANG-009, and EXP-LANG-010 are closed.
+Use the EXP-LANG-007 research bytecode and Assurance IR `/2` result as bounded
+inputs to the mixed-language experiment, not as production wires. EXP-0005,
+EXP-LANG-003 through EXP-LANG-007, EXP-LANG-009, and EXP-LANG-010 are closed.
 Preserve the experimentally supported family algebra, layered sampling,
 admission traces, and artifact roles in `/2`, but do not freeze `/1` or adopt
 `/2` as a production wire.

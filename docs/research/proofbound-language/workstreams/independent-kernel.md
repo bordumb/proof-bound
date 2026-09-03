@@ -1,8 +1,8 @@
 # WS-IK: independent semantic kernel
 
-- **Status:** bounded `/2` differential kernel supported; native validation next
+- **Status:** bounded `/2` and native differential results supported; production validation open
 - **Hypotheses:** H1, H2, H7
-- **Active experiment:** [EXP-LANG-010 / Experiment 0015](../../../experiments/0015-assurance-ir-differential-kernel/README.md) concluded; EXP-LANG-007 next
+- **Active experiment:** EXP-LANG-010 and [EXP-LANG-007 / Experiment 0016](../../../experiments/0016-native-canonical-parser/README.md) concluded; EXP-LANG-008 next
 - **Depends on:** canonical IR and evidence algebra
 - **Blocks:** every strong portable language claim
 
