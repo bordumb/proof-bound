@@ -5,7 +5,7 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-009
-- **Status:** planned; preregistered, no corpus or implementation
+- **Status:** in progress; preregistration and corpus frozen, not executed
 - **Registered:** 2026-09-03
 - **Started / concluded:** — / —
 - **Subject:** Proofbound `5865b76bce7aed6ed89eeab0ec8c6b7c74a93f27`
@@ -156,5 +156,6 @@ three surviving semantic mutants, forged identities, and noncanonical order.
 
 ## Outcome
 
-Q1--Q5 are unanswered. No contract, carrier, execution table, implementation,
-or result exists at preregistration time.
+Q1--Q5 are unanswered. The universe, contracts, explicit execution tables,
+attacks, expected counts, and ceilings are frozen; no checker or result exists
+yet.

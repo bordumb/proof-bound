@@ -1,0 +1,48 @@
+{
+  "contracts": [
+    {
+      "carrier": "inputs",
+      "cases": ["I-EMPTY", "I-LENGTH-2", "I-ONE", "I-PAYLOAD-4", "I-TRAILING", "I-VALID-0", "I-VALID-1", "I-VALID-2", "I-VALID-3", "I-ZERO"],
+      "ensures": {"kind": "le", "left": {"kind": "var", "name": "steps"}, "right": {"kind": "add", "left": {"kind": "var", "name": "input_len"}, "right": {"kind": "int", "value": 1}}},
+      "id": "bounded-termination",
+      "requires": {"kind": "bool", "value": true},
+      "role": "bounded-termination"
+    },
+    {
+      "carrier": "inputs",
+      "cases": ["I-EMPTY", "I-LENGTH-2", "I-ONE", "I-PAYLOAD-4", "I-TRAILING", "I-VALID-0", "I-VALID-1", "I-VALID-2", "I-VALID-3", "I-ZERO"],
+      "ensures": {"kind": "and", "values": [{"kind": "var", "name": "result_ok"}, {"kind": "var", "name": "canonical_equal"}]},
+      "id": "canonical-reencoding",
+      "requires": {"kind": "var", "name": "valid_input"},
+      "role": "canonicality"
+    },
+    {
+      "carrier": "inputs",
+      "cases": ["I-EMPTY", "I-LENGTH-2", "I-ONE", "I-PAYLOAD-4", "I-TRAILING", "I-VALID-0", "I-VALID-1", "I-VALID-2", "I-VALID-3", "I-ZERO"],
+      "ensures": {"kind": "eq", "left": {"kind": "var", "name": "consumed"}, "right": {"kind": "var", "name": "input_len"}},
+      "id": "exact-consumption",
+      "requires": {"kind": "bool", "value": true},
+      "role": "exact-consumption"
+    },
+    {
+      "carrier": "inputs",
+      "cases": ["I-EMPTY", "I-LENGTH-2", "I-ONE", "I-PAYLOAD-4", "I-TRAILING", "I-VALID-0", "I-VALID-1", "I-VALID-2", "I-VALID-3", "I-ZERO"],
+      "ensures": {"kind": "not", "value": {"kind": "var", "name": "result_ok"}},
+      "id": "malformed-rejected",
+      "requires": {"kind": "var", "name": "malformed_input"},
+      "role": "malformed-rejection"
+    },
+    {
+      "carrier": "values",
+      "cases": ["V0", "V1", "V2", "V3"],
+      "ensures": {"kind": "and", "values": [{"kind": "var", "name": "result_ok"}, {"kind": "var", "name": "roundtrip_equal"}, {"kind": "eq", "left": {"kind": "var", "name": "decoded_value"}, "right": {"kind": "var", "name": "value"}}]},
+      "id": "roundtrip",
+      "requires": {"kind": "bool", "value": true},
+      "role": "round-trip"
+    }
+  ],
+  "correct_implementation": "correct",
+  "required_mutants": ["accept-noncanonical", "accept-trailing", "always-error", "always-success", "ignore-length", "payload-substitution"],
+  "schema": "proofbound-research-specification-suite/1",
+  "universe_sha256": "sha256:eb2c6094ae4b1e408604a9614f3e0991e9c60f020a55b0f9f3bc954922521e02"
+}

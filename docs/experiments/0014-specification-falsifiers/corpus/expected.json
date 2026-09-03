@@ -1,0 +1,14 @@
+{
+  "attack_count": 20,
+  "carrier_count": 2,
+  "carrier_value_count": 14,
+  "contract_count": 5,
+  "correct_obligation_count": 34,
+  "implementation_count": 7,
+  "limits": {"max_ast_nodes": 64, "max_carrier_values": 32, "max_contracts": 8, "max_report_bytes": 16384, "max_variables": 16},
+  "mutant_count": 6,
+  "repetitions": 10,
+  "role_count": 5,
+  "schema": "proofbound-research-specification-expected/1",
+  "variable_count": 10
+}
