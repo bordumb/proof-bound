@@ -1,0 +1,84 @@
+amends "Schema.pkl"
+
+local commonInputs = new Listing {
+  "pyproject.toml"
+  "requirements-dev.txt"
+  "src/inventory_service/__init__.py"
+  "src/inventory_service/reservations.py"
+  "tests/test_reservations.py"
+}
+
+local function common(unit: Evidence): Evidence = (unit) {
+  claims = new { "PY-RESERVATION-001" }
+  tier = 0
+  assumptions = new { "PY-RUNTIME-001" }
+  inputs = commonInputs
+  outputs = new {}
+  environment_allowlist = new { "PATH" }
+  resource_budget = new ResourceBudget {
+    time_seconds = 60
+    disk_bytes = 268435456
+    memory_bytes = 536870912
+  }
+}
+
+project = new Project {
+  id = "python-inventory"
+  ecosystem = "python"
+}
+
+claims = new Listing {
+  new Claim {
+    id = "PY-RESERVATION-001"
+    title = "Accepted reservations remain within supplied capacity"
+    statement = "For the registered examples and seeded generated inputs, an accepted reservation never produces committed inventory above the supplied capacity."
+    public_language = "Exact pytest examples, a registered mutation witness, a seeded Hypothesis property, mypy, and an independent vector checker support the registered reservation behavior."
+    subject = "python:proofbound-python-inventory::inventory_service.reservations.reserve"
+    profile = "ledger"
+    tier = 1
+    primary_linkage = "model-only"
+    evidence = new {
+      "example-test:reservation-example"
+      "mutation-witness:accept-over-cap-mutant"
+      "property-test:reservation-property"
+      "static-check:reservation-types"
+      "independent-check:reservation-vectors"
+    }
+    assumptions = new { "PY-RUNTIME-001" }
+    premises = new {}
+    open_obligations = new {}
+    out_of_scope = new {
+      "The Hypothesis run is not an exhaustive search or an unbounded theorem."
+      "Dynamic dispatch, monkeypatching, import order, and interpreter correctness are not modeled."
+      "No source-refinement or artifact binding connects this claim to a deployed interpreter process."
+    }
+    source_roots = new { "src/inventory_service/reservations.py" }
+  }
+}
+
+evidence = new Listing {
+  common(new PythonExample {
+    id = "reservation-example"
+    expected_inventory = new {
+      "test_reservations::test_rejects_request_beyond_remaining_capacity"
+    }
+    operation = new PytestOperation {
+      manifest = "pyproject.toml"
+      targets = new { "test_rejects_request_beyond_remaining_capacity" }
+      paths = new { "tests/test_reservations.py" }
+    }
+  })
+  common(new PythonPropertyEvidence {
+    id = "reservation-property"
+    expected_inventory = new {
+      "test_reservations::test_accepted_reservation_never_exceeds_capacity"
+    }
+    operation = new PytestOperation {
+      manifest = "pyproject.toml"
+      targets = new { "test_accepted_reservation_never_exceeds_capacity" }
+      paths = new { "tests/test_reservations.py" }
+      plugins = new { "_hypothesis_pytestplugin" }
+    }
+    property = new PythonProperty { seed = 4025493768 }
+  })
+}
