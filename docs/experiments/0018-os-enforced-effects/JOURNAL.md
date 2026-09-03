@@ -55,3 +55,20 @@ the frozen 60,000 ms feasibility ceiling. This is a failed Q5 performance
 subcriterion and will not be erased by changing the preregistration. The raw
 capture remains provisional until the independent validator and final
 evaluator retain it.
+
+## 2026-09-03 — Independent interpretation retained
+
+Retained the first complete canonical capture and implemented the Python
+validator without Rust bindings or subject-language execution. Both validators
+independently validate the typed plan, exact Seatbelt policy bytes, artifact and
+stream identities, positive and denied outcomes, receipt ordering, runtime and
+subject consistency, narrow invalidation, and all 30 registered attacks.
+
+The Rust and Python implementations emit byte-identical 11,762-byte reports
+with identity
+`sha256:3ea2530b3e942295b60d37bc90d876ff96fea17e3fe2166345ab7ceda6cb5753`.
+The Python validator is 758 nonblank lines, below its frozen 1,200-line ceiling;
+the Rust runner and validator are 1,797 nonblank lines, below their frozen
+1,800-line ceiling. Focused retained-result regressions validate canonical
+encoding, exact report parity, all 30 rejection codes, zero denied reuse, and
+forged-report rejection.
