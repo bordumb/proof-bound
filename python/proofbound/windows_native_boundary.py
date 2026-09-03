@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+from dataclasses import dataclass
 from pathlib import Path
 import os
 import shutil
@@ -49,6 +50,23 @@ TRUSTEE_IS_SID = 0
 TRUSTEE_IS_UNKNOWN = 0
 WINSTA_ALL_ACCESS = 0x000F037F
 DESKTOP_ALL_ACCESS = 0x000F01FF
+
+
+@dataclass(frozen=True)
+class WindowsBoundaryOptions:
+    """Discovery-selectable process-boundary controls.
+
+    Defaults preserve the preregistered EXP-0023 boundary. Non-default values
+    are permitted only for EXP-0025's non-reusable discovery matrix.
+    """
+
+    active_process_limit: int | None = 1
+    private_desktop: bool = True
+    create_no_window: bool = True
+
+    def __post_init__(self) -> None:
+        if self.active_process_limit is not None and self.active_process_limit < 1:
+            raise ValueError("active_process_limit must be positive or None")
 
 
 class StartupInfoW(ctypes.Structure):
@@ -341,9 +359,11 @@ def run_appcontainer_process(
     timeout_ms: int = 30_000,
     *,
     stage_application: bool = False,
+    options: WindowsBoundaryOptions | None = None,
 ) -> dict[str, Any]:
     """Run one command after all registered Windows boundary layers exist."""
 
+    boundary = options or WindowsBoundaryOptions()
     if os.name != "nt":
         raise OSError("native Windows boundary requested on a non-Windows host")
     if not command or not Path(command[0]).is_absolute():
@@ -581,40 +601,41 @@ def run_appcontainer_process(
                 "TMP": str(profile_temp),
             }
         )
-        parent_station = user32.GetProcessWindowStation()
-        _require(parent_station, "GetProcessWindowStation")
-        private_station = user32.CreateWindowStationW(
-            station_name, 0, WINSTA_ALL_ACCESS, None
-        )
-        _require(private_station, "CreateWindowStationW")
-        _grant_window_object(
-            advapi32,
-            kernel32,
-            private_station,
-            appcontainer_sid,
-            WINSTA_ALL_ACCESS,
-        )
-        _require(
-            user32.SetProcessWindowStation(private_station),
-            "SetProcessWindowStation(private)",
-        )
-        try:
-            private_desktop = user32.CreateDesktopW(
-                "default", None, None, 0, DESKTOP_ALL_ACCESS, None
+        if boundary.private_desktop:
+            parent_station = user32.GetProcessWindowStation()
+            _require(parent_station, "GetProcessWindowStation")
+            private_station = user32.CreateWindowStationW(
+                station_name, 0, WINSTA_ALL_ACCESS, None
             )
-            _require(private_desktop, "CreateDesktopW")
-        finally:
+            _require(private_station, "CreateWindowStationW")
+            _grant_window_object(
+                advapi32,
+                kernel32,
+                private_station,
+                appcontainer_sid,
+                WINSTA_ALL_ACCESS,
+            )
             _require(
-                user32.SetProcessWindowStation(parent_station),
-                "SetProcessWindowStation(parent)",
+                user32.SetProcessWindowStation(private_station),
+                "SetProcessWindowStation(private)",
             )
-        _grant_window_object(
-            advapi32,
-            kernel32,
-            private_desktop,
-            appcontainer_sid,
-            DESKTOP_ALL_ACCESS,
-        )
+            try:
+                private_desktop = user32.CreateDesktopW(
+                    "default", None, None, 0, DESKTOP_ALL_ACCESS, None
+                )
+                _require(private_desktop, "CreateDesktopW")
+            finally:
+                _require(
+                    user32.SetProcessWindowStation(parent_station),
+                    "SetProcessWindowStation(parent)",
+                )
+            _grant_window_object(
+                advapi32,
+                kernel32,
+                private_desktop,
+                appcontainer_sid,
+                DESKTOP_ALL_ACCESS,
+            )
         _require(
             advapi32.OpenProcessToken(
                 kernel32.GetCurrentProcess(), TOKEN_ALL_ACCESS, ctypes.byref(token)
@@ -653,10 +674,14 @@ def run_appcontainer_process(
         job = kernel32.CreateJobObjectW(None, None)
         _require(job, "CreateJobObjectW")
         limits = JobExtendedLimitInformation()
-        limits.basic_limit_information.limit_flags = (
-            JOB_OBJECT_LIMIT_ACTIVE_PROCESS | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        )
-        limits.basic_limit_information.active_process_limit = 1
+        limits.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if boundary.active_process_limit is not None:
+            limits.basic_limit_information.limit_flags |= (
+                JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+            )
+            limits.basic_limit_information.active_process_limit = (
+                boundary.active_process_limit
+            )
         _require(
             kernel32.SetInformationJobObject(
                 job,
@@ -712,7 +737,8 @@ def run_appcontainer_process(
             startup.startup_info.stdin = wintypes.HANDLE(-1)
             startup.startup_info.stdout = wintypes.HANDLE(stdout_handle)
             startup.startup_info.stderr = wintypes.HANDLE(stderr_handle)
-            startup.startup_info.desktop = f"{station_name}\\default"
+            if boundary.private_desktop:
+                startup.startup_info.desktop = f"{station_name}\\default"
             startup.attribute_list = ctypes.cast(attribute_buffer, wintypes.LPVOID)
             command_line = ctypes.create_unicode_buffer(
                 subprocess.list2cmdline(child_command)
@@ -729,7 +755,7 @@ def run_appcontainer_process(
                     CREATE_SUSPENDED
                     | CREATE_UNICODE_ENVIRONMENT
                     | EXTENDED_STARTUPINFO_PRESENT
-                    | CREATE_NO_WINDOW,
+                    | (CREATE_NO_WINDOW if boundary.create_no_window else 0),
                     environment_block,
                     str(child_cwd),
                     ctypes.byref(startup.startup_info),
@@ -762,10 +788,10 @@ def run_appcontainer_process(
             "profile": profile,
             "profile_storage": str(profile_storage),
             "window_station": {
-                "name": station_name,
-                "desktop": "default",
-                "private": True,
-                "appcontainer_acl": True,
+                "name": station_name if boundary.private_desktop else None,
+                "desktop": "default" if boundary.private_desktop else None,
+                "private": boundary.private_desktop,
+                "appcontainer_acl": boundary.private_desktop,
             },
             "requested_command": command,
             "executed_command": child_command,
@@ -776,10 +802,11 @@ def run_appcontainer_process(
             "integrity_level": "low",
             "child_token": child_token,
             "job": {
-                "active_process_limit": 1,
+                "active_process_limit": boundary.active_process_limit,
                 "kill_on_close": True,
                 "assigned_before_resume": True,
             },
+            "create_no_window": boundary.create_no_window,
             "exit_code": exit_code.value,
             "stdout": stdout_path.read_text(encoding="utf-8", errors="strict"),
             "stderr": stderr_path.read_text(encoding="utf-8", errors="strict"),

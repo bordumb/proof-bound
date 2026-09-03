@@ -195,6 +195,18 @@ jobs:
           $tree = Get-Content "$root/initialization-process-tree.json" | ConvertFrom-Json
           $tree.processes | Select-Object process_name, pid, parent_pid, integrity, image_path
 
+      - name: Isolate the console-broker boundary
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0025-results"
+          python -m proofbound.windows_initialization_matrix `
+            "$root/initialization-matrix.json"
+          if ($LASTEXITCODE -ne 0) {
+            throw "the bounded initialization matrix did not complete"
+          }
+
       - name: Retain the non-reusable discovery trace
         if: always()
         uses: actions/upload-artifact@v6
