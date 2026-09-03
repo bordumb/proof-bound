@@ -12,7 +12,7 @@ from proofbound.windows_native_boundary import run_appcontainer_process
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run `whoami /all` inside the native boundary and retain its receipt."""
+    """Run `whoami /groups` inside the native boundary and retain its receipt."""
 
     arguments = sys.argv[1:] if argv is None else argv
     if len(arguments) != 1:
@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     executable = Path(os.environ["SystemRoot"]) / "System32" / "whoami.exe"
     try:
         result = run_appcontainer_process(
-            [str(executable), "/all"],
+            [str(executable), "/groups"],
             executable.parent,
             {
                 "PB_REGISTERED_VALUE": "registered-env",
@@ -32,18 +32,36 @@ def main(argv: list[str] | None = None) -> int:
                 "TMP": os.environ["TMP"],
             },
         )
+        token_verified = (
+            result["exit_code"] == 0
+            and result["appcontainer_sid"] in result["stdout"]
+            and "S-1-5-32-544" in result["stdout"]
+            and "Deny only" in result["stdout"]
+            and "S-1-16-4096" in result["stdout"]
+        )
         value = {
             "schema": "proofbound-research-windows-process-smoke/1",
             "experiment": "EXP-0023",
             "programme_experiment": "EXP-LANG-016",
-            "command": [str(executable), "/all"],
+            "command": [str(executable), "/groups"],
             "result": result,
+            "token_verified": token_verified,
         }
         value["identity"] = domain_hash(
             "proofbound-research-windows-process-smoke/1", value
         )
         Path(arguments[0]).write_bytes(canonical_json(value))
-        print(json.dumps({"exit_code": result["exit_code"], "receipt": arguments[0]}))
+        print(
+            json.dumps(
+                {
+                    "exit_code": result["exit_code"],
+                    "receipt": arguments[0],
+                    "token_verified": token_verified,
+                }
+            )
+        )
+        if not token_verified:
+            return 1
     except (OSError, TimeoutError, ValueError) as issue:
         print(issue, file=sys.stderr)
         return 1

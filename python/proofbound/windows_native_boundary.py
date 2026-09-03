@@ -250,6 +250,7 @@ def run_appcontainer_process(
 
     profile = f"proofbound.exp0023.{uuid.uuid4().hex}"
     appcontainer_sid = wintypes.LPVOID()
+    administrator_sid = wintypes.LPVOID()
     token = wintypes.HANDLE()
     restricted = wintypes.HANDLE()
     integrity_sid = wintypes.LPVOID()
@@ -281,11 +282,18 @@ def run_appcontainer_process(
             "OpenProcessToken",
         )
         _require(
+            advapi32.ConvertStringSidToSidW(
+                "S-1-5-32-544", ctypes.byref(administrator_sid)
+            ),
+            "ConvertStringSidToSidW(Administrators)",
+        )
+        disabled_administrator = SidAndAttributes(administrator_sid, 0)
+        _require(
             advapi32.CreateRestrictedToken(
                 token,
                 DISABLE_MAX_PRIVILEGE,
-                0,
-                None,
+                1,
+                ctypes.byref(disabled_administrator),
                 0,
                 None,
                 0,
@@ -416,6 +424,7 @@ def run_appcontainer_process(
             "profile": profile,
             "appcontainer_sid": sid,
             "restricted_token": True,
+            "administrator_sids": "deny-only",
             "integrity_level": "low",
             "job": {
                 "active_process_limit": 1,
@@ -437,6 +446,8 @@ def run_appcontainer_process(
             kernel32.CloseHandle(job)
         if integrity_sid:
             kernel32.LocalFree(integrity_sid)
+        if administrator_sid:
+            kernel32.LocalFree(administrator_sid)
         if restricted:
             kernel32.CloseHandle(restricted)
         if token:
