@@ -64,8 +64,10 @@ jobs:
           python -m proofbound.windows_process_smoke `
             "$env:RUNNER_TEMP/exp0023-results/process-smoke.json"
           $smokeExit = $LASTEXITCODE
-          python -m json.tool `
-            "$env:RUNNER_TEMP/exp0023-results/process-smoke.json"
+          if (Test-Path "$env:RUNNER_TEMP/exp0023-results/process-smoke.json") {
+            python -m json.tool `
+              "$env:RUNNER_TEMP/exp0023-results/process-smoke.json"
+          }
           if ($smokeExit -ne 0) { exit $smokeExit }
 
       - name: Retain the exact host qualification
