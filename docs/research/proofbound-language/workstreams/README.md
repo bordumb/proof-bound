@@ -13,7 +13,7 @@ under `docs/experiments/`.
 | WS-IN | [Invalidation](invalidation.md) | EXP-LANG-003 concluded; candidate rejected |
 | WS-DSL | [Typed assurance DSL](assurance-dsl.md) | EXP-LANG-004 concluded non-confirmatory; adoption blocked |
 | WS-FX | [Effects and capabilities](effects.md) | EXP-LANG-005 concluded; bounded candidate supported |
-| WS-UQ | [Uncertainty](uncertainty.md) | planned |
+| WS-UQ | [Uncertainty](uncertainty.md) | EXP-LANG-006 / Experiment 0013 preregistered |
 | WS-NE | [Native executable prototype](native-runtime.md) | blocked by Gate 3 |
 | WS-AC | [Artifact correspondence](artifact-correspondence.md) | planned |
 | WS-FB | [Foreign boundaries](foreign-boundaries.md) | blocked by native prototype |

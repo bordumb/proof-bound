@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** next dependency-ordered study is EXP-LANG-006; EXP-LANG-005 is concluded with a bounded pass
+- **Active experiment:** [EXP-LANG-006 / Experiment 0013 — claim-oriented notification precision](../../experiments/0013-claim-oriented-notification-precision/README.md) is preregistered
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -62,7 +62,7 @@ subprocess is still opaque and non-reusable without independent enforcement.
 | WS-IN | [Invalidation](workstreams/invalidation.md) | candidate rejected; effect boundary required | H3 | EXP-LANG-003 / Experiment 0010 concluded |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | bounded candidate supported; OS enforcement untested | H5 | EXP-LANG-005 / Experiment 0012 concluded |
-| WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | planned | H6 | — |
+| WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | notification-precision experiment preregistered | H6 | EXP-LANG-006 / Experiment 0013 |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | blocked by Gate 3 | H7 | — |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | planned | H7 | — |
 | WS-FB | [Foreign boundaries](workstreams/foreign-boundaries.md) | blocked by native prototype | H8 | — |
@@ -164,7 +164,7 @@ Do not select TOML, Pkl, or the custom DSL from the non-confirmatory frontend
 result. Retain its separation between common effective meaning and
 frontend-specific provenance, and require source-aware semantic diagnostics in
 any successor. Incorporate EXP-LANG-005's mediated/opaque/external boundary in
-the successor IR without claiming current adapters are sandboxed. The next
-dependency-ordered study is EXP-LANG-006's claim-oriented uncertainty and
-notification comparison. Final syntax and native executable semantics remain
-downstream.
+the successor IR without claiming current adapters are sandboxed. EXP-LANG-006
+now preregisters a claim-oriented uncertainty and notification comparison,
+including an explicit boundary between machine proxies and human evidence.
+Final syntax and native executable semantics remain downstream.

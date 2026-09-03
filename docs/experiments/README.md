@@ -20,6 +20,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0010](0010-invalidation-precision/README.md) | Source-retained invalidation precision | Controlled Python, TypeScript, Rust/Lean routes plus two external holdouts | Complete dependency semantics; sound and narrow invalidation; actionable explanation | concluded — declaration-only candidate rejected |
 | [0011](0011-dual-frontend-equivalence/README.md) | Dual frontend equivalence | Python, TypeScript, and Rust programme slices in TOML, Proofbound DSL, and Pkl | Canonical equivalence, typed diagnostics, abstraction, evaluator closure | concluded — Q1/Q2 failed; Q3–Q5 bounded pass; frozen controls invalid |
 | [0012](0012-effect-checked-replay/README.md) | Effect-checked replay | Hidden-reader falsifier plus bounded mutation, distribution, and subprocess controls | Static authority, mediated trace parity, sound invalidation, subprocess honesty | concluded — Q1–Q5 bounded pass; no OS-sandbox claim |
+| [0013](0013-claim-oriented-notification-precision/README.md) | Claim-oriented notification precision | Synthetic claim/finding/uncertainty scenarios; optional practitioner phase | Consequence recall, false escalation, volume, actionable explanations, human validity | planned — preregistered, not executed |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).
