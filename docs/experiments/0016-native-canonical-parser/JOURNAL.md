@@ -41,3 +41,12 @@ rejects duplicate JSON keys and noncanonical report JSON before typed
 validation. Cross-language tests achieved exact report-byte equality and
 rejected a self-consistently rehashed scope upgrade and solver substitution.
 The registered questions remain unanswered until the retained evaluator runs.
+
+## 2026-09-03 — Expected-value evaluator implemented
+
+Added the evaluator after both implementations achieved exact report-byte
+agreement. It runs the Rust producer and Python checker before opening frozen
+expected values, verifies the preregistered attack inventory, measures source,
+artifact, certificate, SMT, report, implementation, and elapsed-time ceilings,
+and decides Q1--Q5 independently. Its focused tests pass. No retained result
+existed when this entry was added.

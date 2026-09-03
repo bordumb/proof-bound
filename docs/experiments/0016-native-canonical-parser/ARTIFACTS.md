@@ -15,4 +15,5 @@
 | EXP-0016-C007 | `corpus/expected.json` | frozen, `sha256:dbdaee1292045a357c5ca3a1ccb0a1845945013bc05d8fa80243d2c0bcceb6dc` | Counts, repetitions, solver results, and complexity ceilings |
 | EXP-0016-I001 | `crates/proofbound-ir-prototype/src/native.rs` | implemented | Rust native parser, compiler, VM, VC and certificate producer |
 | EXP-0016-I002 | `python/proofbound/native_research.py` | implemented | Independent Python parser, compiler, VM and certificate checker |
+| EXP-0016-I003 | `python/proofbound/native_experiment.py` | implemented | Frozen expected-value evaluator and Q1--Q5 decision procedure |
 | EXP-0016-E001 | `results/execution.json` | absent | Retained independent comparison and Q1--Q5 decisions |

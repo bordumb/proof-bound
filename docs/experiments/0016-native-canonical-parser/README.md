@@ -5,7 +5,7 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-007
-- **Status:** both implementations complete; retained execution pending
+- **Status:** evaluator ready; retained execution pending
 - **Registered:** 2026-09-03
 - **Started / concluded:** — / —
 - **Subject:** Proofbound `d809a9968f2e00805d4a82e5c01b02b9e5b16bf7`
