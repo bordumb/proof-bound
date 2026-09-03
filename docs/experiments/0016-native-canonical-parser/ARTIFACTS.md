@@ -13,6 +13,6 @@
 | EXP-0016-C005 | `corpus/toolchain.json` | frozen, `sha256:9fa1bc2c044e3f122db6e294f4a1a7deebfd9d3bf3df19bec702634d40e0a23d` | Exact Z3 argv, observed version, and five expected results |
 | EXP-0016-C006 | `corpus/attacks.json` | frozen, `sha256:3e8dc4fb19ee13bb8e2873bde7981c1d95d845ae61c1d13ba6dd70cfc25f7152` | Twenty-eight source, artifact, certificate, and SMT attacks |
 | EXP-0016-C007 | `corpus/expected.json` | frozen, `sha256:dbdaee1292045a357c5ca3a1ccb0a1845945013bc05d8fa80243d2c0bcceb6dc` | Counts, repetitions, solver results, and complexity ceilings |
-| EXP-0016-I001 | `crates/proofbound-ir-prototype/src/native.rs` | absent | Rust native parser, compiler, VM, VC and certificate producer |
+| EXP-0016-I001 | `crates/proofbound-ir-prototype/src/native.rs` | implemented | Rust native parser, compiler, VM, VC and certificate producer |
 | EXP-0016-I002 | `python/proofbound/native_research.py` | absent | Independent Python parser, compiler, VM and certificate checker |
 | EXP-0016-E001 | `results/execution.json` | absent | Retained independent comparison and Q1--Q5 decisions |

@@ -19,6 +19,7 @@ mod effects;
 mod frontend;
 mod invalidation;
 mod layered_sampling;
+mod native;
 mod notifications;
 mod portable;
 mod sampling;
@@ -86,6 +87,14 @@ pub use invalidation::{
 pub use layered_sampling::{
     LayeredSamplingCase, LayeredSamplingError, LayeredSamplingReport,
     validate_layered_sampling_case,
+};
+pub use native::{
+    NATIVE_AST_SCHEMA, NATIVE_CERTIFICATE_SCHEMA, NATIVE_REPORT_SCHEMA, NativeAssuranceSummary,
+    NativeAst, NativeAttack, NativeAttackCorpus, NativeAttackResult, NativeCertificate,
+    NativeError, NativeInputRow, NativeMutantResult, NativeReport, NativeScope,
+    NativeSolverReceipt, NativeValueRow, compile_native_artifact, derive_native_certificate,
+    execute_native_corpus, generate_native_smt, parse_native_source, validate_native_artifact,
+    validate_native_certificate, validate_native_report,
 };
 pub use notifications::{
     BaselineAlert, DecisionNotification, FactConsequence, FindingSeverity, GraphUpdate,

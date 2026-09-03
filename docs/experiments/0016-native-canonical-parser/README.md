@@ -5,7 +5,7 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-007
-- **Status:** preregistered; not executed
+- **Status:** Rust producer implemented; independent execution pending
 - **Registered:** 2026-09-03
 - **Started / concluded:** — / —
 - **Subject:** Proofbound `d809a9968f2e00805d4a82e5c01b02b9e5b16bf7`
@@ -136,4 +136,6 @@ corpus.
 
 ## Outcome
 
-Q1--Q5 are unanswered. No native corpus or implementation exists yet.
+Q1--Q5 remain unanswered until the independently implemented checker and
+retained execution are complete. The frozen corpus and Rust producer now
+exist; neither implementation result is treated as experimental evidence yet.
