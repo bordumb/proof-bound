@@ -12,4 +12,6 @@
 | EXP-0012-C004 | `corpus/expected.json` | frozen, `sha256:23a0b3601e60d5c798bd5b801b3b4836d087dc786176ae9460384174991904f2` | Expected file, plan, cache, and output identities |
 | EXP-0012-C005 | `corpus/fixtures/` | frozen projection, `sha256:452d2f5187d45651c656c8c7198429e466d37d5efd6ce6b43508c0625b64ddc0` | Eight exact regular-file preimages |
 | EXP-0012-C006 | `corpus/CONTRACT.md` | frozen, `sha256:3977fc75ef68fc30b4881f030b3ab91f14dd90766057d0b3801148e35ad57d6b` | Candidate normalization and measurement contract |
+| EXP-0012-I001 | `crates/proofbound-ir-prototype/src/effects.rs` | implemented | Typed Rust plan validator, mediated runner, trace validator, cache derivation, invalidation, and attacks |
+| EXP-0012-I002 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-effects` command |
 | EXP-0012-E001 | `results/` | reserved | Immutable execution and independent-validation reports |

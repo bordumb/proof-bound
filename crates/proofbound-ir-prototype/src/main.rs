@@ -7,12 +7,12 @@ use std::{
 
 use proofbound_ir_prototype::{
     audit_artifact_roles, compile_dsl_frontend, compile_pkl_frontend, compile_toml_frontend,
-    derive_release_trace_bundle, format_dsl_frontend, generate_derivation_corpus, project_corpus,
-    project_portable_families, project_portable_families_with_sampling, validate_case_program,
-    validate_derivation_program, validate_effective_programme_bytes,
-    validate_frontend_compilation_bytes, validate_invalidation_execution_report,
-    validate_layered_sampling_case, validate_pkl_frontend_source, validate_release_trace_bundle,
-    validate_sampling_observation,
+    derive_release_trace_bundle, execute_effect_corpus, format_dsl_frontend,
+    generate_derivation_corpus, project_corpus, project_portable_families,
+    project_portable_families_with_sampling, validate_case_program, validate_derivation_program,
+    validate_effective_programme_bytes, validate_frontend_compilation_bytes,
+    validate_invalidation_execution_report, validate_layered_sampling_case,
+    validate_pkl_frontend_source, validate_release_trace_bundle, validate_sampling_observation,
 };
 
 fn main() -> ExitCode {
@@ -496,6 +496,32 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         };
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("execute-effects")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype execute-effects <repository-root> <corpus-dir> <repetitions>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(corpus) = args.next().map(PathBuf::from) else {
+            eprintln!("missing effect corpus directory");
+            return ExitCode::from(2);
+        };
+        let Some(repetitions) = args
+            .next()
+            .and_then(|value| value.to_str().and_then(|text| text.parse::<usize>().ok()))
+        else {
+            eprintln!("missing or invalid repetition count");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        return write_canonical_result(
+            execute_effect_corpus(&root, &corpus, repetitions).map_err(|error| error.to_string()),
+        );
     }
     let Some(root) = first.map(PathBuf::from) else {
         eprintln!("usage: proofbound-ir-prototype <repository-root> <corpus.json>");

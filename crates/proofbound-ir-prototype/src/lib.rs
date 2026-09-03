@@ -14,6 +14,7 @@ use serde_json::{Map, Value};
 mod artifact_roles;
 mod assurance;
 mod derivation;
+mod effects;
 mod frontend;
 mod invalidation;
 mod layered_sampling;
@@ -38,6 +39,16 @@ pub use assurance::{
 pub use derivation::{
     DerivationError, DerivationProgram, DerivationReport, GeneratedAdversarialCase,
     GeneratedCorpus, GeneratedValidCase, generate_derivation_corpus, validate_derivation_program,
+};
+pub use effects::{
+    ArtifactIdentity, DeniedMode, EFFECT_ENFORCEMENT_SCHEMA, EFFECT_INVALIDATION_SCHEMA,
+    EFFECT_MODEL_REPORT_SCHEMA, EFFECT_PLAN_SCHEMA, EFFECT_TRACE_SCHEMA, Effect, EffectAttack,
+    EffectAttackAction, EffectAttackCorpus, EffectAttackResult, EffectCorpus, EffectDisposition,
+    EffectError, EffectExpected, EffectInvalidation, EffectInvalidationResult, EffectModelReport,
+    EffectObservation, EffectOutput, EffectPlan, EffectPlanResult, EffectTrace, EffectWorkload,
+    EnforcementMechanism, EnforcementReceipt, ExecutionBoundary, ExpectedEffectPlan, ObservedValue,
+    derive_effect_invalidation, execute_effect_corpus, execute_effect_plan, load_effect_corpus,
+    validate_effect_plan, validate_effect_trace,
 };
 pub use frontend::{
     EFFECTIVE_PROGRAMME_SCHEMA, EffectiveProgramme, FRONTEND_COMPILATION_SCHEMA,
