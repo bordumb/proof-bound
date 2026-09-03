@@ -14,6 +14,7 @@ use serde_json::{Map, Value};
 mod artifact_roles;
 mod assurance;
 mod derivation;
+mod invalidation;
 mod layered_sampling;
 mod portable;
 mod sampling;
@@ -36,6 +37,15 @@ pub use assurance::{
 pub use derivation::{
     DerivationError, DerivationProgram, DerivationReport, GeneratedAdversarialCase,
     GeneratedCorpus, GeneratedValidCase, generate_derivation_corpus, validate_derivation_program,
+};
+pub use invalidation::{
+    CacheDependencyEvidence, ChangedNode, ChangedNodeKind, DEPENDENCY_PROJECTION_DOMAIN,
+    DEPENDENCY_PROJECTION_SCHEMA, DependencyNode, DependencyProjection, DependencyRole,
+    DependencyUse, EnvironmentState, INVALIDATION_TRACE_DOMAIN, INVALIDATION_TRACE_SCHEMA,
+    InvalidationPath, InvalidationTrace, PathState, PermissionModel, ResolutionCandidate,
+    dependency_node_id, derive_invalidation_trace, validate_cache_dependency_evidence,
+    validate_dependency_projection, validate_invalidation_trace,
+    validate_projection_against_source,
 };
 pub use layered_sampling::{
     LayeredSamplingCase, LayeredSamplingError, LayeredSamplingReport,
