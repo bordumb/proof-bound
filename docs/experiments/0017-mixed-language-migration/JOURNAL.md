@@ -58,3 +58,13 @@ attack codes. The independent kernel measures 877 nonblank non-comment lines,
 within the 1,400-line ceiling, and contains none of the forbidden backend
 names. The actual registered callers and retained evaluator result did not
 exist when this entry was added.
+
+## 2026-09-03 — Evaluator implemented
+
+Implemented the evaluator only after both common kernels agreed. It launches
+both registered callers in both phases, constructs their canonical envelope,
+runs both kernels for ten repetitions, compares the complete report bytes,
+and only then opens the frozen expectations to decide Q1--Q5. It also measures
+all registered line, report-size, elapsed-time, migration-set, explanation,
+and forbidden-name ceilings. A development execution passed, but no result was
+retained and no question was concluded when this entry was added.

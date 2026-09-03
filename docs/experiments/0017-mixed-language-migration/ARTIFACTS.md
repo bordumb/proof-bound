@@ -15,4 +15,5 @@
 | EXP-0017-I002 | `subjects/typescript_caller.mjs` | implemented; 154 measured lines | Independent TypeScript/Node legacy/native caller |
 | EXP-0017-I003 | `crates/proofbound-ir-prototype/src/migration.rs` | implemented; 1,395 measured lines | Rust mixed-graph kernel and attack executor |
 | EXP-0017-I004 | `python/proofbound/migration_research.py` | implemented; 877 measured lines | Independent Python mixed-graph kernel |
+| EXP-0017-I005 | `python/proofbound/migration_experiment.py` | implemented | Preregistered evaluator and question decisions |
 | EXP-0017-E001 | `results/execution.json` | absent | Retained two-language execution and Q1--Q5 decisions |

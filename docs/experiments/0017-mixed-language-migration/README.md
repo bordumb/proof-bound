@@ -5,7 +5,7 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-008
-- **Status:** independent graph kernels implemented; execution pending
+- **Status:** evaluator implemented; retained execution pending
 - **Registered:** 2026-09-03
 - **Started / concluded:** — / —
 - **Subject:** Proofbound `8e210c8da2d40ed5231e407d3e90d159ddddefdc`
@@ -134,5 +134,5 @@ boundary.
 Q1--Q5 remain unanswered. The corpus, two foreign callers, and independent
 Rust and Python graph kernels exist, but no retained experiment result does.
 Focused parity validation reconstructs byte-identical reports and rejects all
-30 registered attacks exactly; the evaluator has not yet executed the frozen
-procedure against the registered runtimes.
+30 registered attacks exactly. The evaluator now enforces the frozen procedure
+and ceilings, but no execution result is retained in the experiment record.
