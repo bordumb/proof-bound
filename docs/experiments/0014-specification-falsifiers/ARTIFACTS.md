@@ -17,5 +17,5 @@
 | EXP-0014-I003 | `python/proofbound/specifications_research.py` | implemented independently | Python closed-record/type validator, table evaluator, report validator, and attack executor |
 | EXP-0014-I004 | `python/tests/test_specifications_research.py` | passing | Correct/mutant adequacy, all exact attacks, and self-consistent counterexample substitution |
 | EXP-0014-I005 | `python/proofbound/specifications_experiment.py` | implemented | Post-execution expected-value and complexity evaluator for Q1--Q5 |
-| EXP-0014-I006 | `python/tests/test_specifications_experiment.py` | pending retained result | Metric and retained-result regression checks |
-| EXP-0014-E001 | `results/` | reserved | Immutable execution and comparison report |
+| EXP-0014-I006 | `python/tests/test_specifications_experiment.py` | passing | Metric and retained-result regression checks |
+| EXP-0014-E001 | `results/execution.json` | retained, `sha256:9986bfb87196b96899cda5bfb61406f8d710af99929abea99884abfb2af4ff5b` | Canonical independent comparison, obligations, counterexamples, attacks, complexity, and Q1--Q5 outcomes |

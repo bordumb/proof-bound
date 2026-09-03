@@ -48,3 +48,14 @@ before opening the frozen expected values, checks exact structural and vacuity
 attacks, correct-obligation coverage, mutant counterexamples, deterministic
 identity, independent byte agreement, and every preregistered complexity
 ceiling. No retained execution artifact existed when this entry was added.
+
+## 2026-09-03 — Experiment executed
+
+Executed both checkers ten times and then opened the frozen expected values.
+The correct relation satisfied 34/34 reachable obligations. All six mutants
+were killed with complete first counterexamples, all 20 attacks rejected with
+their exact codes in both engines, and the complete model report bytes matched.
+The suite contains 24 AST nodes over 14 carrier values and ten variables; the
+5,307-byte model report remains below every registered ceiling. The retained
+execution is
+`sha256:9986bfb87196b96899cda5bfb61406f8d710af99929abea99884abfb2af4ff5b`.
