@@ -2,6 +2,14 @@ name: Native platform enforcement research
 
 on:
   workflow_dispatch:
+    inputs:
+      experiment:
+        description: Research experiment to execute
+        required: true
+        type: choice
+        options:
+          - exp-0022
+          - exp-0024
   push:
     paths:
       - .github/workflows/platform-enforcement-research.yml
@@ -20,6 +28,7 @@ env:
 jobs:
   linux-confirmation:
     name: EXP-0022 · native Linux confirmation
+    if: github.event_name == 'workflow_dispatch' && inputs.experiment == 'exp-0022'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
@@ -100,6 +109,7 @@ jobs:
 
   linux-loader-candidate:
     name: EXP-0024 · exact Linux loader closure
+    if: github.event_name == 'push' || inputs.experiment == 'exp-0024'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
