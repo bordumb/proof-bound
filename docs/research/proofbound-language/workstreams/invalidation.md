@@ -52,3 +52,8 @@ EXP-LANG-013 / [Experiment 0020](../../../experiments/0020-linux-enforcement-por
 does not supply the missing Linux equivalence: its exact ABI probe was
 unsupported and therefore produced no reusable evidence. This is the required
 fail-closed result, while the portability question remains open.
+
+EXP-LANG-014 / [Experiment 0021](../../../experiments/0021-windows-enforcement-portability/README.md)
+similarly produces no reusable record on a non-Windows host. Its policy
+compiler is useful design evidence, but only a live Windows 11 run can test
+whether the narrow invalidation result survives that boundary.

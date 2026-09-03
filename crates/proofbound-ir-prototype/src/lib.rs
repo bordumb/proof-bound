@@ -28,6 +28,7 @@ mod notifications;
 mod portable;
 mod sampling;
 mod specifications;
+mod windows_enforcement;
 
 pub use artifact_roles::{
     ArtifactRoleReport, ArtifactUnitRoles, BoundArtifactRole, audit_artifact_roles,
@@ -159,6 +160,13 @@ pub use specifications::{
     SpecificationValue, SpecificationVariable, SpecificationVariableRole,
     derive_specification_report, execute_specification_corpus, load_specification_corpus,
     validate_specification_report,
+};
+pub use windows_enforcement::{
+    WINDOWS_CAPTURE_SCHEMA, WINDOWS_POLICY_SCHEMA, WINDOWS_REPORT_SCHEMA, WindowsAppContainer,
+    WindowsAttackResult, WindowsCapture, WindowsEnforcementError, WindowsHost, WindowsJobObject,
+    WindowsMetrics, WindowsPolicy, WindowsPortabilityDelta, WindowsReport, WindowsRestrictedToken,
+    WindowsTarget, compile_windows_policy, validate_windows_capture,
+    validate_windows_capture_bytes, validate_windows_policy, validate_windows_report,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";

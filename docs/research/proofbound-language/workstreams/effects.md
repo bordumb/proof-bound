@@ -1,6 +1,6 @@
 # WS-FX: effects and capabilities
 
-- **Status:** EXP-LANG-013 / Experiment 0020 concluded `unanswered`
+- **Status:** EXP-LANG-014 / Experiment 0021 concluded `unanswered`
 - **Hypotheses:** H5, H9
 - **Depends on:** WS-IR authority and dependency model
 - **Blocks:** Gate 2
@@ -72,3 +72,11 @@ available Linux arm64 VM returned `ENOSYS` for its exact Landlock ABI query,
 including without Docker's outer seccomp profile. The executor correctly
 emitted no workload receipt and admitted no container or unconfined fallback.
 This supports fail-closed availability handling, not Linux enforcement.
+
+## Windows portability result
+
+[EXP-LANG-014 / Experiment 0021](../../../experiments/0021-windows-enforcement-portability/README.md)
+compiles the same authority classes to a conjunctive AppContainer,
+restricted-token, job-object, and exact-ACL design. No supported Windows 11
+host was available. The platform gate emitted zero receipts and no fallback,
+so the result makes the policy delta explicit without claiming enforcement.

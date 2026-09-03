@@ -28,7 +28,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0018](0018-os-enforced-effects/README.md) | OS-enforced effects and sound invalidation | Python, Node, and Rust processes under one macOS enforcement boundary | Ambient authority denial, exact reuse identity, independent receipts, cross-language feasibility | concluded; revise |
 | [0019](0019-batched-enforcement-latency/README.md) | Batched enforcement latency | EXP-0018 Python, Node, and Rust corpus under a concurrent isolated scheduler | Latency repair, per-run isolation, receipt completeness, independent validation | concluded; pass |
 | [0020](0020-linux-enforcement-portability/README.md) | Linux enforcement portability | EXP-0018 effect contract compiled to a Linux Landlock/seccomp candidate | Semantic policy parity, fail-closed availability, independent policy validation | concluded; unanswered |
-| [0021](0021-windows-enforcement-portability/README.md) | Windows enforcement portability | EXP-0018 effect contract compiled to a Windows AppContainer candidate | Semantic policy parity, fail-closed availability, independent policy validation | planned |
+| [0021](0021-windows-enforcement-portability/README.md) | Windows enforcement portability | EXP-0018 effect contract compiled to a Windows AppContainer candidate | Semantic policy parity, fail-closed availability, independent policy validation | concluded; unanswered |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).

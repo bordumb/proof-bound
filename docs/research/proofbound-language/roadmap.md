@@ -67,6 +67,12 @@ evidence. Gate 1 therefore remains blocked: the fail-closed availability path
 is supported, while live Linux enforcement is unanswered and Windows remains
 untested.
 
+EXP-LANG-014 / Experiment 0021 independently compiles a conjunctive Windows
+candidate but has no supported Windows 11 execution environment. Its host gate
+produces zero receipts and no simulated result. Gate 1 therefore retains only
+bounded macOS execution evidence; both portable live boundaries still require
+confirmatory runs.
+
 ## Gate 2 — Authoring and authority
 
 Required: WS-DSL and WS-FX.

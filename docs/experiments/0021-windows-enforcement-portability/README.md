@@ -1,8 +1,8 @@
 # Experiment 0021: Windows enforcement portability
 
-- **Status:** planned
+- **Status:** concluded — unanswered
 - **Registered:** 2026-09-03
-- **Started / concluded:** not started / not concluded
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** EXP-0018 effect contract at
   `sha256:589244f93383788fcc61587ec665ddc9e38ebf96ce59f82da2fce9e7510d967d`
 - **Proofbound:** `git:2dd8fcd1cb5c6eb76438e00dfb13af20eeb760fc`
@@ -53,3 +53,5 @@
   reusable evidence, or the common contract requires Windows-only semantics.
 
 The immutable machine registration is [preregistration.json](preregistration.json).
+The retained outcome is documented in [CONCLUSION.md](CONCLUSION.md); its
+machine evidence is indexed by [ARTIFACTS.md](ARTIFACTS.md).
