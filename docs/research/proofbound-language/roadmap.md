@@ -47,6 +47,12 @@ uncertainty, specification, and artifact-role results in a bounded `/2`
 candidate. Gate 1 has a native-experiment target, but production parity and
 real enforcement remain open.
 
+EXP-LANG-011 / Experiment 0018 is preregistered to test that production
+premise on one real macOS enforcement mechanism across Python, Node, and Rust.
+It must deny the retained undeclared-read attack, bind load-bearing changes,
+preserve an unrelated negative control, and fail closed rather than fall back
+on unsupported hosts. Even a passing result remains platform-bounded.
+
 ## Gate 2 — Authoring and authority
 
 Required: WS-DSL and WS-FX.

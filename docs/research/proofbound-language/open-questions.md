@@ -62,8 +62,8 @@ An ordinary subprocess does not satisfy that premise and remains non-reusable.
   supplies exact evidence.
 - **Consequence:** Keep mediated, opaque, and externally enforced execution as
   distinct types. Do not infer sandbox guarantees from command provenance.
-- **Promoted to:** a real OS/runtime enforcement experiment before production
-  effect-based cache reuse
+- **Promoted to:** EXP-LANG-011 / Experiment 0018, preregistered before any
+  production effect-based cache reuse
 
 ### OQ-007 — split between typed semantics and human effect
 
