@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-009
-- **Status:** in progress; preregistration and corpus frozen, not executed
+- **Status:** concluded; Q1--Q5 passed over the frozen finite corpus
 - **Registered:** 2026-09-03
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** Proofbound `5865b76bce7aed6ed89eeab0ec8c6b7c74a93f27`
 - **Operator:** Codex (GPT-5)
 
@@ -152,10 +152,31 @@ three surviving semantic mutants, forged identities, and noncanonical order.
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0014-F001 | Reserved for execution. | — | pending |
+| EXP-0014-F001 | Independent typed checkers emitted the same complete adequacy report bytes. | Model report `sha256:c0eeb773bcb8e32ccd183edfcd7e05935e07ca3a5800610417003db0f79646ce`; ten stable repetitions | retain the finite contract AST and report shape as native-parser inputs |
+| EXP-0014-F002 | Reachability and result dependence expose registered forms of vacuity before a specification is accepted. | Five reachable contracts; exact rejection of empty/incomplete carriers, unreachable preconditions, literal tautology, result-independent postcondition, contradiction, and false-premise implication | require specification-adequacy validation before accepting a proof result |
+| EXP-0014-F003 | The candidate suite distinguishes the intended relation from every registered semantic alternative. | Correct relation 34/34 obligations; six of six explicit mutants killed with complete first counterexamples | admit the suite as a bounded prerequisite for EXP-LANG-007 |
+| EXP-0014-F004 | Structural validity alone is insufficient: plausible result-constraining weakenings can still admit bad implementations. | Three weakened suites passed structural checks but were rejected because always-success, always-error, or noncanonical-acceptance survived | retain mutation adequacy as a separate typed result, not a parser/type-check proxy |
+| EXP-0014-F005 | The experiment remains finite and table-bound. | 14 carrier cases, 24 AST nodes, explicit execution tables, no native parser or proof search | do not call the result an unbounded proof or general specification-completeness theorem |
 
 ## Outcome
 
-Q1--Q5 are unanswered. The universe, contracts, explicit execution tables,
-attacks, expected counts, and ceilings are frozen; no checker or result exists
-yet.
+All five questions pass over the frozen finite model:
+
+- **Q1 passed:** both engines rejected every structural, type, identity, and
+  ordering attack exactly.
+- **Q2 passed:** all five accepted contracts have reachable preconditions and
+  satisfying correct results. Every registered empty, vacuous,
+  result-independent, or inconsistent form rejected with its exact code.
+- **Q3 passed:** the correct relation satisfied 34/34 obligations and each of
+  six explicit mutants failed at least one named contract/case.
+- **Q4 passed:** the ten-repetition independent reports were byte-identical,
+  carried complete counterexamples, and all 20 attacks agreed exactly.
+- **Q5 passed:** round trip, malformed rejection, canonicality, exact
+  consumption, and bounded termination fit the backend-neutral AST using 24
+  nodes over 14 cases; the 5,307-byte model report stayed below the frozen
+  ceilings.
+
+This result authorizes use of the five-contract suite as a bounded input to the
+native-parser experiment. It does not prove a future parser, establish
+completeness for unbounded byte strings, or show that automated adequacy can
+replace specification review.

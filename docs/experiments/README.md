@@ -21,7 +21,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0011](0011-dual-frontend-equivalence/README.md) | Dual frontend equivalence | Python, TypeScript, and Rust programme slices in TOML, Proofbound DSL, and Pkl | Canonical equivalence, typed diagnostics, abstraction, evaluator closure | concluded — Q1/Q2 failed; Q3–Q5 bounded pass; frozen controls invalid |
 | [0012](0012-effect-checked-replay/README.md) | Effect-checked replay | Hidden-reader falsifier plus bounded mutation, distribution, and subprocess controls | Static authority, mediated trace parity, sound invalidation, subprocess honesty | concluded — Q1–Q5 bounded pass; no OS-sandbox claim |
 | [0013](0013-claim-oriented-notification-precision/README.md) | Claim-oriented notification precision | Synthetic claim/finding/uncertainty scenarios; optional practitioner phase | Consequence recall, false escalation, volume, actionable explanations, human validity | concluded — Q1--Q4 bounded pass; Q5 unanswered |
-| [0014](0014-specification-falsifiers/README.md) | Specification falsifiers | Finite length-prefixed format contracts and semantic mutants | Typed closure, non-vacuity, consistency, mutant adequacy, independent determinism | running — corpus frozen, not executed |
+| [0014](0014-specification-falsifiers/README.md) | Specification falsifiers | Finite length-prefixed format contracts and semantic mutants | Typed closure, non-vacuity, consistency, mutant adequacy, independent determinism | concluded — Q1--Q5 bounded pass |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).

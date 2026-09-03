@@ -49,3 +49,7 @@ or artifact evidence.
   passes a closed fact, judgment, rule, and trace model over six evidence
   routes and 1,000 generated programs. Independent validators reject forbidden
   strengthening and ambiguous traces, while unused telemetry remains silent.
+- [EXP-LANG-009 / Experiment 0014](../../../experiments/0014-specification-falsifiers/README.md)
+  adds a bounded adequacy layer before proof checking: five reachable typed
+  contracts accept the correct finite relation, kill six registered mutants,
+  and reject 20 vacuity, weakness, type, and integrity attacks independently.

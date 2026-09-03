@@ -59,3 +59,11 @@ The suite contains 24 AST nodes over 14 carrier values and ten variables; the
 5,307-byte model report remains below every registered ceiling. The retained
 execution is
 `sha256:9986bfb87196b96899cda5bfb61406f8d710af99929abea99884abfb2af4ff5b`.
+
+## 2026-09-03 — Experiment concluded
+
+Concluded Q1--Q5 as passing over the frozen finite execution tables. The
+contract suite is adequate against the six named semantic alternatives and may
+be reused as a preregistered input to EXP-LANG-007. The result remains bounded:
+it is neither a proof about a future parser nor a general decision procedure
+for specification quality.

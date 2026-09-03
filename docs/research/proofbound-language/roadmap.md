@@ -77,6 +77,12 @@ Exit only if a native prototype produces independently checkable functional
 assurance and an honest source-to-artifact story stronger than a comparable
 existing-language integration.
 
+Prerequisite result: EXP-LANG-009 validates the native parser's bounded
+five-role contract suite against six semantic mutants and 20 adequacy attacks.
+This prevents the known frozen vacuity and weak-specification forms; it does
+not provide evidence about native code or artifacts. EXP-LANG-010 differential
+kernel validation remains before native execution work.
+
 ## Gate 5 — Adoption bridge
 
 Required: WS-FB plus final WS-IK validation.

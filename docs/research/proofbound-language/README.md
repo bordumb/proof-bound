@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** [EXP-LANG-009 / Experiment 0014 — specification falsifiers](../../experiments/0014-specification-falsifiers/README.md) is preregistered
+- **Active experiment:** next dependency-ordered experiment is EXP-LANG-010; EXP-LANG-009 is concluded
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -44,6 +44,11 @@ uncertainty reporting. Independent engines retained every frozen critical
 action and all findings while reducing interruptions from 20 to seven and
 false escalations from nine to zero. Its participant phase did not run, so it
 does not establish human comprehension, response-time, or fatigue benefits.
+EXP-LANG-009 then validated the bounded specification suite intended for the
+native parser: five reachable typed contracts accept 34/34 correct obligations
+and kill six explicit semantic mutants. Independent engines agree on every
+counterexample and reject 20 structural, vacuity, weakness, and integrity
+attacks. This is finite specification adequacy, not parser correctness.
 
 ## Programme map
 
@@ -68,7 +73,7 @@ does not establish human comprehension, response-time, or fatigue benefits.
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | bounded candidate supported; OS enforcement untested | H5 | EXP-LANG-005 / Experiment 0012 concluded |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
-| WS-NE | [Native executable prototype](workstreams/native-runtime.md) | blocked by Gate 3 | H7 | — |
+| WS-NE | [Native executable prototype](workstreams/native-runtime.md) | specification prerequisite supported; differential kernel next | H7 | EXP-LANG-009 concluded |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | planned | H7 | — |
 | WS-FB | [Foreign boundaries](workstreams/foreign-boundaries.md) | blocked by native prototype | H8 | — |
 | WS-IK | [Independent kernel](workstreams/independent-kernel.md) | running | H1, H2, H7 | EXP-0005 |
@@ -164,11 +169,16 @@ does not establish human comprehension, response-time, or fatigue benefits.
   false escalations from nine to zero while retaining all 20 findings. All 20
   attacks reject exactly. The human instrument has zero participants, so Gate
   3 product value remains open.
+- EXP-LANG-009 checks a five-contract parser specification over 14 explicit
+  finite carrier cases. The correct relation satisfies 34/34 obligations, all
+  six mutants are killed with named counterexamples, both model reports are
+  byte-identical, and 20/20 attacks reject exactly within the frozen
+  complexity ceilings.
 
 ## Current decision
 
 Revise the Gate 1 candidate rather than extending its experiments. EXP-0005,
-EXP-LANG-003, EXP-LANG-004, EXP-LANG-005, and EXP-LANG-006 are closed.
+EXP-LANG-003 through EXP-LANG-006 and EXP-LANG-009 are closed.
 Preserve the experimentally supported family algebra, layered sampling,
 admission traces, and artifact roles, but do not freeze Assurance IR `/1`.
 Do not select TOML, Pkl, or the custom DSL from the non-confirmatory frontend
