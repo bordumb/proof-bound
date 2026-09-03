@@ -40,6 +40,14 @@ TOKEN_IS_APPCONTAINER = 29
 TOKEN_APPCONTAINER_SID = 31
 SE_GROUP_USE_FOR_DENY_ONLY = 0x00000010
 LUA_TOKEN = 0x00000004
+SE_WINDOW_OBJECT = 7
+DACL_SECURITY_INFORMATION = 0x00000004
+GRANT_ACCESS = 1
+NO_INHERITANCE = 0
+TRUSTEE_IS_SID = 0
+TRUSTEE_IS_UNKNOWN = 0
+WINSTA_ALL_ACCESS = 0x0000037F
+DESKTOP_ALL_ACCESS = 0x000001FF
 
 
 class StartupInfoW(ctypes.Structure):
@@ -110,6 +118,29 @@ class TokenAppContainerInformation(ctypes.Structure):
     _fields_ = [("appcontainer_sid", wintypes.LPVOID)]
 
 
+class TrusteeW(ctypes.Structure):
+    """Windows TRUSTEE_W."""
+
+    _fields_ = [
+        ("multiple_trustee", wintypes.LPVOID),
+        ("multiple_trustee_operation", ctypes.c_int),
+        ("trustee_form", ctypes.c_int),
+        ("trustee_type", ctypes.c_int),
+        ("name", wintypes.LPWSTR),
+    ]
+
+
+class ExplicitAccessW(ctypes.Structure):
+    """Windows EXPLICIT_ACCESS_W."""
+
+    _fields_ = [
+        ("access_permissions", wintypes.DWORD),
+        ("access_mode", ctypes.c_int),
+        ("inheritance", wintypes.DWORD),
+        ("trustee", TrusteeW),
+    ]
+
+
 def _windows_error(operation: str) -> OSError:
     return ctypes.WinError(ctypes.get_last_error(), operation)
 
@@ -153,6 +184,66 @@ def _appcontainer_folder(userenv: Any, ole32: Any, sid: str) -> Path:
         return Path(value.value)
     finally:
         ole32.CoTaskMemFree(ctypes.cast(value, wintypes.LPVOID))
+
+
+def _grant_window_object(
+    advapi32: Any,
+    kernel32: Any,
+    handle: wintypes.HANDLE,
+    sid: wintypes.LPVOID,
+    access: int,
+) -> None:
+    """Add one AppContainer allow entry to a private window object."""
+
+    old_dacl = wintypes.LPVOID()
+    security_descriptor = wintypes.LPVOID()
+    result = advapi32.GetSecurityInfo(
+        handle,
+        SE_WINDOW_OBJECT,
+        DACL_SECURITY_INFORMATION,
+        None,
+        None,
+        ctypes.byref(old_dacl),
+        None,
+        ctypes.byref(security_descriptor),
+    )
+    if result != 0:
+        raise OSError(result, "GetSecurityInfo")
+    new_dacl = wintypes.LPVOID()
+    entry = ExplicitAccessW(
+        access,
+        GRANT_ACCESS,
+        NO_INHERITANCE,
+        TrusteeW(
+            None,
+            0,
+            TRUSTEE_IS_SID,
+            TRUSTEE_IS_UNKNOWN,
+            ctypes.cast(sid, wintypes.LPWSTR),
+        ),
+    )
+    try:
+        result = advapi32.SetEntriesInAclW(
+            1, ctypes.byref(entry), old_dacl, ctypes.byref(new_dacl)
+        )
+        if result != 0:
+            raise OSError(result, "SetEntriesInAclW")
+        result = advapi32.SetSecurityInfo(
+            handle,
+            SE_WINDOW_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            new_dacl,
+            None,
+        )
+        if result != 0:
+            raise OSError(result, "SetSecurityInfo")
+    finally:
+        if new_dacl:
+            kernel32.LocalFree(new_dacl)
+        if security_descriptor:
+            kernel32.LocalFree(security_descriptor)
 
 
 def _token_information(advapi32: Any, token: wintypes.HANDLE, kind: int) -> Any:
@@ -258,6 +349,7 @@ def run_appcontainer_process(
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
     userenv = ctypes.WinDLL("userenv", use_last_error=True)
     ole32 = ctypes.WinDLL("ole32", use_last_error=True)
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
 
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -366,6 +458,34 @@ def run_appcontainer_process(
     advapi32.CreateProcessAsUserW.restype = wintypes.BOOL
     advapi32.FreeSid.argtypes = [wintypes.LPVOID]
     advapi32.FreeSid.restype = wintypes.LPVOID
+    advapi32.GetSecurityInfo.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.LPVOID),
+        ctypes.POINTER(wintypes.LPVOID),
+        ctypes.POINTER(wintypes.LPVOID),
+        ctypes.POINTER(wintypes.LPVOID),
+        ctypes.POINTER(wintypes.LPVOID),
+    ]
+    advapi32.GetSecurityInfo.restype = wintypes.DWORD
+    advapi32.SetEntriesInAclW.argtypes = [
+        wintypes.ULONG,
+        ctypes.POINTER(ExplicitAccessW),
+        wintypes.LPVOID,
+        ctypes.POINTER(wintypes.LPVOID),
+    ]
+    advapi32.SetEntriesInAclW.restype = wintypes.DWORD
+    advapi32.SetSecurityInfo.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.LPVOID,
+        wintypes.LPVOID,
+        wintypes.LPVOID,
+    ]
+    advapi32.SetSecurityInfo.restype = wintypes.DWORD
 
     userenv.CreateAppContainerProfile.argtypes = [
         wintypes.LPCWSTR,
@@ -384,6 +504,29 @@ def run_appcontainer_process(
     ]
     userenv.GetAppContainerFolderPath.restype = ctypes.c_long
     ole32.CoTaskMemFree.argtypes = [wintypes.LPVOID]
+    user32.GetProcessWindowStation.restype = wintypes.HANDLE
+    user32.SetProcessWindowStation.argtypes = [wintypes.HANDLE]
+    user32.SetProcessWindowStation.restype = wintypes.BOOL
+    user32.CreateWindowStationW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+    ]
+    user32.CreateWindowStationW.restype = wintypes.HANDLE
+    user32.CloseWindowStation.argtypes = [wintypes.HANDLE]
+    user32.CloseWindowStation.restype = wintypes.BOOL
+    user32.CreateDesktopW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+    ]
+    user32.CreateDesktopW.restype = wintypes.HANDLE
+    user32.CloseDesktop.argtypes = [wintypes.HANDLE]
+    user32.CloseDesktop.restype = wintypes.BOOL
 
     profile = f"proofbound.exp0023.{uuid.uuid4().hex}"
     appcontainer_sid = wintypes.LPVOID()
@@ -395,6 +538,10 @@ def run_appcontainer_process(
     attribute_buffer: ctypes.Array[ctypes.c_char] | None = None
     attribute_initialized = False
     profile_created = False
+    parent_station = wintypes.HANDLE()
+    private_station = wintypes.HANDLE()
+    private_desktop = wintypes.HANDLE()
+    station_name = f"proofbound-{uuid.uuid4().hex}"
     stdout_path: Path | None = None
     stderr_path: Path | None = None
     try:
@@ -421,6 +568,40 @@ def run_appcontainer_process(
                 "TEMP": str(profile_temp),
                 "TMP": str(profile_temp),
             }
+        )
+        parent_station = user32.GetProcessWindowStation()
+        _require(parent_station, "GetProcessWindowStation")
+        private_station = user32.CreateWindowStationW(
+            station_name, 0, WINSTA_ALL_ACCESS, None
+        )
+        _require(private_station, "CreateWindowStationW")
+        _grant_window_object(
+            advapi32,
+            kernel32,
+            private_station,
+            appcontainer_sid,
+            WINSTA_ALL_ACCESS,
+        )
+        _require(
+            user32.SetProcessWindowStation(private_station),
+            "SetProcessWindowStation(private)",
+        )
+        try:
+            private_desktop = user32.CreateDesktopW(
+                "default", None, None, 0, DESKTOP_ALL_ACCESS, None
+            )
+            _require(private_desktop, "CreateDesktopW")
+        finally:
+            _require(
+                user32.SetProcessWindowStation(parent_station),
+                "SetProcessWindowStation(parent)",
+            )
+        _grant_window_object(
+            advapi32,
+            kernel32,
+            private_desktop,
+            appcontainer_sid,
+            DESKTOP_ALL_ACCESS,
         )
         _require(
             advapi32.OpenProcessToken(
@@ -519,6 +700,7 @@ def run_appcontainer_process(
             startup.startup_info.stdin = wintypes.HANDLE(-1)
             startup.startup_info.stdout = wintypes.HANDLE(stdout_handle)
             startup.startup_info.stderr = wintypes.HANDLE(stderr_handle)
+            startup.startup_info.desktop = f"{station_name}\\default"
             startup.attribute_list = ctypes.cast(attribute_buffer, wintypes.LPVOID)
             command_line = ctypes.create_unicode_buffer(
                 subprocess.list2cmdline(command)
@@ -567,6 +749,12 @@ def run_appcontainer_process(
         return {
             "profile": profile,
             "profile_storage": str(profile_storage),
+            "window_station": {
+                "name": station_name,
+                "desktop": "default",
+                "private": True,
+                "appcontainer_acl": True,
+            },
             "appcontainer_sid": sid,
             "restricted_token": True,
             "administrator_sids": "deny-only",
@@ -598,6 +786,10 @@ def run_appcontainer_process(
             kernel32.CloseHandle(token)
         if appcontainer_sid:
             advapi32.FreeSid(appcontainer_sid)
+        if private_desktop:
+            user32.CloseDesktop(private_desktop)
+        if private_station:
+            user32.CloseWindowStation(private_station)
         if profile_created:
             _hresult(
                 userenv.DeleteAppContainerProfile(profile), "DeleteAppContainerProfile"
