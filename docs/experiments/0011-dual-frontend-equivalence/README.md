@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-004
-- **Status:** planned; preregistered, not executed
+- **Status:** concluded; confirmatory result invalidated by frozen-control defect
 - **Registered:** 2026-09-03
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** Proofbound `f7fac0cabe5eddc0f4a5e7f211b6d1b43d8c1687`
 - **Operator:** Codex (GPT-5)
 
@@ -188,8 +188,27 @@ drift, and six source-map/effective-programme integrity attacks.
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0011-F001 | Reserved for execution. | — | pending |
+| EXP-0011-F001 | Rust and independently written Python compilers emitted byte-identical compilations for all nine project/frontend pairs across ten repetitions. | `results/execution.json`, `implementation_exact_pairs = 9/9` | bounded positive result; no production adoption |
+| EXP-0011-F002 | TOML, the custom DSL, and restricted Pkl produced the same canonical programme and effective programme for each project, but their receipts differ because receipts bind frontend, source map, and dependency identities. | `project_equivalence` | Q1 failed as literally preregistered; future criteria must distinguish semantic identity from provenance identity |
+| EXP-0011-F003 | All 22 attacks rejected with the exact registered code in both implementations. Source-level Pkl/DSL attacks had spans, but eight post-parse semantic attacks did not. | `attacks` | Q2 failed; typed semantic diagnostics need retained source origins through validation |
+| EXP-0011-F004 | Both typed frontends reduced frozen semantic assignments by at least 25% for Python and TypeScript, but neither reached 25% for the larger Rust slice. | `metrics.assignment_reductions` | Q3 bounded pass; abstraction benefit is programme-shape dependent |
+| EXP-0011-F005 | Pkl and both compilers were deterministic over ten repetitions, and registered authority/dependency substitutions failed closed or changed identity. | `positive_cases`, `attacks` | Q4 bounded pass under the registered macOS evaluator and policy |
+| EXP-0011-F006 | Independent validation accepted complete effective programmes and rejected all six source-map/effective attacks. Maps are total and file-bound, but their retained spans are whole-source rather than expression-precise. | `attacks`, Rust/Python tests | Q5 bounded pass; expression-precise maps remain future work |
+| EXP-0011-F007 | All three frozen programme byte lengths were correct, but all three frozen hashes were wrong. Both implementations independently derived the same replacement observations without editing the controls. | `frozen_programme_controls` | preregistration defect; `confirmatory_valid = false` |
 
 ## Outcome
 
-Q1–Q5 are unanswered. No frontend corpus or implementation exists yet.
+Q1 and Q2 fail. Q3, Q4, and Q5 pass their bounded criteria, but the experiment
+is not confirmatory because zero of three frozen programme identities match.
+The result supports a narrow engineering claim: a small canonical semantic
+model can make TOML, a custom DSL, and restricted Pkl agree across the selected
+Python, TypeScript, and Rust slices, and independent implementations can check
+that agreement. It does **not** select a production frontend.
+
+The strongest product lesson is that semantic identity and provenance identity
+must be separate. Effective programmes should agree across frontends; receipts
+must retain which frontend, sources, evaluator, and authority policy produced
+them. A future experiment must repair that criterion in a new preregistration,
+not reinterpret Q1 after observing the result. It must also carry source
+origins through typed semantic validation if early, actionable diagnostics are
+a language requirement.

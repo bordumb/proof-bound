@@ -45,9 +45,11 @@ an enforceable read/effect boundary must be tested before this gate can exit.
 
 Required: WS-DSL and WS-FX.
 
-Exit only if equivalent frontends emit identical canonical IR, meaningful
-errors fail before execution, and effects prevent demonstrated defects without
-unacceptable ceremony.
+Exit only if equivalent frontends emit identical canonical effective meaning,
+frontend-specific receipts preserve provenance, meaningful errors fail before
+execution, and effects prevent demonstrated defects without unacceptable
+ceremony. EXP-LANG-004 did not exit this gate because its frozen controls were
+invalid and semantic errors lost source origins.
 
 ## Gate 3 — Product value
 

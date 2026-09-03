@@ -14,7 +14,7 @@ stop decision; questions are not deleted.
 | OQ-005 | What proof object can an SMT-backed native prototype emit for independent checking without trusting proof search? | H7, WS-NE, WS-IK | Native parser experiment |
 | OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, WS-FX | Gate 2 |
 | OQ-007 | How should uncertainty differ from assumptions, exclusions, open obligations, stale evidence, and conflicting evidence? | H6, WS-UQ | Notification study |
-| OQ-008 | Is a custom DSL materially better than a restricted Pkl or CUE frontend once effective-program review and evaluator identity are included? | H4, WS-DSL | Frontend selection |
+| OQ-008 | Is a custom DSL materially better than a restricted Pkl or CUE frontend once effective-program review and evaluator identity are included? | H4, WS-DSL, EXP-LANG-004 | split; no frontend selected |
 
 ### OQ-001 — split and resolved by a layered contract
 
@@ -45,6 +45,22 @@ stop decision; questions are not deleted.
   substrate, but require an enforced or independently observed effect boundary
   before treating the projection as complete for cache reuse.
 - **Promoted to:** EXP-LANG-005 effect-checked replay
+
+### OQ-008 — split by semantics, provenance, and diagnostics
+
+- **Date:** 2026-09-03
+- **Evidence:** EXP-LANG-004 / Experiment 0011
+- **Resolution:** Both typed frontends reduced assignments by at least 25% for
+  Python and TypeScript, and both independently compiled to the same effective
+  meaning as TOML. Neither met the threshold for Rust. Pkl required a bound
+  evaluator and authority policy; the custom DSL required a new parser and
+  formatter. The experiment cannot choose between them because its frozen
+  hashes were invalid and its semantic diagnostics lost source spans.
+- **Consequence:** Separate effective-programme identity from frontend
+  provenance. Do not demand identical receipts from different frontends, and
+  do not select a syntax until source-aware semantic diagnostics and corrected
+  controls are tested.
+- **Promoted to:** a future confirmatory frontend study after Gate 1
 
 ## Resolution format
 

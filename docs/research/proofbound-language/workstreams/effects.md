@@ -1,6 +1,6 @@
 # WS-FX: effects and capabilities
 
-- **Status:** planned
+- **Status:** next; EXP-LANG-005 preregistration required
 - **Hypothesis:** H5
 - **Depends on:** WS-IR authority and dependency model
 - **Blocks:** Gate 2
@@ -16,6 +16,11 @@ human judgment.
 Model current mutation and packaging operations, then replay known ambient
 plugin, root-write, lifecycle-script, environment, symlink, and subprocess
 smuggling defects.
+
+EXP-LANG-003 makes the first experiment narrower and testable: compare an
+enforced effect boundary with declaration-only and global-revision cache
+strategies against the retained undeclared-read falsifier and representative
+mutation/distribution operations.
 
 ## Exit criteria
 

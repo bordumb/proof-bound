@@ -18,7 +18,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0008](0008-layered-sampling-model/README.md) | Layered sampling model | EXP-0006/0007 three-framework results | Common intent; typed backend plans; authority-indexed facts; targeted uncertainty | concluded |
 | [0009](0009-generated-evidence-algebra/README.md) | Generated evidence algebra | Proofbound status corpus and Assurance IR candidate | Explicit derivation traces; forbidden coercions; independent generated differential checking | concluded — Q1–Q5 passed over the registered 500/500 corpus |
 | [0010](0010-invalidation-precision/README.md) | Source-retained invalidation precision | Controlled Python, TypeScript, Rust/Lean routes plus two external holdouts | Complete dependency semantics; sound and narrow invalidation; actionable explanation | concluded — declaration-only candidate rejected |
-| [0011](0011-dual-frontend-equivalence/README.md) | Dual frontend equivalence | Python, TypeScript, and Rust programme slices in TOML, Proofbound DSL, and Pkl | Canonical equivalence, typed diagnostics, abstraction, evaluator closure | planned — preregistered, not executed |
+| [0011](0011-dual-frontend-equivalence/README.md) | Dual frontend equivalence | Python, TypeScript, and Rust programme slices in TOML, Proofbound DSL, and Pkl | Canonical equivalence, typed diagnostics, abstraction, evaluator closure | concluded — Q1/Q2 failed; Q3–Q5 bounded pass; frozen controls invalid |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).
