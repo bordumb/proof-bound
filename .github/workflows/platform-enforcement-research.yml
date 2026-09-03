@@ -108,110 +108,32 @@ jobs:
         with:
           python-version-file: .python-version
 
-      - name: Acquire and identify the Microsoft diagnostic
+      - name: Install the registered Node line
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Install the registered Rust toolchain
+        uses: dtolnay/rust-toolchain@1.94.0
+
+      - name: Probe Python, Node, and Rust entry
         shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
         run: |
           $root = "$env:RUNNER_TEMP/exp0025-results"
           New-Item -ItemType Directory -Force $root
-          $archive = "$root/ProcessMonitor.zip"
-          Invoke-WebRequest `
-            "https://download.sysinternals.com/files/ProcessMonitor.zip" `
-            -OutFile $archive
-          Expand-Archive $archive "$root/ProcessMonitor"
-          $procmon = "$root/ProcessMonitor/Procmon64a.exe"
-          if (-not (Test-Path $procmon)) {
-            throw "the Microsoft archive lacks Procmon64a.exe"
-          }
-          @{
-            source = "https://download.sysinternals.com/files/ProcessMonitor.zip"
-            archive_sha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
-            executable = $procmon
-            executable_sha256 = (Get-FileHash $procmon -Algorithm SHA256).Hash.ToLower()
-          } | ConvertTo-Json | Set-Content "$root/diagnostic-identity.json"
-
-      - name: Trace the frozen pre-entry falsifier
-        shell: pwsh
-        env:
-          PYTHONPATH: ${{ github.workspace }}/python
-        run: |
-          $root = "$env:RUNNER_TEMP/exp0025-results"
-          $procmon = "$root/ProcessMonitor/Procmon64a.exe"
-          $trace = "$root/initialization.pml"
-          try {
-            & $procmon /AcceptEula /Quiet /Minimized /BackingFile $trace
-            Start-Sleep -Seconds 2
-            python -m proofbound.windows_process_smoke "$root/process-smoke.json"
-            $smokeExit = $LASTEXITCODE
-          } finally {
-            & $procmon /Terminate /Quiet
-          }
-          $deadline = (Get-Date).AddSeconds(30)
-          while ((-not (Test-Path $trace)) -and (Get-Date) -lt $deadline) {
-            Start-Sleep -Milliseconds 250
-          }
-          if (-not (Test-Path $trace)) {
-            throw "Process Monitor did not retain the initialization trace"
-          }
-          Set-Content "$root/process-smoke-exit.txt" "$smokeExit"
-          exit 0
-
-      - name: Extract the bounded initialization process tree
-        shell: pwsh
-        env:
-          PYTHONPATH: ${{ github.workspace }}/python
-        run: |
-          $root = "$env:RUNNER_TEMP/exp0025-results"
-          $packages = "$root/parser-packages"
-          New-Item -ItemType Directory -Force $packages
-          python -m pip download `
-            --disable-pip-version-check `
-            --only-binary=:all: `
-            --dest $packages `
-            procmon-parser==0.3.13 construct==2.10.70 six==1.17.0
+          python -m proofbound.windows_runtime_entry_matrix `
+            "$root/runtime-entry-matrix.json"
           if ($LASTEXITCODE -ne 0) {
-            throw "failed to acquire the pinned PML parser closure"
-          }
-          Get-ChildItem "$packages/*.whl" | Sort-Object Name | ForEach-Object {
-            @{
-              name = $_.Name
-              sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            }
-          } | ConvertTo-Json | Set-Content "$root/parser-identities.json"
-          python -m pip install `
-            --disable-pip-version-check `
-            --no-index `
-            --find-links $packages `
-            procmon-parser==0.3.13 construct==2.10.70 six==1.17.0
-          if ($LASTEXITCODE -ne 0) {
-            throw "failed to install the pinned PML parser closure"
-          }
-          python -m proofbound.windows_procmon_discovery `
-            "$root/initialization.pml" `
-            "$root/process-smoke.json" `
-            "$root/initialization-process-tree.json"
-          if ($LASTEXITCODE -ne 0) {
-            throw "failed to extract the bounded initialization process tree"
-          }
-          $tree = Get-Content "$root/initialization-process-tree.json" | ConvertFrom-Json
-          $tree.processes | Select-Object process_name, pid, parent_pid, integrity, image_path
-
-      - name: Isolate the console-broker boundary
-        shell: pwsh
-        env:
-          PYTHONPATH: ${{ github.workspace }}/python
-        run: |
-          $root = "$env:RUNNER_TEMP/exp0025-results"
-          python -m proofbound.windows_initialization_matrix `
-            "$root/initialization-matrix.json"
-          if ($LASTEXITCODE -ne 0) {
-            throw "the bounded initialization matrix did not complete"
+            throw "the bounded runtime-entry matrix did not complete"
           }
 
-      - name: Retain the non-reusable discovery trace
+      - name: Retain the non-reusable runtime discovery
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: exp-0025-windows-initialization-discovery
+          name: exp-0025-windows-runtime-entry-discovery
           path: ${{ runner.temp }}/exp0025-results
           if-no-files-found: error
           retention-days: 14
