@@ -48,3 +48,12 @@ had unique declarations; all 15 declarations had observed or unused
 dispositions. The hidden policy change invalidated in 10/10 runs, the unrelated
 control invalidated in 0/10, and both representative outputs matched their
 frozen identities without changing any fixture.
+
+## 2026-09-03 — Conclusion recorded
+
+Q1–Q5 pass their frozen bounded criteria. H5 gains bounded support and the H3
+successor must combine typed dependencies with a mediated or independently
+enforced effect boundary. Ordinary subprocess provenance remains insufficient:
+opaque executions are non-reusable. Because the external-enforcement control
+was synthetic, the result neither validates a real sandbox nor authorizes
+production cache-policy changes.

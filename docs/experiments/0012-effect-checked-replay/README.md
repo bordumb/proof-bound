@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-005
-- **Status:** in progress; preregistration and corpus frozen, not executed
+- **Status:** concluded; Q1–Q5 passed over the frozen mediated corpus
 - **Registered:** 2026-09-03
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** Proofbound `6b32d47884bb07ade225cd322b94b0dadcf58472`
 - **Operator:** Codex (GPT-5)
 
@@ -191,9 +191,34 @@ revision over-invalidation.
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0012-F001 | Reserved for execution. | — | pending |
+| EXP-0012-F001 | Independently written Rust and Python implementations emitted the same canonical model report bytes. | Model report identity `sha256:b8a9f116fd99f6e8c76dadc7e714b0ec94e66bd82fd2f35cfd75b04f7e39f660`; six equal plan traces over ten repetitions | retain the typed effect and trace candidate |
+| EXP-0012-F002 | All registered authority and integrity attacks failed exactly. | 23/23 exact codes; all 16 preflight authority attacks stopped before workload-body entry | support H5 for the bounded candidate |
+| EXP-0012-F003 | Mediation repaired the retained undeclared-read falsifier without a repository revision. | consumed policy change invalidated 10/10; unrelated registered change invalidated 0/10; zero stale acceptance | revise the H3 candidate to require an enforceable effect boundary |
+| EXP-0012-F004 | Process registration alone does not establish a closed execution boundary. | opaque process cache-eligible count 0; missing, forged, and weakened enforcement receipts rejected | make opacity and external enforcement distinct types |
+| EXP-0012-F005 | The bounded mutation and distribution roles fit the capability model without ambient authority. | both exact outputs produced; reviewed fixture projection unchanged; 12/12 observations authorized and 15/15 declarations dispositioned | carry the workload/effect separation into successor IR work |
+| EXP-0012-F006 | The experiment did not validate any real OS enforcement mechanism. | external enforcement was a preregistered synthetic receipt and no native child was launched | accepted limitation; require a separate enforcement experiment before production reuse claims |
 
 ## Outcome
 
-Q1–Q5 are unanswered. The effect-plan corpus is frozen; neither independent
-implementation has executed it yet.
+All five questions pass over the frozen research interpreter:
+
+- **Q1 passed:** all 16 registered forbidden-authority requests rejected
+  before workload entry in both implementations with their exact codes.
+- **Q2 passed:** the complete Rust and Python model reports are byte-identical;
+  all 12 observations have unique declarations and all 15 declarations have
+  an observed or unused disposition.
+- **Q3 passed:** the consumed hidden policy invalidated every repetition,
+  while changing the unrelated control invalidated none. No global revision
+  was used.
+- **Q4 passed:** an opaque process remained non-reusable, and all three
+  external-receipt attacks rejected. This proves the type distinction and
+  binding rule, not the effectiveness of an OS sandbox.
+- **Q5 passed:** the mutation and distribution fixtures produced both frozen
+  output identities using only exact reads, absence, and ephemeral writes;
+  the reviewed fixture projection remained unchanged.
+
+The conclusion is deliberately bounded. An assurance language can make its
+own mediated computations compatible with sound, narrow cache invalidation.
+It must treat a normal subprocess as opaque and non-reusable unless an
+independent enforcement layer supplies exact evidence. Existing Proofbound
+adapters have not thereby become sandboxed.

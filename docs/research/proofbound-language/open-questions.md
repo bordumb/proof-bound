@@ -10,9 +10,9 @@ stop decision; questions are not deleted.
 | OQ-001 | Can Hypothesis, fast-check, and Rust property-labelled tests share one sampled-property semantic contract without discarding generator, seed, run-budget, and framework meaning? | H1, H2, EXP-0005-F009, EXP-0008 | resolved by layered model |
 | OQ-002 | Should backend plugin identities remain common provenance, typed backend detail, or a general capability/dependency record? | H1, H5, EXP-0005 | Assurance IR `/1` and effects prototype |
 | OQ-003 | Which claim wording is machine meaning, bounded-domain meaning, and reader presentation? | H1, WS-IR | Claim IR design |
-| OQ-004 | Can cache eligibility be derived entirely from typed dependencies rather than maintained as a parallel manually assembled projection? | H3, WS-IN, EXP-LANG-003 | split: declarations require an enforced effect boundary |
+| OQ-004 | Can cache eligibility be derived entirely from typed dependencies rather than maintained as a parallel manually assembled projection? | H3, WS-IN, EXP-LANG-003, EXP-LANG-005 | resolved for mediated operations; opaque processes remain non-reusable |
 | OQ-005 | What proof object can an SMT-backed native prototype emit for independent checking without trusting proof search? | H7, WS-NE, WS-IK | Native parser experiment |
-| OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, WS-FX | Gate 2 |
+| OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, WS-FX, EXP-LANG-005 | split by mediation boundary; real external enforcement untested |
 | OQ-007 | How should uncertainty differ from assumptions, exclusions, open obligations, stale evidence, and conflicting evidence? | H6, WS-UQ | Notification study |
 | OQ-008 | Is a custom DSL materially better than a restricted Pkl or CUE frontend once effective-program review and evaluator identity are included? | H4, WS-DSL, EXP-LANG-004 | split; no frontend selected |
 
@@ -45,6 +45,25 @@ stop decision; questions are not deleted.
   substrate, but require an enforced or independently observed effect boundary
   before treating the projection as complete for cache reuse.
 - **Promoted to:** EXP-LANG-005 effect-checked replay
+
+EXP-LANG-005 supplies the required follow-up: under a mediated host, complete
+typed effects derive reusable trace identity and preserve narrow invalidation.
+An ordinary subprocess does not satisfy that premise and remains non-reusable.
+
+### OQ-006 — split by mediation boundary
+
+- **Date:** 2026-09-03
+- **Evidence:** EXP-LANG-005 / Experiment 0012
+- **Resolution:** Undeclared and denied capabilities can fail before a
+  mediated workload starts; a language host can trace exact file, absence,
+  ephemeral-write, secret, and synthetic execution effects. A native process
+  is not closed merely because its command is registered. It must remain
+  opaque and non-reusable unless a separately identified enforcement layer
+  supplies exact evidence.
+- **Consequence:** Keep mediated, opaque, and externally enforced execution as
+  distinct types. Do not infer sandbox guarantees from command provenance.
+- **Promoted to:** a real OS/runtime enforcement experiment before production
+  effect-based cache reuse
 
 ### OQ-008 — split by semantics, provenance, and diagnostics
 

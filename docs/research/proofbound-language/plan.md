@@ -634,7 +634,7 @@ experiment before execution.
 | EXP-LANG-002 Generated evidence algebra | H2 | Property-generated valid and adversarial evidence graphs | Producer/verifier agreement and forbidden coercions |
 | EXP-LANG-003 Invalidation precision | H3 | Controlled changes across demos and external trials | Concluded: closed model exact; executable declaration-only candidate rejected |
 | EXP-LANG-004 Dual frontend equivalence | H4 | One Python, one TypeScript, and one Rust project in TOML and DSL | Byte-identical Assurance IR and authoring comparison |
-| EXP-LANG-005 Effect-checked replay | H5 | Mutation and distribution routes with known attack fixtures | Static prevention and observed-effect parity |
+| EXP-LANG-005 Effect-checked replay | H5 | Mutation and distribution routes with known attack fixtures | Concluded: bounded static prevention, exact trace parity, and narrow invalidation; OS enforcement untested |
 | EXP-LANG-006 Notification comparison | H6 | Synthetic incident/change scenarios with practitioners | Impact accuracy, time, and alert-volume comparison |
 | EXP-LANG-007 Native parser | H7 | Small canonical binary format | Independently checked functional proof and artifact |
 | EXP-LANG-008 Mixed-language migration | H8 | Python or TypeScript application calling native parser | Honest strengthening across the foreign boundary |

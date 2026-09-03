@@ -38,8 +38,10 @@ Exit only if:
 - sampled, bounded, formal, and artifact evidence remain distinct; and
 - invalidation has zero known false retention.
 
-Current result: blocked. EXP-LANG-003 rejected declaration-only invalidation;
-an enforceable read/effect boundary must be tested before this gate can exit.
+Current result: the EXP-LANG-005 research candidate repairs the known
+declaration-only falsifier for mediated operations and fails closed for opaque
+processes. Gate 1's semantic model is therefore unblocked for revision, but a
+production enforcement claim still requires a real sandbox/runtime experiment.
 
 ## Gate 2 — Authoring and authority
 
@@ -50,6 +52,9 @@ frontend-specific receipts preserve provenance, meaningful errors fail before
 execution, and effects prevent demonstrated defects without unacceptable
 ceremony. EXP-LANG-004 did not exit this gate because its frozen controls were
 invalid and semantic errors lost source origins.
+
+EXP-LANG-005 satisfies the bounded authority half of this gate. The frontend
+confirmation and source-aware diagnostic requirements remain open.
 
 ## Gate 3 — Product value
 
