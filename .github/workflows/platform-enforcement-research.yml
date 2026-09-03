@@ -7,6 +7,8 @@ on:
       - .github/workflows/platform-enforcement-research.yml
       - python/proofbound/linux_enforcement_confirmation.py
       - python/tests/test_linux_enforcement_confirmation.py
+      - docs/experiments/0024-linux-loader-closure/instrument/**
+      - python/proofbound/linux_loader_enforcement_execute.py
 
 permissions:
   contents: read
@@ -93,5 +95,56 @@ jobs:
         with:
           name: exp-0022-linux-enforcement
           path: ${{ runner.temp }}/exp0022-results
+          if-no-files-found: warn
+          retention-days: 30
+
+  linux-loader-candidate:
+    name: EXP-0024 · exact Linux loader closure
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact research revision
+        uses: actions/checkout@v4
+
+      - name: Install the repository Python version
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - name: Install pinned Python environment tools
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.15"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Bootstrap locked dependencies
+        run: |
+          uv sync --frozen
+          mkdir -p "$RUNNER_TEMP/exp0024-results"
+
+      - name: Build the registered loader environment
+        run: >-
+          docker build
+          --tag proofbound-exp0024:registered
+          docs/experiments/0024-linux-loader-closure/instrument
+
+      - name: Execute the frozen corpus with exact loader authority
+        run: |
+          uv run python -m proofbound.linux_loader_enforcement_execute \
+            "$PWD" \
+            "$RUNNER_TEMP/exp0024-state" \
+            "$RUNNER_TEMP/exp0024-results/capture.json"
+
+      - name: Require the registered raw outcomes
+        run: |
+          python -c 'import json, os, pathlib; value = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"]) / "exp0024-results/capture.json").read_bytes()); positives = [slot for slot in value["slots"] if slot["kind"] == "positive" and slot["outcome"] == "completed"]; probes = [slot for slot in value["slots"] if slot["kind"] == "authority-probe" and slot["outcome"] == "denied" and not slot["reusable"]]; raise SystemExit(0 if value["availability"] == "supported" and len(positives) == 30 and len(probes) == 21 else 1)'
+
+      - name: Retain the exact candidate capture
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: exp-0024-linux-loader-capture
+          path: ${{ runner.temp }}/exp0024-results
           if-no-files-found: warn
           retention-days: 30
