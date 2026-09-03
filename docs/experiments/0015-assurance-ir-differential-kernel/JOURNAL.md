@@ -31,3 +31,14 @@ exact attack rejection and a self-consistently encoded linkage upgrade. The
 1,576-line kernel has no adapter, CLI, core, or verifier dependency and remains
 below its frozen 1,800-line ceiling. No Python kernel existed when this entry
 was added.
+
+## 2026-09-03 — Independent Python kernel implemented
+
+Implemented the second kernel directly from the frozen JSON and contract. It
+uses a separate strict decoder, expansion, validation, derivation, mutation,
+and corpus-execution path. Its three focused regressions pass, including a
+self-consistent strong-linkage attack and a dependency-identity change. The
+855-line implementation remains below its 1,800-line ceiling. Before any
+expected-value evaluator existed, the complete ten-repetition Rust and Python
+model reports matched byte-for-byte at
+`sha256:b9219f06063b61c73094d2d8ed6b608f5dbbef9d98947fe27427c53c0f9fe8ef`.

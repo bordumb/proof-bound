@@ -14,5 +14,6 @@
 | EXP-0015-C006 | `corpus/CONTRACT.md` | frozen, `sha256:5420e9051d45f42e92ee4eaefc97fc0acffc8d9bf9cee38a8ef4dd280d8f02f1` | Independent profile expansion, validation precedence, derivation, and generation contract |
 | EXP-0015-I001 | `crates/proofbound-ir-prototype/src/assurance_v2.rs` | implemented; 1,576 nonblank non-comment lines | Rust typed differential kernel, profile expansion, deterministic generator, and exact attack executor |
 | EXP-0015-I003 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-assurance-v2` command |
-| EXP-0015-I002 | `python/proofbound/assurance_v2_research.py` | absent | Independent Python differential kernel and generator |
+| EXP-0015-I002 | `python/proofbound/assurance_v2_research.py` | implemented independently; 855 nonblank non-comment lines | Python closed-record kernel, profile expansion, deterministic generator, and exact attack executor |
+| EXP-0015-I004 | `python/tests/test_assurance_v2_research.py` | passing | Full frozen corpus, self-consistent decision upgrade, and dependency-identity regressions |
 | EXP-0015-E001 | `results/execution.json` | absent | Retained comparison and Q1--Q5 decisions |
