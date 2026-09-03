@@ -5,7 +5,7 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-006
-- **Status:** planned; preregistered, not executed
+- **Status:** in progress; preregistration and corpus frozen, not executed
 - **Registered:** 2026-09-03
 - **Started / concluded:** — / —
 - **Subject:** Proofbound `2055e90b221ca6344780b2b60866a91b0db8220f`
@@ -143,5 +143,6 @@ operation, not a language- or tool-specific heuristic.
 
 ## Outcome
 
-Q1–Q5 are unanswered. No scenario corpus, implementation, or participant data
-exists yet.
+Q1–Q5 are unanswered. The scenario, oracle, attack, threshold, and
+response-free instrument corpus is frozen; no implementation or participant
+data exists yet.
