@@ -30,6 +30,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0020](0020-linux-enforcement-portability/README.md) | Linux enforcement portability | EXP-0018 effect contract compiled to a Linux Landlock/seccomp candidate | Semantic policy parity, fail-closed availability, independent policy validation | concluded; unanswered |
 | [0021](0021-windows-enforcement-portability/README.md) | Windows enforcement portability | EXP-0018 effect contract compiled to a Windows AppContainer candidate | Semantic policy parity, fail-closed availability, independent policy validation | concluded; unanswered |
 | [0022](0022-linux-enforcement-confirmation/README.md) | Native Linux enforcement confirmation | Frozen EXP-0020 corpus on a Landlock ABI 4+ Linux host | Live permitted workloads, authority denial, non-reuse, independent validation | concluded; revise |
+| [0023](0023-windows-enforcement-confirmation/README.md) | Native Windows enforcement confirmation | Frozen EXP-0018 corpus and EXP-0021 policy on Windows 11 ARM64 | Live conjunctive enforcement, denial, non-reuse, independent validation | preregistered |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).
