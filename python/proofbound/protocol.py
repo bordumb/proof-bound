@@ -158,12 +158,14 @@ class AdapterResponse:
             or inventory != sorted(set(inventory))
         ):
             raise ProtocolError("inventory must be sorted, unique, non-empty strings")
-        if not isinstance(diagnostics, list) or any(not isinstance(item, dict) for item in diagnostics):
+        if not isinstance(diagnostics, list) or any(
+            not isinstance(item, dict) for item in diagnostics
+        ):
             raise ProtocolError("diagnostics must be objects")
         for diagnostic in diagnostics:
-            if not {"code", "message"}.issubset(diagnostic) or not set(diagnostic).issubset(
-                {"code", "message", "path", "remediation"}
-            ):
+            if not {"code", "message"}.issubset(diagnostic) or not set(
+                diagnostic
+            ).issubset({"code", "message", "path", "remediation"}):
                 raise ProtocolError("diagnostic has missing or unknown fields")
             _identity(diagnostic["code"], "diagnostic code", r"PB-[A-Z]+-[0-9]{4}")
             _text(diagnostic["message"], "diagnostic message")
