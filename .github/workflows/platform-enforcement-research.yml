@@ -153,10 +153,15 @@ jobs:
           if (-not (Test-Path $trace)) {
             throw "Process Monitor did not retain the initialization trace"
           }
-          $export = Start-Process -FilePath $procmon -Wait -PassThru -ArgumentList @(
+          $export = Start-Process -FilePath $procmon -PassThru -ArgumentList @(
             '/AcceptEula', '/Quiet', '/OpenLog', $trace, '/SaveAs', $csv
           )
-          if ($export.ExitCode -ne 0) {
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((-not (Test-Path $csv)) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 250
+          }
+          & $procmon /Terminate /Quiet
+          if ($export.HasExited -and $export.ExitCode -ne 0) {
             throw "Process Monitor export failed with exit code $($export.ExitCode)"
           }
           if (-not (Test-Path $csv)) {
