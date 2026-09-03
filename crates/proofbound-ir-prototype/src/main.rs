@@ -6,9 +6,11 @@ use std::{
 };
 
 use proofbound_ir_prototype::{
-    audit_artifact_roles, derive_release_trace_bundle, generate_derivation_corpus, project_corpus,
+    audit_artifact_roles, compile_dsl_frontend, compile_pkl_frontend, compile_toml_frontend,
+    derive_release_trace_bundle, format_dsl_frontend, generate_derivation_corpus, project_corpus,
     project_portable_families, project_portable_families_with_sampling, validate_case_program,
-    validate_derivation_program, validate_invalidation_execution_report,
+    validate_derivation_program, validate_effective_programme_bytes,
+    validate_frontend_compilation_bytes, validate_invalidation_execution_report,
     validate_layered_sampling_case, validate_release_trace_bundle, validate_sampling_observation,
 };
 
@@ -327,6 +329,150 @@ fn main() -> ExitCode {
         return write_canonical_result(
             generate_derivation_corpus(&templates, count).map_err(|error| error.to_string()),
         );
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("compile-frontend")) {
+        let Some(frontend) = args.next().and_then(|value| value.into_string().ok()) else {
+            eprintln!("missing frontend");
+            return ExitCode::from(2);
+        };
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!("missing repository root");
+            return ExitCode::from(2);
+        };
+        let Some(corpus) = args.next().map(PathBuf::from) else {
+            eprintln!("missing frontend corpus");
+            return ExitCode::from(2);
+        };
+        let Some(subject) = args.next().and_then(|value| value.into_string().ok()) else {
+            eprintln!("missing subject ID");
+            return ExitCode::from(2);
+        };
+        let result = match frontend.as_str() {
+            "toml" => {
+                if args.next().is_some() {
+                    eprintln!("unexpected extra argument");
+                    return ExitCode::from(2);
+                }
+                compile_toml_frontend(&root, &corpus, &subject)
+            }
+            "proofbound-dsl" => {
+                if args.next().is_some() {
+                    eprintln!("unexpected extra argument");
+                    return ExitCode::from(2);
+                }
+                compile_dsl_frontend(&root, &corpus, &subject)
+            }
+            "pkl" => {
+                let Some(rendered) = args.next().map(PathBuf::from) else {
+                    eprintln!("missing rendered Pkl JSON");
+                    return ExitCode::from(2);
+                };
+                let Some(executable) = args.next().map(PathBuf::from) else {
+                    eprintln!("missing Pkl executable");
+                    return ExitCode::from(2);
+                };
+                if args.next().is_some() {
+                    eprintln!("unexpected extra argument");
+                    return ExitCode::from(2);
+                }
+                std::fs::read(rendered)
+                    .map_err(|error| proofbound_ir_prototype::FrontendError {
+                        code: "FRONTEND-DEPENDENCY-DRIFT",
+                        message: error.to_string(),
+                        path: None,
+                        start: None,
+                        end: None,
+                    })
+                    .and_then(|bytes| {
+                        compile_pkl_frontend(&root, &corpus, &subject, &bytes, &executable)
+                    })
+            }
+            _ => {
+                eprintln!("unknown frontend");
+                return ExitCode::from(2);
+            }
+        };
+        return write_canonical_result(result.map_err(|error| error.to_string()));
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-frontend")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!("missing repository root");
+            return ExitCode::from(2);
+        };
+        let Some(compilation) = args.next().map(PathBuf::from) else {
+            eprintln!("missing frontend compilation");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(compilation)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_frontend_compilation_bytes(&root, &bytes)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            });
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-effective-frontend")) {
+        let Some(effective) = args.next().map(PathBuf::from) else {
+            eprintln!("missing effective programme");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(effective)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_effective_programme_bytes(&bytes)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            });
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("format-frontend-dsl")) {
+        let Some(source) = args.next().map(PathBuf::from) else {
+            eprintln!("missing DSL source");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(&source)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                format_dsl_frontend(&bytes, &source).map_err(|error| error.to_string())
+            });
+        return match result {
+            Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("failed to write formatted DSL: {error}");
+                    ExitCode::from(1)
+                }
+            },
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(1)
+            }
+        };
     }
     let Some(root) = first.map(PathBuf::from) else {
         eprintln!("usage: proofbound-ir-prototype <repository-root> <corpus.json>");
