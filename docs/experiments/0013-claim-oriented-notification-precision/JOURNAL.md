@@ -47,3 +47,17 @@ finding retention, actionable-field completeness, and independent byte
 agreement. The human question is represented as `unanswered` with a null pass
 value when the minimum participant condition is unmet. No retained execution
 result existed when this entry was added.
+
+## 2026-09-03 — Machine experiment executed
+
+Executed both engines ten times and then evaluated the withheld oracle. Their
+complete model reports were byte-identical. Both retained all six critical
+action tuples, including the low-severity `DEP-001` path. The baseline emitted
+20 interruptions with nine false escalations; the candidate emitted seven
+claim decisions with zero false escalations and nine non-interrupting graph
+updates. All 20 findings remained represented, all seven decisions carried
+complete paths and actions, and all 20 attacks rejected exactly in both
+engines. The response-free instrument contained zero participants, below the
+registered minimum of 12, so Q5 was recorded as unanswered. The canonical
+execution artifact is
+`sha256:75cfc4de19ea73cca88923d552054b50acf4d5f2aaa8eb531b4cacbcf92e62a1`.
