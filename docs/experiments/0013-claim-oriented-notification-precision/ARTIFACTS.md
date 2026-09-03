@@ -16,4 +16,6 @@
 | EXP-0013-I002 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-notifications` command |
 | EXP-0013-I003 | `python/proofbound/notifications_research.py` | implemented independently | Python closed-record validator, decision derivation, canonical identity checker, and attack executor |
 | EXP-0013-I004 | `python/tests/test_notifications_research.py` | passing | Independent derivation, low-severity dependency, and self-consistent path-substitution checks |
+| EXP-0013-I005 | `python/proofbound/notifications_experiment.py` | implemented | Post-execution oracle evaluator for recall, escalation, volume, completeness, retention, parity, and human-evidence eligibility |
+| EXP-0013-I006 | `python/tests/test_notifications_experiment.py` | pending retained result | Metric and unanswered-human-question regression checks |
 | EXP-0013-E001 | `results/` | reserved | Immutable machine and any eligible participant results |

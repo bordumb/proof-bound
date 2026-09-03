@@ -36,3 +36,14 @@ the complete Rust and Python model reports byte-identical at
 `sha256:c5cc21be4fd32942a8327845b4a6cd67c015af740a0cf532ece88fb42a853d97`.
 The critical-action oracle and expected metric file were still not inputs to
 either engine.
+
+## 2026-09-03 — Oracle evaluator implemented
+
+Added the evaluator after both engines existed. It runs Rust and Python before
+opening the separate oracle, expected-count, or response-free instrument
+files. It derives recall from exact scenario/claim/kind/action/publication
+tuples, false escalation from consumed paths, volume using integer arithmetic,
+finding retention, actionable-field completeness, and independent byte
+agreement. The human question is represented as `unanswered` with a null pass
+value when the minimum participant condition is unmet. No retained execution
+result existed when this entry was added.
