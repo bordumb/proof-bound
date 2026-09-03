@@ -25,6 +25,13 @@ CACHE_DOMAIN = "proofbound-assurance-ir-cache/1"
 PORTABLE_FAMILY_PROJECTION_SCHEMA = "proofbound-ir-portable-family-projection/1"
 PORTABLE_FAMILY_PROJECTION_DOMAIN = "proofbound-ir-portable-family-projection/1"
 LEGACY_SAMPLING_REASON = "sampling-detail-not-yet-portable"
+DERIVATION_PROGRAM_SCHEMA = "proofbound-derivation-program/1"
+DERIVATION_FACT_SCHEMA = "proofbound-derivation-fact/1"
+DERIVATION_STEP_SCHEMA = "proofbound-derivation-step/1"
+DERIVATION_JUDGMENT_SCHEMA = "proofbound-derivation-judgment/1"
+DERIVATION_TRACE_DOMAIN = "proofbound-derivation-trace/1"
+GENERATED_DERIVATION_SCHEMA = "proofbound-generated-derivation-corpus/1"
+DERIVATION_GENERATOR = "proofbound-exp-0009-generator/1"
 
 
 class AssuranceIrError(ValueError):
@@ -84,6 +91,38 @@ class LayeredSamplingCheckReport:
     result: str
     admitted: bool
     alerts: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DerivationCheckReport:
+    """Independent result for one closed evidence derivation.
+
+    Attributes:
+        claim_id: Claim whose status was derived.
+        conclusion: Complete derived status judgment.
+        trace_identity: Identity of the canonical derivation program.
+        alerts: Consequence-bearing alerts emitted by the checker.
+    """
+
+    claim_id: str
+    conclusion: dict[str, Any]
+    trace_identity: str
+    alerts: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class GeneratedDerivationCheckReport:
+    """Independent summary for a generated derivation corpus.
+
+    Attributes:
+        valid_count: Number of valid programs accepted.
+        adversarial_count: Number of registered mutations checked.
+        corpus_identity: Independently recomputed generator identity.
+    """
+
+    valid_count: int
+    adversarial_count: int
+    corpus_identity: str
 
 
 def canonical_json(value: object) -> bytes:
@@ -560,6 +599,656 @@ def check_layered_sampling_case(
         admitted=status == "passed",
         alerts=tuple(alerts),
     )
+
+
+def check_derivation_program(program_bytes: bytes) -> DerivationCheckReport:
+    """Independently validate one canonical evidence derivation.
+
+    The rule table is deliberately implemented here rather than shared with the
+    Rust producer. This makes agreement evidence about the model instead of an
+    artifact of calling the same validator twice.
+
+    Args:
+        program_bytes: Canonical UTF-8 JSON, with at most one final newline.
+
+    Returns:
+        The independently derived status and trace identity.
+
+    Raises:
+        AssuranceIrError: If structure, authority, dependencies, or rules fail.
+    """
+
+    document = program_bytes.removesuffix(b"\n")
+    try:
+        program = _strict_json(document, require_canonical=True)
+    except AssuranceIrError as error:
+        code = (
+            "derivation-noncanonical"
+            if error.code == "IR-DECODE-NONCANONICAL"
+            else "derivation-schema-mismatch"
+        )
+        _derivation_fail(code, str(error))
+    _derivation_exact_fields(
+        program, {"schema", "claim_id", "facts", "steps", "conclusion"}
+    )
+    if program["schema"] != DERIVATION_PROGRAM_SCHEMA:
+        _derivation_fail("derivation-schema-mismatch", "unsupported program schema")
+    claim_id = _derivation_text(program["claim_id"], "claim ID")
+
+    facts: dict[str, dict[str, Any]] = {}
+    fact_ids: list[str] = []
+    for raw_fact in _derivation_list(program["facts"], "facts"):
+        fact = _derivation_object(raw_fact, "fact")
+        _validate_derivation_fact(fact)
+        fact_id = _derivation_text(fact["id"], "fact ID")
+        fact_ids.append(fact_id)
+        if fact_id in facts:
+            _derivation_fail(
+                "derivation-duplicate-identity", "fact identity is duplicated"
+            )
+        facts[fact_id] = fact
+    if fact_ids != sorted(set(fact_ids)):
+        _derivation_fail(
+            "derivation-duplicate-identity",
+            "fact identities must be strictly sorted and unique",
+        )
+    _validate_derivation_authorities(facts)
+
+    raw_steps = _derivation_list(program["steps"], "steps")
+    all_step_ids = [
+        _derivation_text(_derivation_object(item, "step").get("id"), "step ID")
+        for item in raw_steps
+    ]
+    judgments: dict[str, dict[str, Any]] = {}
+    prior_step: str | None = None
+    for raw_step in raw_steps:
+        step = _derivation_object(raw_step, "step")
+        _derivation_exact_fields(step, {"schema", "id", "rule", "inputs", "conclusion"})
+        if step["schema"] != DERIVATION_STEP_SCHEMA:
+            _derivation_fail("derivation-schema-mismatch", "unsupported step schema")
+        step_id = _derivation_text(step["id"], "step ID")
+        if (
+            step_id in facts
+            or step_id in judgments
+            or (prior_step is not None and prior_step >= step_id)
+        ):
+            _derivation_fail(
+                "derivation-duplicate-identity",
+                "fact and step identities must be globally unique",
+            )
+        inputs = _derivation_text_list(step["inputs"], "step inputs")
+        if inputs != sorted(set(inputs)):
+            _derivation_fail(
+                "derivation-dependency-mismatch",
+                "step inputs must be strictly sorted and unique",
+            )
+        for dependency in inputs:
+            if dependency in all_step_ids and dependency not in judgments:
+                _derivation_fail(
+                    "derivation-cycle", f"{step_id} depends on a non-prior step"
+                )
+            if dependency not in facts and dependency not in judgments:
+                _derivation_fail(
+                    "derivation-dependency-mismatch",
+                    f"{step_id} names unknown input {dependency}",
+                )
+        _validate_derivation_step(step, facts, judgments)
+        judgments[step_id] = _derivation_object(step["conclusion"], "conclusion")
+        prior_step = step_id
+
+    root = program["conclusion"]
+    if not isinstance(root, str) or root not in judgments:
+        _derivation_fail(
+            "derivation-root-mismatch", "declared conclusion is not a derived step"
+        )
+    conclusion = judgments[root]
+    if conclusion.get("kind") != "status":
+        _derivation_fail(
+            "derivation-root-mismatch", "declared root is not a complete status"
+        )
+    return DerivationCheckReport(
+        claim_id=claim_id,
+        conclusion=conclusion,
+        trace_identity=domain_hash(DERIVATION_TRACE_DOMAIN, canonical_json(program)),
+        alerts=(),
+    )
+
+
+def check_generated_derivation_corpus(
+    corpus_bytes: bytes,
+) -> GeneratedDerivationCheckReport:
+    """Check the complete deterministic EXP-0009 generated corpus.
+
+    Args:
+        corpus_bytes: Canonical corpus emitted by the Rust generator.
+
+    Returns:
+        Independently checked counts and corpus identity.
+
+    Raises:
+        AssuranceIrError: If any valid or adversarial program disagrees.
+    """
+
+    corpus = _strict_json(corpus_bytes.removesuffix(b"\n"), require_canonical=True)
+    _derivation_exact_fields(
+        corpus,
+        {"schema", "algorithm", "seed", "valid", "adversarial", "corpus_identity"},
+    )
+    if (
+        corpus["schema"] != GENERATED_DERIVATION_SCHEMA
+        or corpus["algorithm"] != DERIVATION_GENERATOR
+        or corpus["seed"] != 9009
+    ):
+        _derivation_fail(
+            "derivation-generation-invalid", "generated corpus header differs"
+        )
+    valid = _derivation_list(corpus["valid"], "valid cases")
+    adversarial = _derivation_list(corpus["adversarial"], "adversarial cases")
+    for raw_case in valid:
+        case = _derivation_object(raw_case, "valid case")
+        _derivation_exact_fields(case, {"id", "program", "expected_trace_identity"})
+        report = check_derivation_program(canonical_json(case["program"]))
+        if report.trace_identity != case["expected_trace_identity"]:
+            _derivation_fail(
+                "derivation-generation-invalid", "valid trace identity differs"
+            )
+    for raw_case in adversarial:
+        case = _derivation_object(raw_case, "adversarial case")
+        _derivation_exact_fields(
+            case, {"id", "attack", "encoding", "program", "expected"}
+        )
+        expected = _derivation_text(case["expected"], "expected result")
+        encoding = case["encoding"]
+        if encoding == "pretty":
+            encoded = json.dumps(
+                case["program"], ensure_ascii=False, indent=2, sort_keys=True
+            ).encode()
+        elif encoding == "canonical":
+            encoded = canonical_json(case["program"])
+        else:
+            _derivation_fail(
+                "derivation-generation-invalid", "unknown adversarial encoding"
+            )
+        try:
+            report = check_derivation_program(encoded)
+        except AssuranceIrError as error:
+            if error.code != expected:
+                _derivation_fail(
+                    "derivation-generation-invalid",
+                    f"{case['attack']} expected {expected}, received {error.code}",
+                )
+        else:
+            if expected != "no-admission-consequence" or report.alerts:
+                _derivation_fail(
+                    "derivation-generation-invalid",
+                    f"{case['attack']} unexpectedly passed",
+                )
+    material = {
+        "adversarial": adversarial,
+        "algorithm": corpus["algorithm"],
+        "schema": corpus["schema"],
+        "seed": corpus["seed"],
+        "valid": valid,
+    }
+    identity = domain_hash(DERIVATION_GENERATOR, canonical_json(material))
+    if corpus["corpus_identity"] != identity:
+        _derivation_fail(
+            "derivation-generation-invalid", "generated corpus identity differs"
+        )
+    return GeneratedDerivationCheckReport(len(valid), len(adversarial), identity)
+
+
+def _validate_derivation_fact(fact: dict[str, Any]) -> None:
+    _derivation_exact_fields(
+        fact, {"schema", "id", "authority", "proposition", "sources"}
+    )
+    if fact["schema"] != DERIVATION_FACT_SCHEMA:
+        _derivation_fail("derivation-schema-mismatch", "unsupported fact schema")
+    _derivation_text(fact["id"], "fact ID")
+    if fact["authority"] not in {
+        "registered",
+        "observed",
+        "reviewed",
+        "derived",
+        "unavailable",
+    }:
+        _derivation_fail("derivation-schema-mismatch", "unknown fact authority")
+    _validate_derivation_proposition(
+        _derivation_object(fact["proposition"], "proposition")
+    )
+    sources = _derivation_text_list(fact["sources"], "fact sources")
+    if sources != sorted(set(sources)):
+        _derivation_fail(
+            "derivation-dependency-mismatch", "fact sources are not canonical"
+        )
+
+
+def _validate_derivation_proposition(proposition: dict[str, Any]) -> None:
+    kind = proposition.get("kind")
+    fields = {
+        "evidence-passed": {"kind", "evidence_id", "family"},
+        "binding-matches": {"kind", "theorem_id", "artifact_id"},
+        "assumption-open": {"kind", "assumption_id"},
+        "policy-registered": {
+            "kind",
+            "policy_id",
+            "required_formal",
+            "required_linkage",
+            "allow_assumptions",
+        },
+        "telemetry": {"kind", "name", "value"},
+    }
+    if kind not in fields:
+        _derivation_fail("derivation-schema-mismatch", "unknown proposition")
+    _derivation_exact_fields(proposition, fields[kind])
+    if kind == "evidence-passed":
+        _derivation_text(proposition["evidence_id"], "evidence ID")
+        _derivation_family(proposition["family"])
+    elif kind == "binding-matches":
+        _derivation_text(proposition["theorem_id"], "theorem ID")
+        _derivation_text(proposition["artifact_id"], "artifact ID")
+    elif kind == "assumption-open":
+        _derivation_text(proposition["assumption_id"], "assumption ID")
+    elif kind == "policy-registered":
+        _derivation_text(proposition["policy_id"], "policy ID")
+        _derivation_formal(proposition["required_formal"])
+        _derivation_linkage(proposition["required_linkage"])
+        if not isinstance(proposition["allow_assumptions"], bool):
+            _derivation_fail("derivation-schema-mismatch", "policy flag is not Boolean")
+    else:
+        _derivation_text(proposition["name"], "telemetry name")
+        if (
+            not isinstance(proposition["value"], int)
+            or isinstance(proposition["value"], bool)
+            or not 0 <= proposition["value"] <= 2**64 - 1
+        ):
+            _derivation_fail("derivation-schema-mismatch", "telemetry value is invalid")
+
+
+def _validate_derivation_judgment(judgment: dict[str, Any]) -> None:
+    kind = judgment.get("kind")
+    fields = {
+        "evidence-valid": {"kind", "schema", "evidence_id", "family"},
+        "formal": {"kind", "schema", "value"},
+        "linkage": {"kind", "schema", "value"},
+        "assumption": {"kind", "schema", "value"},
+        "status": {"kind", "schema", "formal", "linkage", "assumption", "policy"},
+    }
+    if kind not in fields:
+        _derivation_fail("derivation-schema-mismatch", "unknown judgment")
+    _derivation_exact_fields(judgment, fields[kind])
+    if judgment["schema"] != DERIVATION_JUDGMENT_SCHEMA:
+        _derivation_fail("derivation-schema-mismatch", "unsupported judgment schema")
+    if kind == "evidence-valid":
+        _derivation_text(judgment["evidence_id"], "evidence ID")
+        _derivation_family(judgment["family"])
+    elif kind == "formal":
+        _derivation_formal(judgment["value"])
+    elif kind == "linkage":
+        _derivation_linkage(judgment["value"])
+    elif kind == "assumption":
+        if judgment["value"] not in {"none", "assumed"}:
+            _derivation_fail("derivation-schema-mismatch", "unknown assumption facet")
+    else:
+        _derivation_formal(judgment["formal"])
+        _derivation_linkage(judgment["linkage"])
+        if judgment["assumption"] not in {"none", "assumed"}:
+            _derivation_fail("derivation-schema-mismatch", "unknown assumption facet")
+        if judgment["policy"] != "admitted":
+            _derivation_fail("derivation-schema-mismatch", "unknown policy decision")
+
+
+def _validate_derivation_authorities(facts: dict[str, dict[str, Any]]) -> None:
+    expected_authorities = {
+        "policy-registered": "registered",
+        "assumption-open": "reviewed",
+        "evidence-passed": "observed",
+        "binding-matches": "derived",
+        "telemetry": "observed",
+    }
+    for fact_id, fact in facts.items():
+        authority = fact["authority"]
+        sources = fact["sources"]
+        if authority == "derived":
+            if not sources or any(source not in facts for source in sources):
+                _derivation_fail(
+                    "derivation-authority-mismatch",
+                    f"derived fact {fact_id} lacks exact sources",
+                )
+        elif sources:
+            _derivation_fail(
+                "derivation-authority-mismatch",
+                f"non-derived fact {fact_id} carries sources",
+            )
+        kind = fact["proposition"]["kind"]
+        if authority != "unavailable" and authority != expected_authorities[kind]:
+            _derivation_fail(
+                "derivation-authority-mismatch",
+                f"fact {fact_id} has the wrong authority",
+            )
+        if kind == "binding-matches":
+            proposition = fact["proposition"]
+            expected_sources = {
+                (
+                    source["proposition"].get("evidence_id"),
+                    source["proposition"].get("family"),
+                )
+                for source in (facts[name] for name in sources)
+                if source["proposition"]["kind"] == "evidence-passed"
+            }
+            required = {
+                (proposition["theorem_id"], "theorem"),
+                (proposition["artifact_id"], "artifact-binding"),
+            }
+            if len(sources) != 2 or expected_sources != required:
+                _derivation_fail(
+                    "derivation-binding-mismatch",
+                    f"binding fact {fact_id} does not join exact evidence",
+                )
+
+
+def _validate_derivation_step(
+    step: dict[str, Any],
+    facts: dict[str, dict[str, Any]],
+    judgments: dict[str, dict[str, Any]],
+) -> None:
+    rule = step["rule"]
+    known = {
+        "evidence-valid",
+        "sampled-tested",
+        "bounded-tested",
+        "theorem-proved",
+        "mutation-tested",
+        "transcription-open",
+        "model-linked",
+        "transcription-linked",
+        "artifact-bound",
+        "assumption-facet",
+        "policy-admitted",
+    }
+    if rule not in known:
+        _derivation_fail("derivation-unknown-rule", "unknown or backend-named rule")
+    inputs = step["inputs"]
+    conclusion = _derivation_object(step["conclusion"], "conclusion")
+    _validate_derivation_judgment(conclusion)
+    if rule == "evidence-valid":
+        fact = _derivation_one_fact(inputs, facts)
+        if fact["authority"] == "unavailable":
+            _derivation_fail(
+                "derivation-admission-blocked", "required evidence is unavailable"
+            )
+        proposition = fact["proposition"]
+        if proposition["kind"] != "evidence-passed":
+            _derivation_fail("derivation-rule-input-mismatch", "expected evidence fact")
+        expected = {
+            "kind": "evidence-valid",
+            "schema": DERIVATION_JUDGMENT_SCHEMA,
+            "evidence_id": proposition["evidence_id"],
+            "family": proposition["family"],
+        }
+    elif rule in {
+        "sampled-tested",
+        "bounded-tested",
+        "theorem-proved",
+        "mutation-tested",
+        "transcription-open",
+    }:
+        expected_family, formal = {
+            "sampled-tested": ("sampled-property", "tested"),
+            "bounded-tested": ("bounded-check", "tested"),
+            "theorem-proved": ("theorem", "proved"),
+            "mutation-tested": ("mutation-witness", "tested"),
+            "transcription-open": ("trusted-transcription", "open"),
+        }[rule]
+        judgment = _derivation_one_judgment(inputs, judgments)
+        if (
+            judgment.get("kind") != "evidence-valid"
+            or judgment.get("family") != expected_family
+        ):
+            _derivation_fail(
+                "derivation-rule-input-mismatch", "formal rule received wrong family"
+            )
+        expected = {
+            "kind": "formal",
+            "schema": DERIVATION_JUDGMENT_SCHEMA,
+            "value": formal,
+        }
+    elif rule == "model-linked":
+        judgment = _derivation_one_judgment(inputs, judgments)
+        if judgment.get("kind") != "formal":
+            _derivation_fail(
+                "derivation-rule-input-mismatch", "model linkage requires formal facet"
+            )
+        expected = {
+            "kind": "linkage",
+            "schema": DERIVATION_JUDGMENT_SCHEMA,
+            "value": "model-only",
+        }
+    elif rule == "transcription-linked":
+        judgment = _derivation_one_judgment(inputs, judgments)
+        if (
+            judgment.get("kind") != "evidence-valid"
+            or judgment.get("family") != "trusted-transcription"
+        ):
+            _derivation_fail(
+                "derivation-rule-input-mismatch",
+                "transcription linkage requires transcription evidence",
+            )
+        expected = {
+            "kind": "linkage",
+            "schema": DERIVATION_JUDGMENT_SCHEMA,
+            "value": "transcribed",
+        }
+    elif rule == "artifact-bound":
+        expected = _derive_artifact_bound(inputs, facts, judgments)
+    elif rule == "assumption-facet":
+        expected = _derive_assumption(inputs, facts)
+    else:
+        expected = _derive_policy(inputs, facts, judgments)
+    if conclusion != expected:
+        _derivation_fail(
+            "derivation-conclusion-mismatch", "rule emitted an invalid conclusion"
+        )
+
+
+def _derive_artifact_bound(
+    inputs: list[str],
+    facts: dict[str, dict[str, Any]],
+    judgments: dict[str, dict[str, Any]],
+) -> dict[str, str]:
+    if len(inputs) != 3:
+        _derivation_fail(
+            "derivation-dependency-mismatch", "artifact binding needs three inputs"
+        )
+    evidence: dict[str, str] = {}
+    binding: dict[str, Any] | None = None
+    for item in inputs:
+        judgment = judgments.get(item)
+        if judgment is not None and judgment.get("kind") == "evidence-valid":
+            evidence[judgment["family"]] = judgment["evidence_id"]
+        fact = facts.get(item)
+        if fact is not None and fact["proposition"]["kind"] == "binding-matches":
+            if fact["authority"] == "unavailable":
+                _derivation_fail(
+                    "derivation-admission-blocked", "binding fact is unavailable"
+                )
+            binding = fact["proposition"]
+    if binding is None:
+        _derivation_fail(
+            "derivation-dependency-mismatch", "artifact binding fact is absent"
+        )
+    if (
+        evidence.get("theorem") != binding["theorem_id"]
+        or evidence.get("artifact-binding") != binding["artifact_id"]
+    ):
+        _derivation_fail(
+            "derivation-binding-mismatch", "artifact binding joins different evidence"
+        )
+    return {
+        "kind": "linkage",
+        "schema": DERIVATION_JUDGMENT_SCHEMA,
+        "value": "artifact-bound",
+    }
+
+
+def _derive_assumption(
+    inputs: list[str], facts: dict[str, dict[str, Any]]
+) -> dict[str, str]:
+    for item in inputs:
+        fact = facts.get(item)
+        if fact is None:
+            _derivation_fail(
+                "derivation-dependency-mismatch", "assumption source is not a fact"
+            )
+        if fact["authority"] == "unavailable":
+            _derivation_fail(
+                "derivation-admission-blocked", "assumption source is unavailable"
+            )
+        if fact["proposition"]["kind"] != "assumption-open":
+            _derivation_fail(
+                "derivation-rule-input-mismatch", "assumption source is incompatible"
+            )
+    return {
+        "kind": "assumption",
+        "schema": DERIVATION_JUDGMENT_SCHEMA,
+        "value": "assumed" if inputs else "none",
+    }
+
+
+def _derive_policy(
+    inputs: list[str],
+    facts: dict[str, dict[str, Any]],
+    judgments: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if len(inputs) != 4:
+        _derivation_fail(
+            "derivation-dependency-mismatch", "policy requires four exact inputs"
+        )
+    policy: dict[str, Any] | None = None
+    facets: dict[str, str] = {}
+    for item in inputs:
+        fact = facts.get(item)
+        if (
+            fact is not None
+            and fact["authority"] == "registered"
+            and fact["proposition"]["kind"] == "policy-registered"
+        ):
+            policy = fact["proposition"]
+        judgment = judgments.get(item)
+        if judgment is not None and judgment.get("kind") in {
+            "formal",
+            "linkage",
+            "assumption",
+        }:
+            facets[judgment["kind"]] = judgment["value"]
+    if policy is None or set(facets) != {"formal", "linkage", "assumption"}:
+        _derivation_fail(
+            "derivation-dependency-mismatch", "policy lacks a registered input facet"
+        )
+    if (
+        facets["formal"] != policy["required_formal"]
+        or facets["linkage"] != policy["required_linkage"]
+        or (facets["assumption"] == "assumed" and not policy["allow_assumptions"])
+    ):
+        _derivation_fail(
+            "derivation-admission-blocked", "registered policy blocks the result"
+        )
+    return {
+        "kind": "status",
+        "schema": DERIVATION_JUDGMENT_SCHEMA,
+        **facets,
+        "policy": "admitted",
+    }
+
+
+def _derivation_one_fact(
+    inputs: list[str], facts: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    if len(inputs) != 1:
+        _derivation_fail(
+            "derivation-dependency-mismatch", "rule requires one fact input"
+        )
+    fact = facts.get(inputs[0])
+    if fact is None:
+        _derivation_fail("derivation-rule-input-mismatch", "expected a fact input")
+    return fact
+
+
+def _derivation_one_judgment(
+    inputs: list[str], judgments: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    if len(inputs) != 1:
+        _derivation_fail(
+            "derivation-dependency-mismatch", "rule requires one derived input"
+        )
+    judgment = judgments.get(inputs[0])
+    if judgment is None:
+        _derivation_fail("derivation-rule-input-mismatch", "expected a derived input")
+    return judgment
+
+
+def _derivation_exact_fields(value: dict[str, Any], expected: set[str]) -> None:
+    if set(value) != expected:
+        _derivation_fail(
+            "derivation-schema-mismatch", "object has missing or unknown fields"
+        )
+
+
+def _derivation_object(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        _derivation_fail("derivation-schema-mismatch", f"{label} must be an object")
+    return value
+
+
+def _derivation_list(value: Any, label: str) -> list[Any]:
+    if not isinstance(value, list):
+        _derivation_fail("derivation-schema-mismatch", f"{label} must be an array")
+    return value
+
+
+def _derivation_text(value: Any, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or len(value) > 4096
+        or any(unicodedata.category(character) == "Cc" for character in value)
+    ):
+        _derivation_fail("derivation-schema-mismatch", f"{label} is invalid")
+    return value
+
+
+def _derivation_text_list(value: Any, label: str) -> list[str]:
+    items = _derivation_list(value, label)
+    return [_derivation_text(item, label) for item in items]
+
+
+def _derivation_family(value: Any) -> str:
+    if value not in {
+        "sampled-property",
+        "bounded-check",
+        "theorem",
+        "mutation-witness",
+        "trusted-transcription",
+        "artifact-binding",
+    }:
+        _derivation_fail("derivation-schema-mismatch", "unknown evidence family")
+    return value
+
+
+def _derivation_formal(value: Any) -> str:
+    if value not in {"open", "tested", "proved"}:
+        _derivation_fail("derivation-schema-mismatch", "unknown formal facet")
+    return value
+
+
+def _derivation_linkage(value: Any) -> str:
+    if value not in {"model-only", "transcribed", "artifact-bound"}:
+        _derivation_fail("derivation-schema-mismatch", "unknown linkage facet")
+    return value
+
+
+def _derivation_fail(code: str, message: str) -> None:
+    raise AssuranceIrError(message, code=code)
 
 
 def _project_portable_record(wrapped: object) -> dict[str, Any]:

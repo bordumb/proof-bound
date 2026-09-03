@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 mod assurance;
+mod derivation;
 mod layered_sampling;
 mod portable;
 mod sampling;
@@ -26,6 +27,10 @@ pub use assurance::{
     IrProvenance, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun, IrSubjectClosure,
     IrTcbComponent, IrTool, IrUsage, IrValidationError, RetainedFact, cache_key, family_kind,
     family_schema, validate_case_program,
+};
+pub use derivation::{
+    DerivationError, DerivationProgram, DerivationReport, GeneratedAdversarialCase,
+    GeneratedCorpus, GeneratedValidCase, generate_derivation_corpus, validate_derivation_program,
 };
 pub use layered_sampling::{
     LayeredSamplingCase, LayeredSamplingError, LayeredSamplingReport,

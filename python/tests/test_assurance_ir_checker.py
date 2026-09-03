@@ -9,6 +9,7 @@ from proofbound.assurance_ir_checker import (
     AssuranceIrError,
     canonical_json,
     check_canonical_vectors,
+    check_generated_derivation_corpus,
     check_portable_family_projection,
     check_projection,
     check_layered_sampling_case,
@@ -35,6 +36,9 @@ COMPLETION_CAPTURE = (
     / "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json"
 )
 SAMPLING = ROOT / "docs/experiments/0006-explicit-sampling-contract/corpus"
+DERIVATION_TEMPLATES = (
+    ROOT / "docs/experiments/0009-generated-evidence-algebra/corpus/templates.json"
+)
 
 
 def layered_sampling_case(backend: str) -> dict[str, object]:
@@ -105,6 +109,27 @@ def producer_layered_sampling(case: Path) -> dict[str, object]:
         capture_output=True,
     ).stdout
     return json.loads(output)
+
+
+def producer_derivation_corpus() -> bytes:
+    return subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--locked",
+            "--offline",
+            "--quiet",
+            "-p",
+            "proofbound-ir-prototype",
+            "--",
+            "generate-derivations",
+            str(DERIVATION_TEMPLATES),
+            "500",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
 
 
 def test_independent_checker_agrees_with_rust_projection() -> None:
@@ -226,6 +251,17 @@ def test_independent_checker_admits_three_layered_sampling_plans() -> None:
             "result": report.result,
             "schema": "proofbound-layered-sampling-validation/1",
         }
+
+
+def test_independent_checker_agrees_on_generated_evidence_algebra() -> None:
+    corpus = producer_derivation_corpus()
+    report = check_generated_derivation_corpus(corpus)
+    assert report.valid_count == 500
+    assert report.adversarial_count == 500
+    assert report.corpus_identity.startswith("sha256:")
+
+    attacks = {case["attack"] for case in json.loads(corpus)["adversarial"]}
+    assert attacks == {f"EXP-0009-A{number:03}" for number in range(1, 17)}
 
 
 def test_independent_checker_rejects_layered_sampling_attacks() -> None:

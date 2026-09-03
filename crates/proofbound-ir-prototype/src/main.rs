@@ -6,8 +6,8 @@ use std::{
 };
 
 use proofbound_ir_prototype::{
-    project_corpus, project_portable_families, validate_case_program,
-    validate_layered_sampling_case, validate_sampling_observation,
+    generate_derivation_corpus, project_corpus, project_portable_families, validate_case_program,
+    validate_derivation_program, validate_layered_sampling_case, validate_sampling_observation,
 };
 
 fn main() -> ExitCode {
@@ -145,6 +145,44 @@ fn main() -> ExitCode {
             }
         };
     }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-derivation")) {
+        let Some(program) = args.next().map(PathBuf::from) else {
+            eprintln!("usage: proofbound-ir-prototype validate-derivation <program.json>");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let outcome = std::fs::read(program)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_derivation_program(&bytes).map_err(|error| error.to_string())
+            });
+        return write_canonical_result(outcome);
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("generate-derivations")) {
+        let Some(templates) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype generate-derivations <templates.json> <count>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(count) = args
+            .next()
+            .and_then(|value| value.to_str().and_then(|text| text.parse::<usize>().ok()))
+        else {
+            eprintln!("missing or invalid generated-case count");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        return write_canonical_result(
+            generate_derivation_corpus(&templates, count).map_err(|error| error.to_string()),
+        );
+    }
     let Some(root) = first.map(PathBuf::from) else {
         eprintln!("usage: proofbound-ir-prototype <repository-root> <corpus.json>");
         return ExitCode::from(2);
@@ -170,6 +208,24 @@ fn main() -> ExitCode {
         }
         Err(error) => {
             eprintln!("projection failed: {error:#}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn write_canonical_result<T: serde::Serialize>(result: Result<T, String>) -> ExitCode {
+    match result.and_then(|value| {
+        proofbound_evidence::canonical_json(&value).map_err(|error| error.to_string())
+    }) {
+        Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("failed to write result: {error}");
+                ExitCode::from(1)
+            }
+        },
+        Err(error) => {
+            eprintln!("{error}");
             ExitCode::from(1)
         }
     }

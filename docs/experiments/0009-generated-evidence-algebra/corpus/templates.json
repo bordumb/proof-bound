@@ -1,0 +1,11 @@
+{
+  "schema": "proofbound-derivation-template-corpus/1",
+  "templates": [
+    {"id": "artifact", "route": "artifact-binding", "family": "artifact-binding", "formal": "proved", "linkage": "artifact-bound", "assumption": "none"},
+    {"id": "bounded", "route": "bounded-check", "family": "bounded-check", "formal": "tested", "linkage": "model-only", "assumption": "none"},
+    {"id": "mutation", "route": "mutation-witness", "family": "mutation-witness", "formal": "tested", "linkage": "model-only", "assumption": "none"},
+    {"id": "sampled", "route": "sampled-property", "family": "sampled-property", "formal": "tested", "linkage": "model-only", "assumption": "none"},
+    {"id": "theorem", "route": "theorem", "family": "theorem", "formal": "proved", "linkage": "model-only", "assumption": "assumed"},
+    {"id": "transcription", "route": "trusted-transcription", "family": "trusted-transcription", "formal": "open", "linkage": "transcribed", "assumption": "none"}
+  ]
+}
