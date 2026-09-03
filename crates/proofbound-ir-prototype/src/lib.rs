@@ -16,6 +16,7 @@ mod assurance;
 mod assurance_v2;
 mod derivation;
 mod effects;
+mod enforced;
 mod frontend;
 mod invalidation;
 mod layered_sampling;
@@ -62,6 +63,17 @@ pub use effects::{
     EnforcementMechanism, EnforcementReceipt, ExecutionBoundary, ExpectedEffectPlan, ObservedValue,
     derive_effect_invalidation, execute_effect_corpus, execute_effect_plan, load_effect_corpus,
     validate_effect_plan, validate_effect_trace,
+};
+pub use enforced::{
+    ENFORCED_CAPTURE_SCHEMA, ENFORCED_MODEL_REPORT_SCHEMA, ENFORCED_PLAN_SCHEMA,
+    ENFORCEMENT_RECEIPT_SCHEMA, EnforcedAbsence, EnforcedArtifact, EnforcedAttackResult,
+    EnforcedCapture, EnforcedCommand, EnforcedEnvironment, EnforcedError,
+    EnforcedInvalidationResult, EnforcedMechanism, EnforcedMetrics, EnforcedMode,
+    EnforcedModelReport, EnforcedOutcome, EnforcedPlan, EnforcedPlatform, EnforcedProbe,
+    EnforcedProbeResult, EnforcedReceipt, EnforcedRun, EnforcedSubjectResult,
+    capture_enforced_effects, render_seatbelt_policy, validate_enforced_capture,
+    validate_enforced_capture_bytes, validate_enforced_model_report, validate_enforced_plan,
+    validate_enforcement_receipt,
 };
 pub use frontend::{
     EFFECTIVE_PROGRAMME_SCHEMA, EffectiveProgramme, FRONTEND_COMPILATION_SCHEMA,

@@ -33,3 +33,25 @@ The positive output is 32 bytes with SHA-256
 `6897a0406cd3b5b1aa1c9fb86c784f443606a03f487d2cc00e9fd1a0e2144d22`.
 No experiment-specific runner, policy generator, receipt validator, attack
 executor, or result existed when these controls were frozen.
+
+## 2026-09-03 — First validator and live boundary implemented
+
+Implemented the Rust policy generator, runner, receipt validator, invalidation
+derivation, and exact adversarial executor after the corpus freeze. A live
+probe showed that denying a home subtree also denies directory metadata Node
+needs to resolve its registered entrypoint. The policy now grants metadata
+access only to necessary ancestor directories while retaining the denial of
+file contents. A global deny of all system reads was also infeasible for the
+registered interpreters, so the retained boundary is named honestly as
+`default-allow-outside-home`; runtime roots below home remain byte-identified
+toolchain inputs.
+
+The first complete diagnostic capture executed 30 positive runs and 21
+authority probes. All positive runs completed, every authority probe was
+denied, denied receipts were non-reusable, reviewed bytes remained unchanged,
+and the Rust validator rejected all 30 registered mutations with their exact
+codes. The run took 93,574 ms after subject-level parallelization, exceeding
+the frozen 60,000 ms feasibility ceiling. This is a failed Q5 performance
+subcriterion and will not be erased by changing the preregistration. The raw
+capture remains provisional until the independent validator and final
+evaluator retain it.

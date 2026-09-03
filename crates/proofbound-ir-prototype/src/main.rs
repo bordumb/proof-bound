@@ -6,12 +6,13 @@ use std::{
 };
 
 use proofbound_ir_prototype::{
-    audit_artifact_roles, compile_dsl_frontend, compile_pkl_frontend, compile_toml_frontend,
-    derive_release_trace_bundle, execute_assurance_v2_corpus, execute_effect_corpus,
-    execute_migration_corpus, execute_native_corpus, execute_notification_corpus,
-    execute_specification_corpus, format_dsl_frontend, generate_derivation_corpus, project_corpus,
-    project_portable_families, project_portable_families_with_sampling, validate_case_program,
-    validate_derivation_program, validate_effective_programme_bytes,
+    audit_artifact_roles, capture_enforced_effects, compile_dsl_frontend, compile_pkl_frontend,
+    compile_toml_frontend, derive_release_trace_bundle, execute_assurance_v2_corpus,
+    execute_effect_corpus, execute_migration_corpus, execute_native_corpus,
+    execute_notification_corpus, execute_specification_corpus, format_dsl_frontend,
+    generate_derivation_corpus, project_corpus, project_portable_families,
+    project_portable_families_with_sampling, validate_case_program, validate_derivation_program,
+    validate_effective_programme_bytes, validate_enforced_capture_bytes,
     validate_frontend_compilation_bytes, validate_invalidation_execution_report,
     validate_layered_sampling_case, validate_pkl_frontend_source, validate_release_trace_bundle,
     validate_sampling_observation,
@@ -498,6 +499,41 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         };
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("capture-enforced-effects")) {
+        let values = args.by_ref().take(5).map(PathBuf::from).collect::<Vec<_>>();
+        if values.len() != 5 || args.next().is_some() {
+            eprintln!(
+                "usage: proofbound-ir-prototype capture-enforced-effects <repository-root> <python> <node> <rustc> <fresh-state-root>"
+            );
+            return ExitCode::from(2);
+        }
+        return write_canonical_result(
+            capture_enforced_effects(&values[0], &values[1], &values[2], &values[3], &values[4])
+                .map_err(|error| error.to_string()),
+        );
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-enforced-effects")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype validate-enforced-effects <repository-root> <capture.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(capture) = args.next().map(PathBuf::from) else {
+            eprintln!("missing capture");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(capture)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_enforced_capture_bytes(&root, &bytes).map_err(|error| error.to_string())
+            });
+        return write_canonical_result(result);
     }
     if first.as_deref() == Some(std::ffi::OsStr::new("execute-effects")) {
         let Some(root) = args.next().map(PathBuf::from) else {
