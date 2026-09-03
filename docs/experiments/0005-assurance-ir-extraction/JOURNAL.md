@@ -341,3 +341,24 @@ but it does not close Q1-FIELD-012: the two legacy records still lack portable
 sampling meaning at their source boundary. Matrix revision 4 therefore remains
 the current losslessness decision and the derivation-trace attacks remain
 unexecuted.
+
+## 2026-09-03 — Exact admission and publication traces
+
+Implemented the preregistered `proofbound-ir-derivation-trace/1` shape over all
+three complete release captures. The trace records the rule and value for each
+formal and linkage facet, exact assumption inputs, effective policy and tier,
+required and satisfied policy components, load-bearing evidence identities,
+open obligations, and blockers. A separate publication trace is derived only
+from those claim blockers. Reported statuses and publication flags remain
+comparison targets and never become derivation inputs.
+
+Rust and Python independently produced byte-identical trace bundles for 23
+claims: two Python, two TypeScript, and nineteen Rust claims. Both
+implementations rejected all six preregistered attacks with
+`IR-DERIVATION-TRACE-MISMATCH`, including a self-consistent attempt to derive
+blocking from a changed reported `policy_admitted` value.
+
+This closes Q1-FIELD-006 and Q1-FIELD-016. Q1 remains open: exact
+registration-to-observation artifact roles, two legacy sampling contracts, and
+transitive execution-cache completeness remain partial. Assurance IR `/1` is
+therefore still a draft rather than a frozen contract.

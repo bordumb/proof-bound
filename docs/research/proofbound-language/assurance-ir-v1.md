@@ -13,7 +13,8 @@
 This document records the smallest semantic boundary found in inventory
 revision 2 and refined by the current Rust/Python research prototype. It is a
 design under test, not a claim that EXP-0005 has passed. The completion-capture
-audit finds eleven of sixteen semantic rows complete and five partial. No current
+audit plus the exact-trace follow-up finds thirteen of sixteen semantic rows
+complete and three partial. No current
 manifest, receipt, cache, release, or verifier may emit or accept the schema
 name above until a later normative specification adopts it.
 
@@ -599,6 +600,35 @@ non-load-bearing observation should not become another undifferentiated alert.
 The trace is recomputed. A serialized reported result is accepted only when it
 equals independent derivation.
 
+The EXP-0005 completion prototype makes the claim trace explicit:
+
+```text
+DerivationTrace {
+  claim_id: ClaimId
+  formal_value_and_rule: FacetDerivation
+  linkage_value_and_rule: FacetDerivation
+  assumption_value_and_inputs: AssumptionDerivation
+  policy_id: PolicyId
+  effective_tier: Tier
+  required_policy_components: Set<PolicyComponent>
+  satisfied_policy_components: Set<PolicyComponent>
+  load_bearing_evidence: Set<EvidenceId>
+  open_obligations: Set<OpenObligationId>
+  blockers: Set<PolicyBlocker>
+}
+
+PublicationTrace {
+  admitted_claims: Set<ClaimId>
+  blocked_claims: Set<ClaimId>
+  blockers: List<ClaimId × PolicyBlocker>
+}
+```
+
+The trace is not an explanation string. It is a canonical checked projection
+whose inputs are typed claims, evidence, policies, assumptions, and project
+tier. The prototype derives identical bytes in Rust and Python for the three
+complete language captures and rejects all six registered trace substitutions.
+
 ## 13. Canonical encoding
 
 The first prototype should use strict canonical JSON because both current
@@ -730,7 +760,7 @@ positive corpus and reject at least:
 | OQ-006 effects | Provenance records observed authority only | Static capability model plus OS enforcement experiment |
 
 The unresolved Q1 boundary is narrower than this broader question list:
-complete portable family details, admission traces,
+lossless explicit sampling for two legacy receipts,
 registration-to-observation artifact identity, and complete transitive cache
 dependencies remain blockers to freezing `/1`.
 | OQ-008 frontend | IR is frontend-neutral | Equivalent TOML, Pkl/CUE, and DSL compilation study |

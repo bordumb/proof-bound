@@ -29,7 +29,8 @@ positive cases and their registered attacks. Three complete Python,
 TypeScript, and Rust release captures then falsified the earlier generality:
 the current converter does not cover all portable family constructors, and
 the TypeScript and Rust property receipts do not retain an explicit sampling
-contract. Eleven of sixteen Q1 rows are complete; five remain partial.
+contract. Exact admission traces have since closed two more rows: thirteen of
+sixteen Q1 rows are complete and three remain partial.
 
 ## Programme map
 
@@ -107,6 +108,11 @@ contract. Eleven of sixteen Q1 rows are complete; five remain partial.
   registered strengthening and trace-integrity attack, and distinguish a
   consumed unavailable fact from unused telemetry without backend-named common
   rules.
+- The EXP-0005 completion trace projects those principles through all 23
+  claims in the frozen Python, TypeScript, and Rust releases. Rust and Python
+  derive byte-identical claim and publication traces and reject all six
+  preregistered trace attacks, so publication decision and policy explanation
+  are no longer implicit fields.
 
 ## Current decision
 
