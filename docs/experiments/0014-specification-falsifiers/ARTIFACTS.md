@@ -14,5 +14,6 @@
 | EXP-0014-C006 | `corpus/CONTRACT.md` | frozen, `sha256:cd1d9d98a9ec4a5558f81ed08356f6161ce525b2b3a4da62725f0ce46c856963` | Closed typing, evaluation, adequacy, identity, and oracle-opening contract |
 | EXP-0014-I001 | `crates/proofbound-ir-prototype/src/specifications.rs` | implemented | Typed Rust corpus validator, expression checker/evaluator, adequacy report derivation, and exact attack executor |
 | EXP-0014-I002 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-specifications` command |
-| EXP-0014-I003 | Python implementation | reserved | Independent typed validator and adequacy evaluator |
+| EXP-0014-I003 | `python/proofbound/specifications_research.py` | implemented independently | Python closed-record/type validator, table evaluator, report validator, and attack executor |
+| EXP-0014-I004 | `python/tests/test_specifications_research.py` | passing | Correct/mutant adequacy, all exact attacks, and self-consistent counterexample substitution |
 | EXP-0014-E001 | `results/` | reserved | Immutable execution and comparison report |

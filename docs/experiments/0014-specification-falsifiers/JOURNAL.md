@@ -30,3 +30,13 @@ postconditions, direct inconsistency and vacuous implication, correct-table
 obligations, and exact mutant counterexamples. Its focused tests accept all 34
 correct obligations, kill all six mutants, and reject all 20 frozen attacks
 with exact codes. No Python checker existed when this entry was added.
+
+## 2026-09-03 — Independent Python checker implemented
+
+Implemented the second checker from the frozen records. It independently
+decodes the closed AST, validates types and source joins, evaluates every
+explicit row, derives contract reachability and mutant counterexamples, and
+recomputes identities. The complete ten-repetition Rust and Python model
+reports are byte-identical at
+`sha256:c0eeb773bcb8e32ccd183edfcd7e05935e07ca3a5800610417003db0f79646ce`.
+Neither engine opened `expected.json` while deriving that report.
