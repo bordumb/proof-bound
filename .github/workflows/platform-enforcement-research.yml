@@ -47,6 +47,8 @@ jobs:
 
       - name: Qualify the native Windows mechanism APIs
         shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
         run: |
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/exp0023-results"
           python -m proofbound.windows_enforcement_probe `
