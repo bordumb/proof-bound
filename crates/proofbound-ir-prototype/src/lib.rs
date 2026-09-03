@@ -22,6 +22,7 @@ mod frontend;
 mod invalidation;
 mod layered_sampling;
 mod linux_enforcement;
+mod linux_loader_enforcement;
 mod migration;
 mod native;
 mod notifications;
@@ -114,6 +115,11 @@ pub use linux_enforcement::{
     LinuxCapture, LinuxEnforcementError, LinuxMetrics, LinuxOutput, LinuxPlatform, LinuxPolicy,
     LinuxPolicyPlatform, LinuxPortabilityDelta, LinuxReport, LinuxSlot, validate_linux_capture,
     validate_linux_capture_bytes, validate_linux_report,
+};
+pub use linux_loader_enforcement::{
+    LINUX_LOADER_CAPTURE_SCHEMA, LINUX_LOADER_POLICY_SCHEMA, LINUX_LOADER_REPORT_SCHEMA,
+    LinuxLoaderError, LinuxLoaderIdentity, LinuxLoaderReport, validate_linux_loader_capture,
+    validate_linux_loader_capture_bytes,
 };
 pub use migration::{
     FOREIGN_CALL_SCHEMA, FOREIGN_CONTRACT_SCHEMA, FOREIGN_OBSERVATIONS_SCHEMA, ForeignCall,

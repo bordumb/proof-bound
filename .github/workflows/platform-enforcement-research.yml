@@ -17,6 +17,10 @@ on:
       - python/tests/test_linux_enforcement_confirmation.py
       - docs/experiments/0024-linux-loader-closure/instrument/**
       - python/proofbound/linux_loader_enforcement_execute.py
+      - python/proofbound/linux_loader_enforcement_research.py
+      - python/proofbound/linux_loader_enforcement_attacks.py
+      - python/proofbound/linux_loader_enforcement_confirmation.py
+      - crates/proofbound-ir-prototype/src/linux_loader_enforcement.rs
 
 permissions:
   contents: read
@@ -116,6 +120,9 @@ jobs:
       - name: Check out the exact research revision
         uses: actions/checkout@v4
 
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.94.0
+
       - name: Install the repository Python version
         uses: actions/setup-python@v6
         with:
@@ -130,6 +137,7 @@ jobs:
 
       - name: Bootstrap locked dependencies
         run: |
+          cargo fetch --locked
           uv sync --frozen
           mkdir -p "$RUNNER_TEMP/exp0024-results"
 
@@ -146,11 +154,41 @@ jobs:
             "$RUNNER_TEMP/exp0024-state" \
             "$RUNNER_TEMP/exp0024-results/capture.json"
 
-      - name: Require the registered raw outcomes
+      - name: Validate independently in Rust and Python
         run: |
-          python -c 'import json, os, pathlib; value = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"]) / "exp0024-results/capture.json").read_bytes()); positives = [slot for slot in value["slots"] if slot["kind"] == "positive" and slot["outcome"] == "completed"]; probes = [slot for slot in value["slots"] if slot["kind"] == "authority-probe" and slot["outcome"] == "denied" and not slot["reusable"]]; raise SystemExit(0 if value["availability"] == "supported" and len(positives) == 30 and len(probes) == 21 else 1)'
+          cargo run --locked --offline -p proofbound-ir-prototype -- \
+            validate-linux-loader-enforcement \
+            "$PWD" \
+            "$RUNNER_TEMP/exp0024-results/capture.json" \
+            "$RUNNER_TEMP/exp0024-results/rust-report.json"
+          uv run python -m proofbound.linux_loader_enforcement_research \
+            "$PWD" \
+            "$RUNNER_TEMP/exp0024-results/capture.json" \
+            "$RUNNER_TEMP/exp0024-results/python-report.json"
+          cmp \
+            "$RUNNER_TEMP/exp0024-results/rust-report.json" \
+            "$RUNNER_TEMP/exp0024-results/python-report.json"
 
-      - name: Retain the exact candidate capture
+      - name: Execute every registered validator attack
+        run: |
+          uv run python -m proofbound.linux_loader_enforcement_attacks \
+            "$PWD" \
+            "$RUNNER_TEMP/exp0024-results/capture.json" \
+            "$PWD/target/debug/proofbound-ir-prototype" \
+            "$RUNNER_TEMP/exp0024-results/attacks.json"
+
+      - name: Derive and require the preregistered decision
+        run: |
+          uv run python -m proofbound.linux_loader_enforcement_confirmation \
+            "$PWD" \
+            "$RUNNER_TEMP/exp0024-results/capture.json" \
+            "$RUNNER_TEMP/exp0024-results/rust-report.json" \
+            "$RUNNER_TEMP/exp0024-results/python-report.json" \
+            "$RUNNER_TEMP/exp0024-results/attacks.json" \
+            "$RUNNER_TEMP/exp0024-results/execution.json"
+          python -c 'import json, os, pathlib; result = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"]) / "exp0024-results/execution.json").read_bytes()); raise SystemExit(0 if result["decision"] == "pass" else 1)'
+
+      - name: Retain the exact loader-closure evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:

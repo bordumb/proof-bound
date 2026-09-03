@@ -15,8 +15,9 @@ use proofbound_ir_prototype::{
     validate_derivation_program, validate_effective_programme_bytes,
     validate_enforced_capture_bytes, validate_frontend_compilation_bytes,
     validate_invalidation_execution_report, validate_layered_sampling_case,
-    validate_linux_capture_bytes, validate_pkl_frontend_source, validate_release_trace_bundle,
-    validate_sampling_observation, validate_windows_capture_bytes,
+    validate_linux_capture_bytes, validate_linux_loader_capture_bytes,
+    validate_pkl_frontend_source, validate_release_trace_bundle, validate_sampling_observation,
+    validate_windows_capture_bytes,
 };
 
 fn main() -> ExitCode {
@@ -599,6 +600,33 @@ fn main() -> ExitCode {
             .map_err(|error| error.to_string())
             .and_then(|bytes| {
                 validate_linux_capture_bytes(&root, &bytes).map_err(|error| error.to_string())
+            });
+        return write_canonical_file_result(result, &output);
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-linux-loader-enforcement")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype validate-linux-loader-enforcement <repository-root> <capture.json> <report.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(capture) = args.next().map(PathBuf::from) else {
+            eprintln!("missing capture");
+            return ExitCode::from(2);
+        };
+        let Some(output) = args.next().map(PathBuf::from) else {
+            eprintln!("missing report output");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(capture)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_linux_loader_capture_bytes(&root, &bytes)
+                    .map_err(|error| error.to_string())
             });
         return write_canonical_file_result(result, &output);
     }

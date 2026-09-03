@@ -306,6 +306,10 @@ def _validate_slot(
             "Permission denied",
             "operation not permitted",
             "undeclared environment denied",
+            "EACCES",
+            "EPERM",
+            "KeyError",
+            "NotPresent",
             "not found",
         )
         if (

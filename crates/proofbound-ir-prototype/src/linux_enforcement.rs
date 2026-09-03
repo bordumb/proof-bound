@@ -523,6 +523,10 @@ fn validate_denial(slot: &LinuxSlot) -> Result<(), LinuxEnforcementError> {
         "Permission denied",
         "operation not permitted",
         "undeclared environment denied",
+        "EACCES",
+        "EPERM",
+        "KeyError",
+        "NotPresent",
         "not found",
     ];
     if slot.exit_code == 0
