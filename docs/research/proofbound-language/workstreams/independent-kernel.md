@@ -1,8 +1,8 @@
 # WS-IK: independent semantic kernel
 
-- **Status:** running
+- **Status:** bounded EXP-0005/0009 results; dependency revision pending
 - **Hypotheses:** H1, H2, H7
-- **Active experiment:** [EXP-0005](../../../experiments/0005-assurance-ir-extraction/README.md)
+- **Active experiment:** EXP-LANG-003 is next; [EXP-0005](../../../experiments/0005-assurance-ir-extraction/README.md) is concluded
 - **Depends on:** canonical IR and evidence algebra
 - **Blocks:** every strong portable language claim
 

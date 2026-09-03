@@ -1,8 +1,8 @@
 # WS-IR: canonical Assurance IR
 
-- **Status:** running
+- **Status:** draft `/1` concluded with a dependency-completeness falsifier
 - **Hypotheses:** H1, H2
-- **Active experiment:** [EXP-0005](../../../experiments/0005-assurance-ir-extraction/README.md)
+- **Active experiment:** [EXP-0005](../../../experiments/0005-assurance-ir-extraction/README.md) concluded; revision depends on EXP-LANG-003
 - **Depends on:** current manifest, core, release, and verifier semantics
 - **Blocks:** every later workstream
 
@@ -14,9 +14,11 @@ meaning across existing-language and future native frontends.
 ## Current work
 
 Inventory revision 2, the 20-case positive corpus, and the non-normative
-[Assurance IR `/1` draft](../assurance-ir-v1.md) are complete. Next, register
-canonical hash domains and adversarial cases, then implement independent
-producer and checker projections without shared decode or derivation code.
+[Assurance IR `/1` draft](../assurance-ir-v1.md) are complete. Independent
+Rust and Python work closes fifteen of sixteen losslessness rows. The remaining
+row is load-bearing: exact cache decisions survive, but their complete typed
+dependency projection does not. Draft `/1` is not frozen; a successor must be
+informed by EXP-LANG-003 rather than redefining this result.
 
 ## Exit criteria
 

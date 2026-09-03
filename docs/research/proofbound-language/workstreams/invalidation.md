@@ -1,8 +1,8 @@
 # WS-IN: dependency and invalidation semantics
 
-- **Status:** planned
+- **Status:** next — EXP-LANG-003
 - **Hypothesis:** H3
-- **Depends on:** WS-IR dependency representation
+- **Depends on:** EXP-0005 cache-dependency falsifier
 - **Blocks:** trustworthy incremental language feedback
 
 ## Objective
@@ -14,6 +14,12 @@ absence, configuration, assumptions, policies, or external contracts change.
 
 Turn known cache and closure defects into adversarial fixtures, predict
 invalidation from typed dependencies, execute fresh checks, and compare.
+
+EXP-0005 fixes the starting constraint: a cache key and prior receipt are not a
+dependency model. EXP-LANG-003 must retain the semantic and execution inputs
+that make reuse valid, including typed roles and absence or metadata facts when
+they affect execution. It must compare predicted invalidation with fresh
+execution and measure irrelevant invalidation separately from false retention.
 
 ## Exit criteria
 

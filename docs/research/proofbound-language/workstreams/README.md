@@ -8,9 +8,9 @@ under `docs/experiments/`.
 
 | ID | Workstream | Status |
 |---|---|---|
-| WS-IR | [Canonical Assurance IR](assurance-ir.md) | running |
+| WS-IR | [Canonical Assurance IR](assurance-ir.md) | draft `/1` falsified on dependency completeness |
 | WS-EA | [Evidence algebra](evidence-algebra.md) | planned |
-| WS-IN | [Invalidation](invalidation.md) | planned |
+| WS-IN | [Invalidation](invalidation.md) | next — EXP-LANG-003 |
 | WS-DSL | [Typed assurance DSL](assurance-dsl.md) | blocked by Gate 1 |
 | WS-FX | [Effects and capabilities](effects.md) | planned |
 | WS-UQ | [Uncertainty](uncertainty.md) | planned |

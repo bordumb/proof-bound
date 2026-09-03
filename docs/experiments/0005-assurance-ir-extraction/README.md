@@ -1,8 +1,8 @@
 # Experiment 0005: Assurance IR extraction
 
-- **Status:** running
+- **Status:** concluded — Q1 failed; Q2–Q5 bounded pass
 - **Registered:** 2026-09-01 (commit of this Questions section)
-- **Started / concluded:** 2026-09-01 / —
+- **Started / concluded:** 2026-09-01 / 2026-09-03
 - **Subject:** Proofbound repository and conformance corpus at
   `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
 - **Proofbound:** baseline `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`;
@@ -178,10 +178,11 @@ Corrections are new entries rather than edits to earlier observations.
 
 The [artifact ledger](ARTIFACTS.md) indexes human and machine-readable research
 artifacts. Inventory revision 2 classifies the complete registered structural
-surface at the pinned baseline. Positive projection and adversarial
-evidence-algebra parity have now run. Post-decision representation hardening
-closes three more Q1 rows; the result remains bounded by four incomplete
-forward-and-reverse rows.
+surface at the pinned baseline. The final decision is recorded in
+[`q1-losslessness-matrix-r5.json`](q1-losslessness-matrix-r5.json) and
+[`2026-09-03-q1-finalization.json`](results/2026-09-03-q1-finalization.json).
+Fifteen of sixteen semantic rows are forward-and-reverse complete. The
+remaining cache row failed its preregistered source-sufficiency rule.
 
 ## Findings
 
@@ -199,13 +200,17 @@ forward-and-reverse rows.
 | EXP-0005-F010 | One closed backend-neutral family sum can project every captured portable constructor, including review, without importing production adapter types or application toolchains. A self-consistently rehashed legacy-to-explicit sampling upgrade is rejected independently. | `results/2026-09-02-portable-family-projection.json`; implementation `3dce3e3` | Retain the family sum; do not mistake converter coverage for source-wire losslessness while two sampling records remain legacy. |
 | EXP-0005-F011 | Admission explanations can be canonical checked data rather than trusted prose: Rust and Python independently derive the same 23 claim traces, and changing a reported admission flag cannot change the derivation. | `results/2026-09-03-q1-derivation-traces.json`; implementation `5dc1142` | Close the publication-decision and policy-explanation rows. Carry exact consumed inputs and rules into invalidation and notification experiments. |
 | EXP-0005-F012 | Artifact identity is meaningful only with its typed role: independent reports join 157 registered selectors to observed identities and retain generated, bound, and sealed roles separately. | `results/2026-09-03-q1-artifact-role-closure.json`; implementation `25ad9b2` | Close the artifact-identity row and retain role-sensitive joins in the candidate IR. |
+| EXP-0005-F013 | A layered sampling extension can close missing source-wire semantics without silently reinterpreting old records. An exact TypeScript extension, corrected Rust example classification, and versioned `/2` projection eliminate both legacy sampling constructors while preserving the historical TypeScript receipt. | `results/2026-09-03-q1-finalization.json`; implementation `4d85f03` | Close Q1-FIELD-012. Retain exact source joins and versioned extensions as migration constraints. |
+| EXP-0005-F014 | A cache key and prior-receipt identity preserve the observed cache decision, but they do not preserve the complete role-typed dependency projection that justified that decision. Reconstructing it would require ambient knowledge absent from the portable source. | `q1-losslessness-matrix-r5.json`; `results/2026-09-03-q1-finalization.json` | Fail Q1-FIELD-014 and Q1. Do not freeze Assurance IR `/1`; make source-retained dependency semantics the subject of EXP-LANG-003. |
 
 ## Outcome
 
-Running. Q2, Q3, and Q4 have bounded passes over the registered corpus. Q1 has
-an executed failed decision followed by bounded representation hardening and a
-larger completion-capture audit plus exact admission traces and artifact-role
-closure: fourteen of sixteen losslessness rows pass and two remain partial. Q5
-remains unanswered.
-Assurance IR `/1` is not frozen,
-the Go holdout has not started, and programme Gate 1 remains open.
+Concluded. Q1 fails its preregistered semantic-sufficiency rule: fifteen of
+sixteen losslessness rows pass, but portable evidence does not retain the
+complete role-typed dependency projection needed to reconstruct and test cache
+eligibility without ambient inference. Q2–Q5 receive bounded passes over the
+registered corpus. Those passes do not override the Q1 falsifier.
+
+Assurance IR `/1` is not frozen, the Go holdout will not start, and programme
+Gate 1 remains open. EXP-LANG-003 must investigate source-retained dependency
+and invalidation semantics before another IR freeze can be proposed.

@@ -29,7 +29,9 @@ or artifact evidence.
 ## Active experiments
 
 - [EXP-0005](../../../experiments/0005-assurance-ir-extraction/README.md)
-  extracts the common algebra and keeps legacy sampling visible.
+  extracts the common algebra. Its final versioned extension removes both
+  legacy sampling constructors, while its cache-dependency row fails and keeps
+  Assurance IR `/1` unfrozen.
 - [EXP-0006](../../../experiments/0006-explicit-sampling-contract/README.md)
   shows that Hypothesis and fast-check can emit one explicit, independently
   checked sampling contract through an adapter-owned driver, while ordinary

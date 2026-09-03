@@ -4,9 +4,9 @@
 [Machine preregistration](preregistration.json) · [Journal](JOURNAL.md) ·
 [Artifacts](ARTIFACTS.md)
 
-- **Status:** planned
+- **Status:** concluded — Q1–Q5 bounded pass
 - **Registered:** 2026-09-02
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-02 / 2026-09-02
 - **Subject:** EXP-0006 and EXP-0007 results at
   `dcdffb77d01f2eba293d28cd48c5e466f9fea5b8`
 - **Operator:** Codex (GPT-5)
@@ -124,8 +124,13 @@ SamplingObservation {
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0008-F001 | Reserved for execution. | — | pending |
+| EXP-0008-F001 | Common sampling intent remains backend-neutral when framework controls live in a closed backend-plan sum and observed, derived, and unavailable facts retain their authority. | `results/2026-09-02-layered-sampling-model.json`; implementation `67e80a7` | Carry the layered model into Assurance IR research without changing production wire formats. |
+| EXP-0008-F002 | Missing telemetry is actionable only when a registered derivation consumes it: unavailable completed-budget evidence blocks admission, while unused unavailable shrink telemetry produces no notification. | Registered A009/A010 consequence cases in the immutable result | Use dependency-aware uncertainty consequences in EXP-LANG-006. |
 
 ## Outcome
 
-Q1–Q5 are unanswered. No experiment execution has started.
+Concluded with bounded passes for Q1–Q5 over the frozen Hypothesis,
+fast-check, and proptest corpus. Rust and independent Python implementations
+agreed on all positive cases and all twelve registered attacks. The result
+supports the layered candidate; it does not adopt a production schema or make
+a claim about arbitrary sampling frameworks.

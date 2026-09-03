@@ -381,3 +381,33 @@ sealed-ledger substitution.
 This closes Q1-FIELD-009. Q1 remains open on the two explicit-sampling legacy
 records and transitive cache completeness; neither is implied by successful
 artifact identity joins.
+
+## 2026-09-03 — Q1 finalization and stop decision
+
+Executed the separately preregistered two-row closure protocol at
+implementation `4d85f03`. A fresh full Rust check at subject `4bdbb3f` passed
+all nineteen claims and produced 32 portable evidence records; the standalone
+verifier returned `receipt-consistent`. The corrected
+`unit:rust-kernel-tests` source record is an example rather than an invented
+sampled property.
+
+For TypeScript, retained the historical receipt byte-for-byte and joined one
+research-only layered sampling extension to its exact evidence identity, unit,
+claims, inventory, generator closure, and backend plan. Rust and independent
+Python implementations produced the same 45-record `/2` projection, with zero
+legacy sampling constructors, and rejected all eight registered extension
+attacks with matching codes. Sampling therefore closes Q1-FIELD-012 without
+redefining an existing wire format.
+
+Cache provenance did not satisfy the preregistered rule. The portable source
+retains whether evidence executed or reused an exact prior receipt, including
+the real cache key, but it does not retain the complete role-typed dependency
+projection used before execution. The fourteen-route mutation matrix and
+fresh-execution comparison cannot be reconstructed without importing ambient
+repository knowledge. Execution stopped rather than inventing dependencies or
+mistaking an opaque key for their meaning.
+
+Matrix revision 5 therefore records fifteen complete rows and one partial row.
+Q1 is concluded as failed; Q2–Q5 receive bounded passes. Assurance IR `/1` is
+not frozen, the Go holdout is cancelled, and the dependency representation is
+promoted to EXP-LANG-003.

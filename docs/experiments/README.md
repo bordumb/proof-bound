@@ -12,7 +12,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0002](0002-auths-proof-algebra-kernel/README.md) | Auths Proof algebra kernel | `auths-proof` repo | §11.3 manifest inversion; per-harness Kani inventory | concluded |
 | [0003](0003-semver-precedence/README.md) | semver precedence | `semver` crate (crates.io) | Tier 0 brownfield UX; Pattern B on foreign code | concluded |
 | [0004](0004-base64-canonical-bytes/README.md) | base64 canonical bytes | `base64` crate (crates.io) | Tier 0→1 ladder; Pattern A on foreign bytes | concluded |
-| [0005](0005-assurance-ir-extraction/README.md) | Assurance IR extraction | Proofbound repository and conformance corpus | Shared semantic kernel; evidence-family boundaries; producer/verifier parity | running |
+| [0005](0005-assurance-ir-extraction/README.md) | Assurance IR extraction | Proofbound repository and conformance corpus | Shared semantic kernel; evidence-family boundaries; producer/verifier parity | concluded — Q1 failed at 15/16 rows; Q2–Q5 bounded pass |
 | [0006](0006-explicit-sampling-contract/README.md) | Explicit sampled-property contract | Hypothesis and fast-check reference properties | Portable sampling semantics; observation authority; honest legacy migration | concluded |
 | [0007](0007-rust-sampling-holdout/README.md) | Rust sampled-property holdout | allowance kernel and proptest 1.11.0 | Third-ecosystem generality; counter authority; contract confirmation or falsification | concluded |
 | [0008](0008-layered-sampling-model/README.md) | Layered sampling model | EXP-0006/0007 three-framework results | Common intent; typed backend plans; authority-indexed facts; targeted uncertainty | concluded |

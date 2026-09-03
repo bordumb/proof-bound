@@ -11,10 +11,11 @@
 - **Wire status:** this is not a replacement for any current Proofbound schema
 
 This document records the smallest semantic boundary found in inventory
-revision 2 and refined by the current Rust/Python research prototype. It is a
-design under test, not a claim that EXP-0005 has passed. The completion-capture
-audit plus the exact-trace and artifact-role follow-ups finds fourteen of
-sixteen semantic rows complete and two partial. No current
+revision 2 and refined by the Rust/Python research prototype. EXP-0005 has now
+concluded: fifteen of sixteen semantic rows are complete, but the declared
+dependency projection is not recoverable from portable cache evidence. That
+falsifies this draft as a freeze candidate even though its other registered
+projections pass. No current
 manifest, receipt, cache, release, or verifier may emit or accept the schema
 name above until a later normative specification adopts it.
 

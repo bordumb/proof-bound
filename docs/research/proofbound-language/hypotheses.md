@@ -7,7 +7,7 @@ new one; it does not rewrite the original claim after results are known.
 
 | ID | Status | Hypothesis | Primary falsifier | Tested by |
 |---|---|---|---|---|
-| H1 | testing | Existing evidence routes can compile into a small canonical Assurance IR without losing assurance-relevant detail. | The IR requires proliferating tool-named core variants or cannot reproduce current semantic projections. | EXP-0005 |
+| H1 | falsified for draft `/1`; revision pending | Existing evidence routes can compile into a small canonical Assurance IR without losing assurance-relevant detail. | The IR requires proliferating tool-named core variants or cannot reproduce current semantic projections. | EXP-0005 |
 | H2 | testing | Evidence strength can be represented as a closed algebra with statically constrained composition. | Common routes require ad hoc status rules outside the algebra or flatten unlike evidence. | EXP-0005, EXP-0008, EXP-0009 |
 | H3 | planned | Exact semantic dependencies can invalidate evidence soundly and more narrowly than repository-wide reruns. | A load-bearing change retains evidence or routine unrelated changes invalidate most of the graph. | planned EXP-LANG-003 |
 | H4 | planned | A typed assurance DSL can reduce authoring errors and duplication while compiling identically to existing manifests. | Equivalent frontends diverge or the effective programme is harder to review. | planned EXP-LANG-004 |
@@ -18,8 +18,9 @@ new one; it does not rewrite the original claim after results are known.
 
 ## Current interpretation
 
-Only H1 and H2 are under active test. No programme-level hypothesis has passed.
-EXP-0008 supports H2's layered sampling slice. EXP-0009 extends that evidence
-to six representative routes and a 500/500 generated differential corpus, but
-does not establish the complete production algebra. H2 remains under test
-until the remaining losslessness and route-coverage gaps close.
+H1's draft `/1` form is falsified by EXP-0005: portable cache evidence lacks
+the complete dependency projection required by its registered losslessness
+criterion. This does not reject the existence of every possible Assurance IR;
+it requires a revised candidate grounded in EXP-LANG-003 rather than a silent
+patch to `/1`. EXP-0008 and EXP-0009 support bounded slices of H2, but do not
+establish the complete production algebra. H2 remains under test.

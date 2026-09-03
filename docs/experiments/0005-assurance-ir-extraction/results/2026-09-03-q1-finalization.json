@@ -1,0 +1,84 @@
+{
+  "schema": "proofbound-research-q1-finalization-result/1",
+  "experiment": "EXP-0005",
+  "implementation": "git:4d85f0300e65f6fa5b1fd9410c208e5525d58467",
+  "preregistration": {
+    "path": "docs/experiments/0005-assurance-ir-extraction/q1-finalization-preregistration.json",
+    "subject": "git:5423b61"
+  },
+  "inputs": {
+    "positive_corpus_revision": 3,
+    "positive_corpus_sha256": "sha256:eef3fd005473078b67a09f4da73db21fad4dc335befa35cb034098014d7754e7",
+    "capture_revision": 1,
+    "capture_sha256": "sha256:fb04bad50b92df0ca2cd28529e7a091a6ca5f1bc28574fcbed89654ba391c271",
+    "sampling_extension_sha256": "sha256:3285b4622de6e51ba6002a991dd155d820313e1f07913c707d85c913c005b8d6",
+    "sampling_case_sha256": "sha256:4435e3d1a58c44c312e5d6d5fb1bdf1bfa17b9af582a02ab19ce9e40b8cf5e34"
+  },
+  "sampling": {
+    "projection_schema": "proofbound-ir-portable-family-projection/2",
+    "projection_sha256": "sha256:f0e4350277260918ec353bb754b63e6d0f93f8f1773bb8c693ec9a6bce92d8f8",
+    "portable_records": 45,
+    "legacy_sampling_records": 0,
+    "typescript_extensions": 1,
+    "rust_corrected_examples": 1,
+    "rust_attacks_rejected": 8,
+    "python_attacks_rejected": 8,
+    "exact_rejection_codes_matched": true,
+    "typescript_execution": {
+      "command": "node_modules/vitest/vitest.mjs run src/roundtrip.test.ts --reporter=json --testNamePattern '^base64url codec round trips bounded byte arrays$'",
+      "result": "one exact test passed",
+      "derived_fact": "completed=100 by runner-success-contract over the registered source intent and passed result",
+      "unavailable_facts": ["attempted", "skipped", "shrinks"]
+    },
+    "decision": "pass"
+  },
+  "rust_capture": {
+    "subject": "git:4bdbb3f68f37e7346843bd4f5f4aadfc6cc4d3b7",
+    "fresh_full_check": "passed",
+    "claims": 19,
+    "evidence_records": 32,
+    "corrected_unit": "unit:rust-kernel-tests",
+    "corrected_family": "example",
+    "release_verdict": "receipt-consistent",
+    "publication_blocked": false,
+    "payload_sha256": "sha256:5ae497838b5abd06aa686446bf3312bf73839ae812642268ff86cdeca243d92e"
+  },
+  "cache": {
+    "observation_model": ["not-executed", "executed", "reused-exact-prior"],
+    "exact_source_key_retained": true,
+    "reuse_eligible_invented": false,
+    "complete_dependency_projection_retained_by_source": false,
+    "routes_executed": 0,
+    "registered_routes": 14,
+    "stop_condition": "The portable records retain a cache key and optional reused-from receipt, but not the complete role-typed dependency projection. Constructing the registered cache audit would require unrecorded ambient inference, so Q1-CACHE-003 through Q1-CACHE-006 and fresh-execution agreement cannot be evaluated honestly from the frozen source.",
+    "decision": "fail"
+  },
+  "questions": {
+    "Q1": {
+      "decision": "fail",
+      "reason": "Fifteen of sixteen semantic rows are forward-and-reverse complete; cache dependency semantics fail the preregistered source-sufficiency rule."
+    },
+    "Q2": {
+      "decision": "bounded-pass",
+      "reason": "Generic derivation and family checking remain backend-independent over the registered corpus."
+    },
+    "Q3": {
+      "decision": "bounded-pass",
+      "reason": "Rust and independent Python agree on canonical positive projections and registered adversarial outcomes."
+    },
+    "Q4": {
+      "decision": "bounded-pass",
+      "reason": "Evidence distinctions remain separate constructors and no tested coercion reaches a stronger family."
+    },
+    "Q5": {
+      "decision": "bounded-pass",
+      "reason": "The corrected Rust source produces a new receipt, the historical TypeScript receipt remains byte-identical, and its added sampling meaning exists only in a separately versioned, exact-join research extension. No existing schema ID is redefined."
+    }
+  },
+  "decision": {
+    "close_experiment": true,
+    "freeze_assurance_ir_1": false,
+    "start_go_holdout": false,
+    "next": "EXP-LANG-003 must test and design a source-retained dependency projection before any Assurance IR version can freeze."
+  }
+}

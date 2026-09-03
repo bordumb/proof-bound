@@ -8,30 +8,25 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md); [Experiments 0006–0009](../../experiments/README.md) concluded the sampling and generated-algebra sequence
+- **Active experiment:** EXP-LANG-003 invalidation preregistration is next; [Experiments 0005–0009](../../experiments/README.md) are concluded
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
 
-No language decision has been made. Experiment 0005 is inventorying the
-assurance meaning already distributed across manifests, observations, core
-records, portable receipts, status derivation, and the independent verifier.
-Inventory revision 2 covers registration, observations, core evidence, graph,
-policy, assumptions, premises, closures, cache projection, private compiled
-state, releases, and derived status. It found a plausible backend-neutral
-kernel boundary while retaining typed backend facts at conversion and
-invalidation boundaries.
+No language decision has been made. Experiment 0005 concluded the first
+Assurance IR extraction with a useful falsification. Fifteen of sixteen
+registered semantic field classes survive exact forward and reverse
+projection, but portable evidence does not retain the complete role-typed
+dependency projection needed to justify cache reuse without ambient inference.
 
 The positive semantic-projection corpus is frozen and a non-normative
-[Assurance IR `/1` draft](assurance-ir-v1.md) makes the proposed boundary
-falsifiable. Independent Rust and Python prototypes agree on the original 20
-positive cases and their registered attacks. Three complete Python,
-TypeScript, and Rust release captures then falsified the earlier generality:
-the current converter does not cover all portable family constructors, and
-the TypeScript and Rust property receipts do not retain an explicit sampling
-contract. Exact admission traces and artifact-role closure have since closed
-three more rows: fourteen of sixteen Q1 rows are complete and two remain
-partial.
+[Assurance IR `/1` draft](assurance-ir-v1.md) records the candidate that was
+tested. Independent Rust and Python implementations agree on the registered
+positive and adversarial corpora. Versioned sampling extensions, exact
+admission traces, and artifact-role closure closed every remaining row except
+cache dependency semantics. Draft `/1` is therefore not frozen. The next
+dependency-ordered step is EXP-LANG-003, which must test a source-retained
+dependency model and its invalidation precision.
 
 ## Programme map
 
@@ -50,9 +45,9 @@ partial.
 
 | ID | Workstream | Status | Hypotheses | Active experiment |
 |---|---|---|---|---|
-| WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | running | H1, H2 | EXP-0005 |
-| WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | running | H2 | EXP-0005 |
-| WS-IN | [Invalidation](workstreams/invalidation.md) | planned | H3 | — |
+| WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | blocked by invalidation result | H1, H2 | EXP-0005 concluded |
+| WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
+| WS-IN | [Invalidation](workstreams/invalidation.md) | next | H3 | EXP-LANG-003 |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | blocked by Gate 1 | H4 | — |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | planned | H5 | — |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | planned | H6 | — |
@@ -118,13 +113,17 @@ partial.
   observed identity across 39 executable units. Generated, nested bound, and
   sealed artifacts remain distinct roles, and both implementations reject all
   five registered role/byte/omission/alias attacks.
+- The Q1 finalization closes explicit sampling without rewriting historical
+  receipts, but triggers its cache stop condition. A cache key proves equality
+  only under the producer that computed it; it does not expose which code,
+  permissions, tools, absence facts, or external contracts made that equality
+  assurance-relevant.
 
 ## Current decision
 
-Continue Gate 1 only. Preserve old property records as explicit legacy
-sampling. Carry the experimentally supported intent/plan/fact-authority split
-and closed derivation traces into the Assurance IR candidate, but do not change
-a production wire until the remaining EXP-0005 losslessness rows pass and a
-versioned migration is preregistered. Next, test exact invalidation against
-load-bearing and irrelevant changes. Do not freeze Assurance IR `/1`, design
-final syntax, or begin native executable semantics until that boundary passes.
+Continue Gate 1 only. EXP-0005 is closed rather than extended indefinitely.
+Preserve the experimentally supported family algebra, layered sampling,
+admission traces, and artifact roles, but do not freeze Assurance IR `/1`.
+EXP-LANG-003 must make dependencies source-retained and test exact invalidation
+against both load-bearing and irrelevant changes. Final syntax and native
+executable semantics remain downstream of that decision.
