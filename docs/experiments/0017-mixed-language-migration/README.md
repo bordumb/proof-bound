@@ -5,7 +5,7 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-008
-- **Status:** preregistered; not executed
+- **Status:** foreign callers implemented; graph kernels pending
 - **Registered:** 2026-09-03
 - **Started / concluded:** — / —
 - **Subject:** Proofbound `8e210c8da2d40ed5231e407d3e90d159ddddefdc`
@@ -131,4 +131,5 @@ boundary.
 
 ## Outcome
 
-Q1--Q5 are unanswered. No contract, corpus, caller, or implementation exists.
+Q1--Q5 remain unanswered. The corpus and two foreign callers exist, but no
+mixed-graph kernel or retained experiment result exists.
