@@ -1,6 +1,6 @@
 # WS-IN: dependency and invalidation semantics
 
-- **Status:** next — EXP-LANG-003
+- **Status:** running — EXP-LANG-003 preregistered
 - **Hypothesis:** H3
 - **Depends on:** EXP-0005 cache-dependency falsifier
 - **Blocks:** trustworthy incremental language feedback
@@ -9,6 +9,14 @@
 
 Derive exactly which conclusions lose support when code, tools, permissions,
 absence, configuration, assumptions, policies, or external contracts change.
+
+## Active experiment
+
+[EXP-LANG-003 / Experiment 0010](../../../experiments/0010-invalidation-precision/README.md)
+tests fifteen controlled units across fourteen route shapes and two external
+holdouts. Its registration fixes the dependency constructors, twelve change
+classes, fifteen attacks, exact invalidation-set criterion, and forced-fresh
+comparison before implementation.
 
 ## Method
 
