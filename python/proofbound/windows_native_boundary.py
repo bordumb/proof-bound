@@ -141,6 +141,20 @@ def _sid_text(advapi32: Any, kernel32: Any, sid: wintypes.LPVOID) -> str:
         kernel32.LocalFree(ctypes.cast(text, wintypes.HLOCAL))
 
 
+def _appcontainer_folder(userenv: Any, ole32: Any, sid: str) -> Path:
+    """Resolve the profile-owned storage root for one AppContainer SID."""
+
+    value = wintypes.LPWSTR()
+    _hresult(
+        userenv.GetAppContainerFolderPath(sid, ctypes.byref(value)),
+        "GetAppContainerFolderPath",
+    )
+    try:
+        return Path(value.value)
+    finally:
+        ole32.CoTaskMemFree(ctypes.cast(value, wintypes.LPVOID))
+
+
 def _token_information(advapi32: Any, token: wintypes.HANDLE, kind: int) -> Any:
     """Return a stable ctypes buffer for one token information class."""
 
@@ -243,6 +257,7 @@ def run_appcontainer_process(
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
     userenv = ctypes.WinDLL("userenv", use_last_error=True)
+    ole32 = ctypes.WinDLL("ole32", use_last_error=True)
 
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -363,6 +378,12 @@ def run_appcontainer_process(
     userenv.CreateAppContainerProfile.restype = ctypes.c_long
     userenv.DeleteAppContainerProfile.argtypes = [wintypes.LPCWSTR]
     userenv.DeleteAppContainerProfile.restype = ctypes.c_long
+    userenv.GetAppContainerFolderPath.argtypes = [
+        wintypes.LPCWSTR,
+        ctypes.POINTER(wintypes.LPWSTR),
+    ]
+    userenv.GetAppContainerFolderPath.restype = ctypes.c_long
+    ole32.CoTaskMemFree.argtypes = [wintypes.LPVOID]
 
     profile = f"proofbound.exp0023.{uuid.uuid4().hex}"
     appcontainer_sid = wintypes.LPVOID()
@@ -390,6 +411,17 @@ def run_appcontainer_process(
         )
         profile_created = True
         sid = _sid_text(advapi32, kernel32, appcontainer_sid)
+        profile_storage = _appcontainer_folder(userenv, ole32, sid)
+        profile_temp = profile_storage / "Temp"
+        profile_temp.mkdir(parents=True, exist_ok=True)
+        child_environment = dict(environment)
+        child_environment.update(
+            {
+                "LOCALAPPDATA": str(profile_storage),
+                "TEMP": str(profile_temp),
+                "TMP": str(profile_temp),
+            }
+        )
         _require(
             advapi32.OpenProcessToken(
                 kernel32.GetCurrentProcess(), TOKEN_ALL_ACCESS, ctypes.byref(token)
@@ -491,7 +523,7 @@ def run_appcontainer_process(
             command_line = ctypes.create_unicode_buffer(
                 subprocess.list2cmdline(command)
             )
-            environment_block = _environment_block(environment)
+            environment_block = _environment_block(child_environment)
             _require(
                 advapi32.CreateProcessAsUserW(
                     restricted,
@@ -534,6 +566,7 @@ def run_appcontainer_process(
             )
         return {
             "profile": profile,
+            "profile_storage": str(profile_storage),
             "appcontainer_sid": sid,
             "restricted_token": True,
             "administrator_sids": "deny-only",

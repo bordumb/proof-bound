@@ -26,11 +26,8 @@ def main(argv: list[str] | None = None) -> int:
             executable.parent,
             {
                 "PB_REGISTERED_VALUE": "registered-env",
-                "LOCALAPPDATA": os.environ["LOCALAPPDATA"],
                 "SystemDrive": os.environ["SystemDrive"],
                 "SystemRoot": os.environ["SystemRoot"],
-                "TEMP": os.environ["TEMP"],
-                "TMP": os.environ["TMP"],
             },
         )
         token_verified = (
