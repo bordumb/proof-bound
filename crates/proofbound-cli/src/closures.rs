@@ -399,6 +399,7 @@ mod tests {
             fs::create_dir_all(root.join(directory)).unwrap();
         }
         fs::write(root.join("src/meaning.txt"), "meaning-v1\n").unwrap();
+        fs::write(root.join("README.md"), "Presentation v1.\n").unwrap();
         fs::write(
             root.join("proofbound.toml"),
             r#"schema = "proofbound-project/1"
@@ -415,7 +416,7 @@ review_manifests = []
 [source]
 semantic = ["src/**"]
 runner = []
-presentation = []
+presentation = ["README.md"]
 external_evidence = []
 "#,
         )
@@ -534,6 +535,32 @@ publication_allows_open = false
         .unwrap()
     }
 
+    fn fixture_execution_cache_key(root: &Path) -> String {
+        let bundle = ProjectBundle::load(root).unwrap();
+        let (_, claim) = &bundle.claims["TEST-CLAIM-001"];
+        let closure = claim_closure(root, &bundle, "TEST-CLAIM-001", claim).unwrap();
+        let context = shared_closures(root, &bundle)
+            .unwrap()
+            .into_iter()
+            .filter(|item| {
+                matches!(
+                    item.kind,
+                    ClosureKind::Runner | ClosureKind::ExternalEvidence | ClosureKind::Toolchain
+                )
+            })
+            .map(|item| item.id)
+            .collect::<Vec<_>>();
+        cache_key_identity(
+            &fixture_unit(),
+            &[closure.id],
+            &context,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::from([("adapter:fixture".to_owned(), "sha256:fixture".to_owned())]),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn literal_prefix_stops_before_glob_component() {
         assert_eq!(literal_prefix("demo/*/rust/**"), PathBuf::from("demo"));
@@ -587,5 +614,15 @@ publication_allows_open = false
         let policy_drift = fixture_closure(temp.path());
         assert_ne!(policy_drift.id, initial.id);
         assert_ne!(fixture_cache_key(&policy_drift), initial_cache);
+    }
+
+    #[test]
+    fn presentation_closure_changes_do_not_invalidate_execution_cache() {
+        let temp = tempfile::tempdir().unwrap();
+        write_manifest_fixture(temp.path());
+        let initial = fixture_execution_cache_key(temp.path());
+
+        fs::write(temp.path().join("README.md"), "Presentation v2.\n").unwrap();
+        assert_eq!(fixture_execution_cache_key(temp.path()), initial);
     }
 }

@@ -2039,7 +2039,7 @@ fn bind_record_to_execution(
     // composite of every executable used by this adapter kind (for example,
     // cargo + rustc or cargo + cargo-kani), while the adapter identity is the
     // exact binary that spoke the protocol.
-    let execution_identities = adapter::cache_identities(root, unit.adapter)?;
+    let execution_identities = adapter::cache_identities(root, unit)?;
     let adapter_key = format!("adapter:{}", unit.adapter.executable());
     record.provenance.adapter.identity_sha256 = parse_digest(
         execution_identities
@@ -4439,7 +4439,7 @@ fn cache_key(
             std::env::var_os(name).map(|value| sha256_bytes(value.to_string_lossy().as_bytes())),
         );
     }
-    let tool_identities = adapter::cache_identities(root, unit.adapter)?;
+    let tool_identities = adapter::cache_identities(root, unit)?;
     cache_key_identity(
         unit,
         closures,
