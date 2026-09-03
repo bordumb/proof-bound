@@ -25,7 +25,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0015](0015-assurance-ir-differential-kernel/README.md) | Assurance IR differential kernel | Six joined semantic profiles and a deterministic 500/500 corpus | Cross-component joins, assurance ceilings, differential mutation validation, kernel complexity | concluded — Q1--Q5 bounded pass |
 | [0016](0016-native-canonical-parser/README.md) | Native canonical parser | Canonical `.pb` parser/serializer and deterministic research bytecode | Native syntax, proof-search/check separation, dual compilation, assurance scope, complexity | concluded — Q1--Q5 bounded pass |
 | [0017](0017-mixed-language-migration/README.md) | Mixed-language migration | Native research bytecode called from Python and TypeScript across one mixed assurance graph | Foreign ABI honesty, assurance ceilings, selective migration, independent agreement | concluded — Q1--Q5 bounded pass |
-| [0018](0018-os-enforced-effects/README.md) | OS-enforced effects and sound invalidation | Python, Node, and Rust processes under one macOS enforcement boundary | Ambient authority denial, exact reuse identity, independent receipts, cross-language feasibility | preregistered |
+| [0018](0018-os-enforced-effects/README.md) | OS-enforced effects and sound invalidation | Python, Node, and Rust processes under one macOS enforcement boundary | Ambient authority denial, exact reuse identity, independent receipts, cross-language feasibility | concluded; revise |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).

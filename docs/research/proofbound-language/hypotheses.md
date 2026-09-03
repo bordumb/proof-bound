@@ -15,7 +15,7 @@ new one; it does not rewrite the original claim after results are known.
 | H6 | bounded structural support; human effect unanswered | First-class uncertainty yields more actionable, lower-volume signals than tool-oriented alerts. | Users miss more critical consequences or gain no measurable reduction in irrelevant escalation. | EXP-LANG-006 / Experiment 0013 |
 | H7 | bounded research-bytecode support; machine code, release, and comparison open | A small native executable subset can bind code, specification, proof, build, and release more strongly than existing-language adapters. | Trusted complexity exceeds the gain or an existing verified language provides the same outcome more simply. | EXP-LANG-009, EXP-LANG-010, EXP-LANG-007 |
 | H8 | bounded support; broader foreign boundaries open | Native and foreign components can share one graph without presenting empirical correspondence as formal proof. | Foreign boundaries become untyped escape hatches or obscure claim meaning. | EXP-LANG-008 / Experiment 0017 |
-| H9 | preregistered; not tested | A separately identified OS enforcement boundary can make exact project dependencies sufficient for sound, narrow reuse across representative Python, Node, and Rust processes. | An undeclared input influences reusable evidence, an unrelated change invalidates a subject, enforcement requires unrestricted project authority, or unsupported execution silently falls back. | EXP-LANG-011 / Experiment 0018 |
+| H9 | bounded macOS support; latency and portability revision required | A separately identified OS enforcement boundary can make exact project dependencies sufficient for sound, narrow reuse across representative Python, Node, and Rust processes. | An undeclared input influences reusable evidence, an unrelated change invalidates a subject, enforcement requires unrestricted project authority, or unsupported execution silently falls back. | EXP-LANG-011 / Experiment 0018 |
 
 ## Current interpretation
 
@@ -91,9 +91,11 @@ the frozen pure packet ABI and two runtimes; general FFI, shared state,
 callbacks, concurrency, deployment, and machine-code correspondence remain
 open.
 
-H9 is a successor to, not a reinterpretation of, H3 and H5. H3's
-declaration-only candidate remains falsified, while H5's mediated interpreter
-remains bounded support. EXP-LANG-011 tests whether a real external mechanism
-can enforce the missing premise for three ordinary processes and still retain
-narrow invalidation. It cannot establish Linux, Windows, verified-kernel, or
-arbitrary build-system coverage from a macOS result.
+H9 receives bounded macOS support without being closed. EXP-LANG-011 admitted
+30/30 positive executions, denied 21/21 live authority probes, retained zero
+denied reuse and zero stale or unrelated invalidation, and produced one
+byte-identical independent report across 30 attacks. The run exceeded its
+frozen time ceiling by 33,574 ms, requires exact ancestor-metadata grants, and
+allows system reads outside home. It therefore supports the typed enforcement
+premise for the frozen project boundary but requires a lower-latency supported
+mechanism and preregistered Linux/Windows studies before production use.

@@ -1,6 +1,6 @@
 # WS-FX: effects and capabilities
 
-- **Status:** EXP-LANG-011 / Experiment 0018 preregistered
+- **Status:** EXP-LANG-011 / Experiment 0018 concluded `revise`
 - **Hypotheses:** H5, H9
 - **Depends on:** WS-IR authority and dependency model
 - **Blocks:** Gate 2
@@ -45,12 +45,12 @@ guarantees remain explicit.
 The research exit criteria pass for the bounded interpreter. They do not
 authorize claiming that current adapters enforce the same boundary.
 
-## Active experiment
+## OS-enforced result
 
 [EXP-LANG-011 / Experiment 0018](../../../experiments/0018-os-enforced-effects/README.md)
-tests the missing external premise with a real, separately identified macOS
-enforcement mechanism. It composes a cleared environment, exact project
-preimages, executable identities, denied network and reviewed writes, and one
-ephemeral output boundary across Python, Node, and Rust subjects. Its result
-must remain platform-bounded; an unsupported host is unanswered rather than an
-unenforced fallback.
+tested the missing external premise with a separately identified macOS
+mechanism. Thirty positive runs completed, all 21 authority probes were denied,
+no denied run was reusable, narrow invalidation held, and independent reports
+matched across all 30 attacks. The typed boundary is supported for the frozen
+corpus. The production exit remains open because the run exceeded its latency
+ceiling and does not establish Linux, Windows, or syscall-complete hermeticity.

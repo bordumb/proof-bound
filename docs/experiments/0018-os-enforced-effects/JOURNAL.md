@@ -72,3 +72,20 @@ the Rust runner and validator are 1,797 nonblank lines, below their frozen
 1,800-line ceiling. Focused retained-result regressions validate canonical
 encoding, exact report parity, all 30 rejection codes, zero denied reuse, and
 forged-report rejection.
+
+## 2026-09-03 — Concluded with revision required
+
+The evaluator retained the registered questions separately. Q1 passed for the
+three positive subjects and all 21 authority probes. Q2 passed for load-bearing
+and unrelated invalidation and the undeclared-read control. Q3 passed with
+byte-identical independent reports and 30 exact attack rejections. Q4 passed
+for the one common typed contract across Python, Node, and Rust. Q5 failed:
+the 93,574 ms run exceeded the 60,000 ms ceiling, although every source, policy,
+report, determinism, and reviewed-tree criterion passed.
+
+The registered overall decision is `revise`. The result supports retaining an
+OS-enforced effect boundary in the Assurance IR research candidate, but not
+shipping this Seatbelt runner as production cache authority. Follow-up work
+must preserve the failed timing result, test lower-overhead execution without
+weakening per-run receipts, and preregister Linux and Windows semantics rather
+than generalizing from macOS.

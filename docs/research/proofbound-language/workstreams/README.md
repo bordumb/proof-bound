@@ -10,9 +10,9 @@ under `docs/experiments/`.
 |---|---|---|
 | WS-IR | [Canonical Assurance IR](assurance-ir.md) | `/1` falsified; bounded `/2` candidate supported |
 | WS-EA | [Evidence algebra](evidence-algebra.md) | planned |
-| WS-IN | [Invalidation](invalidation.md) | EXP-LANG-003 rejected declarations alone; EXP-LANG-011 preregistered |
+| WS-IN | [Invalidation](invalidation.md) | OS-enforced macOS candidate supported; production revision open |
 | WS-DSL | [Typed assurance DSL](assurance-dsl.md) | EXP-LANG-004 concluded non-confirmatory; adoption blocked |
-| WS-FX | [Effects and capabilities](effects.md) | EXP-LANG-005 mediated result concluded; EXP-LANG-011 preregistered |
+| WS-FX | [Effects and capabilities](effects.md) | OS-enforced boundary concluded `revise`; latency and portability open |
 | WS-UQ | [Uncertainty](uncertainty.md) | bounded machine phase concluded; participant study pending |
 | WS-NE | [Native executable prototype](native-runtime.md) | bounded bytecode experiment concluded; broader native questions open |
 | WS-AC | [Artifact correspondence](artifact-correspondence.md) | bounded dual-compilation result; machine-code work open |

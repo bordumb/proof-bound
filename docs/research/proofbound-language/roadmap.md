@@ -47,11 +47,12 @@ uncertainty, specification, and artifact-role results in a bounded `/2`
 candidate. Gate 1 has a native-experiment target, but production parity and
 real enforcement remain open.
 
-EXP-LANG-011 / Experiment 0018 is preregistered to test that production
-premise on one real macOS enforcement mechanism across Python, Node, and Rust.
-It must deny the retained undeclared-read attack, bind load-bearing changes,
-preserve an unrelated negative control, and fail closed rather than fall back
-on unsupported hosts. Even a passing result remains platform-bounded.
+EXP-LANG-011 / Experiment 0018 tested that premise on one real macOS mechanism.
+The project boundary, narrow invalidation, independent interpretation, and all
+registered attacks passed across Python, Node, and Rust. The overall decision
+is `revise` because 93,574 ms exceeded the 60,000 ms ceiling; system reads
+outside home and platform portability also remain open. Gate 1 may retain the
+typed enforcement candidate, but production cache authority remains blocked.
 
 ## Gate 2 — Authoring and authority
 

@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 5 — adoption bridge and language decision
-- **Active experiment:** EXP-LANG-011 / Experiment 0018 preregistered; OS-enforced effects and sound invalidation
+- **Latest experiment:** EXP-LANG-011 / Experiment 0018 concluded `revise`; OS-enforced effects and sound invalidation
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -69,12 +69,14 @@ applications remain tested with explicit bridge and runtime assumptions. This
 supports a bounded bridge-first architecture; it does not establish general
 FFI safety, verified machine code, production usability, or a final language
 decision.
-EXP-LANG-011 is now preregistered to test the most important remaining
-execution premise. It will replace EXP-LANG-005's synthetic external-
-enforcement receipt with a real, separately identified macOS enforcement
-boundary and replay Python, Node, and Rust subjects against the retained
-undeclared-read falsifier. Unsupported hosts must remain unanswered and
-ordinary subprocess fallback is forbidden.
+EXP-LANG-011 then tested the most important remaining execution premise. A
+real, separately identified macOS boundary admitted 30/30 positive Python,
+Node, and Rust runs, denied all 21 live authority probes without reusable
+evidence, preserved narrow invalidation, and produced byte-identical Rust and
+Python reports across all 30 attacks. This supplies bounded support for an
+OS-enforced effect type. The result is `revise`, not pass: the complete run
+took 93,574 ms against the frozen 60,000 ms ceiling, system reads outside home
+remain explicitly broad, and no Linux or Windows result exists.
 
 ## Programme map
 
@@ -96,9 +98,9 @@ ordinary subprocess fallback is forbidden.
 |---|---|---|---|---|
 | WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | `/2` bounded candidate supported; production parity pending | H1, H2 | EXP-LANG-010 concluded |
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
-| WS-IN | [Invalidation](workstreams/invalidation.md) | declaration-only candidate rejected; enforced revision preregistered | H3, H9 | EXP-LANG-011 / Experiment 0018 preregistered |
+| WS-IN | [Invalidation](workstreams/invalidation.md) | enforced macOS candidate supported; portability and latency open | H3, H9 | EXP-LANG-011 / Experiment 0018 concluded `revise` |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
-| WS-FX | [Effects and capabilities](workstreams/effects.md) | mediated candidate supported; OS-enforced experiment preregistered | H5, H9 | EXP-LANG-011 / Experiment 0018 preregistered |
+| WS-FX | [Effects and capabilities](workstreams/effects.md) | OS-enforced project boundary supported; production mechanism open | H5, H9 | EXP-LANG-011 / Experiment 0018 concluded `revise` |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | bounded research bytecode supported; broader native work open | H7 | EXP-LANG-007 concluded |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | bounded dual compilation; machine code open | H7 | EXP-LANG-007 concluded |

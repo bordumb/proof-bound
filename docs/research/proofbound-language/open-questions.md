@@ -12,7 +12,7 @@ stop decision; questions are not deleted.
 | OQ-003 | Which claim wording is machine meaning, bounded-domain meaning, and reader presentation? | H1, WS-IR | Claim IR design |
 | OQ-004 | Can cache eligibility be derived entirely from typed dependencies rather than maintained as a parallel manually assembled projection? | H3, WS-IN, EXP-LANG-003, EXP-LANG-005 | resolved for mediated operations; opaque processes remain non-reusable |
 | OQ-005 | What proof object can an SMT-backed native prototype emit for independent checking without trusting proof search? | H7, WS-NE, WS-IK | Native parser experiment |
-| OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, WS-FX, EXP-LANG-005 | split by mediation boundary; real external enforcement untested |
+| OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, H9, WS-FX, EXP-LANG-005, EXP-LANG-011 | bounded macOS project boundary tested; portability and system effects open |
 | OQ-007 | How should uncertainty differ from assumptions, exclusions, open obligations, stale evidence, and conflicting evidence? | H6, WS-UQ, EXP-LANG-006 | split structurally; human validation pending |
 | OQ-008 | Is a custom DSL materially better than a restricted Pkl or CUE frontend once effective-program review and evaluator identity are included? | H4, WS-DSL, EXP-LANG-004 | split; no frontend selected |
 
@@ -64,6 +64,13 @@ An ordinary subprocess does not satisfy that premise and remains non-reusable.
   distinct types. Do not infer sandbox guarantees from command provenance.
 - **Promoted to:** EXP-LANG-011 / Experiment 0018, preregistered before any
   production effect-based cache reuse
+
+EXP-LANG-011 supplies bounded external-enforcement evidence: all registered
+project, environment, process, network, and write attacks were denied across
+three runtimes, with independent receipt agreement. It also exposes the next
+split. Exact project authority is feasible on the frozen macOS boundary, while
+ancestor metadata and system reads require separately named authority; the
+mechanism missed its latency ceiling and has no portable equivalent yet.
 
 ### OQ-007 — split between typed semantics and human effect
 

@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-011
-- **Status:** preregistered; not started
+- **Status:** concluded; revise
 - **Registered:** 2026-09-03
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** Proofbound `fec933af98eeb8336f095fcffe3282e8f74baa7d`
 - **Operator:** Codex (GPT-5)
 
