@@ -16,4 +16,4 @@
 | EXP-0017-I003 | `crates/proofbound-ir-prototype/src/migration.rs` | implemented; 1,395 measured lines | Rust mixed-graph kernel and attack executor |
 | EXP-0017-I004 | `python/proofbound/migration_research.py` | implemented; 877 measured lines | Independent Python mixed-graph kernel |
 | EXP-0017-I005 | `python/proofbound/migration_experiment.py` | implemented | Preregistered evaluator and question decisions |
-| EXP-0017-E001 | `results/execution.json` | absent | Retained two-language execution and Q1--Q5 decisions |
+| EXP-0017-E001 | `results/execution.json` | retained, `sha256:e4bf92b83dad47690bb099c2fdf13b1cda6de7762e764e7981ee1943e2170f2c` | Two-language execution and Q1--Q5 machine decisions |

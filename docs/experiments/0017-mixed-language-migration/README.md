@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-008
-- **Status:** evaluator implemented; retained execution pending
+- **Status:** executed; conclusion pending
 - **Registered:** 2026-09-03
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-03 / —
 - **Subject:** Proofbound `8e210c8da2d40ed5231e407d3e90d159ddddefdc`
 - **Operator:** Codex (GPT-5)
 
@@ -127,12 +127,14 @@ boundary.
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0017-F001 | Reserved for execution. | — | pending |
+| EXP-0017-F001 | All 48 registered calls agreed across two languages and two phases. | Retained execution, 12 semantic projections | observed |
+| EXP-0017-F002 | Independent kernels emitted the same 8,477-byte report in ten repetitions. | Matching `sha256:a34b6298…07e2` raw reports | observed |
+| EXP-0017-F003 | Every registered attack rejected with its exact code. | 30/30 attack results | observed |
+| EXP-0017-F004 | Both foreign claims remained tested while the native source claim remained finite and artifact-assumption-bound. | Baseline/migrated derivation reports | observed |
+| EXP-0017-F005 | All frozen complexity and backend-neutrality ceilings held. | 162/154 caller lines, 1,395/877 kernel lines, 3,387 ms | observed |
 
 ## Outcome
 
-Q1--Q5 remain unanswered. The corpus, two foreign callers, and independent
-Rust and Python graph kernels exist, but no retained experiment result does.
-Focused parity validation reconstructs byte-identical reports and rejects all
-30 registered attacks exactly. The evaluator now enforces the frozen procedure
-and ceilings, but no execution result is retained in the experiment record.
+Q1--Q5 await their written conclusion. The preregistered procedure has been
+executed and retained: all five machine decisions passed, but the scope and
+strategic interpretation have not yet been adjudicated in this document.

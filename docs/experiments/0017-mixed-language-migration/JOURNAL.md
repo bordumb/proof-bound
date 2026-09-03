@@ -68,3 +68,15 @@ and only then opens the frozen expectations to decide Q1--Q5. It also measures
 all registered line, report-size, elapsed-time, migration-set, explanation,
 and forbidden-name ceilings. A development execution passed, but no result was
 retained and no question was concluded when this entry was added.
+
+## 2026-09-03 — Preregistered execution retained
+
+Ran the exact registered Python 3.12.11 and Node 22.22.2 callers through the
+legacy and native-backed phases. All 48 calls collapsed to the same twelve
+semantic projections. The independent kernels emitted the same canonical
+8,477-byte report with raw identity `sha256:a34b6298…07e2` across ten
+repetitions, and all 30 attacks rejected with their exact registered codes.
+The run completed in 3,387 ms. Callers measured 162 and 154 lines; kernels
+measured 1,395 and 877 lines. No forbidden common backend name occurred. The
+raw retained result is `sha256:e4bf92b8…0f2c`. Interpretive conclusions were
+deliberately deferred to the next commit.
