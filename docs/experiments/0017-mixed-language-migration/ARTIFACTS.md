@@ -13,6 +13,6 @@
 | EXP-0017-C005 | `corpus/expected.json` | frozen, `sha256:efd6b8686013ef1326bcc064391d57379e309046db68f65695eaede705410f41` | Counts, migration set, and complexity ceilings |
 | EXP-0017-I001 | `subjects/python_caller.py` | implemented; 162 measured lines | Independent Python legacy/native caller |
 | EXP-0017-I002 | `subjects/typescript_caller.mjs` | implemented; 154 measured lines | Independent TypeScript/Node legacy/native caller |
-| EXP-0017-I003 | `crates/proofbound-ir-prototype/src/migration.rs` | absent | Rust mixed-graph kernel and attack executor |
+| EXP-0017-I003 | `crates/proofbound-ir-prototype/src/migration.rs` | implemented; 1,395 measured lines | Rust mixed-graph kernel and attack executor |
 | EXP-0017-I004 | `python/proofbound/migration_research.py` | absent | Independent Python mixed-graph kernel |
 | EXP-0017-E001 | `results/execution.json` | absent | Retained two-language execution and Q1--Q5 decisions |

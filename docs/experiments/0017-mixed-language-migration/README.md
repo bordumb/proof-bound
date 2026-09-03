@@ -5,7 +5,7 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-008
-- **Status:** foreign callers implemented; graph kernels pending
+- **Status:** Rust graph kernel implemented; independent kernel pending
 - **Registered:** 2026-09-03
 - **Started / concluded:** — / —
 - **Subject:** Proofbound `8e210c8da2d40ed5231e407d3e90d159ddddefdc`
@@ -131,5 +131,7 @@ boundary.
 
 ## Outcome
 
-Q1--Q5 remain unanswered. The corpus and two foreign callers exist, but no
-mixed-graph kernel or retained experiment result exists.
+Q1--Q5 remain unanswered. The corpus, two foreign callers, and first graph
+kernel exist, but the independent kernel and retained experiment result do
+not. Focused Rust validation rejects all 30 registered attacks exactly; that
+single-implementation result is not evidence of independent agreement.

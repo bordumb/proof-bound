@@ -19,6 +19,7 @@ mod effects;
 mod frontend;
 mod invalidation;
 mod layered_sampling;
+mod migration;
 mod native;
 mod notifications;
 mod portable;
@@ -87,6 +88,12 @@ pub use invalidation::{
 pub use layered_sampling::{
     LayeredSamplingCase, LayeredSamplingError, LayeredSamplingReport,
     validate_layered_sampling_case,
+};
+pub use migration::{
+    FOREIGN_CALL_SCHEMA, FOREIGN_CONTRACT_SCHEMA, FOREIGN_OBSERVATIONS_SCHEMA, ForeignCall,
+    ForeignContract, ForeignObservationEnvelope, ForeignObservationSet, MIXED_GRAPH_SCHEMA,
+    MIXED_MODEL_REPORT_SCHEMA, MigrationError, MixedModelReport, encode_observation_envelope,
+    execute_migration_corpus,
 };
 pub use native::{
     NATIVE_AST_SCHEMA, NATIVE_CERTIFICATE_SCHEMA, NATIVE_REPORT_SCHEMA, NativeAssuranceSummary,

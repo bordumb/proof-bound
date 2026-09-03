@@ -33,3 +33,15 @@ and emits domain-separated call and observation identities. All 48 calls
 matched the frozen outcomes, and their semantic projections agreed across
 language and phase. The callers measure 162 and 154 lines, below the registered
 300-line ceiling. No common graph kernel existed when this entry was added.
+
+## 2026-09-03 — Rust graph kernel implemented
+
+Implemented the first common graph kernel after freezing the corpus and
+observing agreement between the foreign callers. The Rust kernel accepts only
+canonical observation envelopes, independently rechecks the ABI and every
+call identity, derives the baseline and migrated claim graphs, emits the exact
+migration explanation, and applies all 30 registered attacks. Focused tests
+rejected every attack with its registered code. The kernel measures 1,395
+nonblank non-comment lines, within the frozen 1,400-line ceiling, and its
+source contains none of the forbidden backend names. The independent Python
+kernel and retained execution did not exist when this entry was added.
