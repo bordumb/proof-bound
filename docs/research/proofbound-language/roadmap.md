@@ -63,6 +63,12 @@ Required: WS-UQ and structured user studies.
 Exit only if claim-oriented uncertainty improves impact assessment or reduces
 irrelevant escalation without increasing missed critical consequences.
 
+Current result: EXP-LANG-006 passes the bounded structural prerequisites. Its
+candidate retains all frozen critical consequences and findings while reducing
+interruptions and false escalations. The participant phase did not run, so
+Gate 3 remains open and no claim about human assessment speed or fatigue is
+established.
+
 ## Gate 4 — Native feasibility
 
 Required: WS-NE and WS-AC.

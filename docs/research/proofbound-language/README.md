@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** [EXP-LANG-006 / Experiment 0013 — claim-oriented notification precision](../../experiments/0013-claim-oriented-notification-precision/README.md) is preregistered
+- **Active experiment:** next dependency-ordered experiment to be preregistered; EXP-LANG-006 is concluded
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -39,6 +39,11 @@ demonstrated that a mediated effect host can close the known hidden-read gap,
 retain narrow invalidation, and support bounded mutation and distribution
 roles. It also preserved the critical negative boundary: a registered native
 subprocess is still opaque and non-reusable without independent enforcement.
+EXP-LANG-006 then supplied bounded structural support for claim-oriented
+uncertainty reporting. Independent engines retained every frozen critical
+action and all findings while reducing interruptions from 20 to seven and
+false escalations from nine to zero. Its participant phase did not run, so it
+does not establish human comprehension, response-time, or fatigue benefits.
 
 ## Programme map
 
@@ -62,7 +67,7 @@ subprocess is still opaque and non-reusable without independent enforcement.
 | WS-IN | [Invalidation](workstreams/invalidation.md) | candidate rejected; effect boundary required | H3 | EXP-LANG-003 / Experiment 0010 concluded |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | bounded candidate supported; OS enforcement untested | H5 | EXP-LANG-005 / Experiment 0012 concluded |
-| WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | notification-precision experiment preregistered | H6 | EXP-LANG-006 / Experiment 0013 |
+| WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | blocked by Gate 3 | H7 | — |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | planned | H7 | — |
 | WS-FB | [Foreign boundaries](workstreams/foreign-boundaries.md) | blocked by native prototype | H8 | — |
@@ -153,18 +158,24 @@ subprocess is still opaque and non-reusable without independent enforcement.
   0/10, and the bounded mutation and distribution outputs match exactly.
   Opaque subprocesses remain non-reusable; the external-enforcement receipt is
   synthetic and does not establish an OS sandbox.
+- EXP-LANG-006 derives the same notification report in Rust and Python across
+  six role-realistic scenarios. Both interfaces recall 6/6 critical actions;
+  claim grouping reduces 20 raw-alert interruptions to seven decisions and
+  false escalations from nine to zero while retaining all 20 findings. All 20
+  attacks reject exactly. The human instrument has zero participants, so Gate
+  3 product value remains open.
 
 ## Current decision
 
 Revise the Gate 1 candidate rather than extending its experiments. EXP-0005,
-EXP-LANG-003, EXP-LANG-004, and EXP-LANG-005 are closed.
+EXP-LANG-003, EXP-LANG-004, EXP-LANG-005, and EXP-LANG-006 are closed.
 Preserve the experimentally supported family algebra, layered sampling,
 admission traces, and artifact roles, but do not freeze Assurance IR `/1`.
 Do not select TOML, Pkl, or the custom DSL from the non-confirmatory frontend
 result. Retain its separation between common effective meaning and
 frontend-specific provenance, and require source-aware semantic diagnostics in
-any successor. Incorporate EXP-LANG-005's mediated/opaque/external boundary in
-the successor IR without claiming current adapters are sandboxed. EXP-LANG-006
-now preregisters a claim-oriented uncertainty and notification comparison,
-including an explicit boundary between machine proxies and human evidence.
-Final syntax and native executable semantics remain downstream.
+any successor. Incorporate EXP-LANG-005's mediated/opaque/external boundary and
+EXP-LANG-006's typed uncertainty/claim-impact boundary in the successor IR
+without claiming current adapters are sandboxed or that machine volume
+predicts human fatigue. Final syntax and native executable semantics remain
+downstream.

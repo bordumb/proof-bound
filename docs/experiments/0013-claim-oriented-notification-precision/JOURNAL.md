@@ -61,3 +61,12 @@ engines. The response-free instrument contained zero participants, below the
 registered minimum of 12, so Q5 was recorded as unanswered. The canonical
 execution artifact is
 `sha256:75cfc4de19ea73cca88923d552054b50acf4d5f2aaa8eb531b4cacbcf92e62a1`.
+
+## 2026-09-03 — Experiment concluded
+
+Concluded Q1--Q4 as passing over the finite machine corpus and Q5 as
+unanswered. The result supports the typed uncertainty ontology, exact consumed
+claim paths, and claim/action grouping as successor language candidates. It
+does not establish that people understand the interface faster or experience
+less fatigue. Gate 3 therefore remains open pending a separately recruited
+participant study; no structural proxy was promoted into human evidence.

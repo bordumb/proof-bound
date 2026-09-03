@@ -13,7 +13,7 @@ stop decision; questions are not deleted.
 | OQ-004 | Can cache eligibility be derived entirely from typed dependencies rather than maintained as a parallel manually assembled projection? | H3, WS-IN, EXP-LANG-003, EXP-LANG-005 | resolved for mediated operations; opaque processes remain non-reusable |
 | OQ-005 | What proof object can an SMT-backed native prototype emit for independent checking without trusting proof search? | H7, WS-NE, WS-IK | Native parser experiment |
 | OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, WS-FX, EXP-LANG-005 | split by mediation boundary; real external enforcement untested |
-| OQ-007 | How should uncertainty differ from assumptions, exclusions, open obligations, stale evidence, and conflicting evidence? | H6, WS-UQ | Notification study |
+| OQ-007 | How should uncertainty differ from assumptions, exclusions, open obligations, stale evidence, and conflicting evidence? | H6, WS-UQ, EXP-LANG-006 | split structurally; human validation pending |
 | OQ-008 | Is a custom DSL materially better than a restricted Pkl or CUE frontend once effective-program review and evaluator identity are included? | H4, WS-DSL, EXP-LANG-004 | split; no frontend selected |
 
 ### OQ-001 — split and resolved by a layered contract
@@ -64,6 +64,21 @@ An ordinary subprocess does not satisfy that premise and remains non-reusable.
   distinct types. Do not infer sandbox guarantees from command provenance.
 - **Promoted to:** a real OS/runtime enforcement experiment before production
   effect-based cache reuse
+
+### OQ-007 — split between typed semantics and human effect
+
+- **Date:** 2026-09-03
+- **Evidence:** EXP-LANG-006 / Experiment 0013
+- **Resolution:** The bounded candidate can represent assumption, exclusion,
+  uncertainty, contradiction, stale evidence, and missing evidence as six
+  disjoint states with typed consequences. Independent engines derive the same
+  claim-oriented decisions and reject all registered category coercions. This
+  resolves the structural distinction only.
+- **Consequence:** Carry the six-state ontology and consumed claim-impact paths
+  into the successor language candidate. Do not infer human comprehension,
+  response time, or fatigue reduction from the machine volume proxy.
+- **Promoted to:** a separately recruited, consented participant experiment
+  with the frozen minimum of 12 eligible practitioners
 
 ### OQ-008 — split by semantics, provenance, and diagnostics
 

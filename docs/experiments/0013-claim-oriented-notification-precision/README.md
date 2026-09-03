@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-006
-- **Status:** in progress; preregistration and corpus frozen, not executed
+- **Status:** concluded; Q1--Q4 passed over the frozen machine corpus, Q5 unanswered
 - **Registered:** 2026-09-03
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** Proofbound `2055e90b221ca6344780b2b60866a91b0db8220f`
 - **Operator:** Codex (GPT-5)
 
@@ -139,10 +139,35 @@ operation, not a language- or tool-specific heuristic.
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0013-F001 | Reserved for execution. | — | pending |
+| EXP-0013-F001 | Independently written Rust and Python candidates emitted the same complete decision report bytes. | Model report `sha256:c5cc21be4fd32942a8327845b4a6cd67c015af740a0cf532ece88fb42a853d97`; ten stable repetitions | retain canonical claim/kind/action/publication grouping as a bounded language candidate |
+| EXP-0013-F002 | Claim-oriented grouping reduced interruptions while retaining the complete finding graph and every critical action. | 20 baseline alerts versus seven candidate notifications; nine versus zero false escalations; 20/20 findings retained; 6/6 critical actions recalled by both interfaces | support the structural portion of H6 over the frozen corpus |
+| EXP-0013-F003 | Severity suppression is neither necessary nor safe for the candidate rule. | Low-severity `DEP-001` remained part of a blocking `RELEASE-001` decision because it had a consumed path | use dependency consequence rather than severity as the interruption boundary |
+| EXP-0013-F004 | The six uncertainty states remained distinct under adversarial mutation. | 20/20 attacks rejected with exact codes in both implementations, including assumption-as-evidence, exclusion-as-confidence, stale-as-current, and suppressed contradiction/missing evidence | retain a typed uncertainty ontology rather than confidence scores or display labels |
+| EXP-0013-F005 | Structural precision does not establish human product value. | Frozen instrument contains zero responses; registered minimum is 12 eligible consenting participants | leave Q5 and Gate 3 human-value criterion unanswered; require a separately executed study |
 
 ## Outcome
 
-Q1–Q5 are unanswered. The scenario, oracle, attack, threshold, and
-response-free instrument corpus is frozen; no implementation or participant
-data exists yet.
+The bounded machine phase supports four questions and leaves one explicitly
+unanswered:
+
+- **Q1 passed:** both candidates preserved all six uncertainty kinds, and all
+  category-specific attacks rejected exactly. No fact became assurance
+  evidence or an untyped confidence score.
+- **Q2 passed:** both baseline and candidate represented all six frozen
+  critical actions in every repetition, including the low-severity consumed
+  dependency finding.
+- **Q3 passed:** candidate interruptions were 35% of baseline volume, below
+  the registered 50% ceiling. Candidate false escalation was zero versus nine
+  for the baseline, while all 20 findings remained present as a notification
+  or graph update.
+- **Q4 passed:** the independent model reports were byte-identical; all seven
+  notifications carried complete claim, path, kind, action, publication, and
+  finding fields; all 20 attacks rejected exactly.
+- **Q5 is unanswered:** zero eligible participants completed the instrument,
+  below the registered minimum of 12. No timing, comprehension, fatigue, or
+  missed-consequence claim about people follows from this experiment.
+
+The result is a finite structural benchmark, not evidence that the candidate
+will reduce notification fatigue in an organization. It justifies carrying a
+typed uncertainty and claim-impact interface into the language candidate and
+designing a real participant study. It does not exit Gate 3.
