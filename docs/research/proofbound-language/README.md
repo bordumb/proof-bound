@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 5 — adoption bridge and language decision
-- **Latest experiment:** EXP-LANG-014 / Experiment 0021 concluded `unanswered`; Windows execution unavailable
+- **Latest experiment:** EXP-LANG-015 / Experiment 0022 preregistered; native Linux confirmation pending
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
