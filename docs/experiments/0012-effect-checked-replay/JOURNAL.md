@@ -30,3 +30,11 @@ importing the Rust implementation. Its focused tests pass, and its canonical
 model report is byte-identical to the Rust report for the frozen corpus and ten
 repetitions. This parity check is provisional until the retained experiment
 executor independently revalidates both outputs and metrics.
+
+## 2026-09-03 — Experiment executor implemented
+
+Added an orchestrator that invokes the Rust executable and Python model
+separately, requires canonical report equality, snapshots all fixture bytes and
+permissions around execution, rechecks the preregistered attack inventory, and
+derives Q1–Q5 from typed report fields. It does not accept either
+implementation's authored question outcomes.
