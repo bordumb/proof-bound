@@ -5,9 +5,9 @@
 [Artifacts](ARTIFACTS.md)
 
 - **Programme ID:** EXP-LANG-010
-- **Status:** preregistered; not executed
+- **Status:** concluded; Q1--Q5 passed over the frozen finite corpus
 - **Registered:** 2026-09-03
-- **Started / concluded:** — / —
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** Proofbound `3a94ed968ada9a4a73542aa4366dc97ed2d3bb75`
 - **Operator:** Codex (GPT-5)
 
@@ -156,8 +156,29 @@ eligibility forgery, family coercions, and reported-decision upgrades.
 
 | ID | Observation | Evidence | Disposition |
 |---|---|---|---|
-| EXP-0015-F001 | Reserved for execution. | — | pending |
+| EXP-0015-F001 | Independent kernels produce the same complete semantic report across hand-authored and generated programmes. | Model report `sha256:b9219f06063b61c73094d2d8ed6b608f5dbbef9d98947fe27427c53c0f9fe8ef`; 500 valid programmes; ten repetitions | retain `/2` as the bounded semantic target for EXP-LANG-007 |
+| EXP-0015-F002 | Colocating records is insufficient; exact joins make same-count substitutions and omitted premises observable. | 28/28 named attacks and 500/500 generated mutations rejected exactly | retain typed references and independently recomputed identities at every boundary |
+| EXP-0015-F003 | One backend-neutral family table preserves all registered assurance ceilings. | sampled/bounded/mutation remain tested; theorem remains model-only; transcription remains transcribed; artifact binding alone reaches artifact-bound | prohibit backend-named common rules and reported statuses |
+| EXP-0015-F004 | Dependency, effect, invalidation, and cache semantics can share one deterministic projection for the bounded profiles. | hidden/omitted dependencies, opaque reuse, forged enforcement, and invalidation skew all reject | carry the joined projection into native and migration experiments; do not infer real sandbox enforcement |
+| EXP-0015-F005 | The joined candidate remains small enough for independent reimplementation, but the experiment is not production parity. | Rust 1,576 lines; Python 855; 16 constructors; 10,241-byte report; no forbidden dependency or backend name | preserve the candidate as research `/2`; require wider route coverage before production adoption |
 
 ## Outcome
 
-Q1--Q5 are unanswered. No corpus or implementation exists yet.
+All five questions pass over the frozen finite corpus:
+
+- **Q1 passed:** six templates and all 500 generated valid programmes produced
+  byte-identical complete Rust and Python reports with all 16 constructors.
+- **Q2 passed:** every named join/integrity attack and all 500 generated
+  single-mutation cases rejected with the exact frozen code.
+- **Q3 passed:** all family ceilings were preserved and the four explicit
+  assurance-strengthening attacks rejected.
+- **Q4 passed:** valid and adversarial corpus identities and complete model
+  reports were stable and identical across ten repetitions.
+- **Q5 passed:** both kernels, the 4,701,210-byte generated corpus, and the
+  10,241-byte report remained inside every frozen complexity ceiling without a
+  backend name or forbidden direct dependency.
+
+This supports the [Assurance IR `/2` research candidate](../../research/proofbound-language/assurance-ir-v2.md)
+as the semantic target for EXP-LANG-007. It does not freeze a production wire,
+prove either checker, validate an operating-system sandbox, or establish
+complete parity with every current Proofbound route.

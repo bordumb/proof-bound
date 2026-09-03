@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** next dependency-ordered experiment is EXP-LANG-010; EXP-LANG-009 is concluded
+- **Active experiment:** next dependency-ordered experiment is EXP-LANG-007; EXP-LANG-010 is concluded
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -49,6 +49,11 @@ native parser: five reachable typed contracts accept 34/34 correct obligations
 and kill six explicit semantic mutants. Independent engines agree on every
 counterexample and reject 20 structural, vacuity, weakness, and integrity
 attacks. This is finite specification adequacy, not parser correctness.
+EXP-LANG-010 then joined those prior findings in an Assurance IR `/2` research
+candidate. Independent kernels agreed across 500 valid and 500 adversarial
+programmes and rejected all 28 named attacks without backend-specific common
+rules. The candidate remains finite and non-production, but it unblocks the
+semantic prerequisite for EXP-LANG-007.
 
 ## Programme map
 
@@ -61,22 +66,23 @@ attacks. This is finite specification adequacy, not parser correctness.
 | [Open questions](open-questions.md) | Unresolved issues that have not become findings or decisions |
 | [Detailed plan](plan.md) | Complete initial methods, workstream rationale, and research backlog |
 | [Draft Assurance IR `/1`](assurance-ir-v1.md) | Non-normative semantic model to test against EXP-0005 |
+| [Assurance IR `/2`](assurance-ir-v2.md) | Bounded joined semantic candidate supported by EXP-LANG-010 |
 | [Workstreams](workstreams/README.md) | Bounded programmes of work and their dependencies |
 
 ## Workstream dashboard
 
 | ID | Workstream | Status | Hypotheses | Active experiment |
 |---|---|---|---|---|
-| WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | revision blocked by effect boundary | H1, H2 | EXP-0005 and EXP-LANG-003 concluded |
+| WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | `/2` bounded candidate supported; production parity pending | H1, H2 | EXP-LANG-010 concluded |
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
 | WS-IN | [Invalidation](workstreams/invalidation.md) | candidate rejected; effect boundary required | H3 | EXP-LANG-003 / Experiment 0010 concluded |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | bounded candidate supported; OS enforcement untested | H5 | EXP-LANG-005 / Experiment 0012 concluded |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
-| WS-NE | [Native executable prototype](workstreams/native-runtime.md) | specification prerequisite supported; differential kernel next | H7 | EXP-LANG-009 concluded |
+| WS-NE | [Native executable prototype](workstreams/native-runtime.md) | specification and differential-kernel prerequisites supported | H7 | EXP-LANG-007 next |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | planned | H7 | — |
 | WS-FB | [Foreign boundaries](workstreams/foreign-boundaries.md) | blocked by native prototype | H8 | — |
-| WS-IK | [Independent kernel](workstreams/independent-kernel.md) | running | H1, H2, H7 | EXP-0005 |
+| WS-IK | [Independent kernel](workstreams/independent-kernel.md) | bounded `/2` differential result; native validation next | H1, H2, H7 | EXP-LANG-010 concluded |
 
 ## Current evidence
 
@@ -174,18 +180,26 @@ attacks. This is finite specification adequacy, not parser correctness.
   six mutants are killed with named counterexamples, both model reports are
   byte-identical, and 20/20 attacks reject exactly within the frozen
   complexity ceilings.
+- EXP-LANG-010 joins family ceilings, complete dependencies, effect boundaries,
+  artifact roles, specification adequacy, uncertainty, invalidation, and
+  derivation in one backend-neutral candidate. Rust and Python agree on all
+  1,000 generated programmes, every named attack rejects exactly, and both
+  kernels remain below their frozen size limits. This is bounded differential
+  evidence, not a production parity or formal-correctness result.
 
 ## Current decision
 
-Revise the Gate 1 candidate rather than extending its experiments. EXP-0005,
-EXP-LANG-003 through EXP-LANG-006 and EXP-LANG-009 are closed.
+Use Assurance IR `/2` as the bounded target for the first native experiment,
+not as a production wire. EXP-0005, EXP-LANG-003 through EXP-LANG-006,
+EXP-LANG-009, and EXP-LANG-010 are closed.
 Preserve the experimentally supported family algebra, layered sampling,
-admission traces, and artifact roles, but do not freeze Assurance IR `/1`.
+admission traces, and artifact roles in `/2`, but do not freeze `/1` or adopt
+`/2` as a production wire.
 Do not select TOML, Pkl, or the custom DSL from the non-confirmatory frontend
 result. Retain its separation between common effective meaning and
 frontend-specific provenance, and require source-aware semantic diagnostics in
-any successor. Incorporate EXP-LANG-005's mediated/opaque/external boundary and
-EXP-LANG-006's typed uncertainty/claim-impact boundary in the successor IR
-without claiming current adapters are sandboxed or that machine volume
-predicts human fatigue. Final syntax and native executable semantics remain
-downstream.
+any successor. The successor now incorporates EXP-LANG-005's
+mediated/opaque/external boundary and EXP-LANG-006's typed
+uncertainty/claim-impact boundary without claiming current adapters are
+sandboxed or that machine volume predicts human fatigue. Final syntax and
+native executable semantics remain downstream.

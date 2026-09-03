@@ -42,6 +42,10 @@ Current result: the EXP-LANG-005 research candidate repairs the known
 declaration-only falsifier for mediated operations and fails closed for opaque
 processes. Gate 1's semantic model is therefore unblocked for revision, but a
 production enforcement claim still requires a real sandbox/runtime experiment.
+EXP-LANG-010 composes that boundary with the prior algebra, invalidation,
+uncertainty, specification, and artifact-role results in a bounded `/2`
+candidate. Gate 1 has a native-experiment target, but production parity and
+real enforcement remain open.
 
 ## Gate 2 — Authoring and authority
 
@@ -80,8 +84,9 @@ existing-language integration.
 Prerequisite result: EXP-LANG-009 validates the native parser's bounded
 five-role contract suite against six semantic mutants and 20 adequacy attacks.
 This prevents the known frozen vacuity and weak-specification forms; it does
-not provide evidence about native code or artifacts. EXP-LANG-010 differential
-kernel validation remains before native execution work.
+not provide evidence about native code or artifacts. EXP-LANG-010 then
+validates the joined semantic target across a 500/500 differential corpus.
+Native execution work may begin.
 
 ## Gate 5 — Adoption bridge
 

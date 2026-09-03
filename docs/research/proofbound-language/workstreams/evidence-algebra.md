@@ -1,6 +1,6 @@
 # WS-EA: evidence algebra
 
-- **Status:** running; generated representative algebra passed in EXP-0009
+- **Status:** bounded generated algebra joined in Assurance IR `/2`
 - **Hypothesis:** H2
 - **Depends on:** WS-IR field classification
 - **Blocks:** DSL typing and native evidence constructors
@@ -53,3 +53,7 @@ or artifact evidence.
   adds a bounded adequacy layer before proof checking: five reachable typed
   contracts accept the correct finite relation, kill six registered mutants,
   and reject 20 vacuity, weakness, type, and integrity attacks independently.
+- [EXP-LANG-010 / Experiment 0015](../../../experiments/0015-assurance-ir-differential-kernel/README.md)
+  joins the representative algebra to dependencies, effects, artifacts,
+  specification adequacy, uncertainty, invalidation, and admission. Both
+  kernels preserve all registered family ceilings over the 500/500 corpus.

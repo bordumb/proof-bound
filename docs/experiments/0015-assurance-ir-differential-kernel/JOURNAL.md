@@ -61,3 +61,11 @@ identities. The Rust kernel has 1,576 measured lines, the Python kernel 855,
 the generated corpus is 4,701,210 bytes, and the canonical model report is
 10,241 bytes. The retained execution is
 `sha256:0e522fe8b960441e7e83359c6754040fd5a1eb51254593eff206a25ed09c5c53`.
+
+## 2026-09-03 — Experiment concluded
+
+Concluded Q1--Q5 as passing over the frozen finite domain. The result supports
+a backend-neutral `/2` research candidate and unblocks the native parser's
+semantic prerequisite. It does not revise `/1`, adopt a production schema,
+prove the kernels, or show that the typed effect declarations correspond to a
+real sandbox.

@@ -1,8 +1,8 @@
 # WS-IR: canonical Assurance IR
 
-- **Status:** draft `/1` concluded with a dependency-completeness falsifier
+- **Status:** draft `/1` falsified; bounded `/2` research candidate supported
 - **Hypotheses:** H1, H2
-- **Active experiment:** [EXP-0005](../../../experiments/0005-assurance-ir-extraction/README.md) and [EXP-LANG-003](../../../experiments/0010-invalidation-precision/README.md) concluded; revision depends on EXP-LANG-005
+- **Active experiment:** [EXP-LANG-010 / Experiment 0015](../../../experiments/0015-assurance-ir-differential-kernel/README.md) concluded
 - **Depends on:** current manifest, core, release, and verifier semantics
 - **Blocks:** every later workstream
 
@@ -22,6 +22,13 @@ also rejected: ambient reads permit stale reuse, while a global revision
 over-invalidates. Draft `/1` is not frozen; a successor must combine retained
 dependencies with the enforceable effect boundary tested by EXP-LANG-005
 rather than redefining either result.
+
+[Assurance IR `/2`](../assurance-ir-v2.md) is that bounded successor candidate.
+Independent Rust and Python kernels agree across six representative profiles,
+500 valid programmes, 500 adversarial programmes, and 28 named attacks. It is
+the semantic target for EXP-LANG-007, not a production schema: complete route
+parity, real effect enforcement, and native source-to-artifact evidence remain
+untested.
 
 ## Exit criteria
 
