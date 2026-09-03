@@ -138,13 +138,27 @@ jobs:
           $procmon = "$root/ProcessMonitor/Procmon64a.exe"
           $trace = "$root/initialization.pml"
           $csv = "$root/initialization.csv"
-          & $procmon /AcceptEula /Quiet /Minimized /BackingFile $trace
-          Start-Sleep -Seconds 2
-          python -m proofbound.windows_process_smoke "$root/process-smoke.json"
-          $smokeExit = $LASTEXITCODE
-          & $procmon /Terminate /Quiet
-          Start-Sleep -Seconds 2
-          & $procmon /OpenLog $trace /SaveAs $csv
+          try {
+            & $procmon /AcceptEula /Quiet /Minimized /BackingFile $trace
+            Start-Sleep -Seconds 2
+            python -m proofbound.windows_process_smoke "$root/process-smoke.json"
+            $smokeExit = $LASTEXITCODE
+          } finally {
+            & $procmon /Terminate /Quiet
+          }
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((-not (Test-Path $trace)) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 250
+          }
+          if (-not (Test-Path $trace)) {
+            throw "Process Monitor did not retain the initialization trace"
+          }
+          $export = Start-Process -FilePath $procmon -Wait -PassThru -ArgumentList @(
+            '/AcceptEula', '/Quiet', '/OpenLog', $trace, '/SaveAs', $csv
+          )
+          if ($export.ExitCode -ne 0) {
+            throw "Process Monitor export failed with exit code $($export.ExitCode)"
+          }
           if (-not (Test-Path $csv)) {
             throw "Process Monitor did not export the initialization trace"
           }
