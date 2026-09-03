@@ -13,8 +13,8 @@
 This document records the smallest semantic boundary found in inventory
 revision 2 and refined by the current Rust/Python research prototype. It is a
 design under test, not a claim that EXP-0005 has passed. The completion-capture
-audit plus the exact-trace follow-up finds thirteen of sixteen semantic rows
-complete and three partial. No current
+audit plus the exact-trace and artifact-role follow-ups finds fourteen of
+sixteen semantic rows complete and two partial. No current
 manifest, receipt, cache, release, or verifier may emit or accept the schema
 name above until a later normative specification adopts it.
 
@@ -760,9 +760,8 @@ positive corpus and reject at least:
 | OQ-006 effects | Provenance records observed authority only | Static capability model plus OS enforcement experiment |
 
 The unresolved Q1 boundary is narrower than this broader question list:
-lossless explicit sampling for two legacy receipts,
-registration-to-observation artifact identity, and complete transitive cache
-dependencies remain blockers to freezing `/1`.
+lossless explicit sampling for two legacy receipts and complete transitive
+cache dependencies remain blockers to freezing `/1`.
 | OQ-008 frontend | IR is frontend-neutral | Equivalent TOML, Pkl/CUE, and DSL compilation study |
 
 ## 19. Acceptance boundary

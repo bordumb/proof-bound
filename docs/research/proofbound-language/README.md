@@ -29,8 +29,9 @@ positive cases and their registered attacks. Three complete Python,
 TypeScript, and Rust release captures then falsified the earlier generality:
 the current converter does not cover all portable family constructors, and
 the TypeScript and Rust property receipts do not retain an explicit sampling
-contract. Exact admission traces have since closed two more rows: thirteen of
-sixteen Q1 rows are complete and three remain partial.
+contract. Exact admission traces and artifact-role closure have since closed
+three more rows: fourteen of sixteen Q1 rows are complete and two remain
+partial.
 
 ## Programme map
 
@@ -113,6 +114,10 @@ sixteen Q1 rows are complete and three remain partial.
   derive byte-identical claim and publication traces and reject all six
   preregistered trace attacks, so publication decision and policy explanation
   are no longer implicit fields.
+- The artifact-role follow-up joins every registered selector to an exact
+  observed identity across 39 executable units. Generated, nested bound, and
+  sealed artifacts remain distinct roles, and both implementations reject all
+  five registered role/byte/omission/alias attacks.
 
 ## Current decision
 

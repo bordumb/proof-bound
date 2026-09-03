@@ -31,6 +31,7 @@
 | EXP-0005-A025 | `results/2026-09-02-portable-property-semantics-gap.json` | immutable stop-condition result, `sha256:278391af9dcba2ea4f643831e2f90901b7996ab34141fa1410c6abeae85e771a` | Records why exact source and configuration identities cannot substitute for a portable sampling contract; Q1-FIELD-012 remains partial |
 | EXP-0005-A026 | `results/2026-09-02-portable-family-projection.json` | immutable projection result, `sha256:77a5b47d38b2b84b507db92f7f6fe8e6e59173d046a7006eb5d63f1726e4ce6c` | Rust/Python agreement on a closed eleven-constructor projection over all 45 captured records, with two visibly legacy sampling records and no false losslessness claim |
 | EXP-0005-A027 | `results/2026-09-03-q1-derivation-traces.json` | immutable trace result, `sha256:7c20831f55ca8d685af99986b8127e2aa16a8f23c401d461febb98c48346f337` | Rust/Python byte agreement on 23 claim traces and rejection of all six preregistered trace attacks; Q1-FIELD-006 and Q1-FIELD-016 close |
+| EXP-0005-A028 | `results/2026-09-03-q1-artifact-role-closure.json` | immutable artifact-role result, `sha256:83e52806b1871f7bf9f159d629bc3b5c41e26d9df818fa10a9ed06ba1ff4a0b2` | Rust/Python byte agreement over 39 units and rejection of all five registered artifact attacks; Q1-FIELD-009 closes |
 
 Content digests identify frozen research inputs. Revisions must receive a new
 artifact digest; existing frozen bytes are not edited in place after an

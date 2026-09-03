@@ -362,3 +362,22 @@ This closes Q1-FIELD-006 and Q1-FIELD-016. Q1 remains open: exact
 registration-to-observation artifact roles, two legacy sampling contracts, and
 transitive execution-cache completeness remain partial. Assurance IR `/1` is
 therefore still a draft rather than a frozen contract.
+
+## 2026-09-03 — Registration-to-observation artifact closure
+
+Implemented the preregistered artifact-role audit over the same three complete
+captures. Rather than treating an input digest as a sufficient substitute for
+its role, the audit resolves every evidence-unit input selector to the exact
+observed logical name, SHA-256, and size. It also retains generated artifacts,
+nested bound-artifact roles, manifest identities, and sealed TCB-ledger bytes
+as distinct typed positions.
+
+Rust and Python independently produced identical reports for 39 executable
+units, 157 registered inputs, 25 generated artifacts, and 42 nested bound
+roles. Both rejected all five registered attacks: logical-role substitution,
+byte substitution, generated-artifact omission, bound-role aliasing, and
+sealed-ledger substitution.
+
+This closes Q1-FIELD-009. Q1 remains open on the two explicit-sampling legacy
+records and transitive cache completeness; neither is implied by successful
+artifact identity joins.

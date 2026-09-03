@@ -192,12 +192,14 @@ forward-and-reverse rows.
 | EXP-0005-F009 | A property label and exact source identity are not a portable sampling contract. Python retains typed Hypothesis seed/framework detail, but the captured TypeScript and Rust property receipts do not retain typed sampling semantics. | `portable-family-coverage-r1.json`; `results/2026-09-02-portable-property-semantics-gap.json` | Preserve current records as visibly legacy sampling; require a new versioned wire for explicit cross-language sampling before Q1 can close. |
 | EXP-0005-F010 | One closed backend-neutral family sum can project every captured portable constructor, including review, without importing production adapter types or application toolchains. A self-consistently rehashed legacy-to-explicit sampling upgrade is rejected independently. | `results/2026-09-02-portable-family-projection.json`; implementation `3dce3e3` | Retain the family sum; do not mistake converter coverage for source-wire losslessness while two sampling records remain legacy. |
 | EXP-0005-F011 | Admission explanations can be canonical checked data rather than trusted prose: Rust and Python independently derive the same 23 claim traces, and changing a reported admission flag cannot change the derivation. | `results/2026-09-03-q1-derivation-traces.json`; implementation `5dc1142` | Close the publication-decision and policy-explanation rows. Carry exact consumed inputs and rules into invalidation and notification experiments. |
+| EXP-0005-F012 | Artifact identity is meaningful only with its typed role: independent reports join 157 registered selectors to observed identities and retain generated, bound, and sealed roles separately. | `results/2026-09-03-q1-artifact-role-closure.json`; implementation `25ad9b2` | Close the artifact-identity row and retain role-sensitive joins in the candidate IR. |
 
 ## Outcome
 
 Running. Q2, Q3, and Q4 have bounded passes over the registered corpus. Q1 has
 an executed failed decision followed by bounded representation hardening and a
-larger completion-capture audit plus exact admission traces: thirteen of
-sixteen losslessness rows pass and three remain partial. Q5 remains unanswered.
+larger completion-capture audit plus exact admission traces and artifact-role
+closure: fourteen of sixteen losslessness rows pass and two remain partial. Q5
+remains unanswered.
 Assurance IR `/1` is not frozen,
 the Go holdout has not started, and programme Gate 1 remains open.
