@@ -12,7 +12,7 @@ profile = "ledger"
 tier = 0
 primary_linkage = "model-only"
 evidence = [
-  "property-test:rust-kernel-tests",
+  "example-test:rust-kernel-tests",
   "mutation-witness:remove-authorization-guard",
   "mutation-witness:remove-cap-guard",
   "mutation-witness:remove-destination-overflow-guard",
