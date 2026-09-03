@@ -68,7 +68,21 @@ jobs:
             python -m json.tool `
               "$env:RUNNER_TEMP/exp0023-results/process-smoke.json"
           }
-          if ($smokeExit -ne 0) { exit $smokeExit }
+          Set-Content `
+            "$env:RUNNER_TEMP/exp0023-results/process-smoke-exit.txt" `
+            "$smokeExit"
+
+      - name: Derive the preregistered Windows decision
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          python -m proofbound.windows_enforcement_confirmation `
+            "$env:RUNNER_TEMP/exp0023-results/host-probe.json" `
+            "$env:RUNNER_TEMP/exp0023-results/process-smoke.json" `
+            "$env:RUNNER_TEMP/exp0023-results/execution.json"
+          python -m json.tool `
+            "$env:RUNNER_TEMP/exp0023-results/execution.json"
 
       - name: Retain the exact host qualification
         if: always()
