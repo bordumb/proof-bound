@@ -11,12 +11,16 @@ use proofbound_evidence::{canonical_json, domain_hash, sha256_bytes};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+mod artifact_roles;
 mod assurance;
 mod derivation;
 mod layered_sampling;
 mod portable;
 mod sampling;
 
+pub use artifact_roles::{
+    ArtifactRoleReport, ArtifactUnitRoles, BoundArtifactRole, audit_artifact_roles,
+};
 pub use assurance::{
     Artifact, CacheInput, CaseProgram, IrAssumption, IrAssumptionDerivation, IrBackend,
     IrBoundedDomain, IrBudget, IrCache, IrCacheProvenance, IrClaim, IrClaimAdmission,
@@ -2730,6 +2734,29 @@ mod tests {
             assert!(!bundle.traces.is_empty());
             assert!(bundle.publication.blocked_claims.is_empty());
             assert!(bundle.publication.blockers.is_empty());
+        }
+    }
+
+    #[test]
+    fn completion_receipts_bind_registered_and_observed_artifact_roles() {
+        let root = root();
+        for (language, project_root) in [
+            ("python", "demo/python-inventory-service"),
+            ("typescript", "demo/typescript-codec"),
+            ("rust", ""),
+        ] {
+            let receipt = fs::read(root.join(format!(
+                "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/{language}/compiled-receipt.json"
+            )))
+            .unwrap();
+            let report = audit_artifact_roles(&root, Path::new(project_root), &receipt).unwrap();
+            assert!(!report.units.is_empty());
+            assert!(
+                report
+                    .units
+                    .iter()
+                    .all(|unit| !unit.registered_inputs.is_empty())
+            );
         }
     }
 

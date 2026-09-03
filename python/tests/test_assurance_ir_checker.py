@@ -7,6 +7,7 @@ import pytest
 
 from proofbound.assurance_ir_checker import (
     AssuranceIrError,
+    audit_artifact_roles,
     canonical_json,
     check_canonical_vectors,
     check_generated_derivation_corpus,
@@ -112,6 +113,28 @@ def producer_release_trace(receipt: Path) -> bytes:
     ).stdout
 
 
+def producer_artifact_roles(project_root: Path, receipt: Path) -> bytes:
+    return subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--locked",
+            "--offline",
+            "--quiet",
+            "-p",
+            "proofbound-ir-prototype",
+            "--",
+            "audit-artifact-roles",
+            str(ROOT),
+            str(project_root),
+            str(receipt),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
 def producer_layered_sampling(case: Path) -> dict[str, object]:
     output = subprocess.run(
         [
@@ -186,6 +209,98 @@ def test_both_implementations_derive_identical_completion_traces() -> None:
         rust_trace = producer_release_trace(receipt_path)
         assert canonical_json(python_trace) == rust_trace
         validate_release_trace_bundle(receipt, rust_trace)
+
+
+def test_both_implementations_bind_exact_completion_artifact_roles() -> None:
+    for language, project_root in (
+        ("python", Path("demo/python-inventory-service")),
+        ("typescript", Path("demo/typescript-codec")),
+        ("rust", Path()),
+    ):
+        receipt_path = COMPLETION_ROOT / language / "compiled-receipt.json"
+        receipt = receipt_path.read_bytes()
+        python_report = audit_artifact_roles(ROOT, project_root, receipt)
+        rust_report = producer_artifact_roles(project_root, receipt_path)
+        assert canonical_json(python_report) == rust_report
+
+
+def test_both_implementations_reject_registered_artifact_role_attacks(
+    tmp_path: Path,
+) -> None:
+    source = COMPLETION_ROOT / "python" / "compiled-receipt.json"
+    original = json.loads(source.read_bytes())
+    mutation_index = next(
+        index
+        for index, wrapped in enumerate(original["evidence"])
+        if wrapped["record"]["unit_id"] == "unit:accept-over-cap-mutant"
+    )
+    record = original["evidence"][mutation_index]["record"]
+    example_index = next(
+        index
+        for index, wrapped in enumerate(original["evidence"])
+        if wrapped["record"]["unit_id"] == "unit:reservation-example"
+    )
+    attacks: list[dict[str, object]] = []
+
+    renamed = json.loads(canonical_json(original))
+    renamed["evidence"][example_index]["record"]["provenance"]["input_artifacts"][0][
+        "logical_name"
+    ] = "renamed-role.toml"
+    attacks.append(renamed)
+
+    substituted = json.loads(canonical_json(original))
+    substituted["evidence"][example_index]["record"]["provenance"]["input_artifacts"][
+        0
+    ]["sha256"] = f"sha256:{'0' * 64}"
+    attacks.append(substituted)
+
+    missing_generated = json.loads(canonical_json(original))
+    missing_generated["evidence"][mutation_index]["record"]["provenance"][
+        "generated_artifacts"
+    ] = []
+    attacks.append(missing_generated)
+
+    aliased = json.loads(canonical_json(original))
+    aliased["evidence"][mutation_index]["record"]["mutation_witness"][
+        "target_postimage"
+    ]["logical_name"] = "src/inventory_service/aliased.py"
+    attacks.append(aliased)
+
+    sealed = json.loads(canonical_json(original))
+    sealed_entry = next(
+        item for item in sealed["sealed_files"] if item["path"] == "tcb-ledger.json"
+    )
+    sealed_entry["sha256"] = f"sha256:{'1' * 64}"
+    attacks.append(sealed)
+
+    assert record["provenance"]["generated_artifacts"]
+    for index, attack in enumerate(attacks):
+        encoded = canonical_json(attack)
+        with pytest.raises((AssuranceIrError, FileNotFoundError)):
+            audit_artifact_roles(ROOT, Path("demo/python-inventory-service"), encoded)
+        path = tmp_path / f"artifact-attack-{index}.json"
+        path.write_bytes(encoded)
+        process = subprocess.run(
+            [
+                "cargo",
+                "run",
+                "--locked",
+                "--offline",
+                "--quiet",
+                "-p",
+                "proofbound-ir-prototype",
+                "--",
+                "audit-artifact-roles",
+                str(ROOT),
+                "demo/python-inventory-service",
+                str(path),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert process.returncode == 1
 
 
 def test_both_implementations_reject_preregistered_trace_attacks(

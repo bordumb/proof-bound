@@ -6,7 +6,7 @@ use std::{
 };
 
 use proofbound_ir_prototype::{
-    derive_release_trace_bundle, generate_derivation_corpus, project_corpus,
+    audit_artifact_roles, derive_release_trace_bundle, generate_derivation_corpus, project_corpus,
     project_portable_families, validate_case_program, validate_derivation_program,
     validate_layered_sampling_case, validate_release_trace_bundle, validate_sampling_observation,
 };
@@ -175,6 +175,33 @@ fn main() -> ExitCode {
             .map_err(|error| error.to_string())
             .and_then(|bytes| {
                 derive_release_trace_bundle(&bytes).map_err(|error| error.to_string())
+            });
+        return write_canonical_result(result);
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("audit-artifact-roles")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype audit-artifact-roles <repository-root> <project-root> <receipt.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(project_root) = args.next().map(PathBuf::from) else {
+            eprintln!("missing project root");
+            return ExitCode::from(2);
+        };
+        let Some(receipt) = args.next().map(PathBuf::from) else {
+            eprintln!("missing receipt");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(receipt)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                audit_artifact_roles(&root, &project_root, &bytes)
+                    .map_err(|error| error.to_string())
             });
         return write_canonical_result(result);
     }

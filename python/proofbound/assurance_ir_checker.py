@@ -180,6 +180,177 @@ def validate_release_trace_bundle(receipt_bytes: bytes, trace_bytes: bytes) -> N
         )
 
 
+def audit_artifact_roles(
+    repository_root: Path, project_root: Path, receipt_bytes: bytes
+) -> dict[str, Any]:
+    """Join registered input selectors to exact observed artifact identities."""
+
+    receipt = _strict_json(receipt_bytes, require_canonical=False)
+    absolute_root = repository_root / project_root
+    registrations: dict[str, list[dict[str, Any]]] = {}
+    for path in sorted(absolute_root.rglob("*.toml")):
+        relative_parts = path.relative_to(absolute_root).parts
+        if (
+            any(
+                part in {".git", ".proofbound", "node_modules", "target"}
+                for part in relative_parts
+            )
+            or path.is_symlink()
+        ):
+            continue
+        data = path.read_bytes()
+        if len(data) > 1_048_576:
+            raise AssuranceIrError("research manifest exceeds 1 MiB")
+        try:
+            value = tomllib.loads(data.decode())
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+            continue
+        if not str(value.get("schema", "")).startswith("proofbound-evidence-unit/"):
+            continue
+        unit_id = _required_text(value, "id")
+        inputs = value.get("inputs")
+        if not isinstance(inputs, list) or any(
+            not isinstance(item, str) for item in inputs
+        ):
+            raise AssuranceIrError("evidence inputs are invalid")
+        registrations.setdefault(unit_id, []).append(
+            {
+                "manifest": {
+                    "logical_name": path.relative_to(absolute_root).as_posix(),
+                    "sha256": _sha256(data),
+                    "size_bytes": len(data),
+                },
+                "inputs": inputs,
+            }
+        )
+    units: list[dict[str, Any]] = []
+    for wrapped in receipt["evidence"]:
+        record = _as_object(wrapped["record"])
+        unit_id = _required_text(record, "unit_id")
+        if not unit_id.startswith("unit:"):
+            continue
+        local_id = unit_id.removeprefix("unit:")
+        provenance = _object(record, "provenance")
+        observed = [_typed_artifact(item) for item in provenance["input_artifacts"]]
+        generated = [
+            _typed_artifact(item) for item in provenance["generated_artifacts"]
+        ]
+        _require_unique_artifact_names(observed, "input")
+        _require_unique_artifact_names(generated, "generated")
+        observed_by_name = {item["logical_name"]: item for item in observed}
+        candidates = [
+            item
+            for item in registrations.get(local_id, [])
+            if all(selector in observed_by_name for selector in item["inputs"])
+        ]
+        if len(candidates) != 1:
+            raise AssuranceIrError(
+                f"{unit_id} does not resolve to exactly one registered manifest"
+            )
+        registration = candidates[0]
+        registered_inputs = [
+            observed_by_name[selector] for selector in registration["inputs"]
+        ]
+        registered_inputs.sort(key=lambda item: item["logical_name"])
+        for artifact in observed:
+            _verify_project_artifact(absolute_root, artifact)
+        registered_names = set(registration["inputs"])
+        supplemental = [
+            item for item in observed if item["logical_name"] not in registered_names
+        ]
+        bound: list[dict[str, Any]] = []
+        _collect_bound_roles(record, "record", bound)
+        bound.sort(key=lambda item: item["role"])
+        if len({item["role"] for item in bound}) != len(bound):
+            raise AssuranceIrError("duplicate bound artifact role")
+        available = observed + generated
+        if any(item["artifact"] not in available for item in bound):
+            raise AssuranceIrError("bound artifact is absent from observed roles")
+        units.append(
+            {
+                "unit_id": unit_id,
+                "manifest": registration["manifest"],
+                "registered_inputs": registered_inputs,
+                "supplemental_inputs": supplemental,
+                "generated_artifacts": generated,
+                "bound_roles": bound,
+            }
+        )
+    units.sort(key=lambda item: item["unit_id"])
+    if not units:
+        raise AssuranceIrError("receipt has no registered executable evidence units")
+    sealed = next(
+        item
+        for item in receipt["sealed_files"]
+        if item.get("path", item.get("logical_name")) == "tcb-ledger.json"
+    )
+    sealed_artifact = {
+        "logical_name": "tcb-ledger.json",
+        "sha256": sealed["sha256"],
+        "size_bytes": sealed["size_bytes"],
+    }
+    language = {
+        "proofbound-python-inventory": "python",
+        "proofbound-typescript-codec": "typescript",
+        "proofbound": "rust",
+    }.get(receipt["project"])
+    if language is None:
+        raise AssuranceIrError("unknown completion project")
+    ledger = (
+        repository_root
+        / "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1"
+        / language
+        / "tcb-ledger.json"
+    ).read_bytes()
+    if (
+        _sha256(ledger) != sealed_artifact["sha256"]
+        or len(ledger) != sealed_artifact["size_bytes"]
+    ):
+        raise AssuranceIrError("sealed TCB ledger identity differs")
+    return {
+        "schema": "proofbound-ir-artifact-role-report/1",
+        "project": receipt["project"],
+        "receipt_sha256": _sha256(receipt_bytes),
+        "units": units,
+        "sealed_tcb_ledger": sealed_artifact,
+    }
+
+
+def _typed_artifact(value: object) -> dict[str, Any]:
+    artifact = _as_object(value)
+    _require_exact_fields(artifact, {"logical_name", "sha256", "size_bytes"})
+    if not isinstance(artifact.get("size_bytes"), int):
+        raise AssuranceIrError("artifact size is missing")
+    return dict(artifact)
+
+
+def _require_unique_artifact_names(artifacts: list[dict[str, Any]], role: str) -> None:
+    if len({item["logical_name"] for item in artifacts}) != len(artifacts):
+        raise AssuranceIrError(f"duplicate {role} artifact role")
+
+
+def _verify_project_artifact(root: Path, artifact: dict[str, Any]) -> None:
+    data = (root / artifact["logical_name"]).read_bytes()
+    if _sha256(data) != artifact["sha256"] or len(data) != artifact["size_bytes"]:
+        raise AssuranceIrError("registered artifact identity differs")
+
+
+def _collect_bound_roles(value: object, path: str, roles: list[dict[str, Any]]) -> None:
+    if isinstance(value, dict):
+        if {"logical_name", "sha256", "size_bytes"}.issubset(value):
+            if (
+                "provenance.input_artifacts" not in path
+                and "provenance.generated_artifacts" not in path
+            ):
+                roles.append({"role": path, "artifact": _typed_artifact(value)})
+            return
+        for name, child in value.items():
+            _collect_bound_roles(child, f"{path}.{name}", roles)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _collect_bound_roles(child, f"{path}[{index}]", roles)
+
+
 def check_projection(
     root: Path, corpus_path: Path, projection_bytes: bytes
 ) -> CheckReport:
