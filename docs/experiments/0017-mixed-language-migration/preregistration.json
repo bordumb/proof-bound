@@ -1,0 +1,92 @@
+{
+  "schema": "proofbound-research-mixed-migration-preregistration/1",
+  "experiment": "EXP-0017",
+  "programme_experiment": "EXP-LANG-008",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:8e210c8da2d40ed5231e407d3e90d159ddddefdc",
+  "frozen_sources": [
+    {"path": "docs/experiments/0016-native-canonical-parser/results/execution.json", "sha256": "sha256:18573d6dce99c646cf4e1707566592887dd7d8cc8c590f7518dc64986e62d4e3", "size_bytes": 2395},
+    {"path": "docs/experiments/0016-native-canonical-parser/corpus/parser.pb", "sha256": "sha256:47a20d5b10ffeb1088b836f72b260ca48116d8ebb92ea9b35a34f619743b44c2", "size_bytes": 856},
+    {"path": "docs/experiments/0016-native-canonical-parser/corpus/CONTRACT.md", "sha256": "sha256:997f3564533cd2668f5538f8a0ecc4cbfb967cfd49fe6331cca52cf8b6f1ddf4", "size_bytes": 2399},
+    {"path": "docs/research/proofbound-language/assurance-ir-v2.md", "sha256": "sha256:3a18b210e44ff9573ae5de04ba6691638ac7272b5c074a0a9475cd97ebcebf95", "size_bytes": 5914},
+    {"path": "docs/specs/0002_python_support.md", "sha256": "sha256:cef36ff3c30d7558d35b95565f90b463c63674efd84e8a997a20a86c6dbd233d", "size_bytes": 27906},
+    {"path": "docs/specs/0003_typescript_support.md", "sha256": "sha256:851fd10b39bf0f617a8d19eef813cf27c241689cd7fe7cbedfabe5296687a316", "size_bytes": 25454}
+  ],
+  "candidate": {
+    "contract_schema": "proofbound-research-foreign-contract/1",
+    "call_schema": "proofbound-research-foreign-call/1",
+    "graph_schema": "proofbound-research-mixed-graph/1",
+    "model_report_schema": "proofbound-research-mixed-model-report/1",
+    "contract_identity_domain": "proofbound-research-foreign-contract/1",
+    "graph_identity_domain": "proofbound-research-mixed-graph/1"
+  },
+  "questions": [
+    {"id": "Q1", "pass": "Python and TypeScript agree on every legacy and native call, both kernels accept exact observations, and all ABI/runtime/serialization/callback/exception attacks reject exactly"},
+    {"id": "Q2", "pass": "native finite proof, assumption-bound artifact, tested foreign applications, and every bridge/runtime assumption coexist without any accepted assurance coercion"},
+    {"id": "Q3", "pass": "exactly two packet caller claims plus the introduced native component change derivation, the unrelated claim and all public contracts remain identical, and all migration attacks reject"},
+    {"id": "Q4", "pass": "independent Rust and Python kernels emit identical baseline and migrated reports and exact codes for all 30 attacks across ten repetitions"},
+    {"id": "Q5", "pass": "callers, kernels, report, execution, and explanation stay within every frozen ceiling without a backend-named common rule"}
+  ],
+  "runtimes": {
+    "python": {"program": "python3", "observed_version": "Python 3.12.11"},
+    "typescript": {"program": "node", "observed_version": "v22.22.2"}
+  },
+  "phases": ["baseline", "migrated"],
+  "foreign_languages": ["python", "typescript"],
+  "attacks": [
+    {"id": "EXP-0017-A001", "mutation": "replace contract schema", "expected": "FB-SCHEMA"},
+    {"id": "EXP-0017-A002", "mutation": "encode noncanonical contract bytes", "expected": "FB-NONCANONICAL"},
+    {"id": "EXP-0017-A003", "mutation": "replace ABI version", "expected": "FB-ABI-VERSION"},
+    {"id": "EXP-0017-A004", "mutation": "add unsupported ABI operation", "expected": "FB-ABI-OPERATION"},
+    {"id": "EXP-0017-A005", "mutation": "replace serialization encoding", "expected": "FB-ABI-ENCODING"},
+    {"id": "EXP-0017-A006", "mutation": "allow host exceptions", "expected": "FB-ABI-EXCEPTION"},
+    {"id": "EXP-0017-A007", "mutation": "allow host callback", "expected": "FB-ABI-CALLBACK"},
+    {"id": "EXP-0017-A008", "mutation": "forge contract identity", "expected": "FB-CONTRACT-BINDING"},
+    {"id": "EXP-0017-A009", "mutation": "substitute native artifact", "expected": "FB-ARTIFACT-BINDING"},
+    {"id": "EXP-0017-A010", "mutation": "remove one call observation", "expected": "FB-OBSERVATION-MISSING"},
+    {"id": "EXP-0017-A011", "mutation": "add one call observation", "expected": "FB-OBSERVATION-EXTRA"},
+    {"id": "EXP-0017-A012", "mutation": "duplicate one call identity", "expected": "FB-OBSERVATION-DUPLICATE"},
+    {"id": "EXP-0017-A013", "mutation": "substitute same-count call result", "expected": "FB-OBSERVATION-SUBSTITUTION"},
+    {"id": "EXP-0017-A014", "mutation": "replace runtime identity", "expected": "FB-RUNTIME-IDENTITY"},
+    {"id": "EXP-0017-A015", "mutation": "replace language identity", "expected": "FB-LANGUAGE-IDENTITY"},
+    {"id": "EXP-0017-A016", "mutation": "duplicate graph node", "expected": "FB-GRAPH-DUPLICATE"},
+    {"id": "EXP-0017-A017", "mutation": "remove graph dependency", "expected": "FB-GRAPH-DEPENDENCY"},
+    {"id": "EXP-0017-A018", "mutation": "replace claim subject", "expected": "FB-GRAPH-CLAIM"},
+    {"id": "EXP-0017-A019", "mutation": "remove foreign runtime assumption", "expected": "FB-GRAPH-ASSUMPTION"},
+    {"id": "EXP-0017-A020", "mutation": "coerce foreign evidence to theorem", "expected": "FB-GRAPH-COERCION"},
+    {"id": "EXP-0017-A021", "mutation": "upgrade native artifact to proved", "expected": "FB-GRAPH-NATIVE-UPGRADE"},
+    {"id": "EXP-0017-A022", "mutation": "upgrade foreign application to proved", "expected": "FB-GRAPH-FOREIGN-UPGRADE"},
+    {"id": "EXP-0017-A023", "mutation": "rewrite unrelated claim", "expected": "FB-GRAPH-UNAFFECTED"},
+    {"id": "EXP-0017-A024", "mutation": "omit affected claim from migration", "expected": "FB-GRAPH-MIGRATION"},
+    {"id": "EXP-0017-A025", "mutation": "change public claim contract", "expected": "FB-GRAPH-PUBLIC-CLAIM"},
+    {"id": "EXP-0017-A026", "mutation": "replace derivation input", "expected": "FB-GRAPH-DERIVATION"},
+    {"id": "EXP-0017-A027", "mutation": "forge graph identity", "expected": "FB-GRAPH-IDENTITY"},
+    {"id": "EXP-0017-A028", "mutation": "make foreign callers disagree", "expected": "FB-CALLER-DISAGREEMENT"},
+    {"id": "EXP-0017-A029", "mutation": "make legacy and migrated semantics disagree", "expected": "FB-LEGACY-DISAGREEMENT"},
+    {"id": "EXP-0017-A030", "mutation": "forge model report identity", "expected": "FB-REPORT-IDENTITY"}
+  ],
+  "generation": {
+    "repetitions": 10,
+    "call_cases": 12,
+    "languages": 2,
+    "phases": 2,
+    "expected_observations": 48,
+    "expected_affected_claims": ["claim:native-parser", "claim:python-packet", "claim:typescript-packet"],
+    "expected_unaffected_claims": ["claim:display"]
+  },
+  "complexity": {
+    "max_caller_lines_each": 300,
+    "max_rust_kernel_lines": 1400,
+    "max_python_kernel_lines": 1400,
+    "max_report_bytes": 65536,
+    "max_elapsed_ms": 30000,
+    "forbidden_common_names": ["python", "typescript", "node", "pytest", "vitest", "npm"]
+  },
+  "decision": {
+    "pass": "Q1-Q5 pass over the complete frozen two-language, two-phase migration corpus",
+    "revise": "one bounded falsifier identifies a versioned contract, graph, or bridge correction without a stronger claim",
+    "stop": "foreign evidence is upgraded, public meaning or unrelated claims drift, assumptions disappear, callers disagree, or common semantics require backend branches"
+  }
+}
