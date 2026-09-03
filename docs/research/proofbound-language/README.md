@@ -6,9 +6,9 @@
 
 - **Status:** active
 - **Created:** 2026-09-01
-- **Last updated:** 2026-09-02
+- **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md); [Experiments 0006–0008](../../experiments/README.md) concluded the sampling-contract sequence
+- **Active experiment:** [Experiment 0005 — Assurance IR extraction](../../experiments/0005-assurance-ir-extraction/README.md); [Experiments 0006–0009](../../experiments/README.md) concluded the sampling and generated-algebra sequence
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -101,14 +101,19 @@ contract. Eleven of sixteen Q1 rows are complete; five remain partial.
   a missing completed-budget fact blocks the consuming empirical-admission
   rule, while unavailable shrink telemetry creates no notification when the
   rule does not consume it.
+- Experiment 0009 validates a closed derivation-trace candidate across six
+  representative evidence routes. Independent Rust and Python implementations
+  agree on 500 valid and 500 adversarial generated programs, reject every
+  registered strengthening and trace-integrity attack, and distinguish a
+  consumed unavailable fact from unused telemetry without backend-named common
+  rules.
 
 ## Current decision
 
 Continue Gate 1 only. Preserve old property records as explicit legacy
 sampling. Carry the experimentally supported intent/plan/fact-authority split
-into the Assurance IR candidate, but do not change a production wire until the
-remaining EXP-0005 losslessness rows pass and a versioned migration is
-preregistered. Next, test generic derivation traces and consequence-indexed
-uncertainty without adding framework-named rules. Do not freeze Assurance IR
-`/1`, preregister the Go holdout, or design final syntax and native executable
-semantics until that boundary passes.
+and closed derivation traces into the Assurance IR candidate, but do not change
+a production wire until the remaining EXP-0005 losslessness rows pass and a
+versioned migration is preregistered. Next, test exact invalidation against
+load-bearing and irrelevant changes. Do not freeze Assurance IR `/1`, design
+final syntax, or begin native executable semantics until that boundary passes.

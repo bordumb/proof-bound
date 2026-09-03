@@ -14,6 +14,7 @@ External source remains outside Proofbound history.
 | CORPUS-LEAN-001 | Artifact certificate | controlled Lean/Rust | Theorem, axiom audit, artifact binding | `demo/artifact-certificate/` |
 | CORPUS-CONF-001 | Portable status graph corpus | controlled wire | Producer/verifier derivation parity and adversarial mutations | `proofbound/conformance/v1/status-graphs.json` |
 | CORPUS-REL-001 | Release-valid fixture | controlled release | Canonical release and standalone verification | `proofbound/conformance/v1/release-valid/` |
+| CORPUS-GEN-001 | Generated evidence derivations | controlled synthetic | Closed-rule coverage, forbidden coercions, trace integrity, and independent differential checking | `docs/experiments/0009-generated-evidence-algebra/corpus/templates.json` plus `proofbound-exp-0009-generator/1` |
 | CORPUS-EXT-PY-001 | Click | external Python | Parametrized pytest identifiers | `other_repos/` when present; pin per experiment |
 | CORPUS-EXT-PY-002 | ItsDangerous | external Python | Security library and opaque pytest identifiers | `other_repos/` when present; pin per experiment |
 | CORPUS-EXT-PY-003 | attrs | external Python | Independent property-based project | `other_repos/` when present; pin per experiment |

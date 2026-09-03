@@ -1,6 +1,6 @@
 # WS-EA: evidence algebra
 
-- **Status:** running; initial inventory in EXP-0005; sampling sequence concluded in EXP-0008
+- **Status:** running; generated representative algebra passed in EXP-0009
 - **Hypothesis:** H2
 - **Depends on:** WS-IR field classification
 - **Blocks:** DSL typing and native evidence constructors
@@ -43,3 +43,7 @@ or artifact evidence.
   Common intent and admission stay backend-neutral; typed plans retain backend
   execution controls; unavailable telemetry has a consequence only when a
   registered admission rule consumes it.
+- [EXP-0009](../../../experiments/0009-generated-evidence-algebra/README.md)
+  passes a closed fact, judgment, rule, and trace model over six evidence
+  routes and 1,000 generated programs. Independent validators reject forbidden
+  strengthening and ambiguous traces, while unused telemetry remains silent.
