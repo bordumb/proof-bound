@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
@@ -147,14 +148,14 @@ def execute_experiment(
     metrics = _read_json(experiment / "corpus/metrics.json")
     reductions = {
         subject["id"]: {
-            flavor: float(subject["reductions"][flavor])
+            flavor: subject["reductions"][flavor]
             for flavor in ("proofbound-dsl", "pkl")
         }
         for subject in metrics["subjects"]
     }
     qualifying = {
         flavor: sum(
-            values[flavor] >= float(metrics["threshold"])
+            Decimal(values[flavor]) >= Decimal(metrics["threshold"])
             for values in reductions.values()
         )
         for flavor in ("proofbound-dsl", "pkl")
