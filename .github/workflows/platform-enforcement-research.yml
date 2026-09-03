@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - exp-0022
+          - exp-0023
           - exp-0024
   push:
     paths:
@@ -30,6 +31,38 @@ env:
   PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
 
 jobs:
+  windows-host-qualification:
+    name: EXP-0023 · native Windows host qualification
+    if: github.event_name == 'workflow_dispatch' && inputs.experiment == 'exp-0023'
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    steps:
+      - name: Check out the exact research revision
+        uses: actions/checkout@v4
+
+      - name: Install the repository Python version
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - name: Qualify the native Windows mechanism APIs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/exp0023-results"
+          python -m proofbound.windows_enforcement_probe `
+            "$env:RUNNER_TEMP/exp0023-results/host-probe.json"
+          python -m json.tool `
+            "$env:RUNNER_TEMP/exp0023-results/host-probe.json"
+
+      - name: Retain the exact host qualification
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: exp-0023-windows-host-qualification
+          path: ${{ runner.temp }}/exp0023-results
+          if-no-files-found: warn
+          retention-days: 30
+
   linux-confirmation:
     name: EXP-0022 · native Linux confirmation
     if: github.event_name == 'workflow_dispatch' && inputs.experiment == 'exp-0022'
