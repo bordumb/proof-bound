@@ -18,4 +18,4 @@
 | EXP-0015-I004 | `python/tests/test_assurance_v2_research.py` | passing | Full frozen corpus, self-consistent decision upgrade, and dependency-identity regressions |
 | EXP-0015-I005 | `python/proofbound/assurance_v2_experiment.py` | implemented | Post-implementation independent comparison, complexity measurement, and Q1--Q5 evaluator |
 | EXP-0015-I006 | `python/tests/test_assurance_v2_experiment.py` | passing | Complete metric, question, and retained-result regressions |
-| EXP-0015-E001 | `results/execution.json` | absent | Retained comparison and Q1--Q5 decisions |
+| EXP-0015-E001 | `results/execution.json` | retained, `sha256:0e522fe8b960441e7e83359c6754040fd5a1eb51254593eff206a25ed09c5c53` | Canonical independent comparison, generated-corpus identities, complexity metrics, attacks, and Q1--Q5 decisions |

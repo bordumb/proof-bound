@@ -50,3 +50,14 @@ kernels before opening `expected.json`, verifies all registered attacks and
 family ceilings, measures source and generated-corpus size, checks forbidden
 backend names and dependencies, and decides Q1--Q5 independently. Its focused
 tests pass. No retained result existed when this entry was added.
+
+## 2026-09-03 — Experiment executed
+
+Executed both kernels ten times and then opened the expected counts and
+ceilings. All six templates and 500 valid programmes were accepted; all 500
+single-mutation programmes and 28 named attacks rejected exactly. The complete
+model reports were byte-identical, with stable valid and adversarial corpus
+identities. The Rust kernel has 1,576 measured lines, the Python kernel 855,
+the generated corpus is 4,701,210 bytes, and the canonical model report is
+10,241 bytes. The retained execution is
+`sha256:0e522fe8b960441e7e83359c6754040fd5a1eb51254593eff206a25ed09c5c53`.
