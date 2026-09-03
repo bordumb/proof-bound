@@ -99,11 +99,8 @@ def _native_probe() -> dict[str, Any]:
     userenv = ctypes.WinDLL("userenv", use_last_error=True)
 
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-    kernel32.OpenProcessToken = advapi32.OpenProcessToken
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
-    kernel32.FreeSid.argtypes = [wintypes.LPVOID]
-    kernel32.FreeSid.restype = wintypes.LPVOID
     kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
     kernel32.LocalFree.restype = wintypes.HLOCAL
 
@@ -139,6 +136,8 @@ def _native_probe() -> dict[str, Any]:
         wintypes.DWORD,
     ]
     advapi32.SetTokenInformation.restype = wintypes.BOOL
+    advapi32.FreeSid.argtypes = [wintypes.LPVOID]
+    advapi32.FreeSid.restype = wintypes.LPVOID
 
     userenv.CreateAppContainerProfile.argtypes = [
         wintypes.LPCWSTR,
@@ -266,7 +265,7 @@ def _native_probe() -> dict[str, Any]:
         if token:
             kernel32.CloseHandle(token)
         if appcontainer_sid:
-            kernel32.FreeSid(appcontainer_sid)
+            advapi32.FreeSid(appcontainer_sid)
         if profile_created:
             _hresult(
                 userenv.DeleteAppContainerProfile(profile),
