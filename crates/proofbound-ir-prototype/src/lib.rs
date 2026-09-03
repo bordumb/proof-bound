@@ -49,6 +49,7 @@ pub use frontend::{
     compile_dsl_frontend, compile_pkl_frontend, compile_pkl_frontend_with_identity,
     compile_toml_frontend, format_dsl_frontend, validate_effective_programme_bytes,
     validate_frontend_compilation, validate_frontend_compilation_bytes,
+    validate_pkl_frontend_source,
 };
 pub use invalidation::{
     CacheDependencyEvidence, ChangedNode, ChangedNodeKind, DEPENDENCY_PROJECTION_DOMAIN,

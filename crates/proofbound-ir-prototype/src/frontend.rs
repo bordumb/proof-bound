@@ -252,7 +252,11 @@ pub struct FrontendError {
 
 impl std::fmt::Display for FrontendError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{}: {}", self.code, self.message)
+        write!(formatter, "{}: {}", self.code, self.message)?;
+        if let (Some(path), Some(start), Some(end)) = (&self.path, self.start, self.end) {
+            write!(formatter, " [{path}:{start}..{end}]")?;
+        }
+        Ok(())
     }
 }
 
@@ -546,6 +550,10 @@ pub fn format_dsl_frontend(bytes: &[u8], path: &Path) -> Result<Vec<u8>, Fronten
         output.push_str("end\n\n");
     }
     Ok(output.into_bytes())
+}
+
+pub fn validate_pkl_frontend_source(bytes: &[u8], path: &Path) -> Result<(), FrontendError> {
+    preflight_pkl_source(bytes, path)
 }
 
 pub fn compile_pkl_frontend(

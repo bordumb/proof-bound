@@ -11,7 +11,8 @@ use proofbound_ir_prototype::{
     project_portable_families, project_portable_families_with_sampling, validate_case_program,
     validate_derivation_program, validate_effective_programme_bytes,
     validate_frontend_compilation_bytes, validate_invalidation_execution_report,
-    validate_layered_sampling_case, validate_release_trace_bundle, validate_sampling_observation,
+    validate_layered_sampling_case, validate_pkl_frontend_source, validate_release_trace_bundle,
+    validate_sampling_observation,
 };
 
 fn main() -> ExitCode {
@@ -468,6 +469,28 @@ fn main() -> ExitCode {
                     ExitCode::from(1)
                 }
             },
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("preflight-frontend-pkl")) {
+        let Some(source) = args.next().map(PathBuf::from) else {
+            eprintln!("missing Pkl source");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(&source)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_pkl_frontend_source(&bytes, &source).map_err(|error| error.to_string())
+            });
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("{error}");
                 ExitCode::from(1)
