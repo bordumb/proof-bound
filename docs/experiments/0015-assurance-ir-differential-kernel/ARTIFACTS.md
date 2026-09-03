@@ -16,4 +16,6 @@
 | EXP-0015-I003 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-assurance-v2` command |
 | EXP-0015-I002 | `python/proofbound/assurance_v2_research.py` | implemented independently; 855 nonblank non-comment lines | Python closed-record kernel, profile expansion, deterministic generator, and exact attack executor |
 | EXP-0015-I004 | `python/tests/test_assurance_v2_research.py` | passing | Full frozen corpus, self-consistent decision upgrade, and dependency-identity regressions |
+| EXP-0015-I005 | `python/proofbound/assurance_v2_experiment.py` | implemented | Post-implementation independent comparison, complexity measurement, and Q1--Q5 evaluator |
+| EXP-0015-I006 | `python/tests/test_assurance_v2_experiment.py` | passing | Complete metric, question, and retained-result regressions |
 | EXP-0015-E001 | `results/execution.json` | absent | Retained comparison and Q1--Q5 decisions |

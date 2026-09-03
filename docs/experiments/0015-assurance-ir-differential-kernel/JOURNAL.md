@@ -42,3 +42,11 @@ self-consistent strong-linkage attack and a dependency-identity change. The
 expected-value evaluator existed, the complete ten-repetition Rust and Python
 model reports matched byte-for-byte at
 `sha256:b9219f06063b61c73094d2d8ed6b608f5dbbef9d98947fe27427c53c0f9fe8ef`.
+
+## 2026-09-03 — Expected-value evaluator implemented
+
+Added the evaluator only after both model reports agreed. It executes both
+kernels before opening `expected.json`, verifies all registered attacks and
+family ceilings, measures source and generated-corpus size, checks forbidden
+backend names and dependencies, and decides Q1--Q5 independently. Its focused
+tests pass. No retained result existed when this entry was added.
