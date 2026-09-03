@@ -153,6 +153,7 @@ jobs:
             throw "Process Monitor did not retain the initialization trace"
           }
           Set-Content "$root/process-smoke-exit.txt" "$smokeExit"
+          exit 0
 
       - name: Extract the bounded initialization process tree
         shell: pwsh
