@@ -1,6 +1,6 @@
 slug: language-research
-title: "From Passed to Justified: The Proofbound Assurance-Language Research Programme"
-status: research report
+title: "A Calculus of Heterogeneous Software Assurance: Canonical Evidence, Independent Derivations, and Exact Correspondence"
+status: research paper
 canonical_manuscript: manuscript/main.md
 primary_output: build/local/main.pdf
 evidence_snapshot: e54f428601f53e065262f74b97bba3d7e2b34150

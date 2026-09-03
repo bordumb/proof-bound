@@ -1,50 +1,65 @@
 ---
-title: "From Passed to Justified: The Proofbound Assurance-Language Research Programme"
+title: "A Calculus of Heterogeneous Software Assurance: Canonical Evidence, Independent Derivations, and Exact Correspondence"
 author: bordumb
 date: 3 September 2026
 abstract: |
-  Software assurance is normally assembled after the fact from continuous-
-  integration jobs, test reports, analyzers, model checkers, proof assistants,
-  build logs, and policy gates. These systems can each be useful while their
-  composition remains epistemically unsafe: a shared word such as *passed*
-  does not state what was quantified, which artifact was examined, which
-  assumptions remain, who had authority to report the fact, or whether a
-  publication policy actually consumed it. This paper reports the current
-  Proofbound research programme on a language for making those distinctions
-  explicit. Its proposed semantic centre is a canonical, backend-neutral
-  Assurance IR with a closed evidence algebra, typed identities and
-  dependencies, independently checkable derivation traces, and publication
-  decisions that are derived rather than asserted.
+  The output of a software-assurance pipeline is ordinarily a vector of tool
+  exit codes subsequently collapsed to a Boolean. Such a quotient is unsound as
+  an account of justification: finite testing, bounded exploration, theorem
+  checking, source correspondence, artifact reproduction, and human review have
+  different quantifiers, authorities, and subjects. We present the semantic
+  core of Proofbound as a typed calculus in which claims, evidence, facts,
+  assumptions, artifacts, derivations, and publication policies inhabit distinct
+  syntactic categories. Its intermediate language is backend-neutral and
+  canonically encoded; its evidence language is a closed sum; its derivations
+  are independently replayable directed acyclic graphs; and its artifact,
+  provenance, cache, and policy relations are exact joins rather than informal
+  annotations. Publication is therefore a derived judgment
+  $\Gamma;E;D;\Pi \vdash c \Downarrow \delta$, never an adapter assertion.
 
-  The evidence is deliberately bounded. Experiment 0005 remains open: its
-  latest checked-in audit completes 11 of 16 losslessness rows and leaves five
-  partial. Within that programme, independent Rust and Python prototypes agreed
-  on 20 positive cases, rejected 20 adversarial cases with the expected codes,
-  and agreed on 15 domain-hash vectors; a later projection covered all 45
-  captured portable records while preserving two property records as legacy
-  sampling. Experiment 0006 showed, for Hypothesis and fast-check, that an
-  adapter-owned driver can preserve a sampling contract and rejected ten
-  registered attacks. Experiment 0007 falsified that contract's three-framework
-  generality on proptest because RNG algorithm and authoritative counter
-  availability differ. Experiment 0008 validated a layered replacement over
-  three frameworks and twelve attacks. Experiment 0009 generated 500 valid and
-  500 single-mutation adversarial derivation programs; the independent
-  implementations had zero disagreements over eleven closed rules and sixteen
-  attack classes. These checks do not prove the algebra complete or correct.
-  They support continuing semantic and invalidation research before either a
-  final assurance DSL or native executable language is justified.
+  We evaluate this design by preregistered, falsifier-driven experiments over
+  checked-in positive, holdout, and adversarial corpora. In EXP-0005, independent
+  Rust and Python implementations agreed on 20 positive projections, 20 exact
+  adversarial rejections, and 15 canonical hash vectors; a later projection
+  represented 45 portable evidence records without silently promoting two
+  legacy sampling records. EXP-0006--0008 establish, then falsify and repair, a
+  cross-framework sampling abstraction: tool identity and seed are insufficient;
+  a sound record also requires backend plans, authority-indexed observations,
+  availability, and explicit consumers. In EXP-0009, the implementations agreed
+  on all 500 valid and 500 single-mutation adversarial derivation programs over
+  six routes, eleven rules, and sixteen attack classes, with no backend-named
+  branch in the common rules. These are finite validation results, not proofs of
+  soundness or completeness. Five of sixteen EXP-0005 losslessness obligations
+  remain partial. The resulting contribution is a precise semantic kernel and a
+  conservative adoption argument: Proofbound should first compose Python,
+  TypeScript, Rust, Lean, Kani, Aeneas, and related systems; native syntax is
+  warranted only if it preserves this calculus while eliminating demonstrable
+  accidental complexity.
 ---
 
 # 1. Introduction
 
-A software release can pass every configured gate while leaving the central
-question unanswered: *what, precisely, is now justified?* A unit test establishes
-that one registered execution produced an expected observation. A sampled
-property establishes that a generator and predicate completed a finite campaign
-under particular controls. A bounded model checker establishes a proposition
-within recorded bounds and assumptions. A proof assistant may check a universal
-theorem in a formal model. A reproducible build establishes byte identity across
-executions. None of these facts, alone, establishes all the others.
+Let $T$ be a set of assurance tools and let the conventional CI abstraction be
+$q:T\rightarrow\{0,1\}$. A release gate commonly computes
+
+$$
+  Q(t_1,\ldots,t_n)=\bigwedge_{i=1}^{n}q(t_i).
+$$
+
+The map $q$ forgets precisely the information on which assurance depends: the
+quantifier discharged, the subject examined, the execution controls, the
+authority of an observation, the residual assumptions, and the relation between
+a formal model and released bytes. The defect is not that $Q$ is Boolean; a
+publication decision must eventually be discrete. The defect is that $Q$ is
+computed before an explicit semantics of justification has been recovered.
+
+A unit test establishes an observation at one registered execution. A sampled
+property records a finite campaign under a generator, predicate, seed, budget,
+and backend plan. A bounded model checker establishes a proposition only within
+declared bounds and assumptions. A proof assistant may check a universal theorem
+in a formal environment. A reproducible build establishes equality of artifact
+bytes across declared executions. These conclusions are neither synonymous nor
+freely coercible.
 
 In contemporary development these facts are distributed among workflow files,
 tool-specific reports, source annotations, artifact stores, and dashboards.
@@ -56,24 +71,19 @@ claim had weakened. Specification 0001 therefore treats formal standing,
 subject linkage, and assumption burden as separate facets and makes status a
 derived output rather than an adapter-authored label [@proofbound-spec].
 
-The Proofbound language research programme asks whether this discipline can be
-given a compact language-independent semantics and, only later, a useful authoring
-and programming language [@proofbound-programme]. Its current direction is not
-a claim that a language exists. It is a sequence of falsifiable studies: first
-extract meaning from existing Python, TypeScript, Rust, Lean, Kani, Aeneas, and
-release records; then test a closed algebra and invalidation semantics; then
-compare authoring surfaces and effect models; and only after those gates consider
-a native executable subset.
+The Proofbound programme asks whether this information admits a compact,
+language-independent calculus and, subsequently, a satisfactory surface language
+[@proofbound-programme]. The order is deliberate. Existing Python, TypeScript,
+Rust, Lean, Kani, Aeneas, and release records supply the semantic observations;
+the calculus must explain them before a frontend is permitted to conceal them.
 
-This paper makes four contributions. First, it states the research problem as a
-provenance-preserving composition problem, not as a request for another test
-runner or proof assistant. Second, it presents the candidate system model:
-claims, subjects, assumptions, evidence, typed facts, derivations, policies,
-artifacts, and publication decisions in a canonical Assurance IR. Third, it
-synthesizes the checked-in results of Experiments 0005--0009 with exact corpus
-sizes, result artifacts, and limits. Fourth, it analyzes the Tower-of-Babel risk
-and gives an adoption path in which existing-language adapters remain primary
-until the data justify native syntax or execution.
+This paper contributes: (i) a many-sorted assurance calculus separating evidence
+families, authority, availability, correspondence, and policy; (ii) a canonical
+Assurance IR and replay semantics for backend-independent derivation traces;
+(iii) finite differential validation against Experiments 0005--0009, including a
+holdout that falsifies an initially plausible sampling contract; and (iv) a
+conservative language-realization criterion that confines backend diversity to
+typed boundaries.
 
 The terminology is intentionally strict throughout. *Proof* refers only to an
 appropriately checked theorem. Tests, static analyses, randomized sampling,
@@ -234,23 +244,25 @@ than substituting either side for the other.
 # 4. Research Questions
 
 The programme defines stable hypotheses H1--H8 in
-`docs/research/proofbound-language/hypotheses.md`. Only H1 and H2 are currently
-under test; no programme-level hypothesis is recorded as passed. This paper
-groups the present work into six research questions.
+`docs/research/proofbound-language/hypotheses.md`. The present paper isolates six
+questions about semantic adequacy, portable execution contracts, and independent
+checkability. A positive finite corpus does not universally quantify a result;
+a valid counterexample does refute the corresponding universal abstraction.
 
-| ID | Question | Current evidence boundary |
+| ID | Question | Decision procedure and evidence boundary |
 |---|---|---|
-| RQ1 | Can existing routes compile into a smaller backend-neutral IR without semantic loss? | EXP-0005; still open, 11/16 losslessness rows complete |
+| RQ1 | Can existing routes compile into a smaller backend-neutral IR without semantic loss? | Bidirectional field audit in EXP-0005; 11/16 obligations complete |
 | RQ2 | Can unlike evidence remain a closed algebra with forbidden strength coercions? | Bounded passes in EXP-0005, EXP-0008, and EXP-0009 |
 | RQ3 | What must a portable sampled-property contract retain? | EXP-0006 positive result, EXP-0007 falsifying holdout, EXP-0008 layered replacement |
 | RQ4 | Can complete derivations be backend-independent and independently checked? | EXP-0009, six routes and 500/500 generated corpus |
 | RQ5 | Can unavailable facts be reported according to their consequences? | Finite attacks in EXP-0008 and EXP-0009; no human study yet |
 | RQ6 | Can migration, cache, artifact, provenance, policy, and invalidation joins fail closed? | Partial evidence in EXP-0005; dedicated invalidation experiment not yet run |
 
-The questions are intentionally asymmetric. A corpus pass can support a design
-for its registered domain; one counterexample can falsify a proposed general
-contract. EXP-0007 is therefore as informative as the later positive result: it
-prevents a two-framework abstraction from being promoted as a universal one.
+The asymmetry is methodological. Acceptance of $n$ corpus members establishes
+$\forall x\in C_n.P(x)$ only for the finite registered set $C_n$. By contrast,
+a single $x^\star$ satisfying the preregistered domain predicate and
+$\neg P(x^\star)$ refutes $\forall x.P(x)$. EXP-0007 supplies precisely such a
+counterexample to the flat two-framework sampling contract.
 
 # 5. System Model
 
@@ -281,6 +293,21 @@ rules in the common kernel must remain few and versioned.
 \caption{Candidate architecture. Backend-specific knowledge is permitted at typed conversion boundaries, not in common status derivation. The DSL and native frontend are proposals, not implemented production surfaces.}
 \end{figure}
 
+Formally, backend $b$ is confined to a partial elaboration
+$\alpha_b:L_b\rightharpoonup\mathsf{AIR}$; all accepted terms then share the
+same canonicalizer, kernel, and policy projection:
+
+$$
+  L_b\xrightarrow{\ \alpha_b\ }\mathsf{AIR}
+  \xrightarrow{\ \operatorname{canon}\ }\mathsf{Bytes}
+  \xrightarrow{\ K_\Sigma\ }\mathsf{Judgment}
+  \xrightarrow{\ \Pi\ }\{\mathsf{Admit},\mathsf{Block}\}.          \tag{Arch}
+$$
+
+The architectural invariant is that $K_\Sigma$ has no case analysis on $b$.
+Backend-specific distinctions survive in typed plan or provenance values and
+may invalidate a record, but cannot introduce a new conclusion rule implicitly.
+
 The checked-in production verifier already demonstrates a narrower version of
 the independence requirement. `crates/proofbound-verify/Cargo.toml` explicitly
 has no dependency on another `proofbound-*` crate; it decodes a closed receipt
@@ -292,44 +319,92 @@ not import the Rust types [@proofbound-exp0005; @proofbound-exp0009].
 
 ## 5.2 Claims, facets, assumptions, and policy
 
-Let a claim be
+Let $\mathcal C,\mathcal S,\mathcal E,\mathcal F,\mathcal A,\mathcal P$, and
+$\mathcal D$ denote, respectively, claims, subjects, evidence terms, facts,
+artifacts, policies, and derivation traces. A claim is the record
 
 $$
-c = (i, s, m, e, a, x, \pi),
+  c=\langle \iota,s,\varphi,X,\Omega,\pi\rangle\in\mathcal C,
 $$
 
-where $i$ is a stable claim identity, $s$ a typed subject and closure, $m$ the
-machine meaning, $e$ cited evidence identities, $a$ assumptions and premises,
-$x$ exclusions or open obligations, and $\pi$ the selected policy. Reader-facing
-language is represented separately from $m$ so presentation cannot silently
-replace machine meaning.
+where $\iota$ is a stable identity, $s\in\mathcal S$ is a typed subject with a
+dependency closure, $\varphi$ is machine-readable meaning, $X\subseteq
+\operatorname{Id}(\mathcal E)$ cites evidence, $\Omega$ is the finite set of
+assumptions and exclusions, and $\pi\in\mathcal P$ is the selected publication
+policy. Reader-facing prose is deliberately not identified with $\varphi$.
 
-Production Proofbound reports three independent facets [@proofbound-spec]:
+The principal judgment has the form
 
 $$
-\operatorname{status}(c) = (F(c), L(c), A(c)).
+  \Gamma;E;D;\Pi\vdash c\Downarrow
+  \langle F,L,A,B,\delta\rangle,                                    \tag{1}
 $$
 
-- $F$, formal standing, distinguishes `OPEN`, `TESTED`, `BOUNDED_CHECKED`,
-  `PROVED`, and invalid states.
-- $L$, linkage, distinguishes `MODEL_ONLY`, `TRANSCRIBED`, `REFINED`, and
-  `ARTIFACT_BOUND`.
-- $A$, assumption burden, is `NONE` or an explicit `ASSUMED` set.
+where $\Gamma$ is the registered programme, $E$ the available evidence store,
+$D$ a closed trace, and $\Pi$ the policy environment. The result contains formal
+standing $F$, linkage $L$, assumption burden $A$, blockers $B$, and publication
+decision $\delta\in\{\mathsf{Admit},\mathsf{Block}\}$. Production Proofbound
+distinguishes [@proofbound-spec]
 
-Policy consumes these facets and additional named requirements to produce an
-admission or publication decision. It cannot reinterpret `TESTED` as `PROVED`,
-erase an assumption, or turn `MODEL_ONLY` into `ARTIFACT_BOUND`. This separation
-is also why the EXP-0009 research algebra must not be mistaken for full
-production parity: its bounded six-route slice uses a smaller formal-facet
-vocabulary and models its bounded-check route as `tested`; its own scope excludes
-complete production-rule parity.
+$$
+\begin{aligned}
+F&\in\{\mathsf{Open},\mathsf{Tested},\mathsf{BoundedChecked},
+       \mathsf{Proved},\mathsf{Invalid}\},\\
+L&\in\{\mathsf{ModelOnly},\mathsf{Transcribed},\mathsf{Refined},
+       \mathsf{ArtifactBound}\},\\
+A&\in\{\mathsf{None}\}\cup\{\mathsf{Assumed}(\Omega):\Omega\ne\varnothing\}.
+\end{aligned}                                                       \tag{2}
+$$
+
+These facets form neither a confidence score nor an unrestricted total order.
+Instead, each evidence constructor has an *admissible conclusion set*. Policy
+may select from derived judgments but may not enlarge that set. If
+$\operatorname{ceil}(e)$ denotes the formal ceiling assigned to $e$, then every
+sound policy rule must satisfy the non-strengthening obligation
+
+$$
+  \frac{\Gamma;E;D\vdash c:F \qquad
+        \Pi\vdash(c,F,L,A,B)\Rightarrow\delta}
+       {F\preceq \operatorname{ceil}(E|_c)}.                         \tag{POL-CEIL}
+$$
+
+Thus policy cannot reinterpret $\mathsf{Tested}$ as $\mathsf{Proved}$, erase an
+assumption, or manufacture $\mathsf{ArtifactBound}$ from
+$\mathsf{ModelOnly}$. EXP-0009 validates a smaller research slice and represents
+its bounded-check route with the slice's `tested` vocabulary; it is not a claim
+of complete parity with (2).
 
 ## 5.3 Closed evidence algebra
 
-The draft Assurance IR (`docs/research/proofbound-language/assurance-ir-v1.md`)
-uses a closed sum rather than a common success record with optional details.
-Table 2 summarizes the intended meanings. Names are research constructors, not
-a frozen wire contract.
+The draft Assurance IR
+(`docs/research/proofbound-language/assurance-ir-v1.md`) uses a discriminated
+sum rather than a common success record with optional fields. Abstracting from
+wire-level names, its evidence grammar is
+
+$$
+\begin{aligned}
+e ::= {}&\mathsf{Example}(\bar x,o)
+\mid \mathsf{Sampled}(I,P,O)
+\mid \mathsf{Exhaustive}(U,O)\\
+&\mid \mathsf{BMC}(\varphi,\beta,O)
+\mid \mathsf{Static}(q,O)
+\mid \mathsf{Mutation}(m,w)\\
+&\mid \mathsf{Theorem}(\varphi,\Theta,p)
+\mid \mathsf{SourceCorr}(s_1,s_2,r)\\
+&\mid \mathsf{ArtifactCorr}(\varphi,a,r)
+\mid \mathsf{Reproducible}(a,\bar b)\\
+&\mid \mathsf{Transcription}(s_1,s_2,\Theta)
+\mid \mathsf{Review}(u,\sigma,v).
+\end{aligned}                                                       \tag{3}
+$$
+
+Here $I$ is sampling intent, $P$ a backend plan, $O$ an observation map, $U$ a
+declared finite universe, $\beta$ explicit exploration bounds, $\Theta$ a trusted
+base or assumption set, $p$ a checked proof object or theorem reference, $a$ an
+exact artifact, and $r$ a registered correspondence. The grammar is *closed*:
+unknown alternatives do not decode, and no opaque extension may participate in
+status derivation. Table 2 states the associated quantifier discipline. Names
+remain research constructors rather than a frozen wire contract.
 
 | Constructor | What it can establish | What it cannot establish alone |
 |---|---|---|
@@ -346,31 +421,92 @@ a frozen wire contract.
 | `TrustedTranscription` | A typed external round trip under an explicit TCB | Proof or refinement |
 | `HumanReview` | A named reviewer assessed a bounded scope | Automatic strengthening of other evidence |
 
-The algebra is *closed* in two senses. Decoding rejects unknown constructors,
-and each derivation rule has an exact input signature and permitted conclusion
-shape. Opaque backend facts may be retained for audit and invalidation, but they
-cannot add a constructor, graph edge, status role, or policy rule.
+The essential introduction rules make forbidden coercions syntactically
+visible. Representative rules are
+
+$$
+\frac{\Gamma\vdash I\ \mathsf{registered}\quad
+      \Gamma;E\vdash O\ \mathsf{completes}(I,P)}
+     {\Gamma;E\vdash \mathsf{Sampled}(I,P,O):\mathsf{Tested}}
+\quad\textsc{Sample}
+                                                                    \tag{4}
+$$
+
+$$
+\frac{\Gamma;E\vdash \operatorname{check}(\varphi,\beta)=\mathsf{accept}}
+     {\Gamma;E\vdash \mathsf{BMC}(\varphi,\beta,O):
+        \mathsf{BoundedChecked}(\beta)}
+\quad\textsc{Bmc}                                                   \tag{5}
+$$
+
+$$
+\frac{\Theta\vdash p:\varphi}
+     {\Gamma;E\vdash \mathsf{Theorem}(\varphi,\Theta,p):
+        \langle\mathsf{Proved},\mathsf{ModelOnly},\Theta\rangle}
+\quad\textsc{Theorem}.                                             \tag{6}
+$$
+
+There is no rule from (4) or (5) to $\mathsf{Proved}$, and (6) does not conclude
+$\mathsf{ArtifactBound}$. This absence is semantically load-bearing. Tests and
+bounded checks are never treated as proofs; a theorem about a model is not a
+claim about shipping bytes without an independently registered correspondence.
+Opaque backend facts may be retained for audit and invalidation, but cannot add
+a constructor, derivation edge, status role, or policy rule.
 
 ## 5.4 Sampling as intent, plan, facts, and consumers
 
-EXP-0006--0008 refine sampled evidence into four layers:
+EXP-0006--0008 refine sampled evidence into the tuple
 
-1. `SamplingIntent`: common assurance meaning -- generator closure, target
-   inventory, seed, requested successful-case budget, persistence posture, and
-   empirical ceiling.
-2. `BackendSamplingPlan`: a closed backend-specific variant retaining such
-   controls as Hypothesis phases/database, fast-check random type/examples, or
-   proptest RNG algorithm/rejection/shrink limits.
-3. `SamplingObservation`: facts such as attempted, completed, skipped, and
-   shrinks, each carrying `Observed`, `Derived(rule, dependencies)`, or
-   `Unavailable(reason)` authority.
-4. `AdmissionRule`: an explicit consumer naming only the facts required for a
-   conclusion.
+$$
+  S_b=\langle I,P_b,O_b,R\rangle,                                   \tag{7}
+$$
 
-The separation prevents two opposite errors. Backend execution detail is not
-discarded merely because it is not common, and a common rule need not branch on
-framework names. Availability is not encoded as a nullable integer: unavailable
-is a typed state, while zero remains an observed or derived value.
+where $I=\langle g,X,\sigma,N,\rho,\kappa\rangle$ is common intent
+(generator closure, target inventory, seed, requested successful-case budget,
+persistence posture, and empirical ceiling), $P_b$ is a closed plan for backend
+$b$, $O_b$ is an authority-indexed fact map, and $R$ is an admission rule. Plans
+retain controls that do not admit a sound common projection: Hypothesis phases
+and database mode, fast-check random type and examples, or proptest RNG algorithm
+and rejection and shrink limits.
+
+For a quantity $q$, the fact domain is
+
+$$
+\operatorname{Fact}_b(q)::=
+  \mathsf{Observed}(v,\alpha)
+  \mid\mathsf{Derived}(v,r,\Delta)
+  \mid\mathsf{Unavailable}(\rho),                                  \tag{8}
+$$
+
+where $\alpha$ identifies the observation authority, $r$ the derivation rule,
+and $\Delta$ its exact dependencies. In particular,
+$\mathsf{Unavailable}(\rho)\neq\mathsf{Observed}(0,\alpha)$.
+An admission rule declares a consumer set
+$\operatorname{use}(R)\subseteq\operatorname{dom}(O_b)$. It may conclude a
+sampled judgment only when every required fact is available with an accepted
+authority:
+
+$$
+\frac{q\in\operatorname{use}(R)\Rightarrow
+      O_b(q)\in\{\mathsf{Observed}(-,-),\mathsf{Derived}(-,-,-)\}
+      \qquad O_b(\mathsf{completed})\ge N}
+     {\Gamma;E\vdash S_b:\mathsf{Tested}[\kappa]}.
+\quad\textsc{Sample-Admit}                                         \tag{9}
+$$
+
+This gives a consequence-local definition of missing telemetry. Let
+$\operatorname{deps}_D(r)$ be the transitive dependency cone of a root $r$ in
+trace $D$. Then
+
+$$
+  \operatorname{Alert}(q,r)iff
+  q\in\operatorname{deps}_D(r)\ \land\ O_b(q)=\mathsf{Unavailable}(\rho).
+                                                                    \tag{10}
+$$
+
+Equation (10) is a candidate operational semantics, not a demonstrated claim
+about human attention. EXP-0008 and EXP-0009 validate it only over their finite
+attack corpora.
 
 ## 5.5 Canonical encoding and exact joins
 
@@ -381,19 +517,52 @@ canonical ordering and duplicate rejection for sets, float rejection, normalized
 relative paths, domain-separated hashes, and byte-identical round trips. Unknown
 required schemas and enum values fail closed.
 
-Artifact equality is the tuple
+For schema domain $d$, identity is defined over canonical bytes:
 
 $$
-  (\text{logical name},\ \text{SHA-256},\ \text{byte size}),
+  \operatorname{id}_d(x)=
+  \operatorname{SHA256}\bigl(d\mathbin\Vert\mathtt{0x00}
+  \mathbin\Vert\operatorname{canon}(x)\bigr).                       \tag{11}
 $$
 
-not a digest or label alone. Under Specification 0001's artifact-bound route,
-the verifier checks the theorem statement encoding and digest, exact outer
-binding form and literal claim/artifact arguments, the artifact-correspondence
-record, and equality with exactly one provenance input. Cache validation likewise
-joins the exact typed pre-execution dependencies, configuration, tool and adapter
-identities, closures, and prior receipt where applicable. Policy validation joins
-the selected policy, required facets, cited evidence, assumptions, and blockers.
+Domain separation prevents a byte string valid in one identity namespace from
+being substituted in another. An artifact is
+
+$$
+  a=\langle n,h,z\rangle,
+  \qquad
+  a\equiv a'\iff n=n'\land h=h'\land z=z',                          \tag{12}
+$$
+
+where $n$ is the logical name, $h$ the SHA-256 digest, and $z$ the byte size.
+Digest equality alone is therefore not artifact equality in this calculus.
+Specification 0001's artifact-bound route additionally checks theorem-statement
+encoding and digest, exact outer binding form and literal claim/artifact
+arguments, the artifact-correspondence record, and equality with exactly one
+provenance input [@proofbound-spec]. Its characteristic rule is
+
+$$
+\frac{\Theta\vdash p:\varphi\qquad
+      \Gamma;E\vdash r:\varphi\sim_{r} a\qquad
+      a\equiv a_{\mathrm{prov}}}
+     {\Gamma;E\vdash\langle p,r,a\rangle:
+       \langle\mathsf{Proved},\mathsf{ArtifactBound},\Theta\rangle}.
+\quad\textsc{Artifact-Bind}                                        \tag{13}
+$$
+
+Cache validity is the same species of judgment. If $\operatorname{cl}_\Gamma(x)$
+is the typed transitive dependency closure, reuse requires equality of the
+canonical closure, execution configuration, tool and adapter identities, and
+prior receipt where applicable:
+
+$$
+  \operatorname{Reuse}(x,x')\Rightarrow
+  \operatorname{canon}(\operatorname{cl}_\Gamma(x))=
+  \operatorname{canon}(\operatorname{cl}_\Gamma(x')).              \tag{14}
+$$
+
+Policy validation analogously joins the selected policy, required facets, cited
+evidence, assumptions, and blockers.
 
 These joins are load-bearing because self-consistent rehashing is not enough.
 An attacker can alter a target, artifact, assumption, or policy and recompute
@@ -403,18 +572,79 @@ closure, TCB, and status substitutions precisely for this reason.
 
 ## 5.6 Derivation traces
 
-The EXP-0009 candidate models a derivation program as canonical facts, an acyclic
-topological list of steps, and one declared conclusion. Facts carry identities,
-authority, propositions, and sources. Rules include evidence validation, sampled
-and bounded testing, theorem proof, mutation testing, transcription linkage,
-artifact binding, assumption derivation, and policy admission. A trace identity
-is a domain-separated hash of canonical program bytes.
+An EXP-0009 derivation program is a rooted directed acyclic graph
 
-The checker validates rather than trusts the trace: it reconstructs rule outputs,
-checks exact references and authorities, rejects cycles and duplicate identities,
-and requires the declared root to equal the actual conclusion. Thus the trace is
-an explanation and portable check object, not an adapter-authored certificate of
-its own correctness.
+$$
+  D=\langle V_F\uplus V_J,E_D,r\rangle,                             \tag{15}
+$$
+
+where $V_F$ are canonical, authority-bearing fact nodes, $V_J$ are rule
+applications, $E_D$ contains exact identity references, and
+$r\in V_F\uplus V_J$ is the declared conclusion. The serialization is a
+topological list; its identity is obtained from (11) in the trace domain. Rules
+cover evidence validation, sampled and bounded testing, theorem checking,
+mutation witnesses, transcription linkage, artifact binding, assumption
+derivation, and policy admission.
+
+Replay is a partial function
+
+$$
+  K_\Sigma:\operatorname{Bytes}\rightharpoonup
+  \langle r,\operatorname{Judgment},\operatorname{Diagnostics}\rangle,
+                                                                    \tag{16}
+$$
+
+parameterized only by closed schema and rule table $\Sigma$. It decodes
+canonically, rejects duplicate identities and cycles, reconstructs each rule
+output from its predecessors, validates authorities, and requires the recomputed
+root to equal $r$. No adapter-authored status is trusted.
+
+The desired backend-erasure property can now be stated. Let $\alpha_b$ be the
+typed adapter from backend $b$ into the common IR and let $\operatorname{erase}$
+remove backend plan details that carry no derivation authority. For any two
+accepted inputs in the domain of a common rule,
+
+$$
+  \operatorname{erase}(\alpha_{b_1}(x_1))=
+  \operatorname{erase}(\alpha_{b_2}(x_2))
+  \Longrightarrow
+  K_\Sigma(\alpha_{b_1}(x_1))=K_\Sigma(\alpha_{b_2}(x_2)).           \tag{17}
+$$
+
+Equation (17) is a design obligation, not a proved metatheorem. The registered
+EXP-0009 corpus supplies finite evidence for it: its common rule table contains
+no concrete backend name, and the Rust and Python replayers agree on every
+generated conclusion and rejection. The trace is consequently a portable check
+object and explanation, not a self-authenticating certificate.
+
+## 5.7 Invalidation semantics
+
+Let $\Delta$ be the set of identities whose canonical values or availability
+states have changed. Invalidation is the upward closure of $\Delta$ in the exact
+dependency graph:
+
+$$
+  \operatorname{Inv}_D(\Delta)=
+  \mu X.\;\Delta\cup
+  \{v\mid\exists u\in X.\,(u,v)\in E_D\}.                           \tag{18}
+$$
+
+A cached judgment rooted at $r$ is reusable only if
+$r\notin\operatorname{Inv}_D(\Delta)$ and the closure equality (14) holds. The
+principal safety obligation is *no false retention*:
+
+$$
+  \operatorname{deps}_D(r)\cap\Delta\ne\varnothing
+  \Longrightarrow r\in\operatorname{Inv}_D(\Delta).                \tag{19}
+$$
+
+Precision is distinct: invalidating the entire repository satisfies (19) but
+destroys useful reuse. The intended optimization criterion is therefore to
+minimize $|\operatorname{Inv}_D(\Delta)|$ subject to (19) and exact typed
+dependencies. This semantics is proposed. EXP-0005 contains bounded cache-closure
+and substitution attacks, but the dedicated invalidation experiment required to
+validate (19) over code, tools, permissions, configuration, assumptions, policy,
+and external-contract changes has not yet been executed.
 
 # 6. Experimental Method
 
@@ -453,8 +683,6 @@ deterministic generator (`proofbound-exp-0009-generator/1`, seed 9009). It emits
 500 valid programs and 500 adversarial programs, each with one mutation. The
 sixteen attack classes occur 31 or 32 times each, which is the exact partition
 of 500 cases.
-
-\clearpage\thispagestyle{fancy}\vspace*{1.5em}
 
 ## 6.3 Independent implementations
 
@@ -507,7 +735,7 @@ not independence of underlying assumptions.
 
 # 7. Results
 
-## 7.1 Experiment 0005: a plausible kernel, incomplete losslessness
+## 7.1 Algebraic separation and representation loss (EXP-0005)
 
 EXP-0005 began with 20 positive projection cases spanning Python, TypeScript,
 Rust, Kani, Lean, mutation, distribution, transcription, refinement semantics,
@@ -548,13 +776,18 @@ had explicit sampling semantics; the TypeScript and Rust records remained
 `LegacyBackendSampling`. A self-consistently rehashed attempt to upgrade legacy
 sampling was rejected.
 
-**Finding.** Evidence kinds cannot safely collapse into generic success. Typed
-family substitutions and stronger status assertions were rejected in the corpus,
-while complete-capture analysis found semantics that a generic `passed` envelope
-did not retain. This is bounded evidence for a closed sum, not proof that the
-listed constructors are complete.
+\begin{empiricalproposition}[Non-collapse over the EXP-0005 domain]
+No semantics-preserving projection from the registered heterogeneous evidence
+records to a generic success constructor was exhibited. Every registered family
+substitution and illicit status strengthening was rejected by both checkers,
+while the bidirectional audit identified information not retained by a generic
+\texttt{passed} envelope.
+\end{empiricalproposition}
 
-## 7.2 Experiment 0006: sampling needs an owned observation boundary
+This proposition is quantified only over the EXP-0005 corpus. It supports the
+closed sum (3); it does not establish completeness of that sum.
+
+## 7.2 Authority-preserving observation (EXP-0006)
 
 EXP-0006 tested Hypothesis 6.112.0 and fast-check 4.3.0. Ordinary runner output
 failed Q1 and Q2; Vitest setup instrumentation failed closed. An adapter-owned
@@ -570,14 +803,19 @@ Rust and Python validators rejected all ten preregistered attacks with their exa
 classes and introduced no framework-name branch in common validation
 [@proofbound-exp0006].
 
-**Finding.** Tool name and seed are insufficient. A sampling contract also needs
-generator closure, target inventory, successful-case budget, replay/persistence
-and shrinking policies, effective execution controls, actual observations, and a
-trusted boundary that can author them. The result passes only at the research
-driver boundary; production integration would additionally need outer command,
-environment, driver, runtime, and framework provenance.
+\begin{empiricalproposition}[Observation-boundary sufficiency for two backends]
+For Hypothesis 6.112.0 and fast-check 4.3.0, the adapter-owned driver retained the
+registered sampling intent and authoritative observations and rejected all ten
+registered mutations; ordinary runner reports did not determine the same record.
+\end{empiricalproposition}
 
-## 7.3 Experiment 0007: proptest falsifies the flat contract
+Consequently, tool name and seed do not determine the observed sampling term.
+Generator and target identity, requested and completed budget, persistence,
+shrinking policy, effective execution controls, observations, and authoring
+authority are semantically relevant. Production use would additionally require
+outer command, environment, driver, runtime, and framework provenance.
+
+## 7.3 Counterexample to a flat sampling contract (EXP-0007)
 
 EXP-0007 froze the EXP-0006 contract and evaluated proptest 1.11.0. With seed
 424242, `chacha` RNG, disabled persistence, 100 successful cases, shrink limit
@@ -597,11 +835,19 @@ invocation as a fresh attempt. After attack `EXP-0007-A002` triggered the
 preregistered falsifiers, the remaining eleven attacks were not executed because
 they could not restore the unchanged contract's generality.
 
-**Finding.** A common semantic intention does not imply one identical execution
-record across frameworks. Backend-specific controls must remain typed, and facts
-must state which observations a backend can authoritatively provide.
+\begin{empiricalproposition}[Flat-contract falsification]
+The EXP-0006 identity function is not injective with respect to relevant proptest
+executions: holding framework version and seed at 1.11.0 and 424242 while changing
+only the RNG algorithm from \texttt{chacha} to \texttt{xorshift} changed the
+counterexample execution from 23 to 25 predicate invocations without changing
+the frozen contract identity.
+\end{empiricalproposition}
 
-## 7.4 Experiment 0008: a layered sampling model
+Thus common semantic intent does not entail identical backend execution records.
+Backend-specific controls must remain typed, and fact terms must state which
+observations a backend can authoritatively supply.
+
+## 7.4 Layered facts and consequence locality (EXP-0008)
 
 EXP-0008 projected frozen Hypothesis, fast-check, and proptest records into the
 intent/plan/authority model. The three corpus files were 2,203, 2,199, and 2,444
@@ -623,12 +869,17 @@ Rust and Python agreed on all twelve registered attacks. Notably,
 returned `no-admission-consequence`. Legacy Rust and EXP-0006 records were
 rejected as layered schema rather than reinterpreted [@proofbound-exp0008].
 
-**Finding.** Evidence facts need explicit authority, availability, and consumers.
-Unavailable but unused telemetry should not create an admission alert. This is an
-implemented research rule with bounded differential evidence, not yet a measured
-reduction in human notification fatigue.
+\begin{empiricalproposition}[Consequence locality over twelve attacks]
+For the three registered framework records and twelve mutations, both checkers
+blocked admission exactly when an unavailable fact belonged to the admission
+dependency cone. Removing unavailable shrink telemetry outside that cone did not
+alter the conclusion.
+\end{empiricalproposition}
 
-## 7.5 Experiment 0009: backend-independent closed traces
+This validates (10) for the registered cases. It does not establish that the
+corresponding diagnostic policy reduces notification fatigue in human use.
+
+## 7.5 Closed-trace replay and backend erasure (EXP-0009)
 
 EXP-0009 used six templates: sampled property, bounded check, theorem, mutation
 witness, trusted transcription, and artifact binding. The deterministic generator
@@ -649,11 +900,16 @@ and reinterpreted an older schema. `EXP-0009-A011` made a consumed fact
 unavailable and blocked its exact derivation; `EXP-0009-A012` removed unused
 duration telemetry and preserved the conclusion without an alert.
 
-**Finding.** Closed derivation traces can remain backend-independent for this
-registered slice. Exact references, canonical order, authority checks, and root
-validation made the conclusion reproducible across the two implementations. The
-finite corpus does not prove the algebra correct, complete, or equivalent to all
-production routes.
+\begin{empiricalproposition}[Differential replay over the generated corpus]
+For all 1,000 generated programs in EXP-0009, the Rust and Python replayers
+agreed on acceptance, conclusion, trace identity, or registered rejection class.
+The common rule table contained zero concrete backend-name branches.
+\end{empiricalproposition}
+
+Exact references, canonical order, authority checks, and root validation are
+therefore sufficient for deterministic replay over this registered slice. The
+finite result does not prove the algebra sound, complete, or equivalent to every
+production route.
 
 ## 7.6 Cross-experiment synthesis
 
@@ -669,23 +925,30 @@ production routes.
 
 # 8. Discussion
 
-## 8.1 Why the result is a language problem
+## 8.1 Why assurance requires language semantics
 
-One could encode the candidate records in TOML or JSON and stop. That would be
-useful, and the roadmap explicitly allows the programme to end as a framework or
-typed assurance DSL. The language hypothesis arises because authoring constraints,
-module composition, effects, assumptions, invalidation, and diagnostics may be
-safer when they are static properties rather than scattered runtime conventions.
-For example, a frontend could reject a sampled property where policy demands a
-universal source proof, or a supposedly hermetic build that requests network
-authority, before running any backend.
+JSON or TOML can serialize the terms above; serialization is not the contribution.
+The language problem is the definition of well-formed judgments, admissible
+coercions, effect and authority boundaries, module composition, invalidation,
+and diagnostic consequence. A frontend should reject, before execution, a
+sampled term supplied where policy requires a universal theorem, or a supposedly
+hermetic action whose effect row includes network authority. These are typing
+failures, not post-hoc dashboard warnings.
 
-Yet syntax is deliberately deferred. The difficult commitment is the semantic
-kernel and its migration boundary. Designing a polished language before finishing
-lossless IR extraction would freeze current omissions into source compatibility.
-The project's current decision is therefore to continue Gate 1 only.
+The semantic kernel is therefore prior to surface syntax. A native frontend is
+acceptable only as a conservative elaboration into Assurance IR. For surface
+language $L$, the minimum criterion is
 
-## 8.2 The Tower of Babel risk
+$$
+  \Gamma\vdash_L p:j
+  \Longrightarrow
+  K_\Sigma(\operatorname{canon}([\![p]\!]_L))=j,                   \tag{20}
+$$
+
+with no additional trusted status rule in the compiler. A polished syntax that
+does not meet (20) merely conceals semantic omissions behind source compatibility.
+
+## 8.2 The Tower of Babel and the kernel boundary
 
 Cross-ecosystem assurance naturally accumulates dialects: pytest nodes, Vitest
 selectors, Hypothesis phases, fast-check random types, proptest RNG algorithms,
@@ -694,7 +957,13 @@ wheel rules, npm package rules, and tool-specific availability conditions. Putti
 each directly into the kernel yields a union of backend schemas rather than a
 language-neutral semantics. H1's explicit falsifier is such proliferation.
 
-The proposed containment strategy has two parts.
+Let $\Sigma_b$ be the backend-specific schema and $\Sigma_K$ the common kernel
+signature. An unconstrained integration approaches the coproduct
+$\coprod_b\Sigma_b$: every framework construct becomes a kernel construct, and
+status derivation grows by backend case analysis. This is the Tower-of-Babel
+failure mode named by H1.
+
+Containment requires two constraints.
 
 **Small semantic kernel.** Common meaning is limited to typed claims, subjects,
 identities, evidence constructors, authorities, derivation rules, and policy
@@ -710,10 +979,12 @@ with a typed plan and capability description, or motivates an explicit versioned
 semantic change. Opaque fields may affect audit and invalidation but cannot acquire
 derivation authority.
 
-This is containment, not elimination. The number of backend schemas can still
-grow, adapters can be wrong, and duplicated conversion logic can hide mistakes.
-The architecture only keeps that growth outside the smallest status-checking
-boundary and makes its consequences testable.
+Equivalently, growth is permitted in the family
+$\{\alpha_b:\Sigma_b\rightharpoonup\Sigma_K\}_b$, not in the codomain
+$\Sigma_K$ without an explicit versioned semantic extension. This does not make
+adapters correct or prevent backend schemas from multiplying. It confines that
+complexity outside the smallest status-checking boundary and renders its effects
+amenable to differential and adversarial validation.
 
 ## 8.3 Exact joins are the semantics
 
@@ -729,9 +1000,25 @@ Canonical encoding makes local identity reproducible; exact joins make global
 meaning reproducible. Both are needed. A self-consistent local rehash after a
 substitution is an attack, not validation.
 
+Migration obeys the same law. Let $m_v$ translate schema version $v$ into the
+current IR and let $\sqsubseteq$ mean "contains no stronger assurance meaning
+than." A migration is admissible only if
+
+$$
+  m_v(e)\sqsubseteq e\oplus e_{\mathrm{new}},                       \tag{21}
+$$
+
+where $e_{\mathrm{new}}$ is genuinely new, independently identified evidence.
+For a legacy property record with no explicit sampling plan,
+$e_{\mathrm{new}}=\varnothing$ forbids
+$m_v(e)=\mathsf{Sampled}(I,P,O)$. The only honest image is a visibly weaker
+legacy constructor. EXP-0005's self-consistently rehashed upgrade attack and the
+legacy-schema attacks in EXP-0008 and EXP-0009 exercise this non-escalation
+condition.
+
 ## 8.4 Practical adoption: bridge before destination
 
-The practical path starts with existing systems. Proofbound can register claims
+The practical path begins with existing systems. Proofbound can register claims
 over Python, TypeScript, and Rust; observe pytest, Hypothesis, Vitest, fast-check,
 static analyzers, and mutation witnesses; integrate Kani bounded checks; retain
 Aeneas/Charon translation and refinement boundaries; ingest Lean theorem evidence;
@@ -739,12 +1026,13 @@ and bind reproducible distributions and artifacts. These integrations are
 heterogeneous by design. They create the empirical corpus from which stable
 language semantics can be extracted.
 
-Mixed-language systems should remain a permanent state. A future DSL can author
-assurance programmes for foreign code. A future native component can compile into
+Mixed-language systems are not a transitional embarrassment; they are the
+principal semantic case. A future DSL can author assurance programmes for
+foreign code. A future native component can compile into
 the same IR and coexist with Python or TypeScript callers. The native route is
 justified only if it measurably strengthens correspondence, static effect control,
 usability, or notification quality without inflating the trusted base or proof
-burden. Until then, the bridge is the product and the research instrument.
+burden. Until then, the bridge is the principal system and research instrument.
 
 ## 8.5 Publication, uncertainty, and human judgment
 
@@ -877,32 +1165,34 @@ against premature language design.
 
 # 11. Conclusion
 
-Proofbound's assurance-language programme begins from a narrow claim: software
-assurance requires a representation richer than a set of green jobs. Claims,
-assumptions, uncertainty, authority, evidence family, artifact correspondence,
-derivation, invalidation, policy, and publication are different semantic objects.
-Treating them as such can prevent known strengthening and substitution errors.
+Software assurance is not the conjunction of successful tool invocations. It is
+a typed derivation relating a claim to evidence of determinate kind, authority,
+subject, assumptions, and artifact identity under an explicit publication
+policy. The Proofbound calculus makes that derivation a first-class, canonical,
+independently replayable object. Its decisive prohibitions are structural: there
+is no coercion from testing or bounded checking to proof; no coercion from model
+theorem to artifact claim; no admission consequence from an unavailable fact
+outside the root dependency cone; and no migration that strengthens legacy
+evidence without a new observation.
 
-The checked-in experiments provide bounded support for several design choices.
-Evidence families cannot safely collapse into generic success. Sampling requires
-common intent, typed backend controls, authority-indexed facts, and explicit
-consumers. Unavailable unused telemetry need not generate an admission alert.
-Legacy evidence can remain usable only if it remains visibly weaker. Canonical
-bytes and exact artifact, provenance, cache, assumption, and policy joins are
-necessary to resist self-consistent substitution. Closed derivation traces were
-backend-independent across six routes, eleven rules, and 1,000 generated programs
-with zero Rust/Python disagreement.
+The checked-in experiments support these prohibitions over precisely delimited
+domains. EXP-0005 rejects evidence-family and join substitutions while exposing
+five unresolved losslessness obligations among sixteen. EXP-0006--0008 show why
+portable sampling requires intent, typed backend plans, authority-indexed facts,
+availability, and consumers. EXP-0009 obtains agreement between independent Rust
+and Python replayers over six routes, eleven rules, and 1,000 generated programs,
+with sixteen attack classes and no backend-named common rule. These finite checks
+are not proofs of metatheoretic soundness, algebraic completeness, or human
+benefit; they are unusually explicit evidence for the design obligations that a
+future formalization must discharge.
 
-The negative result is equally important. Assurance IR `/1` is not lossless or
-frozen: five of sixteen registered rows remain partial, invalidation has not yet
-met its gate, and no human notification study or native-language experiment has
-run. The generated corpora are tests, not proofs of the algebra. The present
-research outcome is therefore continuation of Gate 1, not adoption of a language.
-
-That restraint defines the practical strategy. Proofbound first serves as a
-bridge over Python, TypeScript, Rust, Lean, Kani, Aeneas, and related tools. The
-bridge supplies useful typed evidence while producing the data needed to decide
-whether a native language would remove accidental semantic diversity or merely
-add another dialect to it.
+The architectural conclusion is nevertheless firm. Backend multiplicity belongs
+at typed elaboration boundaries, while evidence meaning, canonical identity,
+derivation, and policy remain in a small kernel. Proofbound should therefore
+serve first as a semantic bridge over Python, TypeScript, Rust, Lean, Kani,
+Aeneas, and related systems. A native language is justified only as a conservative
+surface for this calculus and only where it demonstrably reduces accidental
+complexity. Anything weaker would not resolve the Tower of Babel; it would merely
+add another language to it.
 
 # References

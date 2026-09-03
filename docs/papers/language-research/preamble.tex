@@ -1,6 +1,7 @@
 % Paper-local design follows the Pandoc/XeLaTeX organization used by the
 % matrix-math papers.
 \usepackage{amsmath}
+\usepackage{amsthm}
 \usepackage{booktabs}
 \usepackage{longtable}
 \usepackage{fancyvrb}
@@ -26,6 +27,8 @@
 \makeatother
 \linespread{1.035}
 \frenchspacing
+\newtheorem{empiricalproposition}{Finite-model proposition}
+\newtheorem{designobligation}{Design obligation}
 
 \usepackage{newunicodechar}
 \newunicodechar{→}{\ensuremath{\rightarrow}}
@@ -51,7 +54,7 @@
 \usepackage{fancyhdr}
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\footnotesize\itshape From passed to justified: assurance-language research}
+\fancyhead[L]{\footnotesize\itshape A calculus of heterogeneous software assurance}
 \fancyhead[R]{\footnotesize\thepage}
 \renewcommand{\headrulewidth}{0.2pt}
 \fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\footnotesize\thepage}%
