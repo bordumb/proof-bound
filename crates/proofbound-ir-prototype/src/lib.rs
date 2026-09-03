@@ -14,6 +14,7 @@ use serde_json::{Map, Value};
 mod artifact_roles;
 mod assurance;
 mod derivation;
+mod frontend;
 mod invalidation;
 mod layered_sampling;
 mod portable;
@@ -37,6 +38,17 @@ pub use assurance::{
 pub use derivation::{
     DerivationError, DerivationProgram, DerivationReport, GeneratedAdversarialCase,
     GeneratedCorpus, GeneratedValidCase, generate_derivation_corpus, validate_derivation_program,
+};
+pub use frontend::{
+    EFFECTIVE_PROGRAMME_SCHEMA, EffectiveProgramme, FRONTEND_COMPILATION_SCHEMA,
+    FRONTEND_PROGRAMME_SCHEMA, FRONTEND_RECEIPT_SCHEMA, FrontendBoundedDomain, FrontendBudget,
+    FrontendCompilation, FrontendDependency, FrontendError, FrontendEvidence, FrontendMutation,
+    FrontendOperation, FrontendProgramme, FrontendProgrammeControl, FrontendProject,
+    FrontendPythonProperty, FrontendReceipt, FrontendSourceMap, FrontendSourceMapEntry,
+    FrontendSourceSpan, SOURCE_MAP_SCHEMA, compare_frontend_programme_control,
+    compile_dsl_frontend, compile_pkl_frontend, compile_pkl_frontend_with_identity,
+    compile_toml_frontend, format_dsl_frontend, validate_effective_programme_bytes,
+    validate_frontend_compilation, validate_frontend_compilation_bytes,
 };
 pub use invalidation::{
     CacheDependencyEvidence, ChangedNode, ChangedNodeKind, DEPENDENCY_PROJECTION_DOMAIN,
