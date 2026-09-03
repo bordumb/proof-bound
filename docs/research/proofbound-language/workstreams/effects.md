@@ -89,3 +89,15 @@ ran the frozen Linux corpus on an Ubuntu ARM64 host with Landlock ABI 7. All
 runtime execution. The candidate named the dynamic-loader premise without
 granting its exact execute closure. The next candidate must bind that closure
 without turning broad system-read roots into executable authority.
+
+## Linux loader-closure result
+
+[EXP-LANG-017 / Experiment 0024](../../../experiments/0024-linux-loader-closure/README.md)
+registered the ELF interpreter as a distinct exact artifact role. On Landlock
+ABI 7, all 30 permitted runs completed and all 21 attacks remained denied and
+non-reusable. The system roots retained read-only authority, while only the
+identity-bound interpreter gained execution authority. Rust and Python reports
+were byte-identical and both rejected all 20 registered attacks exactly.
+
+This closes the bounded Linux loader falsifier. It does not establish arbitrary
+platform closure discovery or Windows enforcement.

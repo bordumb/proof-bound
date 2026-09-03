@@ -79,6 +79,13 @@ workloads are denied before entry because the registered dynamic-loader
 premise is not represented as execute authority. Linux is now a concrete
 `revise`, rather than an availability `unanswered`; Windows remains untested.
 
+EXP-LANG-017 / Experiment 0024 repairs that falsifier with one exact,
+identity-bound ELF-interpreter role. The native Ubuntu ARM64 run passes all
+five registered questions: 30 permitted executions, 21 denied probes, zero
+denied reuse, byte-identical independent reports, and 40 exact attack
+rejections. Gate 1 now has bounded macOS and Linux candidates; native Windows
+confirmation still blocks a cross-platform result.
+
 ## Gate 2 — Authoring and authority
 
 Required: WS-DSL and WS-FX.

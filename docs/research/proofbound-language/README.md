@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 5 — adoption bridge and language decision
-- **Latest experiment:** EXP-LANG-017 / Experiment 0024 preregistered; exact Linux loader repair pending
+- **Latest experiment:** EXP-LANG-017 / Experiment 0024 concluded `pass`; Windows confirmation pending
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -102,6 +102,11 @@ loader execution closure was not granted. Both independent validators rejected
 the capture as `LNX-POSITIVE-OUTCOME`. The result is `revise`: the next Linux
 candidate must identity-bind the loader closure without broadly granting
 system-root execution.
+EXP-LANG-017 then implemented that exact role. On a native Ubuntu ARM64 host
+with Landlock ABI 7, all 30 permitted runs completed, all 21 authority probes
+were denied without reusable evidence, and independent validators agreed
+across 40 attack evaluations. The bounded Linux execution-closure repair
+passes; Windows confirmation remains open.
 
 ## Programme map
 
@@ -123,9 +128,9 @@ system-root execution.
 |---|---|---|---|---|
 | WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | `/2` bounded candidate supported; production parity pending | H1, H2 | EXP-LANG-010 concluded |
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
-| WS-IN | [Invalidation](workstreams/invalidation.md) | macOS candidate supported; Linux loader authority incomplete; Windows live result unanswered | H3, H9 | EXP-LANG-015 / Experiment 0022 concluded `revise` |
+| WS-IN | [Invalidation](workstreams/invalidation.md) | macOS and bounded Linux candidates supported; Windows live result unanswered | H3, H9 | EXP-LANG-017 / Experiment 0024 concluded `pass` |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
-| WS-FX | [Effects and capabilities](workstreams/effects.md) | fast macOS boundary supported; Linux loader authority incomplete; Windows live portability unanswered | H5, H9 | EXP-LANG-015 / Experiment 0022 concluded `revise` |
+| WS-FX | [Effects and capabilities](workstreams/effects.md) | fast macOS and bounded Linux boundaries supported; Windows live portability unanswered | H5, H9 | EXP-LANG-017 / Experiment 0024 concluded `pass` |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | bounded research bytecode supported; broader native work open | H7 | EXP-LANG-007 concluded |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | bounded dual compilation; machine code open | H7 | EXP-LANG-007 concluded |

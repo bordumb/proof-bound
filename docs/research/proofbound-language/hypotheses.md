@@ -15,7 +15,7 @@ new one; it does not rewrite the original claim after results are known.
 | H6 | bounded structural support; human effect unanswered | First-class uncertainty yields more actionable, lower-volume signals than tool-oriented alerts. | Users miss more critical consequences or gain no measurable reduction in irrelevant escalation. | EXP-LANG-006 / Experiment 0013 |
 | H7 | bounded research-bytecode support; machine code, release, and comparison open | A small native executable subset can bind code, specification, proof, build, and release more strongly than existing-language adapters. | Trusted complexity exceeds the gain or an existing verified language provides the same outcome more simply. | EXP-LANG-009, EXP-LANG-010, EXP-LANG-007 |
 | H8 | bounded support; broader foreign boundaries open | Native and foreign components can share one graph without presenting empirical correspondence as formal proof. | Foreign boundaries become untyped escape hatches or obscure claim meaning. | EXP-LANG-008 / Experiment 0017 |
-| H9 | bounded fast macOS support; Linux and Windows unanswered; portability revision required | A separately identified OS enforcement boundary can make exact project dependencies sufficient for sound, narrow reuse across representative Python, Node, and Rust processes. | An undeclared input influences reusable evidence, an unrelated change invalidates a subject, enforcement requires unrestricted project authority, or unsupported execution silently falls back. | EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014 |
+| H9 | bounded macOS and Linux support; Windows unanswered | A separately identified OS enforcement boundary can make exact project dependencies sufficient for sound, narrow reuse across representative Python, Node, and Rust processes. | An undeclared input influences reusable evidence, an unrelated change invalidates a subject, enforcement requires unrestricted project authority, or unsupported execution silently falls back. | EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014, EXP-LANG-015, EXP-LANG-017 |
 
 ## Current interpretation
 
@@ -113,4 +113,12 @@ environment is still required.
 
 EXP-LANG-014 validates an explicit Windows candidate and the same no-fallback
 rule. The non-Windows host gate emitted no receipts, so H9 still has no
-positive Windows support. Both portability branches remain open.
+positive Windows support.
+
+EXP-LANG-015 then falsifies the first live Linux execution closure on a
+Landlock ABI 7 host: every dynamically linked runtime is denied because its
+ELF interpreter is not executable under the registered policy. EXP-LANG-017
+repairs that exact defect by binding the interpreter as its own artifact role.
+All 30 permitted runs and 21 denied probes then satisfy the frozen contract,
+with zero denied reuse and exact independent attack agreement. H9 therefore
+has bounded Linux support; native Windows confirmation remains open.

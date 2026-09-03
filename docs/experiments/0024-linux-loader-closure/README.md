@@ -1,6 +1,6 @@
 # Experiment 0024: exact Linux loader execution closure
 
-- **Status:** preregistered — not executed
+- **Status:** concluded — pass
 - **Registered:** 2026-09-03
 - **Subject:** EXP-0022's retained runtime-execution falsifier
 - **Operator:** Codex
@@ -59,4 +59,5 @@ unapproved-executable probe and must be denied.
   unregistered executable, falls back, or makes denied evidence reusable.
 
 The immutable registration is [preregistration.json](preregistration.json).
-
+The outcome and retained identities are summarized in
+[CONCLUSION.md](CONCLUSION.md).
