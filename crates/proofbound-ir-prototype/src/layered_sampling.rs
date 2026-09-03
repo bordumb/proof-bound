@@ -50,6 +50,20 @@ pub struct LayeredSamplingCase {
     admission_rule: AdmissionRule,
 }
 
+impl LayeredSamplingCase {
+    pub fn targets(&self) -> &[String] {
+        &self.intent.targets
+    }
+
+    pub fn intent_identity(&self) -> &str {
+        &self.intent_identity
+    }
+
+    pub fn plan_identity(&self) -> &str {
+        &self.plan_identity
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SamplingIntent {

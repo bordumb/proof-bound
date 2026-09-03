@@ -5,7 +5,6 @@ use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::{Map, Number, Value};
 
 pub const CASE_SCHEMA: &str = "proofbound-assurance-ir-case/1";
-const CACHE_DOMAIN: &str = "proofbound-assurance-ir-cache/1";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CaseProgram {
@@ -464,12 +463,11 @@ pub struct IrBudget {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct IrCacheProvenance {
-    pub prior_receipt: Option<String>,
-    pub key: String,
-    pub source_key: Option<String>,
-    pub origin: String,
-    pub reuse_eligible: bool,
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum IrCacheProvenance {
+    NotExecuted,
+    Executed { key: String },
+    ReusedExactPrior { key: String, prior_receipt: String },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -544,17 +542,6 @@ pub fn family_schema(kind: &str) -> Option<&'static str> {
         "source-correspondence" => Some("proofbound-ir-source-correspondence/1"),
         _ => None,
     }
-}
-
-pub fn cache_key(unit: &str, prior_receipt: Option<&str>) -> String {
-    let material = serde_json::json!({
-        "prior_receipt": prior_receipt,
-        "unit": unit,
-    });
-    domain_hash(
-        CACHE_DOMAIN,
-        &canonical_json(&material).expect("bounded cache material must canonicalize"),
-    )
 }
 
 pub fn validate_case_program(bytes: &[u8]) -> Result<(), IrValidationError> {
@@ -821,15 +808,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
                 "required nullable peak_memory is missing",
             ));
         }
-        let cache = object_field(provenance, "cache")?;
-        let prior = cache.get("prior_receipt").and_then(Value::as_str);
-        let unit = text(item, "unit")?;
-        if text(cache, "key")? != cache_key(unit, prior) {
-            return Err(IrValidationError::new(
-                "IR-CACHE-REUSE-MISMATCH",
-                "cache key does not bind the prior receipt",
-            ));
-        }
+        validate_cache_provenance(object_field(provenance, "cache")?)?;
     }
 
     validate_programme(programme, portable_receipt)?;
@@ -864,6 +843,51 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
         !claim_assumptions.iter().all(Vec::is_empty) || obligations,
         exact_status,
     )
+}
+
+fn validate_cache_provenance(cache: &Map<String, Value>) -> Result<(), IrValidationError> {
+    match text(cache, "state")? {
+        "not-executed" => exact_fields(cache, &["state"], &[]),
+        "executed" => {
+            if cache.contains_key("prior_receipt") {
+                return Err(IrValidationError::new(
+                    "IR-CACHE-REUSE-MISMATCH",
+                    "executed cache provenance cannot name a prior receipt",
+                ));
+            }
+            exact_fields(cache, &["state", "key"], &[])?;
+            require_digest(text(cache, "key")?, "cache key")
+        }
+        "reused-exact-prior" => {
+            exact_fields(cache, &["state", "key", "prior_receipt"], &[])?;
+            require_digest(text(cache, "key")?, "cache key")?;
+            require_digest(text(cache, "prior_receipt")?, "prior receipt")
+        }
+        _ => Err(IrValidationError::new(
+            "IR-CACHE-DECISION-MISMATCH",
+            "cache decision state is unknown",
+        )),
+    }
+}
+
+fn require_digest(value: &str, label: &str) -> Result<(), IrValidationError> {
+    let Some(hex) = value.strip_prefix("sha256:") else {
+        return Err(IrValidationError::new(
+            "IR-CACHE-SOURCE-MISMATCH",
+            format!("{label} is not a canonical SHA-256 identity"),
+        ));
+    };
+    if hex.len() != 64
+        || !hex
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(IrValidationError::new(
+            "IR-CACHE-SOURCE-MISMATCH",
+            format!("{label} is not a canonical SHA-256 identity"),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_portable_joins(

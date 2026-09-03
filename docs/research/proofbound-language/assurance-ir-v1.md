@@ -522,6 +522,11 @@ CacheDependencies {
   backend_dependencies: Set<BackendDependency>
   execution_inputs: Set<ExecutionInputIdentity>
 }
+
+CacheObservation =
+    NotExecuted
+  | Executed { key: Sha256 }
+  | ReusedExactPrior { key: Sha256, prior_receipt: Sha256 }
 ```
 
 The common kernel computes the cache key from canonical
@@ -533,8 +538,12 @@ adversarial invalidation tests.
 
 Generated artifacts, child output, timestamps, usage, and prior receipt are not
 pre-execution dependencies. A reused record retains both the new cache key and
-the exact prior receipt identity. This is a provisional answer shape for
-OQ-004, not its resolution.
+the exact prior receipt identity. An executed record retains the exact source
+cache key. The IR never synthesizes a replacement key from the unit and prior
+receipt, and it does not invent a `reuse_eligible` Boolean: eligibility is a
+derivation over the complete dependency projection, while this sum records
+what actually happened. This remains a provisional answer shape for OQ-004
+until the registered invalidation matrix has executed.
 
 ## 11. Graph, assumptions, and policy
 

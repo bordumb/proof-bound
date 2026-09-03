@@ -7,8 +7,9 @@ use std::{
 
 use proofbound_ir_prototype::{
     audit_artifact_roles, derive_release_trace_bundle, generate_derivation_corpus, project_corpus,
-    project_portable_families, validate_case_program, validate_derivation_program,
-    validate_layered_sampling_case, validate_release_trace_bundle, validate_sampling_observation,
+    project_portable_families, project_portable_families_with_sampling, validate_case_program,
+    validate_derivation_program, validate_layered_sampling_case, validate_release_trace_bundle,
+    validate_sampling_observation,
 };
 
 fn main() -> ExitCode {
@@ -52,6 +53,47 @@ fn main() -> ExitCode {
         return match project_portable_families(&root, &index).and_then(|projection| {
             proofbound_evidence::canonical_json(&projection).map_err(anyhow::Error::from)
         }) {
+            Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("failed to write projection: {error}");
+                    ExitCode::from(1)
+                }
+            },
+            Err(error) => {
+                eprintln!("projection failed: {error:#}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if first.as_deref()
+        == Some(std::ffi::OsStr::new(
+            "project-portable-families-with-sampling",
+        ))
+    {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype project-portable-families-with-sampling <repository-root> <capture-index.json> <sampling-extensions.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(index) = args.next().map(PathBuf::from) else {
+            eprintln!("missing capture index");
+            return ExitCode::from(2);
+        };
+        let Some(extensions) = args.next().map(PathBuf::from) else {
+            eprintln!("missing sampling extension index");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        return match project_portable_families_with_sampling(&root, &index, &extensions).and_then(
+            |projection| {
+                proofbound_evidence::canonical_json(&projection).map_err(anyhow::Error::from)
+            },
+        ) {
             Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(error) => {

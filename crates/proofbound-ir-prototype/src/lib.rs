@@ -30,7 +30,7 @@ pub use assurance::{
     IrMutationRegistration, IrMutualTheoremGroup, IrNativePremiseRule, IrPolicy, IrPolicyRecord,
     IrPremise, IrPremiseDischarge, IrProgrammeContext, IrProject, IrPropertyRegistration,
     IrProvenance, IrPublicationTrace, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun,
-    IrSubjectClosure, IrTcbComponent, IrTool, IrUsage, IrValidationError, RetainedFact, cache_key,
+    IrSubjectClosure, IrTcbComponent, IrTool, IrUsage, IrValidationError, RetainedFact,
     family_kind, family_schema, validate_case_program,
 };
 pub use derivation::{
@@ -42,8 +42,9 @@ pub use layered_sampling::{
     validate_layered_sampling_case,
 };
 pub use portable::{
-    PORTABLE_FAMILY_PROJECTION_SCHEMA, PortableFamily, PortableFamilyProjection,
-    PortableFamilyRecord, SamplingDetail, project_portable_families,
+    PORTABLE_FAMILY_PROJECTION_SCHEMA, PORTABLE_FAMILY_PROJECTION_V2_SCHEMA, PortableFamily,
+    PortableFamilyProjection, PortableFamilyRecord, SamplingDetail, project_portable_families,
+    project_portable_families_with_sampling,
 };
 pub use sampling::{
     SamplingContract, SamplingObservation, SamplingValidationError, SamplingValidationReport,
@@ -294,9 +295,9 @@ pub fn project_corpus(root: &Path, corpus_path: &Path) -> Result<ProjectionBatch
 fn validate_corpus_header(corpus: &Corpus) -> Result<()> {
     ensure!(corpus.schema == CORPUS_SCHEMA, "unsupported corpus schema");
     ensure!(corpus.experiment == "EXP-0005", "unexpected experiment");
-    ensure!(corpus.revision == 2, "unsupported corpus revision");
+    ensure!(corpus.revision == 3, "unsupported corpus revision");
     ensure!(
-        corpus.status == "frozen-positive-expanded-for-q1",
+        corpus.status == "frozen-positive-after-preregistered-rust-classification-correction",
         "corpus is not frozen"
     );
     ensure!(
@@ -1148,16 +1149,22 @@ fn release_program(
                     })
                     .transpose()?
                     .unwrap_or_default(),
-                cache: IrCacheProvenance {
-                    prior_receipt: prior_receipt.map(str::to_owned),
-                    key: cache_key(unit, prior_receipt),
-                    source_key: value_optional_text(provenance, "cache_key")?,
-                    origin: if prior_receipt.is_some() {
-                        "reused".to_owned()
-                    } else {
-                        "executed".to_owned()
+                cache: match prior_receipt {
+                    Some(prior_receipt) => IrCacheProvenance::ReusedExactPrior {
+                        key: provenance
+                            .get("cache_key")
+                            .and_then(Value::as_str)
+                            .context("release cache key is missing")?
+                            .to_owned(),
+                        prior_receipt: prior_receipt.to_owned(),
                     },
-                    reuse_eligible: true,
+                    None => IrCacheProvenance::Executed {
+                        key: provenance
+                            .get("cache_key")
+                            .and_then(Value::as_str)
+                            .context("release cache key is missing")?
+                            .to_owned(),
+                    },
                 },
             },
         });
@@ -1725,8 +1732,19 @@ fn release_evidence_source_projection(
     }))
 }
 
-fn release_provenance_source_projection(unit: &str, provenance: &Value) -> Result<Value> {
+fn release_provenance_source_projection(_unit: &str, provenance: &Value) -> Result<Value> {
     let prior = provenance.get("reused_from").and_then(Value::as_str);
+    let cache = match prior {
+        Some(prior_receipt) => serde_json::json!({
+            "state": "reused-exact-prior",
+            "key": required_value_text(provenance, "cache_key")?,
+            "prior_receipt": prior_receipt,
+        }),
+        None => serde_json::json!({
+            "state": "executed",
+            "key": required_value_text(provenance, "cache_key")?,
+        }),
+    };
     Ok(serde_json::json!({
         "revision": provenance.get("project_revision").cloned().unwrap_or(Value::Null),
         "tree_state": provenance.get("tree_state").cloned().unwrap_or(Value::Null),
@@ -1752,13 +1770,7 @@ fn release_provenance_source_projection(unit: &str, provenance: &Value) -> Resul
             "peak_memory": provenance.pointer("/actual_cost/memory_bytes").cloned().unwrap_or(Value::Null),
         },
         "python_plugins": provenance.get("python_plugins").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-        "cache": {
-            "prior_receipt": provenance.get("reused_from").cloned().unwrap_or(Value::Null),
-            "key": cache_key(unit, prior),
-            "source_key": provenance.get("cache_key").cloned().unwrap_or(Value::Null),
-            "origin": if prior.is_some() {"reused"} else {"executed"},
-            "reuse_eligible": true,
-        },
+        "cache": cache,
     }))
 }
 
@@ -2467,7 +2479,7 @@ fn ensure_family_configuration_fields(
     Ok(())
 }
 
-fn empty_provenance(unit: &str) -> IrProvenance {
+fn empty_provenance(_unit: &str) -> IrProvenance {
     IrProvenance {
         revision: None,
         tree_state: None,
@@ -2493,13 +2505,7 @@ fn empty_provenance(unit: &str) -> IrProvenance {
             peak_memory: None,
         },
         python_plugins: Vec::new(),
-        cache: IrCacheProvenance {
-            prior_receipt: None,
-            key: cache_key(unit, None),
-            source_key: None,
-            origin: "not-executed".to_owned(),
-            reuse_eligible: false,
-        },
+        cache: IrCacheProvenance::NotExecuted,
     }
 }
 
@@ -2912,6 +2918,29 @@ mod tests {
         assert_eq!(evidence.provenance.commands[0].program, "synthetic-runner");
         assert_eq!(evidence.provenance.runs[0].exit_code, Some(0));
         assert_eq!(evidence.provenance.usage.disk_bytes, Some(1));
+        assert_eq!(
+            evidence.provenance.cache,
+            IrCacheProvenance::Executed {
+                key: "sha256:3a3aa7839045a3bb80eae26b9bd31e629947c5354d2eb3ff919d640e944556c9"
+                    .to_owned(),
+            }
+        );
+
+        let mut inconsistent_cache = serde_json::to_value(program.clone()).unwrap();
+        inconsistent_cache["evidence"][0]["provenance"]["cache"] = serde_json::json!({
+            "state": "reused-exact-prior",
+            "key": "sha256:3a3aa7839045a3bb80eae26b9bd31e629947c5354d2eb3ff919d640e944556c9"
+        });
+        let error =
+            validate_case_program(&canonical_json(&inconsistent_cache).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-TYPED-RECORD");
+
+        let mut invented_eligibility = serde_json::to_value(program.clone()).unwrap();
+        invented_eligibility["evidence"][0]["provenance"]["cache"]["reuse_eligible"] =
+            Value::Bool(true);
+        let error =
+            validate_case_program(&canonical_json(&invented_eligibility).unwrap()).unwrap_err();
+        assert_eq!(error.code, "IR-PROGRAMME-TYPED-RECORD");
 
         let mut missing_policy = serde_json::to_value(program).unwrap();
         missing_policy["programme"]["policies"] = Value::Array(Vec::new());
@@ -3187,7 +3216,18 @@ mod tests {
             ),
             "replace" | "replace-reported-status" => {
                 let path = mutation.get("path").and_then(Value::as_str).unwrap();
-                *value.pointer_mut(path).unwrap() = mutation.get("value").unwrap().clone();
+                if let Some(target) = value.pointer_mut(path) {
+                    *target = mutation.get("value").unwrap().clone();
+                } else if path.ends_with("/cache/prior_receipt") {
+                    let (parent, field) = path.rsplit_once('/').unwrap();
+                    value
+                        .pointer_mut(parent)
+                        .and_then(Value::as_object_mut)
+                        .unwrap()
+                        .insert(field.to_owned(), mutation.get("value").unwrap().clone());
+                } else {
+                    panic!("missing adversarial replacement path {path}");
+                }
             }
             "duplicate-set-member" => {
                 let array = value

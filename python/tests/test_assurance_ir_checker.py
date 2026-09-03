@@ -1,6 +1,7 @@
 import json
 import hashlib
 from pathlib import Path
+import shutil
 import subprocess
 
 import pytest
@@ -12,6 +13,7 @@ from proofbound.assurance_ir_checker import (
     check_canonical_vectors,
     check_generated_derivation_corpus,
     check_portable_family_projection,
+    check_portable_family_projection_with_sampling,
     check_projection,
     check_layered_sampling_case,
     check_sampling_observation,
@@ -43,6 +45,11 @@ DERIVATION_TEMPLATES = (
     ROOT / "docs/experiments/0009-generated-evidence-algebra/corpus/templates.json"
 )
 COMPLETION_ROOT = COMPLETION_CAPTURE.parent
+FINALIZATION_CAPTURE = (
+    ROOT
+    / "docs/experiments/0005-assurance-ir-extraction/captures/q1-finalization-r1/index.json"
+)
+SAMPLING_EXTENSIONS = FINALIZATION_CAPTURE.parent / "sampling-extensions.json"
 
 
 def layered_sampling_case(backend: str) -> dict[str, object]:
@@ -86,6 +93,28 @@ def producer_portable_family_projection() -> bytes:
             "project-portable-families",
             str(ROOT),
             str(COMPLETION_CAPTURE),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
+def producer_finalized_portable_family_projection() -> bytes:
+    return subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--locked",
+            "--offline",
+            "--quiet",
+            "-p",
+            "proofbound-ir-prototype",
+            "--",
+            "project-portable-families-with-sampling",
+            str(ROOT),
+            str(FINALIZATION_CAPTURE),
+            str(SAMPLING_EXTENSIONS),
         ],
         cwd=ROOT,
         check=True,
@@ -199,6 +228,167 @@ def test_independent_checker_agrees_on_portable_family_projection() -> None:
         "unit:bounded-roundtrip",
         "unit:rust-kernel-tests",
     ]
+
+
+def test_independent_checker_agrees_on_finalized_sampling_projection() -> None:
+    projection = producer_finalized_portable_family_projection()
+    report = check_portable_family_projection_with_sampling(
+        ROOT, FINALIZATION_CAPTURE, SAMPLING_EXTENSIONS, projection
+    )
+    assert report.case_count == 45
+    value = json.loads(projection)
+    assert value["schema"] == "proofbound-ir-portable-family-projection/2"
+    assert not [
+        record
+        for record in value["records"]
+        if record["family"]["kind"] == "sampled-property"
+        and record["family"]["detail"]["sampling"]["mode"] == "legacy-backend"
+    ]
+
+
+def rehash_sampling_extension(value: dict[str, object]) -> None:
+    extension = value["extensions"][0]
+    material = {
+        field: extension[field]
+        for field in (
+            "case_path",
+            "case_sha256",
+            "claims",
+            "inventory",
+            "record_sha256",
+            "unit_id",
+        )
+    }
+    extension["extension_sha256"] = domain_hash(
+        "proofbound-ir-sampling-extension/1", canonical_json(material)
+    )
+
+
+def write_sampling_extension(path: Path, value: dict[str, object]) -> None:
+    path.write_bytes(canonical_json(value))
+
+
+def test_independent_checker_rejects_sampling_extension_join_attacks(
+    tmp_path: Path,
+) -> None:
+    valid_projection = producer_finalized_portable_family_projection()
+    projection = json.loads(valid_projection)
+
+    attacks = [
+        (
+            "IR-SAMPLING-EXTENSION-RECORD-MISMATCH",
+            "record_sha256",
+            "sha256:" + "0" * 64,
+        ),
+        ("IR-SAMPLING-EXTENSION-UNIT-MISMATCH", "unit_id", "unit:other"),
+        ("IR-SAMPLING-EXTENSION-CLAIM-MISMATCH", "claims", ["TS-PACKAGE-001"]),
+        (
+            "IR-SAMPLING-EXTENSION-INVENTORY-MISMATCH",
+            "inventory",
+            ["same-count-substitute"],
+        ),
+    ]
+    for expected, field, replacement in attacks:
+        extension = json.loads(SAMPLING_EXTENSIONS.read_bytes())
+        extension["extensions"][0][field] = replacement
+        rehash_sampling_extension(extension)
+        path = tmp_path / f"{field}.json"
+        write_sampling_extension(path, extension)
+        with pytest.raises(AssuranceIrError) as caught:
+            check_portable_family_projection_with_sampling(
+                ROOT, FINALIZATION_CAPTURE, path, valid_projection
+            )
+        assert caught.value.code == expected
+
+    duplicate = json.loads(SAMPLING_EXTENSIONS.read_bytes())
+    duplicate["extensions"].append(json.loads(json.dumps(duplicate["extensions"][0])))
+    duplicate_path = tmp_path / "duplicate.json"
+    write_sampling_extension(duplicate_path, duplicate)
+    with pytest.raises(AssuranceIrError) as caught:
+        check_portable_family_projection_with_sampling(
+            ROOT, FINALIZATION_CAPTURE, duplicate_path, valid_projection
+        )
+    assert caught.value.code == "IR-SAMPLING-EXTENSION-DUPLICATE"
+
+    rust = next(
+        record
+        for record in projection["records"]
+        if record["unit_id"] == "unit:rust-kernel-tests"
+    )
+    reinterpret = json.loads(SAMPLING_EXTENSIONS.read_bytes())
+    reinterpret["extensions"][0].update(
+        {
+            "record_sha256": rust["content_sha256"],
+            "unit_id": rust["unit_id"],
+            "claims": rust["claims"],
+            "inventory": rust["inventory"],
+        }
+    )
+    rehash_sampling_extension(reinterpret)
+    reinterpret_path = tmp_path / "reinterpret-rust.json"
+    write_sampling_extension(reinterpret_path, reinterpret)
+    with pytest.raises(AssuranceIrError) as caught:
+        check_portable_family_projection_with_sampling(
+            ROOT, FINALIZATION_CAPTURE, reinterpret_path, valid_projection
+        )
+    assert caught.value.code == "IR-SAMPLING-EXTENSION-UNREGISTERED"
+
+
+def copy_sampling_extension_repository(destination: Path) -> tuple[Path, Path]:
+    paths = (
+        "docs/experiments/0005-assurance-ir-extraction/captures/q1-finalization-r1/index.json",
+        "docs/experiments/0005-assurance-ir-extraction/captures/q1-finalization-r1/sampling-extensions.json",
+        "docs/experiments/0005-assurance-ir-extraction/captures/q1-finalization-r1/python/compiled-receipt.json",
+        "docs/experiments/0005-assurance-ir-extraction/captures/q1-finalization-r1/typescript/compiled-receipt.json",
+        "docs/experiments/0005-assurance-ir-extraction/captures/q1-finalization-r1/typescript/bounded-roundtrip-sampling.json",
+        "docs/experiments/0005-assurance-ir-extraction/captures/q1-finalization-r1/rust/compiled-receipt.json",
+        "demo/typescript-codec/src/base64url.ts",
+        "demo/typescript-codec/src/roundtrip.test.ts",
+    )
+    for relative in paths:
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    capture = destination / paths[0]
+    return capture, capture.parent / "sampling-extensions.json"
+
+
+def test_independent_checker_rejects_sampling_extension_content_attacks(
+    tmp_path: Path,
+) -> None:
+    valid_projection = producer_finalized_portable_family_projection()
+
+    generator_root = tmp_path / "generator"
+    capture, extensions = copy_sampling_extension_repository(generator_root)
+    with (generator_root / "demo/typescript-codec/src/base64url.ts").open("ab") as file:
+        file.write(b" ")
+    with pytest.raises(AssuranceIrError) as caught:
+        check_portable_family_projection_with_sampling(
+            generator_root, capture, extensions, valid_projection
+        )
+    assert caught.value.code == "generator-identity-mismatch"
+
+    plan_root = tmp_path / "plan"
+    capture, extensions_path = copy_sampling_extension_repository(plan_root)
+    case_path = (
+        plan_root
+        / "docs/experiments/0005-assurance-ir-extraction/captures/q1-finalization-r1/typescript/bounded-roundtrip-sampling.json"
+    )
+    case = json.loads(case_path.read_bytes())
+    case["plan"]["random_type"] = "substituted"
+    case_bytes = canonical_json(case) + b"\n"
+    case_path.write_bytes(case_bytes)
+    extensions = json.loads(extensions_path.read_bytes())
+    extensions["extensions"][0]["case_sha256"] = (
+        "sha256:" + hashlib.sha256(case_bytes).hexdigest()
+    )
+    rehash_sampling_extension(extensions)
+    write_sampling_extension(extensions_path, extensions)
+    with pytest.raises(AssuranceIrError) as caught:
+        check_portable_family_projection_with_sampling(
+            plan_root, capture, extensions_path, valid_projection
+        )
+    assert caught.value.code == "sampling-plan-identity-mismatch"
 
 
 def test_both_implementations_derive_identical_completion_traces() -> None:
@@ -659,6 +849,25 @@ def test_portable_projection_retains_programme_and_execution_meaning() -> None:
     assert evidence["provenance"]["commands"][0]["program"] == "synthetic-runner"
     assert evidence["provenance"]["runs"][0]["exit_code"] == 0
     assert evidence["provenance"]["usage"]["disk_bytes"] == 1
+    assert evidence["provenance"]["cache"] == {
+        "state": "executed",
+        "key": "sha256:3a3aa7839045a3bb80eae26b9bd31e629947c5354d2eb3ff919d640e944556c9",
+    }
+
+    inconsistent_cache = json.loads(json.dumps(program))
+    inconsistent_cache["evidence"][0]["provenance"]["cache"] = {
+        "state": "reused-exact-prior",
+        "key": "sha256:3a3aa7839045a3bb80eae26b9bd31e629947c5354d2eb3ff919d640e944556c9",
+    }
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(inconsistent_cache))
+    assert caught.value.code == "IR-PROGRAMME-TYPED-RECORD"
+
+    invented_eligibility = json.loads(json.dumps(program))
+    invented_eligibility["evidence"][0]["provenance"]["cache"]["reuse_eligible"] = True
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_case_program(canonical_json(invented_eligibility))
+    assert caught.value.code == "IR-PROGRAMME-TYPED-RECORD"
 
     missing_policy = json.loads(json.dumps(program))
     missing_policy["programme"]["policies"] = []

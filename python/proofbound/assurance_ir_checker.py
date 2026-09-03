@@ -21,9 +21,12 @@ CORPUS_SCHEMA = "proofbound-research-projection-corpus/1"
 PROJECTION_SCHEMA = "proofbound-assurance-ir-projection/1"
 PROJECTION_DOMAIN = "proofbound-assurance-ir-projection/1"
 CASE_SCHEMA = "proofbound-assurance-ir-case/1"
-CACHE_DOMAIN = "proofbound-assurance-ir-cache/1"
 PORTABLE_FAMILY_PROJECTION_SCHEMA = "proofbound-ir-portable-family-projection/1"
 PORTABLE_FAMILY_PROJECTION_DOMAIN = "proofbound-ir-portable-family-projection/1"
+PORTABLE_FAMILY_PROJECTION_V2_SCHEMA = "proofbound-ir-portable-family-projection/2"
+PORTABLE_FAMILY_PROJECTION_V2_DOMAIN = "proofbound-ir-portable-family-projection/2"
+SAMPLING_EXTENSION_SCHEMA = "proofbound-ir-sampling-extension/1"
+SAMPLING_EXTENSION_DOMAIN = "proofbound-ir-sampling-extension/1"
 LEGACY_SAMPLING_REASON = "sampling-detail-not-yet-portable"
 DERIVATION_PROGRAM_SCHEMA = "proofbound-derivation-program/1"
 DERIVATION_FACT_SCHEMA = "proofbound-derivation-fact/1"
@@ -404,7 +407,11 @@ def check_projection(
         raise AssuranceIrError("unexpected experiment")
     if corpus["baseline"] != projection["baseline"]:
         raise AssuranceIrError("baseline mismatch")
-    if corpus["revision"] != 2 or corpus["status"] != "frozen-positive-expanded-for-q1":
+    if (
+        corpus["revision"] != 3
+        or corpus["status"]
+        != "frozen-positive-after-preregistered-rust-classification-correction"
+    ):
         raise AssuranceIrError("corpus is not frozen")
 
     corpus_sha256 = _sha256(corpus_bytes)
@@ -474,9 +481,20 @@ def check_portable_family_projection(
         AssuranceIrError: If capture identities or family semantics differ.
     """
 
+    projection = _strict_json(projection_bytes, require_canonical=True)
+    material = _portable_family_material(root, capture_index_path)
+    identity = domain_hash(PORTABLE_FAMILY_PROJECTION_DOMAIN, canonical_json(material))
+    expected = material | {"projection_sha256": identity}
+    if projection != expected:
+        raise AssuranceIrError(
+            "portable family projection differs from independent reconstruction"
+        )
+    return CheckReport(len(material["records"]), identity)
+
+
+def _portable_family_material(root: Path, capture_index_path: Path) -> dict[str, Any]:
     index_bytes = capture_index_path.read_bytes()
     index = _strict_json(index_bytes, require_canonical=False)
-    projection = _strict_json(projection_bytes, require_canonical=True)
     if (
         index.get("schema") != "proofbound-research-q1-completion-capture/1"
         or index.get("revision") != 1
@@ -526,13 +544,202 @@ def check_portable_family_projection(
         "records": records,
         "schema": PORTABLE_FAMILY_PROJECTION_SCHEMA,
     }
-    identity = domain_hash(PORTABLE_FAMILY_PROJECTION_DOMAIN, canonical_json(material))
+    return material
+
+
+def check_portable_family_projection_with_sampling(
+    root: Path,
+    capture_index_path: Path,
+    extension_index_path: Path,
+    projection_bytes: bytes,
+) -> CheckReport:
+    """Check a versioned layered-sampling extension over frozen receipts.
+
+    Args:
+        root: Repository root containing capture and generator source bytes.
+        capture_index_path: Identity index for the corrected completion capture.
+        extension_index_path: Registered sampling-extension joins.
+        projection_bytes: Canonical projection emitted by the Rust prototype.
+
+    Returns:
+        Projected record count and independently recomputed identity.
+
+    Raises:
+        AssuranceIrError: If an extension, source record, case, or identity differs.
+    """
+
+    projection = _strict_json(projection_bytes, require_canonical=True)
+    material = _portable_family_material(root, capture_index_path)
+    extension_index = _strict_json(
+        extension_index_path.read_bytes(), require_canonical=False
+    )
+    _require_keys(
+        extension_index,
+        {"schema", "registered_units", "extensions"},
+        "sampling extension index",
+    )
+    if extension_index["schema"] != SAMPLING_EXTENSION_SCHEMA:
+        _sampling_extension_fail(
+            "IR-SAMPLING-EXTENSION-SCHEMA", "unsupported extension schema"
+        )
+    if extension_index["registered_units"] != ["unit:bounded-roundtrip"]:
+        _sampling_extension_fail(
+            "IR-SAMPLING-EXTENSION-UNREGISTERED",
+            "sampling extension registration differs",
+        )
+
+    records = material["records"]
+    seen_records: set[str] = set()
+    extended_units: set[str] = set()
+    for raw_extension in extension_index["extensions"]:
+        extension = _as_object(raw_extension)
+        _require_keys(
+            extension,
+            {
+                "record_sha256",
+                "unit_id",
+                "claims",
+                "inventory",
+                "case_path",
+                "case_sha256",
+                "extension_sha256",
+            },
+            "sampling extension",
+        )
+        record_sha256 = _required_text(extension, "record_sha256")
+        unit_id = _required_text(extension, "unit_id")
+        if record_sha256 in seen_records:
+            _sampling_extension_fail(
+                "IR-SAMPLING-EXTENSION-DUPLICATE",
+                "portable record has two extensions",
+            )
+        seen_records.add(record_sha256)
+        extension_material = {
+            field: extension[field]
+            for field in (
+                "case_path",
+                "case_sha256",
+                "claims",
+                "inventory",
+                "record_sha256",
+                "unit_id",
+            )
+        }
+        extension_identity = domain_hash(
+            SAMPLING_EXTENSION_DOMAIN, canonical_json(extension_material)
+        )
+        if extension["extension_sha256"] != extension_identity:
+            _sampling_extension_fail(
+                "IR-SAMPLING-EXTENSION-IDENTITY-MISMATCH",
+                "extension identity differs",
+            )
+
+        matching = [
+            record for record in records if record["content_sha256"] == record_sha256
+        ]
+        if len(matching) != 1:
+            _sampling_extension_fail(
+                "IR-SAMPLING-EXTENSION-RECORD-MISMATCH",
+                "portable record is absent",
+            )
+        record = matching[0]
+        if record["unit_id"] != unit_id:
+            _sampling_extension_fail(
+                "IR-SAMPLING-EXTENSION-UNIT-MISMATCH", "unit ID differs"
+            )
+        if unit_id not in extension_index["registered_units"]:
+            _sampling_extension_fail(
+                "IR-SAMPLING-EXTENSION-UNREGISTERED",
+                "unit is not registered for extension",
+            )
+        if record["claims"] != extension["claims"]:
+            _sampling_extension_fail(
+                "IR-SAMPLING-EXTENSION-CLAIM-MISMATCH", "claim IDs differ"
+            )
+        if record["inventory"] != extension["inventory"]:
+            _sampling_extension_fail(
+                "IR-SAMPLING-EXTENSION-INVENTORY-MISMATCH",
+                "target inventory differs",
+            )
+        sampling = _as_object(_as_object(record["family"])["detail"])["sampling"]
+        sampling = _as_object(sampling)
+        if sampling.get("mode") != "legacy-backend":
+            _sampling_extension_fail(
+                "IR-SAMPLING-EXTENSION-UNREGISTERED",
+                "record is not legacy sampled evidence",
+            )
+
+        case_path = _safe_research_path(root, _required_text(extension, "case_path"))
+        case_bytes = case_path.read_bytes()
+        if _sha256(case_bytes) != extension["case_sha256"]:
+            _sampling_extension_fail(
+                "generator-identity-mismatch", "layered sampling case bytes differ"
+            )
+        check_layered_sampling_case(root, case_bytes)
+        case = _sampling_json(
+            case_bytes, "layered sampling case", allow_final_newline=True
+        )
+        if _as_object(case["intent"])["targets"] != extension["inventory"]:
+            _sampling_extension_fail(
+                "IR-SAMPLING-EXTENSION-INVENTORY-MISMATCH", "case targets differ"
+            )
+        _as_object(_as_object(record["family"])["detail"])["sampling"] = {
+            "mode": "layered-extension",
+            "source_contract_identity": sampling["contract_identity"],
+            "extension_identity": extension_identity,
+            "case_sha256": extension["case_sha256"],
+            "case": case,
+        }
+        extended_units.add(unit_id)
+
+    if extended_units != set(extension_index["registered_units"]):
+        _sampling_extension_fail(
+            "IR-SAMPLING-EXTENSION-UNREGISTERED",
+            "registered extension is missing",
+        )
+    if any(
+        record["family"]["kind"] == "sampled-property"
+        and record["family"]["detail"]["sampling"]["mode"] == "legacy-backend"
+        for record in records
+    ):
+        _sampling_extension_fail(
+            "IR-SAMPLING-EXTENSION-UNREGISTERED", "legacy sampling remains"
+        )
+
+    material["schema"] = PORTABLE_FAMILY_PROJECTION_V2_SCHEMA
+    identity = domain_hash(
+        PORTABLE_FAMILY_PROJECTION_V2_DOMAIN, canonical_json(material)
+    )
     expected = material | {"projection_sha256": identity}
     if projection != expected:
         raise AssuranceIrError(
             "portable family projection differs from independent reconstruction"
         )
     return CheckReport(len(records), identity)
+
+
+def _safe_research_path(root: Path, logical_path: str) -> Path:
+    relative = Path(logical_path)
+    if (
+        relative.is_absolute()
+        or "\\" in logical_path
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        _sampling_extension_fail(
+            "generator-identity-mismatch", "research path is not normalized"
+        )
+    try:
+        path = (root / relative).resolve(strict=True)
+        path.relative_to(root.resolve(strict=True))
+    except (OSError, ValueError) as error:
+        raise AssuranceIrError(
+            "research path escapes repository", code="generator-identity-mismatch"
+        ) from error
+    return path
+
+
+def _sampling_extension_fail(code: str, message: str) -> None:
+    raise AssuranceIrError(message, code=code)
 
 
 def check_sampling_observation(
@@ -1852,14 +2059,7 @@ def validate_case_program(data: bytes) -> None:
                 "IR-DECODE-REQUIRED-UNKNOWN",
                 "required nullable peak_memory is missing",
             )
-        provenance_cache = _object(provenance, "cache")
-        prior = provenance_cache.get("prior_receipt")
-        unit = _required_text(item, "unit")
-        if provenance_cache.get("key") != _cache_key(unit, prior):
-            _fail(
-                "IR-CACHE-REUSE-MISMATCH",
-                "cache key does not bind the prior receipt",
-            )
+        _validate_cache_provenance(_object(provenance, "cache"))
 
     _validate_programme(programme, portable_receipt)
     reported = _object(root, "reported")
@@ -2475,6 +2675,41 @@ def _validate_reported(
         _fail(
             "IR-STATUS-MISMATCH",
             "reported status differs from independent derivation",
+        )
+
+
+def _validate_cache_provenance(value: dict[str, Any]) -> None:
+    state = _required_text(value, "state")
+    if state == "not-executed":
+        _require_exact_fields(value, {"state"})
+        return
+    if state == "executed":
+        if "prior_receipt" in value:
+            _fail(
+                "IR-CACHE-REUSE-MISMATCH",
+                "executed cache provenance cannot name a prior receipt",
+            )
+        _require_exact_fields(value, {"state", "key"})
+        _require_cache_digest(value["key"], "cache key")
+        return
+    if state == "reused-exact-prior":
+        _require_exact_fields(value, {"state", "key", "prior_receipt"})
+        _require_cache_digest(value["key"], "cache key")
+        _require_cache_digest(value["prior_receipt"], "prior receipt")
+        return
+    _fail("IR-CACHE-DECISION-MISMATCH", "cache decision state is unknown")
+
+
+def _require_cache_digest(value: Any, label: str) -> None:
+    if (
+        not isinstance(value, str)
+        or len(value) != 71
+        or not value.startswith("sha256:")
+        or any(character not in "0123456789abcdef" for character in value[7:])
+    ):
+        _fail(
+            "IR-CACHE-SOURCE-MISMATCH",
+            f"{label} is not a canonical SHA-256 identity",
         )
 
 
@@ -3137,13 +3372,18 @@ def _release_program(
                         }
                         for plugin in provenance.get("python_plugins", [])
                     ],
-                    "cache": {
-                        "prior_receipt": prior_receipt,
-                        "key": _cache_key(unit, prior_receipt),
-                        "source_key": provenance.get("cache_key"),
-                        "origin": "reused" if prior_receipt is not None else "executed",
-                        "reuse_eligible": True,
-                    },
+                    "cache": (
+                        {
+                            "state": "reused-exact-prior",
+                            "key": _required_text(provenance, "cache_key"),
+                            "prior_receipt": prior_receipt,
+                        }
+                        if prior_receipt is not None
+                        else {
+                            "state": "executed",
+                            "key": _required_text(provenance, "cache_key"),
+                        }
+                    ),
                 },
             }
         )
@@ -3676,13 +3916,18 @@ def _release_evidence_source_projection(
                 "peak_memory": provenance["actual_cost"].get("memory_bytes"),
             },
             "python_plugins": provenance.get("python_plugins", []),
-            "cache": {
-                "prior_receipt": prior_receipt,
-                "key": _cache_key(unit, prior_receipt),
-                "source_key": provenance.get("cache_key"),
-                "origin": "reused" if prior_receipt is not None else "executed",
-                "reuse_eligible": True,
-            },
+            "cache": (
+                {
+                    "state": "reused-exact-prior",
+                    "key": _required_text(provenance, "cache_key"),
+                    "prior_receipt": prior_receipt,
+                }
+                if prior_receipt is not None
+                else {
+                    "state": "executed",
+                    "key": _required_text(provenance, "cache_key"),
+                }
+            ),
         },
     }
 
@@ -4043,14 +4288,7 @@ def _source_artifact(source: dict[str, Any], size_bytes: int) -> dict[str, Any]:
     }
 
 
-def _cache_key(unit: str, prior_receipt: str | None) -> str:
-    return domain_hash(
-        CACHE_DOMAIN,
-        canonical_json({"prior_receipt": prior_receipt, "unit": unit}),
-    )
-
-
-def _empty_provenance(unit: str) -> dict[str, Any]:
+def _empty_provenance(_unit: str) -> dict[str, Any]:
     return {
         "revision": None,
         "tree_state": None,
@@ -4072,13 +4310,7 @@ def _empty_provenance(unit: str) -> dict[str, Any]:
         "budget": None,
         "usage": {"time_ms": None, "disk_bytes": None, "peak_memory": None},
         "python_plugins": [],
-        "cache": {
-            "prior_receipt": None,
-            "key": _cache_key(unit, None),
-            "source_key": None,
-            "origin": "not-executed",
-            "reuse_eligible": False,
-        },
+        "cache": {"state": "not-executed"},
     }
 
 
