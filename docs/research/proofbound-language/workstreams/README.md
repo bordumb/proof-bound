@@ -11,7 +11,7 @@ under `docs/experiments/`.
 | WS-IR | [Canonical Assurance IR](assurance-ir.md) | draft `/1` falsified on dependency completeness |
 | WS-EA | [Evidence algebra](evidence-algebra.md) | planned |
 | WS-IN | [Invalidation](invalidation.md) | EXP-LANG-003 concluded; candidate rejected |
-| WS-DSL | [Typed assurance DSL](assurance-dsl.md) | blocked by Gate 1 |
+| WS-DSL | [Typed assurance DSL](assurance-dsl.md) | EXP-LANG-004 preregistered; adoption blocked by Gate 1 |
 | WS-FX | [Effects and capabilities](effects.md) | planned |
 | WS-UQ | [Uncertainty](uncertainty.md) | planned |
 | WS-NE | [Native executable prototype](native-runtime.md) | blocked by Gate 3 |

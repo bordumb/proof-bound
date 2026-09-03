@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 1 — shared semantics
-- **Active experiment:** EXP-LANG-004 is next; [EXP-LANG-003 / Experiment 0010 — source-retained invalidation precision](../../experiments/0010-invalidation-precision/README.md) is concluded with its candidate rejected
+- **Active experiment:** [EXP-LANG-004 / Experiment 0011 — dual frontend equivalence](../../experiments/0011-dual-frontend-equivalence/README.md) is preregistered; EXP-LANG-003 is concluded with its candidate rejected
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -52,7 +52,7 @@ question of enforcing the read/effect boundary that invalidation requires.
 | WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | revision blocked by effect boundary | H1, H2 | EXP-0005 and EXP-LANG-003 concluded |
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
 | WS-IN | [Invalidation](workstreams/invalidation.md) | candidate rejected; effect boundary required | H3 | EXP-LANG-003 / Experiment 0010 concluded |
-| WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | blocked by Gate 1 | H4 | — |
+| WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | running bounded research despite Gate 1 limitation | H4 | EXP-LANG-004 / Experiment 0011 |
 | WS-FX | [Effects and capabilities](workstreams/effects.md) | planned | H5 | — |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | planned | H6 | — |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | blocked by Gate 3 | H7 | — |
