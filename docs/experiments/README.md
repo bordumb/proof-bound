@@ -16,6 +16,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0006](0006-explicit-sampling-contract/README.md) | Explicit sampled-property contract | Hypothesis and fast-check reference properties | Portable sampling semantics; observation authority; honest legacy migration | concluded |
 | [0007](0007-rust-sampling-holdout/README.md) | Rust sampled-property holdout | allowance kernel and proptest 1.11.0 | Third-ecosystem generality; counter authority; contract confirmation or falsification | concluded |
 | [0008](0008-layered-sampling-model/README.md) | Layered sampling model | EXP-0006/0007 three-framework results | Common intent; typed backend plans; authority-indexed facts; targeted uncertainty | concluded |
+| [0009](0009-generated-evidence-algebra/README.md) | Generated evidence algebra | Proofbound status corpus and Assurance IR candidate | Explicit derivation traces; forbidden coercions; independent generated differential checking | planned |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).

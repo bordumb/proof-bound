@@ -1,0 +1,60 @@
+{
+  "schema": "proofbound-research-evidence-algebra-preregistration/1",
+  "experiment": "EXP-0009",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:5a88f4e8102e125171c38c1222b440abf21ce8d0",
+  "frozen_sources": [
+    {"path": "proofbound/conformance/v1/status-graphs.json", "sha256": "sha256:ecf17547d6bff8ad6141b8af842a8e43ce50d01a1848c4ecd89e5412669d1488", "size_bytes": 17512},
+    {"path": "docs/research/proofbound-language/assurance-ir-v1.md", "sha256": "sha256:82a032e90aa6918c9f58b003ebdba1db865dfd02353d130bc6dc5f06428f593e", "size_bytes": 26887},
+    {"path": "docs/experiments/0008-layered-sampling-model/results/2026-09-02-layered-sampling-model.json", "sha256": "sha256:63e38f27a42af451b6374fb8b39f222cd3792701866ee84c1b5a6b2201d2f269", "size_bytes": 5874},
+    {"path": "crates/proofbound-core/src/status.rs", "sha256": "sha256:b9ccb4cd7f384949083e7a7dff08e3f9f0f71bcab73e8aa6263224562c0f60ad", "size_bytes": 54443}
+  ],
+  "schemas": {
+    "program": "proofbound-derivation-program/1",
+    "fact": "proofbound-derivation-fact/1",
+    "step": "proofbound-derivation-step/1",
+    "judgment": "proofbound-derivation-judgment/1",
+    "trace_identity_domain": "proofbound-derivation-trace/1"
+  },
+  "positive_routes": [
+    "sampled-property",
+    "bounded-check",
+    "theorem",
+    "mutation-witness",
+    "trusted-transcription",
+    "artifact-binding"
+  ],
+  "generation": {
+    "algorithm": "proofbound-exp-0009-generator/1",
+    "seed": 9009,
+    "valid_programs": 500,
+    "adversarial_programs": 500,
+    "mutation_cardinality": 1,
+    "required_rule_coverage": "all"
+  },
+  "attacks": [
+    {"id": "EXP-0009-A001", "mutation": "apply theorem-proved to sampled evidence", "expected": "derivation-rule-input-mismatch"},
+    {"id": "EXP-0009-A002", "mutation": "apply theorem-proved to bounded evidence", "expected": "derivation-rule-input-mismatch"},
+    {"id": "EXP-0009-A003", "mutation": "derive artifact-bound from a theorem without artifact correspondence", "expected": "derivation-dependency-mismatch"},
+    {"id": "EXP-0009-A004", "mutation": "substitute a same-count artifact binding for another theorem", "expected": "derivation-binding-mismatch"},
+    {"id": "EXP-0009-A005", "mutation": "remove the open-assumption dependency while retaining an assumed conclusion", "expected": "derivation-dependency-mismatch"},
+    {"id": "EXP-0009-A006", "mutation": "substitute one same-count fact reference", "expected": "derivation-dependency-mismatch"},
+    {"id": "EXP-0009-A007", "mutation": "introduce a step dependency cycle", "expected": "derivation-cycle"},
+    {"id": "EXP-0009-A008", "mutation": "duplicate a fact or step identity", "expected": "derivation-duplicate-identity"},
+    {"id": "EXP-0009-A009", "mutation": "replace a closed rule with a backend-named rule", "expected": "derivation-unknown-rule"},
+    {"id": "EXP-0009-A010", "mutation": "use a derived fact without its derivation source", "expected": "derivation-authority-mismatch"},
+    {"id": "EXP-0009-A011", "mutation": "make a required completion or binding fact unavailable", "expected": "derivation-admission-blocked"},
+    {"id": "EXP-0009-A012", "mutation": "remove unused telemetry", "expected": "no-admission-consequence"},
+    {"id": "EXP-0009-A013", "mutation": "replace the declared root with a stronger unrelated conclusion", "expected": "derivation-root-mismatch"},
+    {"id": "EXP-0009-A014", "mutation": "reorder a canonical set or add noncanonical whitespace", "expected": "derivation-noncanonical"},
+    {"id": "EXP-0009-A015", "mutation": "derive refined or proved linkage from trusted transcription", "expected": "derivation-rule-input-mismatch"},
+    {"id": "EXP-0009-A016", "mutation": "reinterpret a production receipt or EXP-0008 observation as a derivation program", "expected": "derivation-schema-mismatch"}
+  ],
+  "decision": {
+    "pass": "Q1-Q5 pass in independent Rust and Python implementations over the six templates, all sixteen attacks, and the registered 500/500 generated corpus with no backend-named common rule.",
+    "revise": "A falsifier identifies one bounded rule-signature, judgment, or trace-identity correction that remains evidence-family typed and backend-neutral.",
+    "stop": "The trace requires reported status as an input, backend-named common derivation, ambiguous dependencies, or silent coercion between sampled, bounded, formal, correspondence, and artifact evidence."
+  }
+}
