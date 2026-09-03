@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-03
 - **Current gate:** Gate 5 — adoption bridge and language decision
-- **Latest experiment:** EXP-LANG-011 / Experiment 0018 concluded `revise`; OS-enforced effects and sound invalidation
+- **Latest experiment:** EXP-LANG-012 / Experiment 0019 concluded `pass`; concurrent isolated enforcement latency
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -77,6 +77,11 @@ Python reports across all 30 attacks. This supplies bounded support for an
 OS-enforced effect type. The result is `revise`, not pass: the complete run
 took 93,574 ms against the frozen 60,000 ms ceiling, system reads outside home
 remain explicitly broad, and no Linux or Windows result exists.
+EXP-LANG-012 then retained all 51 separately sandboxed executions while
+scheduling them concurrently. The complete corpus fell from 93,574 ms to
+6,048 ms, all 40 base and scheduler attacks rejected exactly, and independent
+reports remained byte-identical. This repairs the bounded latency failure
+without introducing a shared worker; platform portability remains open.
 
 ## Programme map
 
@@ -98,9 +103,9 @@ remain explicitly broad, and no Linux or Windows result exists.
 |---|---|---|---|---|
 | WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | `/2` bounded candidate supported; production parity pending | H1, H2 | EXP-LANG-010 concluded |
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
-| WS-IN | [Invalidation](workstreams/invalidation.md) | enforced macOS candidate supported; portability and latency open | H3, H9 | EXP-LANG-011 / Experiment 0018 concluded `revise` |
+| WS-IN | [Invalidation](workstreams/invalidation.md) | enforced macOS candidate supported; portability open | H3, H9 | EXP-LANG-012 / Experiment 0019 concluded `pass` |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
-| WS-FX | [Effects and capabilities](workstreams/effects.md) | OS-enforced project boundary supported; production mechanism open | H5, H9 | EXP-LANG-011 / Experiment 0018 concluded `revise` |
+| WS-FX | [Effects and capabilities](workstreams/effects.md) | fast macOS boundary supported; portable production mechanism open | H5, H9 | EXP-LANG-012 / Experiment 0019 concluded `pass` |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | bounded research bytecode supported; broader native work open | H7 | EXP-LANG-007 concluded |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | bounded dual compilation; machine code open | H7 | EXP-LANG-007 concluded |

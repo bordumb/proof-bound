@@ -6,16 +6,16 @@ use std::{
 };
 
 use proofbound_ir_prototype::{
-    audit_artifact_roles, capture_enforced_effects, compile_dsl_frontend, compile_pkl_frontend,
-    compile_toml_frontend, derive_release_trace_bundle, execute_assurance_v2_corpus,
-    execute_effect_corpus, execute_migration_corpus, execute_native_corpus,
-    execute_notification_corpus, execute_specification_corpus, format_dsl_frontend,
-    generate_derivation_corpus, project_corpus, project_portable_families,
-    project_portable_families_with_sampling, validate_case_program, validate_derivation_program,
-    validate_effective_programme_bytes, validate_enforced_capture_bytes,
-    validate_frontend_compilation_bytes, validate_invalidation_execution_report,
-    validate_layered_sampling_case, validate_pkl_frontend_source, validate_release_trace_bundle,
-    validate_sampling_observation,
+    audit_artifact_roles, capture_batched_enforcement, capture_enforced_effects,
+    compile_dsl_frontend, compile_pkl_frontend, compile_toml_frontend, derive_release_trace_bundle,
+    execute_assurance_v2_corpus, execute_effect_corpus, execute_migration_corpus,
+    execute_native_corpus, execute_notification_corpus, execute_specification_corpus,
+    format_dsl_frontend, generate_derivation_corpus, project_corpus, project_portable_families,
+    project_portable_families_with_sampling, validate_batched_capture_bytes, validate_case_program,
+    validate_derivation_program, validate_effective_programme_bytes,
+    validate_enforced_capture_bytes, validate_frontend_compilation_bytes,
+    validate_invalidation_execution_report, validate_layered_sampling_case,
+    validate_pkl_frontend_source, validate_release_trace_bundle, validate_sampling_observation,
 };
 
 fn main() -> ExitCode {
@@ -513,6 +513,20 @@ fn main() -> ExitCode {
                 .map_err(|error| error.to_string()),
         );
     }
+    if first.as_deref() == Some(std::ffi::OsStr::new("capture-batched-enforcement")) {
+        let values = args.by_ref().take(6).map(PathBuf::from).collect::<Vec<_>>();
+        if values.len() != 6 || args.next().is_some() {
+            eprintln!(
+                "usage: proofbound-ir-prototype capture-batched-enforcement <repository-root> <python> <node> <rustc> <fresh-state-root> <capture.json>"
+            );
+            return ExitCode::from(2);
+        }
+        return write_canonical_file_result(
+            capture_batched_enforcement(&values[0], &values[1], &values[2], &values[3], &values[4])
+                .map_err(|error| error.to_string()),
+            &values[5],
+        );
+    }
     if first.as_deref() == Some(std::ffi::OsStr::new("validate-enforced-effects")) {
         let Some(root) = args.next().map(PathBuf::from) else {
             eprintln!(
@@ -534,6 +548,32 @@ fn main() -> ExitCode {
                 validate_enforced_capture_bytes(&root, &bytes).map_err(|error| error.to_string())
             });
         return write_canonical_result(result);
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-batched-enforcement")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype validate-batched-enforcement <repository-root> <capture.json> <report.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(capture) = args.next().map(PathBuf::from) else {
+            eprintln!("missing capture");
+            return ExitCode::from(2);
+        };
+        let Some(output) = args.next().map(PathBuf::from) else {
+            eprintln!("missing report output");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(capture)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_batched_capture_bytes(&root, &bytes).map_err(|error| error.to_string())
+            });
+        return write_canonical_file_result(result, &output);
     }
     if first.as_deref() == Some(std::ffi::OsStr::new("execute-effects")) {
         let Some(root) = args.next().map(PathBuf::from) else {
@@ -741,6 +781,27 @@ fn write_canonical_result<T: serde::Serialize>(result: Result<T, String>) -> Exi
         proofbound_evidence::canonical_json(&value).map_err(|error| error.to_string())
     }) {
         Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("failed to write result: {error}");
+                ExitCode::from(1)
+            }
+        },
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn write_canonical_file_result<T: serde::Serialize>(
+    result: Result<T, String>,
+    output: &std::path::Path,
+) -> ExitCode {
+    match result.and_then(|value| {
+        proofbound_evidence::canonical_json(&value).map_err(|error| error.to_string())
+    }) {
+        Ok(bytes) => match std::fs::write(output, bytes) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("failed to write result: {error}");

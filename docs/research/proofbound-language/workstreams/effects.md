@@ -1,6 +1,6 @@
 # WS-FX: effects and capabilities
 
-- **Status:** EXP-LANG-011 / Experiment 0018 concluded `revise`
+- **Status:** EXP-LANG-012 / Experiment 0019 concluded `pass`
 - **Hypotheses:** H5, H9
 - **Depends on:** WS-IR authority and dependency model
 - **Blocks:** Gate 2
@@ -54,3 +54,12 @@ no denied run was reusable, narrow invalidation held, and independent reports
 matched across all 30 attacks. The typed boundary is supported for the frozen
 corpus. The production exit remains open because the run exceeded its latency
 ceiling and does not establish Linux, Windows, or syscall-complete hermeticity.
+
+## Latency repair
+
+[EXP-LANG-012 / Experiment 0019](../../../experiments/0019-batched-enforcement-latency/README.md)
+scheduled all 51 independently sandboxed processes concurrently. It completed
+in 6,048 ms, preserved distinct per-run roots and receipts, and rejected all
+30 inherited and ten scheduler attacks in independent implementations. The
+latency criterion is repaired without adopting a shared long-lived worker.
+Portability and production mechanism support remain open.

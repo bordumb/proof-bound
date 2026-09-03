@@ -54,6 +54,12 @@ is `revise` because 93,574 ms exceeded the 60,000 ms ceiling; system reads
 outside home and platform portability also remain open. Gate 1 may retain the
 typed enforcement candidate, but production cache authority remains blocked.
 
+EXP-LANG-012 / Experiment 0019 repairs the frozen latency failure with a
+6,048 ms concurrent run while retaining 51 distinct sandboxes and receipts.
+All base and scheduling attacks pass independent validation. Gate 1 therefore
+has a bounded fast macOS candidate; Linux and Windows parity and a supported
+production mechanism still block production cache authority.
+
 ## Gate 2 — Authoring and authority
 
 Required: WS-DSL and WS-FX.

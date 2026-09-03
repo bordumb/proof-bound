@@ -17,6 +17,7 @@ mod assurance_v2;
 mod derivation;
 mod effects;
 mod enforced;
+mod enforced_batch;
 mod frontend;
 mod invalidation;
 mod layered_sampling;
@@ -74,6 +75,11 @@ pub use enforced::{
     capture_enforced_effects, render_seatbelt_policy, validate_enforced_capture,
     validate_enforced_capture_bytes, validate_enforced_model_report, validate_enforced_plan,
     validate_enforcement_receipt,
+};
+pub use enforced_batch::{
+    BATCHED_CAPTURE_SCHEMA, BATCHED_REPORT_SCHEMA, BatchedCapture, BatchedError, BatchedMetrics,
+    BatchedReport, BatchedSlot, BatchedSlotKind, capture_batched_enforcement,
+    validate_batched_capture, validate_batched_capture_bytes, validate_batched_report,
 };
 pub use frontend::{
     EFFECTIVE_PROGRAMME_SCHEMA, EffectiveProgramme, FRONTEND_COMPILATION_SCHEMA,

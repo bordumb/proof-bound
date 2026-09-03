@@ -42,6 +42,8 @@ That successor concluded as
 [EXP-LANG-011 / Experiment 0018](../../../experiments/0018-os-enforced-effects/README.md).
 Its separately identified boundary denied every registered undeclared project
 access, load-bearing changes invalidated, and the unrelated control did not.
-This closes the retained falsifier for the frozen macOS corpus. Production
-adoption remains blocked by the failed timing ceiling, broad system reads
-outside home, and absent Linux and Windows equivalents.
+This closes the retained falsifier for the frozen macOS corpus. EXP-LANG-012 /
+[Experiment 0019](../../../experiments/0019-batched-enforcement-latency/README.md)
+then repairs the timing ceiling with 51 separately sandboxed concurrent runs.
+Production adoption remains blocked by broad system reads outside home and
+absent Linux and Windows equivalents.

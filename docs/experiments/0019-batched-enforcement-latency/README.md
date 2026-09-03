@@ -1,8 +1,8 @@
 # Experiment 0019: Batched enforcement latency
 
-- **Status:** planned
+- **Status:** concluded; pass
 - **Registered:** 2026-09-03
-- **Started / concluded:** not started / not concluded
+- **Started / concluded:** 2026-09-03 / 2026-09-03
 - **Subject:** EXP-0018 frozen corpus at
   `sha256:9686074a5cd8e5f2b3f0018ab95104f697bce292e0e948482220ec378780bd43`
 - **Proofbound:** `git:2dd8fcd1cb5c6eb76438e00dfb13af20eeb760fc`
@@ -53,3 +53,26 @@
 
 The immutable machine registration is [preregistration.json](preregistration.json).
 Execution observations will be appended to [JOURNAL.md](JOURNAL.md).
+
+## Outcome
+
+The experiment **passes**. The complete 51-process corpus finished in 6,048 ms,
+compared with the immutable 93,574 ms baseline and 60,000 ms ceiling. Every
+process retained its own plan, policy, ephemeral root, raw outcome, and receipt;
+no enforcement process or authority was shared.
+
+- **Q1: pass.** Thirty positive runs and 21 denied probes completed in 6,048 ms;
+  no denial was reusable and the reviewed tree was unchanged.
+- **Q2: pass.** All 51 roots were unique, all 30 positive outputs were unique,
+  and all ten scheduler attacks rejected exactly.
+- **Q3: pass.** All 30 EXP-0018 attacks still rejected exactly; stale reuse and
+  unrelated invalidation remained zero.
+- **Q4: pass.** Rust and Python emitted byte-identical 10,249-byte reports.
+- **Q5: pass.** Rust used 1,083 nonblank lines, Python 401, policies at most 31,
+  and the report remained below every frozen ceiling.
+
+The performance result is a scheduler result, not evidence that sharing a
+long-lived sandbox is safe. Production may schedule isolated executions
+concurrently, but must continue to retain and validate each run separately.
+
+See [CONCLUSION.md](CONCLUSION.md) and the retained [results](results/README.md).
