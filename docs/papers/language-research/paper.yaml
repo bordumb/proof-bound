@@ -1,0 +1,16 @@
+slug: language-research
+title: "From Passed to Justified: The Proofbound Assurance-Language Research Programme"
+status: research report
+canonical_manuscript: manuscript/main.md
+primary_output: build/local/main.pdf
+evidence_snapshot: e54f428601f53e065262f74b97bba3d7e2b34150
+source_contract: docs/specs/0001_initial_spec.md
+amending_contracts:
+  - docs/specs/0002_python_support.md
+  - docs/specs/0003_typescript_support.md
+non_claims:
+  - a completed or frozen Assurance IR
+  - a production-ready assurance DSL or native Proofbound language
+  - a proof that the evidence algebra is complete or correct
+  - a statistical claim about notification-fatigue reduction
+  - a claim that tests, sampling, static analysis, or bounded checks are proofs
