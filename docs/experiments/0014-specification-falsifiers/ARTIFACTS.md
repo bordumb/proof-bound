@@ -16,4 +16,6 @@
 | EXP-0014-I002 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-specifications` command |
 | EXP-0014-I003 | `python/proofbound/specifications_research.py` | implemented independently | Python closed-record/type validator, table evaluator, report validator, and attack executor |
 | EXP-0014-I004 | `python/tests/test_specifications_research.py` | passing | Correct/mutant adequacy, all exact attacks, and self-consistent counterexample substitution |
+| EXP-0014-I005 | `python/proofbound/specifications_experiment.py` | implemented | Post-execution expected-value and complexity evaluator for Q1--Q5 |
+| EXP-0014-I006 | `python/tests/test_specifications_experiment.py` | pending retained result | Metric and retained-result regression checks |
 | EXP-0014-E001 | `results/` | reserved | Immutable execution and comparison report |

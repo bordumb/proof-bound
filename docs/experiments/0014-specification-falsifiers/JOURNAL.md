@@ -40,3 +40,11 @@ recomputes identities. The complete ten-repetition Rust and Python model
 reports are byte-identical at
 `sha256:c0eeb773bcb8e32ccd183edfcd7e05935e07ca3a5800610417003db0f79646ce`.
 Neither engine opened `expected.json` while deriving that report.
+
+## 2026-09-03 — Expected-value evaluator implemented
+
+Added the evaluator after both model reports existed. It runs both engines
+before opening the frozen expected values, checks exact structural and vacuity
+attacks, correct-obligation coverage, mutant counterexamples, deterministic
+identity, independent byte agreement, and every preregistered complexity
+ceiling. No retained execution artifact existed when this entry was added.
