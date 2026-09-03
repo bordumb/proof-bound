@@ -56,6 +56,16 @@ jobs:
           python -m json.tool `
             "$env:RUNNER_TEMP/exp0023-results/host-probe.json"
 
+      - name: Create suspended AppContainer process inside the registered job
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          python -m proofbound.windows_process_smoke `
+            "$env:RUNNER_TEMP/exp0023-results/process-smoke.json"
+          python -m json.tool `
+            "$env:RUNNER_TEMP/exp0023-results/process-smoke.json"
+
       - name: Retain the exact host qualification
         if: always()
         uses: actions/upload-artifact@v6
