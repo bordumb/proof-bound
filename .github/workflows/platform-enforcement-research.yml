@@ -11,6 +11,7 @@ on:
           - exp-0022
           - exp-0023
           - exp-0024
+          - exp-0025
   push:
     paths:
       - .github/workflows/platform-enforcement-research.yml
@@ -92,6 +93,84 @@ jobs:
           path: ${{ runner.temp }}/exp0023-results
           if-no-files-found: warn
           retention-days: 30
+
+  windows-initialization-discovery:
+    name: EXP-0025 · Windows initialization discovery
+    if: github.event_name == 'workflow_dispatch' && inputs.experiment == 'exp-0025'
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    steps:
+      - name: Check out the preregistered revision
+        uses: actions/checkout@v5
+
+      - name: Install the repository Python version
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - name: Acquire and identify the Microsoft diagnostic
+        shell: pwsh
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0025-results"
+          New-Item -ItemType Directory -Force $root
+          $archive = "$root/ProcessMonitor.zip"
+          Invoke-WebRequest `
+            "https://download.sysinternals.com/files/ProcessMonitor.zip" `
+            -OutFile $archive
+          Expand-Archive $archive "$root/ProcessMonitor"
+          $procmon = "$root/ProcessMonitor/Procmon64a.exe"
+          if (-not (Test-Path $procmon)) {
+            throw "the Microsoft archive lacks Procmon64a.exe"
+          }
+          @{
+            source = "https://download.sysinternals.com/files/ProcessMonitor.zip"
+            archive_sha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+            executable = $procmon
+            executable_sha256 = (Get-FileHash $procmon -Algorithm SHA256).Hash.ToLower()
+          } | ConvertTo-Json | Set-Content "$root/diagnostic-identity.json"
+
+      - name: Trace the frozen pre-entry falsifier
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0025-results"
+          $procmon = "$root/ProcessMonitor/Procmon64a.exe"
+          $trace = "$root/initialization.pml"
+          $csv = "$root/initialization.csv"
+          & $procmon /AcceptEula /Quiet /Minimized /BackingFile $trace
+          Start-Sleep -Seconds 2
+          python -m proofbound.windows_process_smoke "$root/process-smoke.json"
+          $smokeExit = $LASTEXITCODE
+          & $procmon /Terminate /Quiet
+          Start-Sleep -Seconds 2
+          & $procmon /OpenLog $trace /SaveAs $csv
+          if (-not (Test-Path $csv)) {
+            throw "Process Monitor did not export the initialization trace"
+          }
+          Set-Content "$root/process-smoke-exit.txt" "$smokeExit"
+
+      - name: Summarize initialization failures
+        shell: pwsh
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0025-results"
+          Import-Csv "$root/initialization.csv" |
+            Where-Object {
+              $_.'Process Name' -eq 'cmd.exe' -or
+              $_.Result -in @('ACCESS DENIED', 'PATH NOT FOUND', 'NAME NOT FOUND')
+            } |
+            Select-Object 'Process Name', PID, Operation, Path, Result, Detail |
+            Export-Csv "$root/initialization-relevant.csv" -NoTypeInformation
+          Get-Content "$root/initialization-relevant.csv" | Select-Object -Last 200
+
+      - name: Retain the non-reusable discovery trace
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: exp-0025-windows-initialization-discovery
+          path: ${{ runner.temp }}/exp0025-results
+          if-no-files-found: error
+          retention-days: 14
 
   linux-confirmation:
     name: EXP-0022 · native Linux confirmation
