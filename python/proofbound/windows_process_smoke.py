@@ -12,16 +12,17 @@ from proofbound.windows_native_boundary import run_appcontainer_process
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run `whoami /groups` inside the native boundary and retain its receipt."""
+    """Run a no-op inside the native boundary and retain its token receipt."""
 
     arguments = sys.argv[1:] if argv is None else argv
     if len(arguments) != 1:
         print("usage: windows_process_smoke RECEIPT", file=sys.stderr)
         return 2
-    executable = Path(os.environ["SystemRoot"]) / "System32" / "whoami.exe"
+    executable = Path(os.environ["SystemRoot"]) / "System32" / "cmd.exe"
+    command = [str(executable), "/d", "/c", "exit", "0"]
     try:
         result = run_appcontainer_process(
-            [str(executable), "/groups"],
+            command,
             executable.parent,
             {
                 "PB_REGISTERED_VALUE": "registered-env",
@@ -34,16 +35,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         token_verified = (
             result["exit_code"] == 0
-            and result["appcontainer_sid"] in result["stdout"]
-            and "S-1-5-32-544" in result["stdout"]
-            and "Deny only" in result["stdout"]
-            and "S-1-16-4096" in result["stdout"]
+            and result["child_token"]["verified_before_resume"]
+            and result["child_token"]["appcontainer_sid"] == result["appcontainer_sid"]
+            and result["child_token"]["integrity_sid"] == "S-1-16-4096"
+            and result["child_token"]["administrator_deny_only"]
         )
         value = {
             "schema": "proofbound-research-windows-process-smoke/1",
             "experiment": "EXP-0023",
             "programme_experiment": "EXP-LANG-016",
-            "command": [str(executable), "/groups"],
+            "command": command,
             "result": result,
             "token_verified": token_verified,
         }

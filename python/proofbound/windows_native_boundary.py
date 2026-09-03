@@ -34,6 +34,11 @@ PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009
 WAIT_OBJECT_0 = 0
 WAIT_TIMEOUT = 0x00000102
 INFINITE = 0xFFFFFFFF
+TOKEN_QUERY = 0x0008
+TOKEN_GROUPS = 2
+TOKEN_IS_APPCONTAINER = 29
+TOKEN_APPCONTAINER_SID = 31
+SE_GROUP_USE_FOR_DENY_ONLY = 0x00000010
 
 
 class StartupInfoW(ctypes.Structure):
@@ -89,6 +94,21 @@ class SecurityCapabilities(ctypes.Structure):
     ]
 
 
+class TokenGroups(ctypes.Structure):
+    """Variable-length TOKEN_GROUPS prefix."""
+
+    _fields_ = [
+        ("group_count", wintypes.DWORD),
+        ("groups", SidAndAttributes * 1),
+    ]
+
+
+class TokenAppContainerInformation(ctypes.Structure):
+    """TOKEN_APPCONTAINER_INFORMATION."""
+
+    _fields_ = [("appcontainer_sid", wintypes.LPVOID)]
+
+
 def _windows_error(operation: str) -> OSError:
     return ctypes.WinError(ctypes.get_last_error(), operation)
 
@@ -118,6 +138,93 @@ def _sid_text(advapi32: Any, kernel32: Any, sid: wintypes.LPVOID) -> str:
         return text.value
     finally:
         kernel32.LocalFree(ctypes.cast(text, wintypes.HLOCAL))
+
+
+def _token_information(advapi32: Any, token: wintypes.HANDLE, kind: int) -> Any:
+    """Return a stable ctypes buffer for one token information class."""
+
+    size = wintypes.DWORD()
+    advapi32.GetTokenInformation(token, kind, None, 0, ctypes.byref(size))
+    if size.value == 0:
+        raise _windows_error(f"GetTokenInformation({kind}) size")
+    buffer = ctypes.create_string_buffer(size.value)
+    _require(
+        advapi32.GetTokenInformation(
+            token, kind, buffer, size.value, ctypes.byref(size)
+        ),
+        f"GetTokenInformation({kind})",
+    )
+    return buffer
+
+
+def _inspect_child_token(
+    advapi32: Any,
+    kernel32: Any,
+    process: wintypes.HANDLE,
+    expected_appcontainer_sid: str,
+) -> dict[str, Any]:
+    """Inspect the actual suspended child token before workload entry."""
+
+    child_token = wintypes.HANDLE()
+    _require(
+        advapi32.OpenProcessToken(process, TOKEN_QUERY, ctypes.byref(child_token)),
+        "OpenProcessToken(child)",
+    )
+    try:
+        is_appcontainer_buffer = _token_information(
+            advapi32, child_token, TOKEN_IS_APPCONTAINER
+        )
+        is_appcontainer = bool(
+            ctypes.cast(
+                is_appcontainer_buffer, ctypes.POINTER(wintypes.DWORD)
+            ).contents.value
+        )
+        appcontainer_buffer = _token_information(
+            advapi32, child_token, TOKEN_APPCONTAINER_SID
+        )
+        appcontainer = TokenAppContainerInformation.from_buffer(appcontainer_buffer)
+        appcontainer_sid = (
+            _sid_text(advapi32, kernel32, appcontainer.appcontainer_sid)
+            if appcontainer.appcontainer_sid
+            else None
+        )
+        integrity_buffer = _token_information(
+            advapi32, child_token, TOKEN_INTEGRITY_LEVEL
+        )
+        integrity = TokenMandatoryLabel.from_buffer(integrity_buffer)
+        integrity_sid = _sid_text(advapi32, kernel32, integrity.label.sid)
+        groups_buffer = _token_information(advapi32, child_token, TOKEN_GROUPS)
+        groups = TokenGroups.from_buffer(groups_buffer)
+        group_pointer = ctypes.cast(
+            ctypes.addressof(groups_buffer) + TokenGroups.groups.offset,
+            ctypes.POINTER(SidAndAttributes),
+        )
+        administrator_attributes = None
+        for index in range(groups.group_count):
+            group = group_pointer[index]
+            if _sid_text(advapi32, kernel32, group.sid) == "S-1-5-32-544":
+                administrator_attributes = group.attributes
+                break
+        administrator_deny_only = administrator_attributes is not None and bool(
+            administrator_attributes & SE_GROUP_USE_FOR_DENY_ONLY
+        )
+        verified = (
+            is_appcontainer
+            and appcontainer_sid == expected_appcontainer_sid
+            and integrity_sid == "S-1-16-4096"
+            and administrator_deny_only
+        )
+        return {
+            "appcontainer": is_appcontainer,
+            "appcontainer_sid": appcontainer_sid,
+            "integrity_sid": integrity_sid,
+            "administrator_sid": "S-1-5-32-544",
+            "administrator_attributes": administrator_attributes,
+            "administrator_deny_only": administrator_deny_only,
+            "verified_before_resume": verified,
+        }
+    finally:
+        kernel32.CloseHandle(child_token)
 
 
 def run_appcontainer_process(
@@ -188,6 +295,14 @@ def run_appcontainer_process(
         ctypes.POINTER(wintypes.HANDLE),
     ]
     advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
     advapi32.CreateRestrictedToken.argtypes = [
         wintypes.HANDLE,
         wintypes.DWORD,
@@ -407,6 +522,10 @@ def run_appcontainer_process(
                 kernel32.AssignProcessToJobObject(job, process.process),
                 "AssignProcessToJobObject",
             )
+            child_token = _inspect_child_token(advapi32, kernel32, process.process, sid)
+            if not child_token["verified_before_resume"]:
+                kernel32.TerminateJobObject(job, 125)
+                raise ValueError("suspended child token does not match the boundary")
             if kernel32.ResumeThread(process.thread) == INFINITE:
                 raise _windows_error("ResumeThread")
             wait = kernel32.WaitForSingleObject(process.process, timeout_ms)
@@ -426,6 +545,7 @@ def run_appcontainer_process(
             "restricted_token": True,
             "administrator_sids": "deny-only",
             "integrity_level": "low",
+            "child_token": child_token,
             "job": {
                 "active_process_limit": 1,
                 "kill_on_close": True,
