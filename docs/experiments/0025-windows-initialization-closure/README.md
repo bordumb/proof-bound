@@ -1,6 +1,6 @@
 # Experiment 0025: exact Windows initialization closure
 
-- **Status:** preregistered — not executed
+- **Status:** candidate frozen — confirmation not yet executed
 - **Registered:** 2026-09-04
 - **Subject:** EXP-0023's retained pre-entry `STATUS_DLL_INIT_FAILED` falsifier
 - **Operator:** Codex
@@ -86,3 +86,6 @@ failure, not permission to expand the closure in place.
   evidence becomes reusable, or execution falls back.
 
 The immutable registration is [preregistration.json](preregistration.json).
+The discovery-derived closure frozen before confirmation is
+[candidate.json](candidate.json). Its four source artifacts are diagnostic-only,
+content-identified, and cannot be reused as assurance evidence.
