@@ -1,0 +1,18 @@
+{
+  "schema": "proofbound-research-mixed-expected/1",
+  "case_count": 12,
+  "language_count": 2,
+  "phase_count": 2,
+  "observation_count": 48,
+  "attack_count": 30,
+  "repetitions": 10,
+  "affected_claims": ["claim:native-parser", "claim:python-packet", "claim:typescript-packet"],
+  "unaffected_claims": ["claim:display"],
+  "limits": {
+    "max_caller_lines_each": 300,
+    "max_rust_kernel_lines": 1400,
+    "max_python_kernel_lines": 1400,
+    "max_report_bytes": 65536,
+    "max_elapsed_ms": 30000
+  }
+}

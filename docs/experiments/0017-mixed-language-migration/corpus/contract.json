@@ -1,0 +1,42 @@
+{
+  "schema": "proofbound-research-foreign-contract/1",
+  "id": "contract:canonical-packet-v1",
+  "abi_version": 1,
+  "operations": ["decode", "encode"],
+  "request_encoding": "canonical-lowercase-hex-or-u2",
+  "response_encoding": "canonical-json-tagged-result",
+  "success_policy": "accepted-true-with-value",
+  "error_policy": "error-as-data-no-host-exception",
+  "callback_policy": "forbidden",
+  "consumption_policy": "exact-input-length",
+  "artifact": {
+    "schema": "proofbound-native-bytecode/1",
+    "hex": "5042564d01040b100111ff20022100012201032301fe",
+    "sha256": "sha256:52986b838c363257cfe811198e063913eda4e0b72405a459777eb0c52f15ab31",
+    "identity": "sha256:1fe9ee82ee28420f7cd02d70617de5a2f56cbf5115ee410c784358a17a711384",
+    "size_bytes": 22,
+    "source_sha256": "sha256:47a20d5b10ffeb1088b836f72b260ca48116d8ebb92ea9b35a34f619743b44c2",
+    "certificate_identity": "sha256:27ff98de778cff63de6621b9e8de368b0803fee74cd5e4dcb4242826d4b93420",
+    "correspondence": "independent-dual-compilation-assumption-bound"
+  },
+  "runtimes": [
+    {
+      "language": "python",
+      "program": "python3",
+      "version": "Python 3.12.11",
+      "executable_sha256": "sha256:53a752c036b39a9263c7eaae4c6f9f2092f25dfce2566e21a191206044f6c772"
+    },
+    {
+      "language": "typescript",
+      "program": "node",
+      "version": "v22.22.2",
+      "executable_sha256": "sha256:5c899797c4eb8f1db5563eea56538342ddb3e9276ee1b04a5a1f0f1023d2b011"
+    }
+  ],
+  "limits": {
+    "maximum_request_bytes": 6,
+    "maximum_response_bytes": 4096,
+    "maximum_calls": 12
+  },
+  "identity": "sha256:101f4c558ec4f3dcc6a569f3f9461276fe15bfec2d5d065a6318caf448a6e0eb"
+}
