@@ -20,3 +20,14 @@ and complexity ceilings, and the independent expansion contract. The corpus
 covers all registered evidence families, dependency roles, effect capabilities
 and boundaries, artifact roles, uncertainty kinds, specification roles, and
 derivation rules. Neither kernel existed when these inputs were frozen.
+
+## 2026-09-03 — Rust kernel implemented
+
+Implemented the first typed kernel after the corpus commit. It expands all six
+profiles, validates canonical full programmes and every cross-component join,
+derives decisions and compact reports, generates the registered 500/500
+corpus, and executes all 28 attacks. All 50 prototype tests pass, including
+exact attack rejection and a self-consistently encoded linkage upgrade. The
+1,576-line kernel has no adapter, CLI, core, or verifier dependency and remains
+below its frozen 1,800-line ceiling. No Python kernel existed when this entry
+was added.

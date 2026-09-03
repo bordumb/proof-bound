@@ -13,6 +13,7 @@ use serde_json::{Map, Value};
 
 mod artifact_roles;
 mod assurance;
+mod assurance_v2;
 mod derivation;
 mod effects;
 mod frontend;
@@ -37,6 +38,14 @@ pub use assurance::{
     IrProvenance, IrPublicationTrace, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun,
     IrSubjectClosure, IrTcbComponent, IrTool, IrUsage, IrValidationError, RetainedFact,
     family_kind, family_schema, validate_case_program,
+};
+pub use assurance_v2::{
+    ASSURANCE_V2_MODEL_REPORT_SCHEMA, ASSURANCE_V2_PROGRAM_SCHEMA, ASSURANCE_V2_REPORT_SCHEMA,
+    AssuranceV2Attack, AssuranceV2AttackCorpus, AssuranceV2AttackResult, AssuranceV2Decision,
+    AssuranceV2Error, AssuranceV2Generation, AssuranceV2KernelReport, AssuranceV2Model,
+    AssuranceV2ModelReport, AssuranceV2Profile, AssuranceV2Program, AssuranceV2Templates,
+    execute_assurance_v2_corpus, expand_assurance_v2_profile, load_assurance_v2_corpus,
+    validate_assurance_v2_program,
 };
 pub use derivation::{
     DerivationError, DerivationProgram, DerivationReport, GeneratedAdversarialCase,
