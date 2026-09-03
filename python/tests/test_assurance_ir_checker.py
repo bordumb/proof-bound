@@ -15,7 +15,9 @@ from proofbound.assurance_ir_checker import (
     check_layered_sampling_case,
     check_sampling_observation,
     domain_hash,
+    derive_release_trace_bundle,
     validate_case_program,
+    validate_release_trace_bundle,
 )
 
 
@@ -39,6 +41,7 @@ SAMPLING = ROOT / "docs/experiments/0006-explicit-sampling-contract/corpus"
 DERIVATION_TEMPLATES = (
     ROOT / "docs/experiments/0009-generated-evidence-algebra/corpus/templates.json"
 )
+COMPLETION_ROOT = COMPLETION_CAPTURE.parent
 
 
 def layered_sampling_case(backend: str) -> dict[str, object]:
@@ -82,6 +85,26 @@ def producer_portable_family_projection() -> bytes:
             "project-portable-families",
             str(ROOT),
             str(COMPLETION_CAPTURE),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
+def producer_release_trace(receipt: Path) -> bytes:
+    return subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--locked",
+            "--offline",
+            "--quiet",
+            "-p",
+            "proofbound-ir-prototype",
+            "--",
+            "derive-release-trace",
+            str(receipt),
         ],
         cwd=ROOT,
         check=True,
@@ -153,6 +176,117 @@ def test_independent_checker_agrees_on_portable_family_projection() -> None:
         "unit:bounded-roundtrip",
         "unit:rust-kernel-tests",
     ]
+
+
+def test_both_implementations_derive_identical_completion_traces() -> None:
+    for language in ("python", "typescript", "rust"):
+        receipt_path = COMPLETION_ROOT / language / "compiled-receipt.json"
+        receipt = receipt_path.read_bytes()
+        python_trace = derive_release_trace_bundle(receipt)
+        rust_trace = producer_release_trace(receipt_path)
+        assert canonical_json(python_trace) == rust_trace
+        validate_release_trace_bundle(receipt, rust_trace)
+
+
+def test_both_implementations_reject_preregistered_trace_attacks(
+    tmp_path: Path,
+) -> None:
+    receipt_path = COMPLETION_ROOT / "python" / "compiled-receipt.json"
+    receipt = receipt_path.read_bytes()
+    original = derive_release_trace_bundle(receipt)
+    attacks: list[dict[str, object]] = []
+
+    missing = json.loads(canonical_json(original))
+    missing["traces"][0]["load_bearing_evidence"].pop()
+    attacks.append(missing)
+
+    stronger = json.loads(canonical_json(original))
+    stronger["traces"][0]["formal_value_and_rule"]["rule"] = "universal-source-proof"
+    attacks.append(stronger)
+
+    component = json.loads(canonical_json(original))
+    component["traces"][0]["satisfied_policy_components"] = [
+        "forged-component",
+        "ledger",
+    ]
+    attacks.append(component)
+
+    publication = json.loads(canonical_json(original))
+    publication["publication"]["admitted_claims"].pop()
+    attacks.append(publication)
+
+    moved = json.loads(canonical_json(original))
+    moved["traces"][0]["claim_id"] = "PY-WHEEL-001"
+    attacks.append(moved)
+
+    for index, attack in enumerate(attacks):
+        encoded = canonical_json(attack)
+        with pytest.raises(AssuranceIrError) as caught:
+            validate_release_trace_bundle(receipt, encoded)
+        assert caught.value.code == "IR-DERIVATION-TRACE-MISMATCH"
+        trace_path = tmp_path / f"trace-{index}.json"
+        trace_path.write_bytes(encoded)
+        process = subprocess.run(
+            [
+                "cargo",
+                "run",
+                "--locked",
+                "--offline",
+                "--quiet",
+                "-p",
+                "proofbound-ir-prototype",
+                "--",
+                "validate-release-trace",
+                str(receipt_path),
+                str(trace_path),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert process.returncode == 1
+        assert "IR-DERIVATION-TRACE-MISMATCH" in process.stderr
+
+    reported = json.loads(receipt)
+    reported["reported_statuses"][0]["policy_admitted"] = False
+    reported_bytes = canonical_json(reported)
+    reported_authored = derive_release_trace_bundle(reported_bytes)
+    reported_authored["traces"][0]["blockers"] = ["reported-policy-blocked"]
+    reported_authored["publication"]["admitted_claims"].remove("PY-RESERVATION-001")
+    reported_authored["publication"]["blocked_claims"] = ["PY-RESERVATION-001"]
+    reported_authored["publication"]["blockers"] = [
+        "PY-RESERVATION-001:reported-policy-blocked"
+    ]
+    encoded = canonical_json(reported_authored)
+    with pytest.raises(AssuranceIrError) as caught:
+        validate_release_trace_bundle(reported_bytes, encoded)
+    assert caught.value.code == "IR-DERIVATION-TRACE-MISMATCH"
+    reported_receipt_path = tmp_path / "reported-receipt.json"
+    reported_trace_path = tmp_path / "reported-trace.json"
+    reported_receipt_path.write_bytes(reported_bytes)
+    reported_trace_path.write_bytes(encoded)
+    process = subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--locked",
+            "--offline",
+            "--quiet",
+            "-p",
+            "proofbound-ir-prototype",
+            "--",
+            "validate-release-trace",
+            str(reported_receipt_path),
+            str(reported_trace_path),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert process.returncode == 1
+    assert "IR-DERIVATION-TRACE-MISMATCH" in process.stderr
 
 
 def sampling_fixture(path: Path) -> bytes:

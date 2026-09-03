@@ -18,15 +18,16 @@ mod portable;
 mod sampling;
 
 pub use assurance::{
-    Artifact, CacheInput, CaseProgram, IrAssumption, IrBackend, IrBoundedDomain, IrBudget, IrCache,
-    IrCacheProvenance, IrClaim, IrClaimAdmission, IrClaimMeaning, IrClaimPresentation, IrClosure,
-    IrClosureReference, IrCommand, IrDistributionRegistration, IrEnvironment, IrEvidence,
-    IrEvidenceRequest, IrFamily, IrFamilyDetail, IrFlowScope, IrGraph, IrGraphEdge, IrGraphNode,
+    Artifact, CacheInput, CaseProgram, IrAssumption, IrAssumptionDerivation, IrBackend,
+    IrBoundedDomain, IrBudget, IrCache, IrCacheProvenance, IrClaim, IrClaimAdmission,
+    IrClaimMeaning, IrClaimPresentation, IrClosure, IrClosureReference, IrCommand,
+    IrDerivationTrace, IrDistributionRegistration, IrEnvironment, IrEvidence, IrEvidenceRequest,
+    IrFacetDerivation, IrFamily, IrFamilyDetail, IrFlowScope, IrGraph, IrGraphEdge, IrGraphNode,
     IrMutationRegistration, IrMutualTheoremGroup, IrNativePremiseRule, IrPolicy, IrPolicyRecord,
     IrPremise, IrPremiseDischarge, IrProgrammeContext, IrProject, IrPropertyRegistration,
-    IrProvenance, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun, IrSubjectClosure,
-    IrTcbComponent, IrTool, IrUsage, IrValidationError, RetainedFact, cache_key, family_kind,
-    family_schema, validate_case_program,
+    IrProvenance, IrPublicationTrace, IrPythonPlugin, IrReportedStatus, IrRetainedFactValue, IrRun,
+    IrSubjectClosure, IrTcbComponent, IrTool, IrUsage, IrValidationError, RetainedFact, cache_key,
+    family_kind, family_schema, validate_case_program,
 };
 pub use derivation::{
     DerivationError, DerivationProgram, DerivationReport, GeneratedAdversarialCase,
@@ -116,6 +117,59 @@ pub struct ExpectedClaim {
     pub linkage: String,
     pub assumption: String,
     pub policy_admitted: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseTraceBundle {
+    pub schema: String,
+    pub project: String,
+    pub receipt_sha256: String,
+    pub traces: Vec<IrDerivationTrace>,
+    pub publication: IrPublicationTrace,
+}
+
+/// Derive a canonical, backend-neutral admission trace from a portable receipt.
+pub fn derive_release_trace_bundle(receipt_bytes: &[u8]) -> Result<ReleaseTraceBundle> {
+    let receipt = assurance::decode_strict_json(receipt_bytes)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let (traces, publication) = release_derivation_traces(&receipt)?;
+    Ok(ReleaseTraceBundle {
+        schema: "proofbound-ir-release-trace-bundle/1".to_owned(),
+        project: required_value_text(&receipt, "project")?.to_owned(),
+        receipt_sha256: sha256_bytes(receipt_bytes),
+        traces,
+        publication,
+    })
+}
+
+/// Check a claimed trace against an independent derivation from receipt inputs.
+pub fn validate_release_trace_bundle(
+    receipt_bytes: &[u8],
+    trace_bytes: &[u8],
+) -> std::result::Result<(), IrValidationError> {
+    let value = assurance::decode_strict_json(trace_bytes)?;
+    let canonical = canonical_json(&value)
+        .map_err(|error| IrValidationError::new("IR-DECODE-INVALID", error.to_string()))?;
+    if canonical != trace_bytes {
+        return Err(IrValidationError::new(
+            "IR-DECODE-NONCANONICAL",
+            "trace bundle is not canonical JSON",
+        ));
+    }
+    let actual: ReleaseTraceBundle = serde_json::from_value(value).map_err(|error| {
+        IrValidationError::new("IR-DERIVATION-TRACE-MISMATCH", error.to_string())
+    })?;
+    let expected = derive_release_trace_bundle(receipt_bytes).map_err(|error| {
+        IrValidationError::new("IR-DERIVATION-TRACE-MISMATCH", error.to_string())
+    })?;
+    if actual != expected {
+        return Err(IrValidationError::new(
+            "IR-DERIVATION-TRACE-MISMATCH",
+            "trace bundle differs from independently derived receipt semantics",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -1155,6 +1209,8 @@ fn empty_programme() -> IrProgrammeContext {
         tcb_components: Vec::new(),
         publication_blockers: Vec::new(),
         reported_statuses: Vec::new(),
+        derivation_traces: Vec::new(),
+        publication_trace: None,
     }
 }
 
@@ -1275,6 +1331,7 @@ fn release_programme(
         .iter()
         .map(reported_status_from_value)
         .collect::<Result<Vec<_>>>()?;
+    let (derivation_traces, publication_trace) = release_derivation_traces(receipt)?;
     Ok(IrProgrammeContext {
         release_schema: Some(required_value_text(receipt, "schema")?.to_owned()),
         project: Some(project),
@@ -1299,7 +1356,240 @@ fn release_programme(
         tcb_components,
         publication_blockers,
         reported_statuses,
+        derivation_traces,
+        publication_trace: Some(publication_trace),
     })
+}
+
+fn release_derivation_traces(
+    receipt: &Value,
+) -> Result<(Vec<IrDerivationTrace>, IrPublicationTrace)> {
+    let project_tier = receipt
+        .get("project_tier")
+        .and_then(Value::as_u64)
+        .context("release project tier is missing")?;
+    let evidence = required_value_array(receipt, "evidence")?;
+    let policies = required_value_array(receipt, "policies")?;
+    let mut traces = Vec::new();
+    for claim in required_value_array(receipt, "claims")? {
+        let claim_id = required_value_text(claim, "id")?;
+        let mut cited = json_text_array_optional(
+            claim
+                .as_object()
+                .context("release claim must be an object")?,
+            "cited_evidence",
+        )?;
+        cited.sort();
+        let cited_records = cited
+            .iter()
+            .filter_map(|identity| {
+                evidence.iter().find(|wrapped| {
+                    wrapped.get("sha256").and_then(Value::as_str) == Some(identity.as_str())
+                })
+            })
+            .collect::<Vec<_>>();
+        let passed_kinds = cited_records
+            .iter()
+            .filter_map(|wrapped| {
+                let record = wrapped.get("record")?;
+                (record.get("outcome").and_then(Value::as_str) == Some("passed"))
+                    .then(|| record.get("kind")?.as_str().map(str::to_owned))
+                    .flatten()
+            })
+            .collect::<Vec<_>>();
+        let (formal, formal_rule) = derive_formal_facet(&passed_kinds);
+        let (linkage, linkage_rule) = derive_linkage_facet(&passed_kinds);
+        let mut assumption_inputs = json_text_array_optional(
+            claim
+                .as_object()
+                .context("release claim must be an object")?,
+            "assumptions",
+        )?;
+        assumption_inputs.extend(json_text_array_optional(
+            claim
+                .as_object()
+                .context("release claim must be an object")?,
+            "premises",
+        )?);
+        assumption_inputs.extend(obligation_ids(claim)?);
+        assumption_inputs.sort();
+        assumption_inputs.dedup();
+        let policy_id = required_value_text(claim, "policy")?;
+        let policy = policies
+            .iter()
+            .find(|policy| policy.get("id").and_then(Value::as_str) == Some(policy_id))
+            .with_context(|| format!("claim {claim_id} has no effective policy"))?;
+        let policy = policy
+            .as_object()
+            .context("release policy must be an object")?;
+        let required_policy_components = json_text_array(policy, "components")?;
+        let native = cited_records.iter().any(|wrapped| {
+            wrapped
+                .get("record")
+                .and_then(|record| record.get("evaluation_mode"))
+                .and_then(Value::as_str)
+                == Some("native")
+        });
+        let satisfied_policy_components = required_policy_components
+            .iter()
+            .filter(|component| {
+                policy_component_satisfied(component, formal, linkage, native, &cited_records)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut blockers = Vec::new();
+        if cited_records.len() != cited.len() {
+            blockers.push("cited-evidence-missing".to_owned());
+        }
+        if cited_records.iter().any(|wrapped| {
+            wrapped
+                .get("record")
+                .and_then(|record| record.get("outcome"))
+                .and_then(Value::as_str)
+                != Some("passed")
+        }) {
+            blockers.push("cited-evidence-not-passed".to_owned());
+        }
+        blockers.extend(
+            required_policy_components
+                .iter()
+                .filter(|component| !satisfied_policy_components.contains(component))
+                .map(|component| format!("policy-component:{component}")),
+        );
+        if policy
+            .get("require_no_assumptions")
+            .and_then(Value::as_bool)
+            == Some(true)
+            && !assumption_inputs.is_empty()
+        {
+            blockers.push("assumptions-forbidden".to_owned());
+        }
+        for required in json_text_array(policy, "additional_required_evidence")? {
+            if !cited.contains(&required) {
+                blockers.push(format!("required-evidence:{required}"));
+            }
+        }
+        blockers.sort();
+        blockers.dedup();
+        let open_obligations = obligation_ids(claim)?;
+        traces.push(IrDerivationTrace {
+            schema: "proofbound-ir-derivation-trace/1".to_owned(),
+            claim_id: claim_id.to_owned(),
+            formal_value_and_rule: IrFacetDerivation {
+                value: formal.to_owned(),
+                rule: formal_rule.to_owned(),
+            },
+            linkage_value_and_rule: IrFacetDerivation {
+                value: linkage.to_owned(),
+                rule: linkage_rule.to_owned(),
+            },
+            assumption_value_and_inputs: IrAssumptionDerivation {
+                value: if assumption_inputs.is_empty() {
+                    "NONE".to_owned()
+                } else {
+                    "ASSUMED".to_owned()
+                },
+                inputs: assumption_inputs,
+            },
+            policy_id: policy_id.to_owned(),
+            effective_tier: claim
+                .get("tier")
+                .and_then(Value::as_u64)
+                .unwrap_or(project_tier),
+            required_policy_components,
+            satisfied_policy_components,
+            load_bearing_evidence: cited,
+            open_obligations,
+            blockers,
+        });
+    }
+    traces.sort_by(|left, right| left.claim_id.cmp(&right.claim_id));
+    let admitted_claims = traces
+        .iter()
+        .filter(|trace| trace.blockers.is_empty())
+        .map(|trace| trace.claim_id.clone())
+        .collect::<Vec<_>>();
+    let blocked_claims = traces
+        .iter()
+        .filter(|trace| !trace.blockers.is_empty())
+        .map(|trace| trace.claim_id.clone())
+        .collect::<Vec<_>>();
+    let blockers = traces
+        .iter()
+        .flat_map(|trace| {
+            trace
+                .blockers
+                .iter()
+                .map(|blocker| format!("{}:{blocker}", trace.claim_id))
+        })
+        .collect::<Vec<_>>();
+    Ok((
+        traces,
+        IrPublicationTrace {
+            admitted_claims,
+            blocked_claims,
+            blockers,
+        },
+    ))
+}
+
+fn obligation_ids(claim: &Value) -> Result<Vec<String>> {
+    let mut obligations = claim
+        .get("open_obligations")
+        .and_then(Value::as_array)
+        .context("open_obligations must be an array")?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .or_else(|| item.get("id").and_then(Value::as_str))
+                .map(str::to_owned)
+                .context("open obligation must be an identity or typed record")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    obligations.sort();
+    obligations.dedup();
+    Ok(obligations)
+}
+
+fn derive_formal_facet(kinds: &[String]) -> (&'static str, &'static str) {
+    if kinds.iter().any(|kind| kind == "theorem") {
+        ("PROVED", "universal-source-proof")
+    } else if kinds.iter().any(|kind| kind == "bounded-check") {
+        ("BOUNDED_CHECKED", "bounded-model-check")
+    } else if !kinds.is_empty() && kinds.iter().all(|kind| kind == "trusted-transcription") {
+        ("OPEN", "no-functional-evidence")
+    } else {
+        ("TESTED", "empirical-evidence")
+    }
+}
+
+fn derive_linkage_facet(kinds: &[String]) -> (&'static str, &'static str) {
+    if kinds.iter().any(|kind| kind == "artifact-soundness") {
+        ("ARTIFACT_BOUND", "artifact-correspondence")
+    } else if kinds.iter().any(|kind| kind == "source-refinement") {
+        ("REFINED", "source-correspondence")
+    } else if kinds.iter().any(|kind| kind == "trusted-transcription") {
+        ("TRANSCRIBED", "trusted-transcription")
+    } else {
+        ("MODEL_ONLY", "no-artifact-binding")
+    }
+}
+
+fn policy_component_satisfied(
+    component: &str,
+    formal: &str,
+    linkage: &str,
+    native: bool,
+    cited_records: &[&Value],
+) -> bool {
+    match component {
+        "ledger" => !cited_records.is_empty(),
+        "kernel" | "kernel-with-assumptions" => formal == "PROVED",
+        "artifact-bound" => linkage == "ARTIFACT_BOUND",
+        "native-evaluated" => native,
+        "transcribed" => linkage == "TRANSCRIBED",
+        _ => false,
+    }
 }
 
 fn release_source_semantics(
@@ -1495,6 +1785,7 @@ fn release_programme_source_projection(
         .filter(|status| status.get("policy_admitted").and_then(Value::as_bool) == Some(false))
         .map(|status| required_value_text(status, "claim_id").map(str::to_owned))
         .collect::<Result<Vec<_>>>()?;
+    let (derivation_traces, publication_trace) = release_derivation_traces(receipt)?;
     Ok(serde_json::json!({
         "release_schema": receipt.get("schema").cloned().unwrap_or(Value::Null),
         "project": {
@@ -1513,6 +1804,8 @@ fn release_programme_source_projection(
         "tcb_components": tcb_components,
         "publication_blockers": blockers,
         "reported_statuses": statuses,
+        "derivation_traces": derivation_traces,
+        "publication_trace": publication_trace,
     }))
 }
 
@@ -2421,6 +2714,90 @@ mod tests {
                 .iter()
                 .any(|record| matches!(record.family, PortableFamily::HumanReview(_)))
         );
+    }
+
+    #[test]
+    fn completion_receipts_have_independent_exact_derivation_traces() {
+        let root = root();
+        for language in ["python", "typescript", "rust"] {
+            let receipt = fs::read(root.join(format!(
+                "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/{language}/compiled-receipt.json"
+            )))
+            .unwrap();
+            let bundle = derive_release_trace_bundle(&receipt).unwrap();
+            let encoded = canonical_json(&bundle).unwrap();
+            validate_release_trace_bundle(&receipt, &encoded).unwrap();
+            assert!(!bundle.traces.is_empty());
+            assert!(bundle.publication.blocked_claims.is_empty());
+            assert!(bundle.publication.blockers.is_empty());
+        }
+    }
+
+    #[test]
+    fn rejects_all_preregistered_derivation_trace_attacks() {
+        let root = root();
+        let receipt = fs::read(root.join(
+            "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/python/compiled-receipt.json",
+        ))
+        .unwrap();
+        let bundle = derive_release_trace_bundle(&receipt).unwrap();
+        let original = serde_json::to_value(&bundle).unwrap();
+        let mut attacks = Vec::new();
+
+        let mut missing_evidence = original.clone();
+        missing_evidence["traces"][0]["load_bearing_evidence"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        attacks.push(missing_evidence);
+
+        let mut stronger_rule = original.clone();
+        stronger_rule["traces"][0]["formal_value_and_rule"]["rule"] =
+            Value::String("universal-source-proof".to_owned());
+        attacks.push(stronger_rule);
+
+        let mut forged_component = original.clone();
+        forged_component["traces"][0]["satisfied_policy_components"] =
+            serde_json::json!(["forged-component", "ledger"]);
+        attacks.push(forged_component);
+
+        let mut publication_skew = original.clone();
+        publication_skew["publication"]["admitted_claims"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        attacks.push(publication_skew);
+
+        let mut moved_claim = original.clone();
+        moved_claim["traces"][0]["claim_id"] = Value::String("PY-WHEEL-001".to_owned());
+        attacks.push(moved_claim);
+
+        let mut reported_receipt: Value = serde_json::from_slice(&receipt).unwrap();
+        reported_receipt["reported_statuses"][0]["policy_admitted"] = Value::Bool(false);
+        let reported_receipt = canonical_json(&reported_receipt).unwrap();
+        let mut reported_authored =
+            serde_json::to_value(derive_release_trace_bundle(&reported_receipt).unwrap()).unwrap();
+        reported_authored["traces"][0]["blockers"] = serde_json::json!(["reported-policy-blocked"]);
+        reported_authored["publication"]["admitted_claims"]
+            .as_array_mut()
+            .unwrap()
+            .remove(0);
+        reported_authored["publication"]["blocked_claims"] =
+            serde_json::json!(["PY-RESERVATION-001"]);
+        reported_authored["publication"]["blockers"] =
+            serde_json::json!(["PY-RESERVATION-001:reported-policy-blocked"]);
+
+        for attack in attacks {
+            let error = validate_release_trace_bundle(&receipt, &canonical_json(&attack).unwrap())
+                .unwrap_err();
+            assert_eq!(error.code, "IR-DERIVATION-TRACE-MISMATCH");
+        }
+        let error = validate_release_trace_bundle(
+            &reported_receipt,
+            &canonical_json(&reported_authored).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "IR-DERIVATION-TRACE-MISMATCH");
     }
 
     #[test]

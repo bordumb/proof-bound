@@ -154,6 +154,32 @@ def domain_hash(domain: str, data: bytes) -> str:
     return f"sha256:{hashlib.sha256(domain.encode() + bytes([0]) + data).hexdigest()}"
 
 
+def derive_release_trace_bundle(receipt_bytes: bytes) -> dict[str, Any]:
+    """Derive a backend-neutral admission trace from one portable receipt."""
+
+    receipt = _strict_json(receipt_bytes, require_canonical=False)
+    traces, publication = _release_derivation_traces(receipt)
+    return {
+        "schema": "proofbound-ir-release-trace-bundle/1",
+        "project": _required_text(receipt, "project"),
+        "receipt_sha256": _sha256(receipt_bytes),
+        "traces": traces,
+        "publication": publication,
+    }
+
+
+def validate_release_trace_bundle(receipt_bytes: bytes, trace_bytes: bytes) -> None:
+    """Reject a claimed trace that differs from independent receipt derivation."""
+
+    actual = _strict_json(trace_bytes, require_canonical=True)
+    expected = derive_release_trace_bundle(receipt_bytes)
+    if actual != expected:
+        _fail(
+            "IR-DERIVATION-TRACE-MISMATCH",
+            "trace bundle differs from independently derived receipt semantics",
+        )
+
+
 def check_projection(
     root: Path, corpus_path: Path, projection_bytes: bytes
 ) -> CheckReport:
@@ -1777,7 +1803,12 @@ def _validate_programme(programme: dict[str, Any], portable_receipt: bool) -> No
                 "IR-PROGRAMME-TCB-MISMATCH",
                 "typed TCB components differ from the sealed ledger identity",
             )
-    for field in ("assumptions", "premises", "publication_blockers"):
+    for field in (
+        "assumptions",
+        "premises",
+        "publication_blockers",
+        "derivation_traces",
+    ):
         _list(programme, field)
 
 
@@ -1846,6 +1877,7 @@ def _validate_portable_joins(
                 "IR-PROGRAMME-POLICY-MISMATCH",
                 "effective policy differs from the policy used by status derivation",
             )
+    _validate_derivation_traces(programme, list(claims_by_id.values()), evidence)
     blockers = [
         status["claim_id"]
         for status in statuses
@@ -1896,6 +1928,141 @@ def _validate_portable_joins(
                 "IR-PROGRAMME-CLOSURE-MISSING",
                 "portable evidence names an unregistered semantic closure",
             )
+
+
+def _validate_derivation_traces(
+    programme: dict[str, Any],
+    claims: list[dict[str, Any]],
+    evidence: list[object],
+) -> None:
+    project_tier = _object(programme, "project").get("tier")
+    if not isinstance(project_tier, int):
+        _fail("IR-DECODE-INVALID", "project tier is missing")
+    policies = {
+        _required_text(policy, "id"): policy
+        for policy in (_as_object(item) for item in _list(programme, "policies"))
+    }
+    evidence_by_id = {
+        _required_text(item, "content_sha256"): item
+        for item in (_as_object(value) for value in evidence)
+    }
+    expected: list[dict[str, Any]] = []
+    for claim in claims:
+        cited = _text_list(claim, "cited_evidence")
+        cited_records = [
+            evidence_by_id[item] for item in cited if item in evidence_by_id
+        ]
+        passed_kinds = [
+            _required_text(_object(item, "family"), "kind")
+            for item in cited_records
+            if item.get("outcome") == "passed"
+        ]
+        formal, formal_rule = _derive_ir_formal(passed_kinds)
+        linkage, linkage_rule = _derive_ir_linkage(passed_kinds)
+        assumption_inputs = sorted(
+            set(_text_list(claim, "assumptions"))
+            | set(_text_list(claim, "premises"))
+            | set(_text_list(claim, "open_obligations"))
+        )
+        admission = _object(claim, "admission")
+        policy_id = _required_text(admission, "policy")
+        policy = policies.get(policy_id)
+        if policy is None:
+            _fail("IR-DERIVATION-TRACE-MISMATCH", "claim derivation policy is absent")
+        required_components = _text_list(policy, "components")
+        native = any(item.get("evaluation") == "native" for item in cited_records)
+        satisfied_components = [
+            component
+            for component in required_components
+            if _policy_component_satisfied(
+                component, formal, linkage, native, cited_records
+            )
+        ]
+        blockers: list[str] = []
+        if len(cited_records) != len(cited):
+            blockers.append("cited-evidence-missing")
+        if any(item.get("outcome") != "passed" for item in cited_records):
+            blockers.append("cited-evidence-not-passed")
+        blockers.extend(
+            f"policy-component:{component}"
+            for component in required_components
+            if component not in satisfied_components
+        )
+        if policy.get("require_no_assumptions") is True and assumption_inputs:
+            blockers.append("assumptions-forbidden")
+        blockers.extend(
+            f"required-evidence:{required}"
+            for required in _text_list(policy, "additional_required_evidence")
+            if required not in cited
+        )
+        tier = admission.get("tier")
+        expected.append(
+            {
+                "schema": "proofbound-ir-derivation-trace/1",
+                "claim_id": _required_text(claim, "id"),
+                "formal_value_and_rule": {
+                    "value": formal,
+                    "rule": formal_rule,
+                },
+                "linkage_value_and_rule": {
+                    "value": linkage,
+                    "rule": linkage_rule,
+                },
+                "assumption_value_and_inputs": {
+                    "value": "ASSUMED" if assumption_inputs else "NONE",
+                    "inputs": assumption_inputs,
+                },
+                "policy_id": policy_id,
+                "effective_tier": tier if isinstance(tier, int) else project_tier,
+                "required_policy_components": required_components,
+                "satisfied_policy_components": satisfied_components,
+                "load_bearing_evidence": cited,
+                "open_obligations": _text_list(claim, "open_obligations"),
+                "blockers": sorted(set(blockers)),
+            }
+        )
+    expected.sort(key=lambda trace: trace["claim_id"])
+    if _list(programme, "derivation_traces") != expected:
+        _fail(
+            "IR-DERIVATION-TRACE-MISMATCH",
+            "registered derivation traces differ from independently derived traces",
+        )
+    admitted = [trace["claim_id"] for trace in expected if not trace["blockers"]]
+    blocked = [trace["claim_id"] for trace in expected if trace["blockers"]]
+    publication = {
+        "admitted_claims": admitted,
+        "blocked_claims": blocked,
+        "blockers": [
+            f"{trace['claim_id']}:{blocker}"
+            for trace in expected
+            for blocker in trace["blockers"]
+        ],
+    }
+    if programme.get("publication_trace") != publication:
+        _fail(
+            "IR-DERIVATION-TRACE-MISMATCH",
+            "publication trace differs from independently derived claim blockers",
+        )
+
+
+def _derive_ir_formal(kinds: list[str]) -> tuple[str, str]:
+    if "universal-source-proof" in kinds:
+        return "PROVED", "universal-source-proof"
+    if "bounded-model-check" in kinds:
+        return "BOUNDED_CHECKED", "bounded-model-check"
+    if kinds and all(kind == "trusted-transcription" for kind in kinds):
+        return "OPEN", "no-functional-evidence"
+    return "TESTED", "empirical-evidence"
+
+
+def _derive_ir_linkage(kinds: list[str]) -> tuple[str, str]:
+    if "artifact-correspondence" in kinds:
+        return "ARTIFACT_BOUND", "artifact-correspondence"
+    if "source-correspondence" in kinds:
+        return "REFINED", "source-correspondence"
+    if "trusted-transcription" in kinds:
+        return "TRANSCRIBED", "trusted-transcription"
+    return "MODEL_ONLY", "no-artifact-binding"
 
 
 def _validate_ledger_joins(
@@ -2846,12 +3013,14 @@ def _empty_programme() -> dict[str, Any]:
         "tcb_components": [],
         "publication_blockers": [],
         "reported_statuses": [],
+        "derivation_traces": [],
     }
 
 
 def _release_programme(
     receipt: dict[str, Any], tcb_components: list[dict[str, str]]
 ) -> dict[str, Any]:
+    derivation_traces, publication_trace = _release_derivation_traces(receipt)
     return {
         "release_schema": receipt["schema"],
         "project": {
@@ -2899,7 +3068,157 @@ def _release_programme(
             }
             for status in receipt["reported_statuses"]
         ],
+        "derivation_traces": derivation_traces,
+        "publication_trace": publication_trace,
     }
+
+
+def _release_derivation_traces(
+    receipt: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    evidence_by_id = {item["sha256"]: item["record"] for item in receipt["evidence"]}
+    policies = {policy["id"]: policy for policy in receipt["policies"]}
+    traces: list[dict[str, Any]] = []
+    for claim in receipt["claims"]:
+        cited = sorted(claim.get("cited_evidence", []))
+        cited_records = [
+            evidence_by_id[item] for item in cited if item in evidence_by_id
+        ]
+        passed_kinds = [
+            record["kind"]
+            for record in cited_records
+            if record.get("outcome") == "passed"
+        ]
+        formal, formal_rule = _derive_formal_facet(passed_kinds)
+        linkage, linkage_rule = _derive_linkage_facet(passed_kinds)
+        assumption_inputs = sorted(
+            set(claim.get("assumptions", []))
+            | set(claim.get("premises", []))
+            | set(_obligation_ids(claim))
+        )
+        policy = policies[claim["policy"]]
+        required_components = list(policy["components"])
+        native = any(
+            record.get("evaluation_mode") == "native" for record in cited_records
+        )
+        satisfied_components = [
+            component
+            for component in required_components
+            if _policy_component_satisfied(
+                component, formal, linkage, native, cited_records
+            )
+        ]
+        blockers: list[str] = []
+        if len(cited_records) != len(cited):
+            blockers.append("cited-evidence-missing")
+        if any(record.get("outcome") != "passed" for record in cited_records):
+            blockers.append("cited-evidence-not-passed")
+        blockers.extend(
+            f"policy-component:{component}"
+            for component in required_components
+            if component not in satisfied_components
+        )
+        if policy.get("require_no_assumptions") is True and assumption_inputs:
+            blockers.append("assumptions-forbidden")
+        blockers.extend(
+            f"required-evidence:{required}"
+            for required in policy.get("additional_required_evidence", [])
+            if required not in cited
+        )
+        traces.append(
+            {
+                "schema": "proofbound-ir-derivation-trace/1",
+                "claim_id": claim["id"],
+                "formal_value_and_rule": {
+                    "value": formal,
+                    "rule": formal_rule,
+                },
+                "linkage_value_and_rule": {
+                    "value": linkage,
+                    "rule": linkage_rule,
+                },
+                "assumption_value_and_inputs": {
+                    "value": "ASSUMED" if assumption_inputs else "NONE",
+                    "inputs": assumption_inputs,
+                },
+                "policy_id": claim["policy"],
+                "effective_tier": (
+                    claim["tier"]
+                    if claim.get("tier") is not None
+                    else receipt["project_tier"]
+                ),
+                "required_policy_components": required_components,
+                "satisfied_policy_components": satisfied_components,
+                "load_bearing_evidence": cited,
+                "open_obligations": _obligation_ids(claim),
+                "blockers": sorted(set(blockers)),
+            }
+        )
+    traces.sort(key=lambda trace: trace["claim_id"])
+    admitted = [trace["claim_id"] for trace in traces if not trace["blockers"]]
+    blocked = [trace["claim_id"] for trace in traces if trace["blockers"]]
+    blockers = [
+        f"{trace['claim_id']}:{blocker}"
+        for trace in traces
+        for blocker in trace["blockers"]
+    ]
+    return traces, {
+        "admitted_claims": admitted,
+        "blocked_claims": blocked,
+        "blockers": blockers,
+    }
+
+
+def _obligation_ids(claim: dict[str, Any]) -> list[str]:
+    obligations: list[str] = []
+    for item in claim.get("open_obligations", []):
+        if isinstance(item, str):
+            obligations.append(item)
+        elif isinstance(item, dict) and isinstance(item.get("id"), str):
+            obligations.append(item["id"])
+        else:
+            raise AssuranceIrError("open obligation has no typed identity")
+    return sorted(set(obligations))
+
+
+def _derive_formal_facet(kinds: list[str]) -> tuple[str, str]:
+    if "theorem" in kinds:
+        return "PROVED", "universal-source-proof"
+    if "bounded-check" in kinds:
+        return "BOUNDED_CHECKED", "bounded-model-check"
+    if kinds and all(kind == "trusted-transcription" for kind in kinds):
+        return "OPEN", "no-functional-evidence"
+    return "TESTED", "empirical-evidence"
+
+
+def _derive_linkage_facet(kinds: list[str]) -> tuple[str, str]:
+    if "artifact-soundness" in kinds:
+        return "ARTIFACT_BOUND", "artifact-correspondence"
+    if "source-refinement" in kinds:
+        return "REFINED", "source-correspondence"
+    if "trusted-transcription" in kinds:
+        return "TRANSCRIBED", "trusted-transcription"
+    return "MODEL_ONLY", "no-artifact-binding"
+
+
+def _policy_component_satisfied(
+    component: str,
+    formal: str,
+    linkage: str,
+    native: bool,
+    cited_records: list[dict[str, Any]],
+) -> bool:
+    if component == "ledger":
+        return bool(cited_records)
+    if component in {"kernel", "kernel-with-assumptions"}:
+        return formal == "PROVED"
+    if component == "artifact-bound":
+        return linkage == "ARTIFACT_BOUND"
+    if component == "native-evaluated":
+        return native
+    if component == "transcribed":
+        return linkage == "TRANSCRIBED"
+    return False
 
 
 def _typed_graph(graph: dict[str, Any]) -> dict[str, Any]:
@@ -3200,6 +3519,7 @@ def _release_evidence_source_projection(
 def _release_programme_source_projection(
     receipt: dict[str, Any], tcb_components: list[dict[str, str]]
 ) -> dict[str, Any]:
+    derivation_traces, publication_trace = _release_derivation_traces(receipt)
     return {
         "release_schema": receipt.get("schema"),
         "project": {
@@ -3248,6 +3568,8 @@ def _release_programme_source_projection(
             }
             for status in receipt["reported_statuses"]
         ],
+        "derivation_traces": derivation_traces,
+        "publication_trace": publication_trace,
     }
 
 

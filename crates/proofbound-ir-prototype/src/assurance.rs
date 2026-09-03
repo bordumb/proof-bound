@@ -36,6 +36,44 @@ pub struct IrProgrammeContext {
     pub tcb_components: Vec<IrTcbComponent>,
     pub publication_blockers: Vec<String>,
     pub reported_statuses: Vec<IrReportedStatus>,
+    pub derivation_traces: Vec<IrDerivationTrace>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publication_trace: Option<IrPublicationTrace>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IrDerivationTrace {
+    pub schema: String,
+    pub claim_id: String,
+    pub formal_value_and_rule: IrFacetDerivation,
+    pub linkage_value_and_rule: IrFacetDerivation,
+    pub assumption_value_and_inputs: IrAssumptionDerivation,
+    pub policy_id: String,
+    pub effective_tier: u64,
+    pub required_policy_components: Vec<String>,
+    pub satisfied_policy_components: Vec<String>,
+    pub load_bearing_evidence: Vec<String>,
+    pub open_obligations: Vec<String>,
+    pub blockers: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IrFacetDerivation {
+    pub value: String,
+    pub rule: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IrAssumptionDerivation {
+    pub value: String,
+    pub inputs: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct IrPublicationTrace {
+    pub admitted_claims: Vec<String>,
+    pub blocked_claims: Vec<String>,
+    pub blockers: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
@@ -466,7 +504,7 @@ impl std::fmt::Display for IrValidationError {
 impl std::error::Error for IrValidationError {}
 
 impl IrValidationError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -918,6 +956,7 @@ fn validate_portable_joins(
             ));
         }
     }
+    validate_derivation_traces(programme, claims, evidence)?;
     let blockers = statuses
         .iter()
         .filter_map(|status| {
@@ -977,6 +1016,224 @@ fn validate_portable_joins(
         }
     }
     Ok(())
+}
+
+fn validate_derivation_traces(
+    programme: &Map<String, Value>,
+    claims: &[Value],
+    evidence: &[Value],
+) -> Result<(), IrValidationError> {
+    let project_tier = object_field(programme, "project")?
+        .get("tier")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| IrValidationError::new("IR-DECODE-INVALID", "project tier is missing"))?;
+    let policies = array_field(programme, "policies")?;
+    let mut expected = claims
+        .iter()
+        .map(|claim| derive_trace_value(value_object(claim)?, evidence, policies, project_tier))
+        .collect::<Result<Vec<_>, _>>()?;
+    expected.sort_by(|left, right| {
+        left.get("claim_id")
+            .and_then(Value::as_str)
+            .cmp(&right.get("claim_id").and_then(Value::as_str))
+    });
+    if array_field(programme, "derivation_traces")? != &expected {
+        return Err(IrValidationError::new(
+            "IR-DERIVATION-TRACE-MISMATCH",
+            "registered derivation traces differ from independently derived traces",
+        ));
+    }
+    let admitted_claims = expected
+        .iter()
+        .filter(|trace| {
+            trace
+                .get("blockers")
+                .and_then(Value::as_array)
+                .is_some_and(Vec::is_empty)
+        })
+        .filter_map(|trace| trace.get("claim_id").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    let blocked_claims = expected
+        .iter()
+        .filter(|trace| {
+            trace
+                .get("blockers")
+                .and_then(Value::as_array)
+                .is_some_and(|items| !items.is_empty())
+        })
+        .filter_map(|trace| trace.get("claim_id").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    let blockers = expected
+        .iter()
+        .flat_map(|trace| {
+            let claim_id = trace.get("claim_id").and_then(Value::as_str).unwrap_or("");
+            trace
+                .get("blockers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(move |blocker| Value::String(format!("{claim_id}:{blocker}")))
+        })
+        .collect::<Vec<_>>();
+    let expected_publication = serde_json::json!({
+        "admitted_claims": admitted_claims,
+        "blocked_claims": blocked_claims,
+        "blockers": blockers,
+    });
+    if programme.get("publication_trace") != Some(&expected_publication) {
+        return Err(IrValidationError::new(
+            "IR-DERIVATION-TRACE-MISMATCH",
+            "publication trace differs from independently derived claim blockers",
+        ));
+    }
+    Ok(())
+}
+
+fn derive_trace_value(
+    claim: &Map<String, Value>,
+    evidence: &[Value],
+    policies: &[Value],
+    project_tier: u64,
+) -> Result<Value, IrValidationError> {
+    let claim_id = text(claim, "id")?;
+    let cited = text_array(claim, "cited_evidence")?;
+    let cited_records = cited
+        .iter()
+        .filter_map(|identity| {
+            evidence.iter().find(|item| {
+                item.get("content_sha256").and_then(Value::as_str) == Some(identity.as_str())
+            })
+        })
+        .collect::<Vec<_>>();
+    let passed_kinds = cited_records
+        .iter()
+        .filter_map(|item| {
+            let item = item.as_object()?;
+            (item.get("outcome").and_then(Value::as_str) == Some("passed"))
+                .then(|| object_field(item, "family").ok()?.get("kind")?.as_str())
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    let (formal, formal_rule) = derive_ir_formal(&passed_kinds);
+    let (linkage, linkage_rule) = derive_ir_linkage(&passed_kinds);
+    let mut assumption_inputs = text_array(claim, "assumptions")?;
+    assumption_inputs.extend(text_array(claim, "premises")?);
+    assumption_inputs.extend(text_array(claim, "open_obligations")?);
+    assumption_inputs.sort();
+    assumption_inputs.dedup();
+    let admission = object_field(claim, "admission")?;
+    let policy_id = text(admission, "policy")?;
+    let policy = policies
+        .iter()
+        .find(|policy| policy.get("id").and_then(Value::as_str) == Some(policy_id))
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            IrValidationError::new(
+                "IR-DERIVATION-TRACE-MISMATCH",
+                "claim derivation policy is absent",
+            )
+        })?;
+    let required_components = text_array(policy, "components")?;
+    let native = cited_records
+        .iter()
+        .any(|item| item.get("evaluation").and_then(Value::as_str) == Some("native"));
+    let satisfied_components = required_components
+        .iter()
+        .filter(|component| {
+            ir_policy_component_satisfied(component, formal, linkage, native, &cited_records)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut blockers = Vec::new();
+    if cited_records.len() != cited.len() {
+        blockers.push("cited-evidence-missing".to_owned());
+    }
+    if cited_records
+        .iter()
+        .any(|item| item.get("outcome").and_then(Value::as_str) != Some("passed"))
+    {
+        blockers.push("cited-evidence-not-passed".to_owned());
+    }
+    blockers.extend(
+        required_components
+            .iter()
+            .filter(|component| !satisfied_components.contains(component))
+            .map(|component| format!("policy-component:{component}")),
+    );
+    if policy
+        .get("require_no_assumptions")
+        .and_then(Value::as_bool)
+        == Some(true)
+        && !assumption_inputs.is_empty()
+    {
+        blockers.push("assumptions-forbidden".to_owned());
+    }
+    for required in text_array(policy, "additional_required_evidence")? {
+        if !cited.contains(&required) {
+            blockers.push(format!("required-evidence:{required}"));
+        }
+    }
+    blockers.sort();
+    blockers.dedup();
+    Ok(serde_json::json!({
+        "schema": "proofbound-ir-derivation-trace/1",
+        "claim_id": claim_id,
+        "formal_value_and_rule": {"value": formal, "rule": formal_rule},
+        "linkage_value_and_rule": {"value": linkage, "rule": linkage_rule},
+        "assumption_value_and_inputs": {
+            "value": if assumption_inputs.is_empty() { "NONE" } else { "ASSUMED" },
+            "inputs": assumption_inputs,
+        },
+        "policy_id": policy_id,
+        "effective_tier": admission.get("tier").and_then(Value::as_u64).unwrap_or(project_tier),
+        "required_policy_components": required_components,
+        "satisfied_policy_components": satisfied_components,
+        "load_bearing_evidence": cited,
+        "open_obligations": text_array(claim, "open_obligations")?,
+        "blockers": blockers,
+    }))
+}
+
+fn derive_ir_formal(kinds: &[&str]) -> (&'static str, &'static str) {
+    if kinds.contains(&"universal-source-proof") {
+        ("PROVED", "universal-source-proof")
+    } else if kinds.contains(&"bounded-model-check") {
+        ("BOUNDED_CHECKED", "bounded-model-check")
+    } else if !kinds.is_empty() && kinds.iter().all(|kind| *kind == "trusted-transcription") {
+        ("OPEN", "no-functional-evidence")
+    } else {
+        ("TESTED", "empirical-evidence")
+    }
+}
+
+fn derive_ir_linkage(kinds: &[&str]) -> (&'static str, &'static str) {
+    if kinds.contains(&"artifact-correspondence") {
+        ("ARTIFACT_BOUND", "artifact-correspondence")
+    } else if kinds.contains(&"source-correspondence") {
+        ("REFINED", "source-correspondence")
+    } else if kinds.contains(&"trusted-transcription") {
+        ("TRANSCRIBED", "trusted-transcription")
+    } else {
+        ("MODEL_ONLY", "no-artifact-binding")
+    }
+}
+
+fn ir_policy_component_satisfied(
+    component: &str,
+    formal: &str,
+    linkage: &str,
+    native: bool,
+    cited_records: &[&Value],
+) -> bool {
+    match component {
+        "ledger" => !cited_records.is_empty(),
+        "kernel" | "kernel-with-assumptions" => formal == "PROVED",
+        "artifact-bound" => linkage == "ARTIFACT_BOUND",
+        "native-evaluated" => native,
+        "transcribed" => linkage == "TRANSCRIBED",
+        _ => false,
+    }
 }
 
 fn validate_ledger_joins(
@@ -1208,7 +1465,12 @@ fn validate_programme(
             ));
         }
     }
-    for field in ["assumptions", "premises", "publication_blockers"] {
+    for field in [
+        "assumptions",
+        "premises",
+        "publication_blockers",
+        "derivation_traces",
+    ] {
         array_field(programme, field)?;
     }
     Ok(())

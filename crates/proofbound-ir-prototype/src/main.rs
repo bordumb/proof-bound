@@ -6,8 +6,9 @@ use std::{
 };
 
 use proofbound_ir_prototype::{
-    generate_derivation_corpus, project_corpus, project_portable_families, validate_case_program,
-    validate_derivation_program, validate_layered_sampling_case, validate_sampling_observation,
+    derive_release_trace_bundle, generate_derivation_corpus, project_corpus,
+    project_portable_families, validate_case_program, validate_derivation_program,
+    validate_layered_sampling_case, validate_release_trace_bundle, validate_sampling_observation,
 };
 
 fn main() -> ExitCode {
@@ -160,6 +161,55 @@ fn main() -> ExitCode {
                 validate_derivation_program(&bytes).map_err(|error| error.to_string())
             });
         return write_canonical_result(outcome);
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("derive-release-trace")) {
+        let Some(receipt) = args.next().map(PathBuf::from) else {
+            eprintln!("usage: proofbound-ir-prototype derive-release-trace <receipt.json>");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(receipt)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                derive_release_trace_bundle(&bytes).map_err(|error| error.to_string())
+            });
+        return write_canonical_result(result);
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-release-trace")) {
+        let Some(receipt) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype validate-release-trace <receipt.json> <trace.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(trace) = args.next().map(PathBuf::from) else {
+            eprintln!("missing trace bundle");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(receipt)
+            .map_err(|error| error.to_string())
+            .and_then(|receipt_bytes| {
+                std::fs::read(trace)
+                    .map_err(|error| error.to_string())
+                    .and_then(|trace_bytes| {
+                        validate_release_trace_bundle(&receipt_bytes, &trace_bytes)
+                            .map_err(|error| error.to_string())
+                    })
+            });
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(1)
+            }
+        };
     }
     if first.as_deref() == Some(std::ffi::OsStr::new("generate-derivations")) {
         let Some(templates) = args.next().map(PathBuf::from) else {
