@@ -25,3 +25,14 @@ groups, non-interrupting graph updates, and their domain-separated identities.
 Its tests execute all 20 frozen attacks and preserve the low-severity consumed
 finding as an interruption. No independent Python implementation or oracle
 measurement existed when this entry was added.
+
+## 2026-09-03 — Independent Python candidate implemented
+
+Implemented the second engine from the frozen contract and corpus rather than
+from retained Rust output. It independently validates closed input records,
+category consequences, dependency joins, canonical ordering, notification and
+report identities, and all 20 attacks. A direct temporary comparison found
+the complete Rust and Python model reports byte-identical at
+`sha256:c5cc21be4fd32942a8327845b4a6cd67c015af740a0cf532ece88fb42a853d97`.
+The critical-action oracle and expected metric file were still not inputs to
+either engine.

@@ -14,4 +14,6 @@
 | EXP-0013-C006 | `corpus/CONTRACT.md` | frozen, `sha256:7d86076d2eaf668bd5c7b81c9979980563427534546b6aefca89a6392ebcb477` | Closed input, grouping, identity, metric, and human-evidence rules |
 | EXP-0013-I001 | `crates/proofbound-ir-prototype/src/notifications.rs` | implemented | Typed Rust uncertainty validator, baseline and candidate derivation, canonical report validator, and attack executor |
 | EXP-0013-I002 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-notifications` command |
+| EXP-0013-I003 | `python/proofbound/notifications_research.py` | implemented independently | Python closed-record validator, decision derivation, canonical identity checker, and attack executor |
+| EXP-0013-I004 | `python/tests/test_notifications_research.py` | passing | Independent derivation, low-severity dependency, and self-consistent path-substitution checks |
 | EXP-0013-E001 | `results/` | reserved | Immutable machine and any eligible participant results |
