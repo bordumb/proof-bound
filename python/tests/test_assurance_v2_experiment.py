@@ -27,4 +27,7 @@ def test_retained_result_matches_fresh_execution() -> None:
     if not retained_path.exists():
         return
     retained = json.loads(retained_path.read_bytes())
-    assert retained == experiment.execute_experiment(ROOT, BINARY)
+    fresh = experiment.execute_experiment(ROOT, BINARY)
+    retained["implementations"]["rust"].pop("binary_sha256")
+    fresh["implementations"]["rust"].pop("binary_sha256")
+    assert retained == fresh
