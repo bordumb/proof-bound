@@ -15,6 +15,11 @@ implementation:
 - [`fixtures/mode-project/`](fixtures/mode-project/) makes same-byte permission
   drift observably load-bearing rather than merely hypothetical.
 
+[`extension-r2.json`](extension-r2.json) adds a separate Cargo workspace whose
+selected member consumes `shared.rs` from outside its immediate package. It
+corrects revision 1's narrower interpretation of “transitive” before any
+validator implementation or result. Revision 1 remains immutable.
+
 The controlled subject Git revision binds all registered source bytes and
 modes. Each external holdout is bound by upstream revision plus its generated
 semantic closure identity and exact local Proofbound manifest identities.

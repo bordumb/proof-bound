@@ -1,0 +1,32 @@
+{
+  "schema": "proofbound-research-invalidation-corpus-extension/1",
+  "experiment": "EXP-0010",
+  "revision": 2,
+  "status": "ground-truth-frozen-before-implementation",
+  "supersedes": {
+    "cases": "cases.json",
+    "scenarios": "scenarios.json"
+  },
+  "reason": "Revision 1 treated a source omitted from a unit manifest but inside its Cargo package as transitive. The preregistered class is stricter: a repository-owned source outside the immediate package must be load-bearing.",
+  "auxiliary_fixture": {
+    "id": "fixture-cargo-transitive",
+    "route": "rust-cargo-test",
+    "root": "docs/experiments/0010-invalidation-precision/corpus/fixtures/transitive-workspace",
+    "selected_package": "proofbound-invalidation-transitive-fixture",
+    "external_source": "shared.rs",
+    "consumer": "member/src/lib.rs"
+  },
+  "scenario": {
+    "id": "INV-SC-026",
+    "class": "transitive-source-content",
+    "scope": "auxiliary-transitive-fixture",
+    "change": "workspace-level shared.rs bytes outside the selected member package",
+    "expected_invalidated": ["fixture-cargo-transitive"]
+  },
+  "effective_counts": {
+    "controlled_units": 15,
+    "external_holdouts": 2,
+    "auxiliary_fixtures": 2,
+    "scenarios": 26
+  }
+}
