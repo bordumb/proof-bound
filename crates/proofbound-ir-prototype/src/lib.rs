@@ -18,6 +18,7 @@ mod effects;
 mod frontend;
 mod invalidation;
 mod layered_sampling;
+mod notifications;
 mod portable;
 mod sampling;
 
@@ -75,6 +76,16 @@ pub use invalidation::{
 pub use layered_sampling::{
     LayeredSamplingCase, LayeredSamplingError, LayeredSamplingReport,
     validate_layered_sampling_case,
+};
+pub use notifications::{
+    BaselineAlert, DecisionNotification, FactConsequence, FindingSeverity, GraphUpdate,
+    NOTIFICATION_CORPUS_SCHEMA, NOTIFICATION_MODEL_REPORT_SCHEMA, NOTIFICATION_REPORT_SCHEMA,
+    NotificationAttack, NotificationAttackAction, NotificationAttackCorpus,
+    NotificationAttackResult, NotificationClaim, NotificationCorpus, NotificationDecisionReport,
+    NotificationError, NotificationImpactPath, NotificationModelReport, NotificationScenario,
+    PublicationConsequence, ScenarioIdentity, ToolFinding, UncertaintyFact, UncertaintyKind,
+    derive_notification_report, execute_notification_corpus, load_notification_corpus,
+    validate_notification_corpus, validate_notification_report,
 };
 pub use portable::{
     PORTABLE_FAMILY_PROJECTION_SCHEMA, PORTABLE_FAMILY_PROJECTION_V2_SCHEMA, PortableFamily,

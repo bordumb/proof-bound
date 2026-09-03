@@ -12,4 +12,6 @@
 | EXP-0013-C004 | `corpus/expected.json` | frozen, `sha256:193e6e4d68454ae29c7f26cac2dfc2db0284bddaa622a735182b3611933111b6` | Counts, threshold, categories, repetitions, and participant minimum |
 | EXP-0013-C005 | `corpus/instrument.json` | frozen, `sha256:6eb20f6fd634e6b42836debe14b788d40bbbc6a626b7b4d9146b6adac9040a0f` | Counterbalanced optional human study with no responses |
 | EXP-0013-C006 | `corpus/CONTRACT.md` | frozen, `sha256:7d86076d2eaf668bd5c7b81c9979980563427534546b6aefca89a6392ebcb477` | Closed input, grouping, identity, metric, and human-evidence rules |
+| EXP-0013-I001 | `crates/proofbound-ir-prototype/src/notifications.rs` | implemented | Typed Rust uncertainty validator, baseline and candidate derivation, canonical report validator, and attack executor |
+| EXP-0013-I002 | `crates/proofbound-ir-prototype/src/main.rs` | implemented | Research-only `execute-notifications` command |
 | EXP-0013-E001 | `results/` | reserved | Immutable machine and any eligible participant results |
