@@ -45,3 +45,16 @@ rejected every attack with its registered code. The kernel measures 1,395
 nonblank non-comment lines, within the frozen 1,400-line ceiling, and its
 source contains none of the forbidden backend names. The independent Python
 kernel and retained execution did not exist when this entry was added.
+
+## 2026-09-03 — Independent graph kernel implemented
+
+Implemented a separately authored Python graph kernel after the Rust kernel.
+It parses the frozen controls without generated bindings, validates canonical
+observation envelopes and all contract, graph, evidence-family, assumption,
+and migration joins, reconstructs both phase reports, and independently
+executes all 30 attacks. Focused parity tests used one canonical four-set
+observation envelope: the kernels emitted byte-identical reports and exact
+attack codes. The independent kernel measures 877 nonblank non-comment lines,
+within the 1,400-line ceiling, and contains none of the forbidden backend
+names. The actual registered callers and retained evaluator result did not
+exist when this entry was added.
