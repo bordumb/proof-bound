@@ -84,7 +84,6 @@ FILE_MUTATION_ACCESS = (
     | WRITE_DAC
     | WRITE_OWNER
 )
-HRESULT_SHARING_VIOLATION = 0x80070020
 PROFILE_DELETE_TIMEOUT_SECONDS = 5.0
 MAX_LOOPBACK_EXEMPTIONS = 4096
 
@@ -352,8 +351,6 @@ def _delete_appcontainer_profile(userenv: Any, profile: str) -> None:
         result = userenv.DeleteAppContainerProfile(profile)
         if result == 0:
             return
-        if result & 0xFFFFFFFF != HRESULT_SHARING_VIOLATION:
-            _hresult(result, "DeleteAppContainerProfile")
         if time.monotonic() >= deadline:
             _hresult(result, "DeleteAppContainerProfile")
         time.sleep(0.05)

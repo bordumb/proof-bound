@@ -3,6 +3,7 @@ import pytest
 from proofbound.windows_initialization_matrix import VARIANTS
 from proofbound.windows_native_boundary import (
     WindowsBoundaryOptions,
+    _delete_appcontainer_profile,
     _safe_staged_path,
     _validate_disjoint_paths,
 )
@@ -78,3 +79,17 @@ def test_staged_paths_are_case_insensitively_prefix_disjoint() -> None:
             [_safe_staged_path("Runtime"), _safe_staged_path("runtime/file.dll")],
             "staged files",
         )
+
+
+def test_profile_deletion_retries_any_indeterminate_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UserEnvironment:
+        results = iter([0x80070005, 0])
+
+        @classmethod
+        def DeleteAppContainerProfile(cls, _profile: str) -> int:
+            return next(cls.results)
+
+    monkeypatch.setattr("proofbound.windows_native_boundary.time.sleep", lambda _: None)
+    _delete_appcontainer_profile(UserEnvironment, "proofbound.test")
