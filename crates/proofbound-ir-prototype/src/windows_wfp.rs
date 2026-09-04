@@ -92,9 +92,9 @@ fn project_predecessor(capture: &Map<String, Value>) -> Result<Value, WindowsIni
     Ok(Value::Object(projected))
 }
 
-fn validate_successor_hashes<'a>(
-    capture: &'a Map<String, Value>,
-) -> Result<&'a Map<String, Value>, WindowsInitializationError> {
+fn validate_successor_hashes(
+    capture: &Map<String, Value>,
+) -> Result<&Map<String, Value>, WindowsInitializationError> {
     let closure = object(&capture["closure"], "WIN25-CLOSURE-SCHEMA")?;
     if text(closure.get("schema")) != Some(initialization::CLOSURE_SCHEMA) {
         return Err(error("WIN25-CLOSURE-SCHEMA", "closure schema differs"));
@@ -403,7 +403,7 @@ fn validate_attribution(
                 if text(event.get("application_id_hex")) != Some(expected_app_id) {
                     return Err(error("WIN27-SUBJECT", "WFP application differs"));
                 }
-                if !matches!(number(event.get("capability_id")), Some(0 | 1 | 2))
+                if !matches!(number(event.get("capability_id")), Some(0..=2))
                     || number(event.get("filter_id")).unwrap_or_default() == 0
                     || boolean(event.get("is_loopback")) != Some(true)
                 {
