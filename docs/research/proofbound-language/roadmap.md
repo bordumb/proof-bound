@@ -106,6 +106,12 @@ execution and independently observed network non-delivery, but not the exact
 Windows denial fact required for cross-platform closure. The next candidate
 must type that distinction and test an independent kernel-level observer.
 
+EXP-LANG-020 / Experiment 0027 preregisters that candidate. It preserves the
+entire EXP-0026 execution matrix and accepts a Windows network denial only from
+an exact synchronous error or a read-only WFP capability-drop event bound to
+the fresh package, staged application, flow, and execution window. It cannot
+mutate WFP collection or firewall policy.
+
 ## Gate 2 — Authoring and authority
 
 Required: WS-DSL and WS-FX.

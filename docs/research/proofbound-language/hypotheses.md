@@ -15,7 +15,7 @@ new one; it does not rewrite the original claim after results are known.
 | H6 | bounded structural support; human effect unanswered | First-class uncertainty yields more actionable, lower-volume signals than tool-oriented alerts. | Users miss more critical consequences or gain no measurable reduction in irrelevant escalation. | EXP-LANG-006 / Experiment 0013 |
 | H7 | bounded research-bytecode support; machine code, release, and comparison open | A small native executable subset can bind code, specification, proof, build, and release more strongly than existing-language adapters. | Trusted complexity exceeds the gain or an existing verified language provides the same outcome more simply. | EXP-LANG-009, EXP-LANG-010, EXP-LANG-007 |
 | H8 | bounded support; broader foreign boundaries open | Native and foreign components can share one graph without presenting empirical correspondence as formal proof. | Foreign boundaries become untyped escape hatches or obscure claim meaning. | EXP-LANG-008 / Experiment 0017 |
-| H9 | bounded macOS and Linux support; Windows exact execution supported, exact network denial open | A separately identified OS enforcement boundary can make exact project dependencies sufficient for sound, narrow reuse across representative Python, Node, and Rust processes. | An undeclared input influences reusable evidence, an unrelated change invalidates a subject, enforcement requires unrestricted project authority, or unsupported execution silently falls back. | EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014, EXP-LANG-015, EXP-LANG-016, EXP-LANG-017, EXP-LANG-018, EXP-LANG-019 |
+| H9 | bounded macOS and Linux support; Windows WFP attribution preregistered | A separately identified OS enforcement boundary can make exact project dependencies sufficient for sound, narrow reuse across representative Python, Node, and Rust processes. | An undeclared input influences reusable evidence, an unrelated change invalidates a subject, enforcement requires unrestricted project authority, or unsupported execution silently falls back. | EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014, EXP-LANG-015, EXP-LANG-016, EXP-LANG-017, EXP-LANG-018, EXP-LANG-019, EXP-LANG-020 |
 
 ## Current interpretation
 
@@ -142,3 +142,8 @@ complete bounded Windows result under the frozen criterion because two runtime
 timeouts and one process deadline are not the registered synchronous access-
 denied codes. The successor model must type independently observed bounded
 non-delivery separately from synchronous denial.
+
+EXP-LANG-020 preregisters the read-only WFP test for that distinction. A
+capability-drop result counts only when the event independently binds package
+SID, staged application, flow, time window, missing capability, and enforcing
+filter. The experiment cannot enable collection or change firewall policy.

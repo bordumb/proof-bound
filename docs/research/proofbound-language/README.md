@@ -8,7 +8,7 @@
 - **Created:** 2026-09-01
 - **Last updated:** 2026-09-04
 - **Current gate:** Gate 5 — adoption bridge and language decision
-- **Latest experiment:** EXP-LANG-019 / Experiment 0026 concluded `revise`; exact output passes, network non-delivery observed, exact denial remains open
+- **Latest experiment:** EXP-LANG-020 / Experiment 0027 preregistered; read-only Windows WFP drop attribution
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -125,6 +125,12 @@ denied codes. Both independent validators agree and all 38 attacks reject
 exactly. The next model must distinguish synchronous denial from independently
 observed bounded non-delivery.
 
+EXP-LANG-020 preregisters that model without weakening the boundary. It accepts
+WFP attribution only when a capability-drop event binds the exact fresh package
+SID, staged application ID, TCP loopback endpoint, execution window, missing
+capability, and enforcing filter. Event collection must already be enabled;
+the experiment is forbidden from changing host firewall or collection state.
+
 ## Programme map
 
 | Document | Authority within research |
@@ -145,9 +151,9 @@ observed bounded non-delivery.
 |---|---|---|---|---|
 | WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | `/2` bounded candidate supported; production parity pending | H1, H2 | EXP-LANG-010 concluded |
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
-| WS-IN | [Invalidation](workstreams/invalidation.md) | macOS and bounded Linux supported; Windows exact output supported, network denial open | H3, H9 | EXP-LANG-019 / Experiment 0026 concluded `revise` |
+| WS-IN | [Invalidation](workstreams/invalidation.md) | macOS and bounded Linux supported; Windows WFP attribution preregistered | H3, H9 | EXP-LANG-020 / Experiment 0027 preregistered |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
-| WS-FX | [Effects and capabilities](workstreams/effects.md) | fast macOS and bounded Linux supported; Windows non-delivery observed, exact denial open | H5, H9 | EXP-LANG-019 / Experiment 0026 concluded `revise` |
+| WS-FX | [Effects and capabilities](workstreams/effects.md) | fast macOS and bounded Linux supported; Windows WFP attribution preregistered | H5, H9 | EXP-LANG-020 / Experiment 0027 preregistered |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | bounded research bytecode supported; broader native work open | H7 | EXP-LANG-007 concluded |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | bounded dual compilation; machine code open | H7 | EXP-LANG-007 concluded |

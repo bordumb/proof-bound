@@ -140,3 +140,10 @@ denied codes frozen by the registration. The next effects model must represent
 `synchronous-denial` and independently observed `bounded-non-delivery` as
 different outcomes, then test whether a kernel observer can authorize the
 latter without expanding subject authority.
+
+[EXP-LANG-020 / Experiment 0027](../../../experiments/0027-windows-wfp-drop-attribution/README.md)
+preregisters that observer. It retains every EXP-0026 workload and boundary
+constraint, adds no subject capability, and forbids changes to WFP collection
+or firewall policy. A WFP capability drop counts only when package SID,
+application ID, protocol, loopback endpoint, time window, missing capability,
+and enforcing filter are all present and exact.

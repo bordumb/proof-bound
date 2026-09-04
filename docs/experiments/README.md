@@ -34,6 +34,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0024](0024-linux-loader-closure/README.md) | Exact Linux loader execution closure | EXP-0022 runtime-execution falsifier on Landlock ABI 7 | Exact ELF interpreter authority, positive recovery, denial preservation | concluded; pass |
 | [0025](0025-windows-initialization-closure/README.md) | Exact Windows initialization closure | EXP-0023 pre-entry DLL-initialization falsifier on Windows 11 ARM64 | Exact PE/profile/object authority, positive recovery, denial preservation | concluded; revise |
 | [0026](0026-windows-output-network-confirmation/README.md) | Exact Windows output and network confirmation | EXP-0025 LF/CRLF and ambiguous network-denial falsifiers | Binary output parity, reachable denial oracle, retained initialization closure | concluded; revise |
+| [0027](0027-windows-wfp-drop-attribution/README.md) | Windows WFP drop attribution | EXP-0026 timeout/non-delivery observations | Read-only kernel attribution, typed network outcomes, exact subject/flow binding | preregistered |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).
