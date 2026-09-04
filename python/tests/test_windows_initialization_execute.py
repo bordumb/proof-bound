@@ -6,6 +6,7 @@ import subprocess
 import pytest
 
 from proofbound import windows_initialization_attacks as attacks
+from proofbound import windows_initialization_confirmation as confirmation
 from proofbound import windows_initialization_execute as execution
 from proofbound import windows_initialization_research as research
 from proofbound.windows_enforcement_execute import sha256_bytes
@@ -107,3 +108,20 @@ def test_pe_machine_accepts_arm64_image_header() -> None:
     image[64:68] = b"PE\0\0"
     image[68:70] = (0xAA64).to_bytes(2, "little")
     assert pe_machine(bytes(image)) == "aarch64"
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected"), [("pass", 0), ("revise", 0), ("stop", 1)]
+)
+def test_confirmation_exit_status_distinguishes_result_from_execution_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    decision: str,
+    expected: int,
+) -> None:
+    result = {"decision": decision}
+    monkeypatch.setattr(confirmation, "evaluate", lambda *_args: result)
+    output = tmp_path / "execution.json"
+    arguments = [str(tmp_path)] * 6 + [str(output)]
+    assert confirmation.main(arguments) == expected
+    assert output.read_bytes() == execution.canonical_json(result)

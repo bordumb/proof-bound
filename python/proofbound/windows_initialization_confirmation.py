@@ -129,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     ) as issue:
         print(issue, file=sys.stderr)
         return 1
-    return 0 if result["decision"] == "pass" else 1
+    return 0 if result["decision"] in {"pass", "revise"} else 1
 
 
 if __name__ == "__main__":

@@ -183,7 +183,7 @@ jobs:
             throw "independent attack reports differ"
           }
 
-      - name: Derive and require the preregistered decision
+      - name: Derive the preregistered decision
         shell: pwsh
         env:
           PYTHONPATH: ${{ github.workspace }}/python
@@ -200,9 +200,14 @@ jobs:
           $decisionExit = $LASTEXITCODE
           if (Test-Path "$root/execution.json") {
             python -m json.tool "$root/execution.json"
+            $decision = Get-Content "$root/execution.json" | ConvertFrom-Json
+            "## EXP-0025 native Windows confirmation" >> $env:GITHUB_STEP_SUMMARY
+            "- Decision: ``$($decision.decision)``" >> $env:GITHUB_STEP_SUMMARY
+            "- Positive completions: $($decision.metrics.positive_executions) / 30" >> $env:GITHUB_STEP_SUMMARY
+            "- Authority denials: $($decision.metrics.authority_probe_executions) / 21" >> $env:GITHUB_STEP_SUMMARY
           }
           if ($decisionExit -ne 0) {
-            throw "EXP-0025 did not satisfy its preregistered pass rule"
+            throw "EXP-0025 did not produce an admissible pass-or-revise decision"
           }
 
       - name: Retain the exact native Windows confirmation

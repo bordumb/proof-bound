@@ -568,6 +568,61 @@ def _attack_target(
     }
 
 
+def _denial_marker(mode: str, stderr: str) -> bool:
+    """Recognize only an error surface registered to the active boundary."""
+
+    markers = {
+        "env-undeclared": (
+            "PB_UNDECLARED_VALUE",
+            "undeclared environment denied",
+            "NotPresent",
+        ),
+        "exec-unregistered": (
+            "Not enough quota",
+            "WinError 1816",
+            "code: 1816",
+            "spawnSync",
+        ),
+        "network": (
+            "forbidden by its access permissions",
+            "PermissionDenied",
+            "Permission denied",
+            "EACCES",
+            "EPERM",
+            "os error 10013",
+            "WinError 10013",
+        ),
+        "read-undeclared": (
+            "PermissionDenied",
+            "Permission denied",
+            "PermissionError",
+            "Access is denied",
+            "EACCES",
+            "EPERM",
+            "os error 5",
+        ),
+        "write-reviewed": (
+            "PermissionDenied",
+            "Permission denied",
+            "PermissionError",
+            "Access is denied",
+            "EACCES",
+            "EPERM",
+            "os error 5",
+        ),
+        "write-escape": (
+            "PermissionDenied",
+            "Permission denied",
+            "PermissionError",
+            "Access is denied",
+            "EACCES",
+            "EPERM",
+            "os error 5",
+        ),
+    }
+    return any(marker in stderr for marker in markers[mode])
+
+
 def _execute_slot(
     repository: Path,
     state_root: Path,
@@ -625,7 +680,7 @@ def _execute_slot(
         not positive
         and result["exit_code"] != 0
         and result["stdout"] == ""
-        and result["stderr"] != ""
+        and _denial_marker(slot["mode"], result["stderr"])
         and output == {"path": "outputs/output.txt", "present": False}
     )
     runtime_entered = result["child_token"][
