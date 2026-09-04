@@ -265,6 +265,8 @@ def _network_slot(
     helper_binary: Path,
     slot: dict[str, Any],
     closure_identity: str,
+    *,
+    process_timeout_ms: int = 10_000,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     exemptions_before = loopback_exempt_appcontainer_sids()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -287,6 +289,7 @@ def _network_slot(
                     subject_overrides={"subject:python": repository / PYTHON_SUBJECT},
                     network_port=port,
                     timeout_is_result=True,
+                    process_timeout_ms=process_timeout_ms,
                 )
             finally:
                 listener.close()

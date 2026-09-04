@@ -32,6 +32,7 @@ mod specifications;
 mod windows_enforcement;
 mod windows_initialization;
 mod windows_output_network;
+mod windows_wfp;
 
 pub use artifact_roles::{
     ArtifactRoleReport, ArtifactUnitRoles, BoundArtifactRole, audit_artifact_roles,
@@ -185,6 +186,10 @@ pub use windows_output_network::{
     WINDOWS_OUTPUT_NETWORK_CAPTURE_SCHEMA, WINDOWS_OUTPUT_NETWORK_REPORT_SCHEMA,
     validate_windows_output_network_attacks, validate_windows_output_network_capture,
     validate_windows_output_network_capture_bytes,
+};
+pub use windows_wfp::{
+    WINDOWS_WFP_CAPTURE_SCHEMA, WINDOWS_WFP_REPORT_SCHEMA, validate_windows_wfp_attacks,
+    validate_windows_wfp_capture, validate_windows_wfp_capture_bytes,
 };
 
 pub const CORPUS_SCHEMA: &str = "proofbound-research-projection-corpus/1";

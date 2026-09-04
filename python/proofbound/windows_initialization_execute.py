@@ -636,6 +636,7 @@ def _execute_slot(
     subject_overrides: dict[str, Path] | None = None,
     network_port: int = 1,
     timeout_is_result: bool = False,
+    process_timeout_ms: int = 10_000,
 ) -> dict[str, Any]:
     workspace = state_root / "reviewed" / slot["slot_id"]
     shutil.copytree(repository / CORPUS_PATH / "workspace", workspace, symlinks=True)
@@ -664,7 +665,7 @@ def _execute_slot(
         command,
         runtime.executable.parent,
         runtime.environment,
-        timeout_ms=10_000,
+        timeout_ms=process_timeout_ms,
         stage_application=True,
         staged_files=tuple(staged),
         captured_files=("outputs/output.txt",),

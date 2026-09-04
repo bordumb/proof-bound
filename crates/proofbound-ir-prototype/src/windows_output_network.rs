@@ -20,7 +20,7 @@ const CORPUS_ROOT: &str = "docs/experiments/0026-windows-output-network-confirma
 const MAX_CAPTURE_BYTES: usize = 524_288;
 const MAX_ELAPSED_MS: u64 = 60_000;
 
-const ATTACKS: [(&str, &str); 38] = [
+pub(crate) const ATTACKS: [(&str, &str); 38] = [
     ("EXP-0025-A001", "WIN25-CAPTURE-SCHEMA"),
     ("EXP-0025-A002", "WIN25-DISCRIMINATOR"),
     ("EXP-0025-A003", "WIN25-CONTRACT"),
