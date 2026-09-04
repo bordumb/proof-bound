@@ -15,7 +15,7 @@ new one; it does not rewrite the original claim after results are known.
 | H6 | bounded structural support; human effect unanswered | First-class uncertainty yields more actionable, lower-volume signals than tool-oriented alerts. | Users miss more critical consequences or gain no measurable reduction in irrelevant escalation. | EXP-LANG-006 / Experiment 0013 |
 | H7 | bounded research-bytecode support; machine code, release, and comparison open | A small native executable subset can bind code, specification, proof, build, and release more strongly than existing-language adapters. | Trusted complexity exceeds the gain or an existing verified language provides the same outcome more simply. | EXP-LANG-009, EXP-LANG-010, EXP-LANG-007 |
 | H8 | bounded support; broader foreign boundaries open | Native and foreign components can share one graph without presenting empirical correspondence as formal proof. | Foreign boundaries become untyped escape hatches or obscure claim meaning. | EXP-LANG-008 / Experiment 0017 |
-| H9 | bounded macOS and Linux support; Windows repair preregistered | A separately identified OS enforcement boundary can make exact project dependencies sufficient for sound, narrow reuse across representative Python, Node, and Rust processes. | An undeclared input influences reusable evidence, an unrelated change invalidates a subject, enforcement requires unrestricted project authority, or unsupported execution silently falls back. | EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014, EXP-LANG-015, EXP-LANG-016, EXP-LANG-017, EXP-LANG-018 |
+| H9 | bounded macOS and Linux support; Windows initialization supported, confirmation revised | A separately identified OS enforcement boundary can make exact project dependencies sufficient for sound, narrow reuse across representative Python, Node, and Rust processes. | An undeclared input influences reusable evidence, an unrelated change invalidates a subject, enforcement requires unrestricted project authority, or unsupported execution silently falls back. | EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014, EXP-LANG-015, EXP-LANG-016, EXP-LANG-017, EXP-LANG-018 |
 
 ## Current interpretation
 
@@ -125,3 +125,12 @@ has bounded Linux support. EXP-LANG-016 reached a native Windows 11 ARM64 host
 and verified the suspended child token and job boundary, but the staged process
 failed during DLL initialization before entry. The Windows candidate must add
 an exact initialization closure before the corpus can test H9 there.
+
+EXP-LANG-018 supplies that closure and restores entry for Python, Node, and
+Rust without fallback. Twenty Node/Rust positives, eighteen definite authority
+denials, the latency ceiling, independent report equality, and all thirty
+attacks pass. H9 does not yet gain bounded Windows support under the frozen
+criterion: Python's ten outputs differ at the byte level because of CRLF
+translation, and three network probes end in connection-refused rather than a
+provable access denial. Both observations require a newly preregistered
+successor, not reinterpretation of EXP-LANG-018.

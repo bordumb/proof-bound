@@ -86,6 +86,16 @@ denied reuse, byte-identical independent reports, and 40 exact attack
 rejections. Gate 1 now has bounded macOS and Linux candidates; native Windows
 confirmation still blocks a cross-platform result.
 
+EXP-LANG-018 / Experiment 0025 repairs Windows process initialization with an
+exact PE/runtime/profile/object closure. All three runtimes enter under the
+conjunctive AppContainer boundary, the run stays below the latency ceiling,
+and independent validators reject all 30 attacks exactly. It does not close
+Gate 1: Python's ten successful processes produce CRLF rather than the frozen
+LF output, and connection-refused on all three network probes is not evidence
+of policy denial. A preregistered successor must repair the platform-neutral
+byte contract and use a proven-reachable network oracle without weakening the
+retained Windows boundary.
+
 ## Gate 2 — Authoring and authority
 
 Required: WS-DSL and WS-FX.

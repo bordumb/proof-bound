@@ -112,3 +112,18 @@ were byte-identical and both rejected all 20 registered attacks exactly.
 This closes the bounded Linux loader falsifier. It does not establish arbitrary
 platform closure discovery; EXP-LANG-016 independently shows that Windows needs
 its own explicit initialization closure.
+
+## Windows initialization-closure result
+
+[EXP-LANG-018 / Experiment 0025](../../../experiments/0025-windows-initialization-closure/README.md)
+adds that explicit closure. Native Windows 11 ARM64 executes Python, Node, and
+Rust beneath the AppContainer, restricted-token, one-process-job, private-
+desktop, exact-ACL, and identity-bound runtime boundary. Twenty Node/Rust
+workloads complete exactly, eighteen probes prove denial, all thirty closure
+attacks reject, and independent reports agree within the latency ceiling.
+
+The result is `revise`, not cross-platform confirmation. Python's text-mode
+writer converts the frozen LF result to CRLF, while the network probes observe
+connection-refused rather than access denied. Both remain non-reusable. The
+next study must preregister platform-neutral output bytes and a reachable
+network oracle while retaining the successful initialization closure.

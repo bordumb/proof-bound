@@ -6,9 +6,9 @@
 
 - **Status:** active
 - **Created:** 2026-09-01
-- **Last updated:** 2026-09-03
+- **Last updated:** 2026-09-04
 - **Current gate:** Gate 5 — adoption bridge and language decision
-- **Latest experiment:** EXP-LANG-018 / Experiment 0025 preregistered; exact Windows initialization closure
+- **Latest experiment:** EXP-LANG-018 / Experiment 0025 concluded `revise`; Windows initialization restored, exact output and network denial still open
 - **Purpose:** Determine whether a small assurance kernel can support existing repositories, a typed assurance DSL, and a native high-assurance language without flattening evidence meaning or expanding into backend-specific exceptions.
 
 ## Current position
@@ -109,8 +109,12 @@ across 40 attack evaluations. The bounded Linux execution-closure repair
 passes. EXP-LANG-016 subsequently reached a native Windows 11 ARM64 host and
 verified the suspended AppContainer child token and job ordering, but the
 staged signed process terminated before workload entry with
-`STATUS_DLL_INIT_FAILED`. Windows therefore remains a `revise` result pending
-an exact executable/DLL/profile initialization closure.
+`STATUS_DLL_INIT_FAILED`. EXP-LANG-018 repaired that initialization failure on
+native Windows 11 ARM64: all three runtimes reached their subjects, 20 exact
+Node/Rust workloads completed, 18 authority probes were definitely denied,
+all 30 attacks rejected, and independent validators agreed. The result remains
+`revise`: Python's ten outputs used CRLF rather than the frozen LF bytes, and
+three connection-refused network observations did not prove policy denial.
 
 ## Programme map
 
@@ -132,9 +136,9 @@ an exact executable/DLL/profile initialization closure.
 |---|---|---|---|---|
 | WS-IR | [Canonical Assurance IR](workstreams/assurance-ir.md) | `/2` bounded candidate supported; production parity pending | H1, H2 | EXP-LANG-010 concluded |
 | WS-EA | [Evidence algebra](workstreams/evidence-algebra.md) | bounded result; broader coverage pending | H2 | EXP-0005, EXP-0008, EXP-0009 concluded |
-| WS-IN | [Invalidation](workstreams/invalidation.md) | macOS and bounded Linux candidates supported; Windows live result unanswered | H3, H9 | EXP-LANG-017 / Experiment 0024 concluded `pass` |
+| WS-IN | [Invalidation](workstreams/invalidation.md) | macOS and bounded Linux supported; Windows execution supported with exact-output and network-denial confirmation open | H3, H9 | EXP-LANG-018 / Experiment 0025 concluded `revise` |
 | WS-DSL | [Typed assurance DSL](workstreams/assurance-dsl.md) | bounded implementation complete; confirmatory result invalid | H4 | EXP-LANG-004 / Experiment 0011 concluded |
-| WS-FX | [Effects and capabilities](workstreams/effects.md) | fast macOS and bounded Linux boundaries supported; Windows live portability unanswered | H5, H9 | EXP-LANG-017 / Experiment 0024 concluded `pass` |
+| WS-FX | [Effects and capabilities](workstreams/effects.md) | fast macOS and bounded Linux supported; Windows initialization repaired, two confirmation criteria open | H5, H9 | EXP-LANG-018 / Experiment 0025 concluded `revise` |
 | WS-UQ | [Uncertainty and notification quality](workstreams/uncertainty.md) | bounded machine support; human validation pending | H6 | EXP-LANG-006 / Experiment 0013 concluded |
 | WS-NE | [Native executable prototype](workstreams/native-runtime.md) | bounded research bytecode supported; broader native work open | H7 | EXP-LANG-007 concluded |
 | WS-AC | [Artifact correspondence](workstreams/artifact-correspondence.md) | bounded dual compilation; machine code open | H7 | EXP-LANG-007 concluded |

@@ -1,7 +1,8 @@
 # Experiment 0025: exact Windows initialization closure
 
-- **Status:** candidate frozen — confirmation not yet executed
+- **Status:** concluded — revise
 - **Registered:** 2026-09-04
+- **Executed / concluded:** 2026-09-04 / 2026-09-04
 - **Subject:** EXP-0023's retained pre-entry `STATUS_DLL_INIT_FAILED` falsifier
 - **Operator:** Codex
 - **Programme ID:** EXP-LANG-018
@@ -89,3 +90,24 @@ The immutable registration is [preregistration.json](preregistration.json).
 The discovery-derived closure frozen before confirmation is
 [candidate.json](candidate.json). Its four source artifacts are diagnostic-only,
 content-identified, and cannot be reused as assurance evidence.
+
+## Result
+
+The native Windows 11 ARM64 confirmation completed all 51 registered slots in
+46,422 ms. The initialization closure restored workload entry for Python,
+Node, and Rust without removing AppContainer, raising integrity, weakening the
+job, or falling back. Node and Rust produced the exact frozen output in all 20
+runs. Python entered and exited successfully in all ten runs, but wrote the
+platform-translated 33-byte CRLF form instead of the frozen 32-byte LF form.
+Those runs are incomplete and non-reusable; Q2 therefore fails.
+
+Eighteen authority probes produced definite denials. The three network probes
+reached their registered connect operations but returned connection-refused,
+not an access-denied result. They therefore do not establish AppContainer
+network denial and remain incomplete and non-reusable; Q3 fails. The exact
+closure checks and both independent validators passed, including all 30
+registered tamper attacks. Q1, Q4, and Q5 pass. Under the frozen rule the
+overall result is **revise**, not pass.
+
+See the [conclusion](CONCLUSION.md), [journal](JOURNAL.md), [artifact
+ledger](ARTIFACTS.md), and [retained result summary](results/README.md).
