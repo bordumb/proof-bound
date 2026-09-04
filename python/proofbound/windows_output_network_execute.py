@@ -33,6 +33,11 @@ INDEX_PATH = CORPUS_PATH / "index.json"
 EXPECTED_NETWORK_OUTPUT = b"network-observed\n"
 MAX_CAPTURE_BYTES = 524_288
 MAX_ELAPSED_MS = 60_000
+NETWORK_DENIAL_MARKERS = {
+    "python": "WinError 10013",
+    "node": "EACCES",
+    "rust": "os error 10013",
+}
 
 
 def _effective_corpus_inventory(repository: Path) -> list[dict[str, Any]]:
@@ -281,10 +286,21 @@ def _network_slot(
                     closure_identity,
                     subject_overrides={"subject:python": repository / PYTHON_SUBJECT},
                     network_port=port,
+                    timeout_is_result=True,
                 )
             finally:
                 listener.close()
             sandbox_accepted = accepted.result()
+        if (
+            sandboxed["outcome"] == "denied"
+            and NETWORK_DENIAL_MARKERS[runtime.name]
+            not in sandboxed["boundary"]["stderr"]
+        ):
+            sandboxed["outcome"] = "incomplete"
+            body = {
+                name: value for name, value in sandboxed.items() if name != "identity"
+            }
+            sandboxed["identity"] = domain_hash(initialization.SLOT_SCHEMA, body)
     exemptions_after = loopback_exempt_appcontainer_sids()
     appcontainer_sid = sandboxed["boundary"]["appcontainer_sid"]
     body = {

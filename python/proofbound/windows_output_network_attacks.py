@@ -107,6 +107,8 @@ def _accept_connection_refused(value: dict[str, Any]) -> None:
     ambiguous = "connect failed: WSAECONNREFUSED 10061"
     oracle["sandbox"]["stderr"] = ambiguous
     slot["boundary"]["stderr"] = ambiguous
+    slot["outcome"] = "denied"
+    slot["reusable"] = False
     _rehash_oracle(oracle)
     _rehash_slot(slot)
     _rehash_capture(value)
@@ -137,8 +139,18 @@ def _reuse_oracle(value: dict[str, Any]) -> None:
     _rehash_capture(value)
 
 
+def _forge_elapsed_classification(value: dict[str, Any]) -> None:
+    value["elapsed_ms"] = 60_001
+    value["within_elapsed_ceiling"] = True
+    _rehash_capture(value)
+
+
 MUTATIONS: tuple[Mutation, ...] = (
-    *tuple(_successor_inherited(item) for item in initialization_attacks.MUTATIONS),
+    *tuple(
+        _successor_inherited(item) for item in initialization_attacks.MUTATIONS[:28]
+    ),
+    _forge_elapsed_classification,
+    _successor_inherited(initialization_attacks.MUTATIONS[29]),
     _change_corpus_revision,
     _restore_text_python,
     _fail_control,

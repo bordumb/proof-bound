@@ -330,17 +330,33 @@ def _validate_oracle(
         _fail("WIN26-NETWORK-DENIAL", "oracle and sandbox observations differ")
     if slot["logical_command"][-1] != str(port):
         _fail("WIN26-ORACLE-ENDPOINT", "sandbox endpoint differs from control")
-    if sandbox["listener_accepted"] is not False:
-        _fail("WIN26-NETWORK-ACCEPTED", "sandbox connection reached listener")
     markers = NETWORK_DENIAL_MARKERS[expected["runtime"]]
-    if (
-        not isinstance(sandbox["exit_code"], int)
+    exact_denial = (
+        isinstance(sandbox["exit_code"], int)
+        and sandbox["exit_code"] != 0
+        and sandbox["output_present"] is False
+        and isinstance(sandbox["stderr"], str)
+        and any(marker in sandbox["stderr"] for marker in markers)
+    )
+    if sandbox["listener_accepted"] is True:
+        if (
+            sandbox["output_present"] is not True
+            or slot["outcome"] != "incomplete"
+            or slot["reusable"] is not False
+        ):
+            _fail("WIN26-NETWORK-ACCEPTED", "accepted connection was called denied")
+    elif exact_denial:
+        if slot["outcome"] != "denied" or slot["reusable"] is not False:
+            _fail("WIN26-NETWORK-DENIAL", "exact denial was classified incorrectly")
+    elif (
+        sandbox["listener_accepted"] is not False
+        or not isinstance(sandbox["exit_code"], int)
         or sandbox["exit_code"] == 0
         or sandbox["output_present"] is not False
-        or not isinstance(sandbox["stderr"], str)
-        or not any(marker in sandbox["stderr"] for marker in markers)
+        or slot["outcome"] != "incomplete"
+        or slot["reusable"] is not False
     ):
-        _fail("WIN26-NETWORK-DENIAL", "sandbox network result is not access denied")
+        _fail("WIN26-NETWORK-DENIAL", "incomplete network result was called denied")
 
     before = _validate_sid_inventory(oracle["loopback_exemptions_before"])
     after = _validate_sid_inventory(oracle["loopback_exemptions_after"])
@@ -467,10 +483,11 @@ def _validate_capture(repository: Path, value: object) -> dict[str, Any]:
         _fail("WIN25-TREE", "reviewed tree changed")
     if (
         not isinstance(capture["elapsed_ms"], int)
-        or not 0 <= capture["elapsed_ms"] <= MAX_ELAPSED_MS
-        or capture["within_elapsed_ceiling"] is not True
+        or capture["elapsed_ms"] < 0
+        or capture["within_elapsed_ceiling"]
+        is not (capture["elapsed_ms"] <= MAX_ELAPSED_MS)
     ):
-        _fail("WIN25-ELAPSED", "confirmation exceeded its ceiling")
+        _fail("WIN25-ELAPSED", "elapsed classification differs")
     if capture["identity"] != domain_hash(CAPTURE_SCHEMA, _without_identity(capture)):
         _fail("WIN25-CAPTURE-SCHEMA", "capture identity differs")
     positives = sum(slot["outcome"] == "completed" for slot in slots)

@@ -635,6 +635,7 @@ def _execute_slot(
     *,
     subject_overrides: dict[str, Path] | None = None,
     network_port: int = 1,
+    timeout_is_result: bool = False,
 ) -> dict[str, Any]:
     workspace = state_root / "reviewed" / slot["slot_id"]
     shutil.copytree(repository / CORPUS_PATH / "workspace", workspace, symlinks=True)
@@ -673,6 +674,7 @@ def _execute_slot(
             create_no_window=False,
             drive_alias=drive_alias,
         ),
+        timeout_is_result=timeout_is_result,
     )
     after = _tree_identity(workspace)
     output = result["captured_files"][0]

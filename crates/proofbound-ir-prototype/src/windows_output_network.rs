@@ -399,26 +399,49 @@ fn validate_oracle(
             "sandbox endpoint differs from control",
         ));
     }
-    if boolean(sandbox.get("listener_accepted")) != Some(false) {
-        return Err(error(
-            "WIN26-NETWORK-ACCEPTED",
-            "sandbox connection reached listener",
-        ));
-    }
     let marker = match expected.runtime {
         "python" => "WinError 10013",
         "node" => "EACCES",
         "rust" => "os error 10013",
         _ => return Err(error("WIN26-NETWORK-DENIAL", "runtime differs")),
     };
-    if number(sandbox.get("exit_code")).is_none_or(|code| code == 0)
-        || boolean(sandbox.get("output_present")) != Some(false)
-        || !text(sandbox.get("stderr")).is_some_and(|stderr| stderr.contains(marker))
-    {
-        return Err(error(
-            "WIN26-NETWORK-DENIAL",
-            "sandbox result is not exact access denied",
-        ));
+    let exact_denial = number(sandbox.get("exit_code")).is_some_and(|code| code != 0)
+        && boolean(sandbox.get("output_present")) == Some(false)
+        && text(sandbox.get("stderr")).is_some_and(|stderr| stderr.contains(marker));
+    match boolean(sandbox.get("listener_accepted")) {
+        Some(true)
+            if boolean(sandbox.get("output_present")) != Some(true)
+                || text(slot.get("outcome")) != Some("incomplete")
+                || boolean(slot.get("reusable")) != Some(false) =>
+        {
+            return Err(error(
+                "WIN26-NETWORK-ACCEPTED",
+                "accepted connection was called denied",
+            ));
+        }
+        Some(true) => {}
+        Some(false)
+            if exact_denial
+                && (text(slot.get("outcome")) != Some("denied")
+                    || boolean(slot.get("reusable")) != Some(false)) =>
+        {
+            return Err(error(
+                "WIN26-NETWORK-DENIAL",
+                "exact denial was classified incorrectly",
+            ));
+        }
+        Some(false) if exact_denial => {}
+        Some(false)
+            if number(sandbox.get("exit_code")).is_some_and(|code| code != 0)
+                && boolean(sandbox.get("output_present")) == Some(false)
+                && text(slot.get("outcome")) == Some("incomplete")
+                && boolean(slot.get("reusable")) == Some(false) => {}
+        _ => {
+            return Err(error(
+                "WIN26-NETWORK-DENIAL",
+                "incomplete network result was called denied",
+            ));
+        }
     }
     let before = sid_inventory(&oracle["loopback_exemptions_before"])?;
     let after = sid_inventory(&oracle["loopback_exemptions_after"])?;
@@ -586,10 +609,11 @@ pub fn validate_windows_output_network_capture(
         return Err(error("WIN25-TREE", "reviewed tree changed"));
     }
     let elapsed = number(capture.get("elapsed_ms"));
-    if elapsed.is_none_or(|value| value > MAX_ELAPSED_MS)
-        || boolean(capture.get("within_elapsed_ceiling")) != Some(true)
+    if elapsed.is_none()
+        || boolean(capture.get("within_elapsed_ceiling"))
+            != elapsed.map(|value| value <= MAX_ELAPSED_MS)
     {
-        return Err(error("WIN25-ELAPSED", "elapsed ceiling exceeded"));
+        return Err(error("WIN25-ELAPSED", "elapsed classification differs"));
     }
     if text(capture.get("identity"))
         != Some(hash_without(WINDOWS_OUTPUT_NETWORK_CAPTURE_SCHEMA, capture)?.as_str())

@@ -634,6 +634,7 @@ def run_appcontainer_process(
     staged_files: tuple[tuple[Path, str], ...] = (),
     captured_files: tuple[str, ...] = (),
     options: WindowsBoundaryOptions | None = None,
+    timeout_is_result: bool = False,
 ) -> dict[str, Any]:
     """Run one command after all registered Windows boundary layers exist."""
 
@@ -893,6 +894,7 @@ def run_appcontainer_process(
     drive_alias_created = False
     drive_alias_target: str | None = None
     drive_alias_cleanup_error: OSError | None = None
+    deadline_exceeded = False
     requested_application_identity = {
         "requested_path": command[0],
         **_file_identity(Path(command[0]), advapi32),
@@ -1205,10 +1207,21 @@ def run_appcontainer_process(
                 raise _windows_error("ResumeThread")
             wait = kernel32.WaitForSingleObject(process.process, timeout_ms)
             if wait == WAIT_TIMEOUT:
-                kernel32.TerminateJobObject(job, 124)
-                raise TimeoutError("AppContainer process exceeded its deadline")
+                _require(
+                    kernel32.TerminateJobObject(job, 124),
+                    "TerminateJobObject(deadline)",
+                )
+                terminated = kernel32.WaitForSingleObject(process.process, 5_000)
+                if not timeout_is_result:
+                    raise TimeoutError("AppContainer process exceeded its deadline")
+                if terminated != WAIT_OBJECT_0:
+                    raise TimeoutError(
+                        "AppContainer process did not terminate after its deadline"
+                    )
+                deadline_exceeded = True
             if wait != WAIT_OBJECT_0:
-                raise _windows_error("WaitForSingleObject")
+                if not deadline_exceeded:
+                    raise _windows_error("WaitForSingleObject")
             exit_code = wintypes.DWORD()
             _require(
                 kernel32.GetExitCodeProcess(process.process, ctypes.byref(exit_code)),
@@ -1232,6 +1245,9 @@ def run_appcontainer_process(
                     "content_base64": base64.b64encode(content).decode("ascii"),
                 }
             )
+        stderr = stderr_path.read_text(encoding="utf-8", errors="strict")
+        if deadline_exceeded:
+            stderr += "proofbound: process deadline exceeded\n"
         return {
             "profile": profile,
             "profile_storage": str(profile_storage),
@@ -1263,7 +1279,7 @@ def run_appcontainer_process(
             "create_no_window": boundary.create_no_window,
             "exit_code": exit_code.value,
             "stdout": stdout_path.read_text(encoding="utf-8", errors="strict"),
-            "stderr": stderr_path.read_text(encoding="utf-8", errors="strict"),
+            "stderr": stderr,
         }
     finally:
         if (
