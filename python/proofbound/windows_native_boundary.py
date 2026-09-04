@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from proofbound.windows_enforcement_probe import (
@@ -635,6 +636,7 @@ def run_appcontainer_process(
     captured_files: tuple[str, ...] = (),
     options: WindowsBoundaryOptions | None = None,
     timeout_is_result: bool = False,
+    on_suspended: Callable[[Path, str], None] | None = None,
 ) -> dict[str, Any]:
     """Run one command after all registered Windows boundary layers exist."""
 
@@ -1203,6 +1205,8 @@ def run_appcontainer_process(
             if not child_token["verified_before_resume"]:
                 kernel32.TerminateJobObject(job, 125)
                 raise ValueError("suspended child token does not match the boundary")
+            if on_suspended is not None:
+                on_suspended(Path(child_command[0]), sid)
             if kernel32.ResumeThread(process.thread) == INFINITE:
                 raise _windows_error("ResumeThread")
             wait = kernel32.WaitForSingleObject(process.process, timeout_ms)

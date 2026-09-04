@@ -343,6 +343,15 @@ def capture(repository: Path, state_root: Path) -> dict[str, Any]:
         for slot in definitions:
             runtime = runtimes[slot["runtime"]]
             if slot["mode"] == "network":
+                suspended: dict[str, str] = {}
+
+                def observe_suspended(application: Path, sid: str) -> None:
+                    suspended["application"] = str(application)
+                    suspended["appcontainer_sid"] = sid
+                    suspended["application_id"] = _application_id(
+                        observer_binary, application
+                    )
+
                 started = _filetime_now()
                 result, oracle = predecessor._network_slot(
                     repository,
@@ -353,17 +362,16 @@ def capture(repository: Path, state_root: Path) -> dict[str, Any]:
                     slot,
                     closure["identity"],
                     process_timeout_ms=NETWORK_TIMEOUT_MS,
+                    on_suspended=observe_suspended,
                 )
                 ended = _filetime_now()
-                application = Path(result["boundary"]["application_root"]) / Path(
-                    runtime.executable
-                ).name
-                expected_app_id = _application_id(observer_binary, application)
+                if suspended.get("appcontainer_sid") != oracle["appcontainer_sid"]:
+                    raise ValueError("suspended application SID differs from network oracle")
                 windows[slot["slot_id"]] = (
                     started,
                     ended,
-                    expected_app_id,
-                    str(application),
+                    suspended["application_id"],
+                    suspended["application"],
                 )
                 slots.append(result)
                 oracles.append(oracle)

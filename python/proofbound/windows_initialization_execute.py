@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable
 import json
 import os
 from pathlib import Path
@@ -637,6 +638,7 @@ def _execute_slot(
     network_port: int = 1,
     timeout_is_result: bool = False,
     process_timeout_ms: int = 10_000,
+    on_suspended: Callable[[Path, str], None] | None = None,
 ) -> dict[str, Any]:
     workspace = state_root / "reviewed" / slot["slot_id"]
     shutil.copytree(repository / CORPUS_PATH / "workspace", workspace, symlinks=True)
@@ -676,6 +678,7 @@ def _execute_slot(
             drive_alias=drive_alias,
         ),
         timeout_is_result=timeout_is_result,
+        on_suspended=on_suspended,
     )
     after = _tree_identity(workspace)
     output = result["captured_files"][0]

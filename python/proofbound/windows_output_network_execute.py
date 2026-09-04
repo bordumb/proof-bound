@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
 import json
 import os
 from pathlib import Path
@@ -267,6 +268,7 @@ def _network_slot(
     closure_identity: str,
     *,
     process_timeout_ms: int = 10_000,
+    on_suspended: Callable[[Path, str], None] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     exemptions_before = loopback_exempt_appcontainer_sids()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -290,6 +292,7 @@ def _network_slot(
                     network_port=port,
                     timeout_is_result=True,
                     process_timeout_ms=process_timeout_ms,
+                    on_suspended=on_suspended,
                 )
             finally:
                 listener.close()
