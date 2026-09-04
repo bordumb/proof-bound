@@ -1,0 +1,267 @@
+schema = "proofbound-review/1"
+id = "PR-0002-LANGUAGE-RESEARCH"
+reviewer = "OpenAI Codex (GPT-5)"
+statement = "Reviewed the exact assurance regressions accumulated by the language-support and assurance-language research branch. This unsigned implementation review acknowledges the test-evidence reclassification, explicit Python and Node.js runtime assumptions, and changed registered research toolchain bytes; it does not claim independent human review."
+scope = "Exact merge-base-to-subject regressions for the complete language-support and assurance-language research branch through EXP-0027 and the cross-platform synthesis."
+reviewed_at = "2026-09-04T07:09:15Z"
+base_revision = "sha256:11ce2b9d59505092ca8d03378cf47b5e6ea75925f3ecd05f4fce2276878057ac"
+head_revision = "sha256:caaaf75d90aee47cdf263f3b4fa973e1575f05698935c03b1b9164c741606d69"
+
+[[regressions]]
+id = "sha256:f68b4adfd4e478311a448b44a7a71b5ff73e4d0ed34a8fc4f660a0c1866bfa0a"
+claim_id = "DEMO-TRANSFER-001"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation property-test:rust-kernel-tests"
+
+[[regressions]]
+id = "sha256:48fc3e8852c530cbb2efabc18f8a5ccac6baae52712de56876331d28476be9a7"
+claim_id = "DEMO-TRANSFER-002"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation property-test:rust-kernel-tests"
+
+[[regressions]]
+id = "sha256:560cce8d001b913dbdccce2bc7d97759f5bc21d32ced6ed4afb795bc194b3c06"
+claim_id = "DEMO-TRANSFER-003"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation property-test:rust-kernel-tests"
+
+[[regressions]]
+id = "sha256:031214d72bf719598a379338ab565efc7b2a9bcb49d4defe325709ceaff6fdef"
+claim_id = "DEMO-TRANSFER-004"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation property-test:rust-kernel-tests"
+
+[[regressions]]
+id = "sha256:7e220ad0c75a841208ce4d5c0eaabe825837b0d92d28e75acc6209aaa0bb5f47"
+claim_id = "DEMO-TRANSFER-005"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation property-test:rust-kernel-tests"
+
+[[regressions]]
+id = "sha256:d8ff61896cb57972f9c291b90b97ed7d3861dcf9c430ffcdd80b3e6bae4ca393"
+claim_id = "DEMO-TRANSFER-006"
+kind = "formal-downgrade"
+detail = "claim removed formal or empirical evidence citation property-test:rust-kernel-tests"
+
+[[regressions]]
+id = "sha256:c0a1b1ccdaab9b1246cd53a141a6c852717c0f3d8cf7843cca72996c7c71cc6b"
+claim_id = "DEMO-TRANSFER-001"
+kind = "formal-downgrade"
+detail = "evidence unit rust-kernel-tests kind changed from PropertyTest to ExampleTest"
+
+[[regressions]]
+id = "sha256:dabb86dc9dd2d81696eaf680ac7285b3f7cdd3b4c8960cdbe95f0087563e9670"
+claim_id = "DEMO-TRANSFER-002"
+kind = "formal-downgrade"
+detail = "evidence unit rust-kernel-tests kind changed from PropertyTest to ExampleTest"
+
+[[regressions]]
+id = "sha256:28a6872da59372ae3ddb9662511f9e64292f42d9d020fa031ba117e8e9e30a95"
+claim_id = "DEMO-TRANSFER-003"
+kind = "formal-downgrade"
+detail = "evidence unit rust-kernel-tests kind changed from PropertyTest to ExampleTest"
+
+[[regressions]]
+id = "sha256:97a13ce40610c57d6512096d65a258bb56a408fefdaef23b4d329589b4b50ab1"
+claim_id = "DEMO-TRANSFER-004"
+kind = "formal-downgrade"
+detail = "evidence unit rust-kernel-tests kind changed from PropertyTest to ExampleTest"
+
+[[regressions]]
+id = "sha256:276044dcc20e06e0c545ffb2b8f484de65a96b1c88fd53409fa2ad9d49906bc3"
+claim_id = "DEMO-TRANSFER-005"
+kind = "formal-downgrade"
+detail = "evidence unit rust-kernel-tests kind changed from PropertyTest to ExampleTest"
+
+[[regressions]]
+id = "sha256:09fdcf658ff3c05f8c07533bce6afabe6882700f9a861f17d113c97537fd5ca3"
+claim_id = "DEMO-TRANSFER-006"
+kind = "formal-downgrade"
+detail = "evidence unit rust-kernel-tests kind changed from PropertyTest to ExampleTest"
+
+[[regressions]]
+id = "sha256:537f0566dacf9d4da3c333cce9662117505a2b1857bef2037418d494931a8bc9"
+claim_id = "PY-RESERVATION-001"
+kind = "new-assumption"
+detail = "new assumption manifest PY-RUNTIME-001 at demo/python-inventory-service/assumptions/PY-RUNTIME-001.toml"
+
+[[regressions]]
+id = "sha256:6d2e56429ef2d0c6847452ad44f0f127053ffaf170d6e1381a5707627c44c977"
+claim_id = "PY-WHEEL-001"
+kind = "new-assumption"
+detail = "new assumption manifest PY-RUNTIME-001 at demo/python-inventory-service/assumptions/PY-RUNTIME-001.toml"
+
+[[regressions]]
+id = "sha256:1d6867a4ad5c713ff0e6d76203f6146ca364ab351b092b350128a7092a94989a"
+claim_id = "TS-CODEC-001"
+kind = "new-assumption"
+detail = "new assumption manifest TS-RUNTIME-001 at demo/typescript-codec/assumptions/TS-RUNTIME-001.toml"
+
+[[regressions]]
+id = "sha256:4fb31da5b6734ba969aceb8a16b30a439e59ed704c0feedc71994c827bbeb15a"
+claim_id = "TS-PACKAGE-001"
+kind = "new-assumption"
+detail = "new assumption manifest TS-RUNTIME-001 at demo/typescript-codec/assumptions/TS-RUNTIME-001.toml"
+
+[[regressions]]
+id = "sha256:21983d2247b80804a76897eb51d51d2c84cec4ee913771fb611afd32d0366815"
+claim_id = "DEMO-TRANSCRIPTION-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:587a599579e74d852ae06aa159b7e7dd274a9a642b7819c938b6116c336282b6"
+claim_id = "DEMO-TRANSFER-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:3f38d4788eb2b04aace9dc35e2dcf95168f8c496dc1c607282c30df6a1c572f9"
+claim_id = "DEMO-TRANSFER-002"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:1c81592948b75ad01aec4bba29dd8e86e47b6933fc7376e0e85f76ad040ecd1d"
+claim_id = "DEMO-TRANSFER-003"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:994eb98b79ab5d203beae01f9fa3dd321d884c4f04f8f676c0c0ffab90eaf595"
+claim_id = "DEMO-TRANSFER-004"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:66412464792eeb6b147b473a50ada447cec71c43ff6ae132314bc1c10050fbed"
+claim_id = "DEMO-TRANSFER-005"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:9eedc93e1ff86a3d239c8b764cce5e116ce2e7abc44425e0e3331dbab09993fb"
+claim_id = "DEMO-TRANSFER-006"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:ec2498fbbf5b0b1484f6942348e963edb7c66c742c4955ade649adb6ad07ca96"
+claim_id = "DEMO-TRANSFER-007"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:dba80db1bf0821a23130f33e982cc94d62c68692c638225c6ad51a25a5829989"
+claim_id = "EXAMPLE-ARTIFACT-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:47e3a27159492938633d4dfd037282985e56c6f871fe84665a09d17bbd4c4d69"
+claim_id = "EXAMPLE-AUTHORIZED-ACTION-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:8b4632e22e63a7a6f98e7ab522c21a4a36ad7c7bfb23c4236992f36e3d7bea69"
+claim_id = "EXAMPLE-KERNEL-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:46cdc7cc3a45046aedf52e42becb9e3483696da1cc059a77cd41909e507b008b"
+claim_id = "EXAMPLE-TRANSCRIPTION-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:70ff40c122c9674570b01a4a24527ccf7a0873e11d4196befcf4df85b9474e5b"
+claim_id = "PB-SELF-AXIOM-003"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:07dff70bcf902dd8ca86b14148afd45a5580fe8c6127d1d2a22f0b1ba556825c"
+claim_id = "PB-SELF-CI-009"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:3438c18a1dc1d896679bf3527566e6e0bce099de512c746e2520f0ea496fcaef"
+claim_id = "PB-SELF-CLOSURE-007"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:2992533c2efcda8511c4591cfca77674e14fb05315800b8176336069cde6c10e"
+claim_id = "PB-SELF-KANI-004"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:b1235247ba0a86c3f8055d3c0e9dd8f86466424448afd487c019dfd36de72a20"
+claim_id = "PB-SELF-MANIFEST-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:69a969b45506fcb74149a147826c92ae8324a9adc1bad94734eaf6912336e79e"
+claim_id = "PB-SELF-PARITY-008"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:ddc502bdf96e983b113d1de9ea23c898210a1d5ce5d4a5fb7d444ee6fccf686d"
+claim_id = "PB-SELF-RECEIPT-006"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:c30fe54a48f618b2d0932f425c3ea6d3182b7ba523667c807da7a9cb13b88803"
+claim_id = "PB-SELF-STATUS-002"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:4162ed9efe8692699d7006457967e7a6de8addbc4e5ec5e36ca51f2ac74a8d8b"
+claim_id = "PB-SELF-TRANSLATION-005"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:d98b611ce56edcead1f5889dba978ad8fffed9510ca3b09eaf306c3abd0be49e"
+claim_id = "PBAC-CALIBRATED-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:72a8f0cb09e15e08dc0082c9e22bb314b6bdb0d8b50ae874580bcff9d5faa3c2"
+claim_id = "PBAC-SUM-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:00d840e108f018d38461f05a9e10880ffba7798cef9e62f9be064cc4c5965245"
+claim_id = "PY-RESERVATION-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:2b4d9915f9c6bb334cb6049564a4642f0dfb0e50b383d0ca6e9cb982d76c0b6a"
+claim_id = "PY-WHEEL-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:823c49b18cba367de619ffd9eeb9ce7d0630d7f37bf80a3c35a8e4fea1f46096"
+claim_id = "TS-CODEC-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
+[[regressions]]
+id = "sha256:150f055b29d41f79996488e4357dca10184578806f3a98082cdc5aefd5e93694"
+claim_id = "TS-PACKAGE-001"
+kind = "enlarged-tcb"
+detail = "TCB or registered toolchain bytes changed at docs/experiments/0016-native-canonical-parser/corpus/toolchain.json; the change is not statically orderable"
+
