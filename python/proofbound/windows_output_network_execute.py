@@ -178,6 +178,7 @@ def _run_network_control(
     repository: Path,
     state_root: Path,
     runtime: initialization.Runtime,
+    listener: socket.socket,
     port: int,
 ) -> dict[str, Any]:
     executable, source_destination, environment = _stage_control(
@@ -185,14 +186,20 @@ def _run_network_control(
     )
     root = executable.parent
     command = _control_command(executable, runtime, root, source_destination, port)
-    process = subprocess.run(
+    process = subprocess.Popen(
         command,
         cwd=root,
         env=environment,
-        capture_output=True,
-        check=False,
-        timeout=10,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    listener_accepted = _accept(listener, 2.0)
+    try:
+        stdout, stderr = process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise
     output_path = root / "outputs/output.txt"
     output = output_path.read_bytes() if output_path.is_file() else None
     return {
@@ -210,15 +217,16 @@ def _run_network_control(
         if runtime.name != "rust"
         else runtime.identity["source"]["sha256"],
         "exit_code": process.returncode,
-        "stdout": process.stdout.decode("utf-8", errors="strict"),
-        "stderr": process.stderr.decode("utf-8", errors="strict"),
+        "stdout": stdout.decode("utf-8", errors="strict"),
+        "stderr": stderr.decode("utf-8", errors="strict"),
         "output_sha256": sha256_bytes(output) if output is not None else None,
         "output_size_bytes": len(output) if output is not None else None,
         "completed": process.returncode == 0
-        and not process.stdout
-        and not process.stderr
+        and not stdout
+        and not stderr
         and output == EXPECTED_NETWORK_OUTPUT,
         "reusable": False,
+        "listener_accepted": listener_accepted,
     }
 
 
@@ -247,8 +255,7 @@ def _network_slot(
         listener.bind(("127.0.0.1", 0))
         listener.listen(2)
         address, port = listener.getsockname()
-        control = _run_network_control(repository, state_root, runtime, port)
-        control_accepted = _accept(listener, 2.0)
+        control = _run_network_control(repository, state_root, runtime, listener, port)
         sandboxed = initialization._execute_slot(
             repository,
             state_root,
@@ -269,7 +276,7 @@ def _network_slot(
         "subject_id": slot["subject_id"],
         "runtime": runtime.name,
         "endpoint": {"address": address, "port": port},
-        "control": {**control, "listener_accepted": control_accepted},
+        "control": control,
         "sandbox": {
             "listener_accepted": sandbox_accepted,
             "exit_code": sandboxed["boundary"]["exit_code"],
