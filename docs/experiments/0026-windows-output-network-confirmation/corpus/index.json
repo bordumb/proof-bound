@@ -1,0 +1,34 @@
+{
+  "schema": "proofbound-research-windows-output-network-corpus/1",
+  "experiment": "EXP-0026",
+  "base_corpus": {
+    "path": "docs/experiments/0018-os-enforced-effects/corpus/index.json",
+    "sha256": "sha256:9686074a5cd8e5f2b3f0018ab95104f697bce292e0e948482220ec378780bd43"
+  },
+  "replacements": [
+    {
+      "base_path": "workspace/subjects/python_subject.py",
+      "path": "python_subject.py",
+      "sha256": "sha256:44f2a9460dad366e047af0bf6cff07a389a8023b2a2b7f55f9532dc16f4426f6",
+      "size_bytes": 1395,
+      "reason": "replace platform text translation with explicit binary output"
+    }
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "sha256:c26cfbef7f7f589b4d98128160c8bad894ebdefafd19f818d65eb61fc88846b1",
+      "size_bytes": 914
+    },
+    {
+      "path": "expected.json",
+      "sha256": "sha256:965e87944dcc83823c20827fdc2fbe6a75ca0fa03937f31d6fc076d15b55d1ff",
+      "size_bytes": 746
+    },
+    {
+      "path": "python_subject.py",
+      "sha256": "sha256:44f2a9460dad366e047af0bf6cff07a389a8023b2a2b7f55f9532dc16f4426f6",
+      "size_bytes": 1395
+    }
+  ]
+}

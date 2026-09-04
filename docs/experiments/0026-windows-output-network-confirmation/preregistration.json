@@ -1,0 +1,85 @@
+{
+  "schema": "proofbound-research-windows-output-network-preregistration/1",
+  "experiment": "EXP-0026",
+  "programme_experiment": "EXP-LANG-019",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-04",
+  "subject_baseline": "git:f770cf8f87e43f4b4f3e789a3099db74a22889c8",
+  "retained_candidate": {
+    "path": "docs/experiments/0025-windows-initialization-closure/candidate.json",
+    "sha256": "sha256:4bf2040c0c42f183796eb563113372f50f8f113170914c864da9d56e1a3fb47e"
+  },
+  "retained_result": {
+    "run": "https://github.com/bordumb/proof-bound/actions/runs/33822698555",
+    "payload_sha256": "sha256:4ad22d37227556486e5f8240c442bba31aaaf896660ac2d97f87c6766402e426",
+    "decision": "revise",
+    "failed_questions": ["Q2", "Q3"]
+  },
+  "corpus": {
+    "path": "docs/experiments/0026-windows-output-network-confirmation/corpus/index.json",
+    "base_sha256": "sha256:9686074a5cd8e5f2b3f0018ab95104f697bce292e0e948482220ec378780bd43",
+    "python_sha256": "sha256:44f2a9460dad366e047af0bf6cff07a389a8023b2a2b7f55f9532dc16f4426f6",
+    "expected_sha256": "sha256:965e87944dcc83823c20827fdc2fbe6a75ca0fa03937f31d6fc076d15b55d1ff"
+  },
+  "changes": [
+    "python-binary-output",
+    "live-reachable-loopback-oracle",
+    "loopback-exemption-absence-binding"
+  ],
+  "network_oracle": {
+    "address": "127.0.0.1",
+    "port": "fresh-os-selected-and-capture-bound",
+    "listener_count": 3,
+    "control": "same-staged-runtime-subject-environment-and-network-arguments-outside-appcontainer",
+    "control_connections": 3,
+    "sandbox_connections": 0,
+    "accepted_denials": {
+      "python": "WinError 10013",
+      "node": "EACCES",
+      "rust": "os error 10013"
+    },
+    "rejected_as_ambiguous": [
+      "connection-refused",
+      "timeout",
+      "host-unreachable",
+      "network-unreachable"
+    ],
+    "appcontainer_capabilities": [],
+    "loopback_exemption": false
+  },
+  "inventory": {
+    "positive_slots": 30,
+    "authority_slots": 21,
+    "network_controls": 3,
+    "inherited_policy_attacks": {
+      "path": "docs/experiments/0025-windows-initialization-closure/results/attacks.json",
+      "sha256": "sha256:43775c676cd1c088ef0b3e2415eb37be7642c1334ac25045567bb17d448d238c",
+      "identity": "sha256:cab2cec716cbf6d30d9f5bfb7e36677d479452a267e91cb4f359c36abe8ea44d",
+      "count": 30
+    },
+    "successor_policy_attacks": [
+      {"id": "EXP-0026-A031", "code": "WIN26-CORPUS"},
+      {"id": "EXP-0026-A032", "code": "WIN26-BINARY-OUTPUT"},
+      {"id": "EXP-0026-A033", "code": "WIN26-ORACLE-CONTROL"},
+      {"id": "EXP-0026-A034", "code": "WIN26-ORACLE-ENDPOINT"},
+      {"id": "EXP-0026-A035", "code": "WIN26-NETWORK-DENIAL"},
+      {"id": "EXP-0026-A036", "code": "WIN26-NETWORK-ACCEPTED"},
+      {"id": "EXP-0026-A037", "code": "WIN26-NETWORK-CAPABILITY"},
+      {"id": "EXP-0026-A038", "code": "WIN26-REPORT"}
+    ]
+  },
+  "ceilings": {
+    "max_confirmation_elapsed_ms": 60000,
+    "max_native_boundary_lines": 2400,
+    "max_python_runner_lines": 1800,
+    "max_validator_lines_each": 2000,
+    "max_report_bytes": 524288
+  },
+  "decision": {
+    "pass": "Q1-Q5 pass on native Windows 11 ARM64",
+    "revise": "the exact candidate executes but a bounded criterion fails",
+    "unanswered": "the native runner, listener, or network-isolation API is unavailable and zero workload receipts are emitted",
+    "stop": "authority is weakened, controls count as evidence, ambiguous denial is accepted, denied evidence is reused, or execution falls back"
+  }
+}

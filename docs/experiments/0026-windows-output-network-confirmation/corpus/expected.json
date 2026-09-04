@@ -1,0 +1,25 @@
+{
+  "schema": "proofbound-research-windows-output-network-expected/1",
+  "experiment": "EXP-0026",
+  "positive_output": {
+    "text_escape": "registered-input|registered-env\\n",
+    "sha256": "sha256:6897a0406cd3b5b1aa1c9fb86c784f443606a03f487d2cc00e9fd1a0e2144d22",
+    "size_bytes": 32,
+    "write_contract": "binary-exact"
+  },
+  "positive_executions": 30,
+  "authority_executions": 21,
+  "network_oracles": 3,
+  "network_control_connections": 3,
+  "network_sandbox_connections": 0,
+  "network_denial": {
+    "python": "WinError 10013",
+    "node": "EACCES",
+    "rust": "os error 10013"
+  },
+  "denied_reusable": 0,
+  "validator_disagreement": 0,
+  "reviewed_tree_changed": false,
+  "minimum_policy_attacks": 38,
+  "max_elapsed_ms": 60000
+}

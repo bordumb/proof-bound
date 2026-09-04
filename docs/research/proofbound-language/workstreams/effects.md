@@ -127,3 +127,9 @@ writer converts the frozen LF result to CRLF, while the network probes observe
 connection-refused rather than access denied. Both remain non-reusable. The
 next study must preregister platform-neutral output bytes and a reachable
 network oracle while retaining the successful initialization closure.
+
+[EXP-LANG-019 / Experiment 0026](../../../experiments/0026-windows-output-network-confirmation/README.md)
+is that preregistered study. Its network oracle includes a same-subject control
+connection, an unchanged live endpoint, listener acceptance counts, exact
+native denial classes, and proof that the fresh AppContainer SID is absent
+from Windows' loopback-exemption set.

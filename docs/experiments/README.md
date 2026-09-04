@@ -33,6 +33,7 @@ a reference repository, an external crate, or Proofbound itself.
 | [0023](0023-windows-enforcement-confirmation/README.md) | Native Windows enforcement confirmation | Frozen EXP-0018 corpus and EXP-0021 policy on Windows 11 ARM64 | Live conjunctive enforcement, denial, non-reuse, independent validation | concluded; revise |
 | [0024](0024-linux-loader-closure/README.md) | Exact Linux loader execution closure | EXP-0022 runtime-execution falsifier on Landlock ABI 7 | Exact ELF interpreter authority, positive recovery, denial preservation | concluded; pass |
 | [0025](0025-windows-initialization-closure/README.md) | Exact Windows initialization closure | EXP-0023 pre-entry DLL-initialization falsifier on Windows 11 ARM64 | Exact PE/profile/object authority, positive recovery, denial preservation | concluded; revise |
+| [0026](0026-windows-output-network-confirmation/README.md) | Exact Windows output and network confirmation | EXP-0025 LF/CRLF and ambiguous network-denial falsifiers | Binary output parity, reachable denial oracle, retained initialization closure | preregistered |
 
 Statuses: `planned` (pre-registered, not started) · `running` · `concluded` ·
 `abandoned` (a status, not a deletion — the journal stays).

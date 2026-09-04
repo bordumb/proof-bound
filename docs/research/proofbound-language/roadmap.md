@@ -96,6 +96,11 @@ of policy denial. A preregistered successor must repair the platform-neutral
 byte contract and use a proven-reachable network oracle without weakening the
 retained Windows boundary.
 
+EXP-LANG-019 / Experiment 0026 is preregistered as that successor. It makes no
+new platform claim until all 30 outputs, all 21 denials, 38 attacks, both
+independent validators, the no-reuse invariant, and the original latency
+ceiling pass together.
+
 ## Gate 2 — Authoring and authority
 
 Required: WS-DSL and WS-FX.
