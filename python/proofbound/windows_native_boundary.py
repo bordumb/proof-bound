@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -34,6 +36,9 @@ EXTENDED_STARTUPINFO_PRESENT = 0x00080000
 CREATE_NO_WINDOW = 0x08000000
 STARTF_USESTDHANDLES = 0x00000100
 PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009
+DDD_EXACT_MATCH_ON_REMOVE = 0x00000004
+DDD_NO_BROADCAST_SYSTEM = 0x00000008
+DDD_REMOVE_DEFINITION = 0x00000002
 WAIT_OBJECT_0 = 0
 WAIT_TIMEOUT = 0x00000102
 INFINITE = 0xFFFFFFFF
@@ -44,30 +49,62 @@ TOKEN_APPCONTAINER_SID = 31
 SE_GROUP_USE_FOR_DENY_ONLY = 0x00000010
 LUA_TOKEN = 0x00000004
 SE_WINDOW_OBJECT = 7
+SE_FILE_OBJECT = 1
 DACL_SECURITY_INFORMATION = 0x00000004
+OWNER_SECURITY_INFORMATION = 0x00000001
+GROUP_SECURITY_INFORMATION = 0x00000002
 GRANT_ACCESS = 1
+DENY_ACCESS = 3
 NO_INHERITANCE = 0
 TRUSTEE_IS_SID = 0
 TRUSTEE_IS_UNKNOWN = 0
 WINSTA_ALL_ACCESS = 0x000F037F
 DESKTOP_ALL_ACCESS = 0x000F01FF
+READ_CONTROL = 0x00020000
+WRITE_DAC = 0x00040000
+FILE_SHARE_READ = 0x00000001
+FILE_SHARE_WRITE = 0x00000002
+FILE_SHARE_DELETE = 0x00000004
+OPEN_EXISTING = 3
+FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+FILE_WRITE_DATA = 0x00000002
+FILE_APPEND_DATA = 0x00000004
+FILE_WRITE_EA = 0x00000010
+FILE_DELETE_CHILD = 0x00000040
+FILE_WRITE_ATTRIBUTES = 0x00000100
+DELETE = 0x00010000
+WRITE_OWNER = 0x00080000
+FILE_MUTATION_ACCESS = (
+    FILE_WRITE_DATA
+    | FILE_APPEND_DATA
+    | FILE_WRITE_EA
+    | FILE_WRITE_ATTRIBUTES
+    | DELETE
+    | WRITE_DAC
+    | WRITE_OWNER
+)
 
 
 @dataclass(frozen=True)
 class WindowsBoundaryOptions:
-    """Discovery-selectable process-boundary controls.
+    """Identity-bound process-boundary controls.
 
-    Defaults preserve the preregistered EXP-0023 boundary. Non-default values
-    are permitted only for EXP-0025's non-reusable discovery matrix.
+    Defaults preserve the preregistered EXP-0023 boundary. EXP-0025 freezes
+    explicit non-default values before confirmation.
     """
 
     active_process_limit: int | None = 1
     private_desktop: bool = True
     create_no_window: bool = True
+    drive_alias: str | None = None
 
     def __post_init__(self) -> None:
         if self.active_process_limit is not None and self.active_process_limit < 1:
             raise ValueError("active_process_limit must be positive or None")
+        if self.drive_alias is not None and not re.fullmatch(
+            r"[A-Z]:", self.drive_alias
+        ):
+            raise ValueError("drive_alias must be an uppercase drive letter")
 
 
 class StartupInfoW(ctypes.Structure):
@@ -180,6 +217,103 @@ def _environment_block(environment: dict[str, str]) -> ctypes.Array[ctypes.c_wch
     return ctypes.create_unicode_buffer("\0".join(entries) + "\0\0")
 
 
+def _safe_staged_path(value: str) -> Path:
+    """Return one canonical portable path below the private application root."""
+
+    if (
+        not value
+        or len(value.encode("utf-8")) > 4096
+        or not value.isascii()
+        or "\\" in value
+        or any(not 0x21 <= ord(character) <= 0x7E for character in value)
+    ):
+        raise ValueError("staged path must be bounded printable ASCII")
+    path = Path(value)
+    if (
+        path.is_absolute()
+        or path.as_posix() != value
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or any(":" in part for part in path.parts)
+    ):
+        raise ValueError("staged path must be a canonical safe relative path")
+    return path
+
+
+def _validate_disjoint_paths(values: list[Path], description: str) -> None:
+    """Reject duplicate or prefix-overlapping Windows-relative paths."""
+
+    normalized = sorted(
+        ((path.as_posix().casefold(), path) for path in values),
+        key=lambda item: item[0],
+    )
+    for index, (key, _) in enumerate(normalized):
+        for other_key, _ in normalized[index + 1 :]:
+            if other_key == key or other_key.startswith(f"{key}/"):
+                raise ValueError(f"{description} must be unique and prefix-disjoint")
+
+
+def pe_machine(payload: bytes) -> str | None:
+    """Return the bounded PE machine identity for executable image bytes."""
+
+    if len(payload) < 64 or payload[:2] != b"MZ":
+        return None
+    offset = int.from_bytes(payload[0x3C:0x40], "little")
+    if offset > len(payload) - 6 or payload[offset : offset + 4] != b"PE\0\0":
+        raise ValueError("staged PE image has an invalid header")
+    machine = int.from_bytes(payload[offset + 4 : offset + 6], "little")
+    names = {0x014C: "x86", 0x8664: "x86_64", 0xAA64: "aarch64"}
+    if machine not in names:
+        raise ValueError(f"unsupported staged PE machine: 0x{machine:04x}")
+    return names[machine]
+
+
+def _security_descriptor_sha256(advapi32: Any, path: Path) -> str:
+    """Hash the self-relative owner, group, and DACL descriptor for one path."""
+
+    requested = (
+        OWNER_SECURITY_INFORMATION
+        | GROUP_SECURITY_INFORMATION
+        | DACL_SECURITY_INFORMATION
+    )
+    needed = wintypes.DWORD()
+    ctypes.set_last_error(0)
+    advapi32.GetFileSecurityW(str(path), requested, None, 0, ctypes.byref(needed))
+    if needed.value == 0 or ctypes.get_last_error() != 122:
+        raise _windows_error("GetFileSecurityW(size)")
+    descriptor = ctypes.create_string_buffer(needed.value)
+    _require(
+        advapi32.GetFileSecurityW(
+            str(path),
+            requested,
+            descriptor,
+            needed.value,
+            ctypes.byref(needed),
+        ),
+        "GetFileSecurityW",
+    )
+    return sha256_bytes(descriptor.raw[: needed.value])
+
+
+def _file_identity(path: Path, advapi32: Any) -> dict[str, Any]:
+    """Bind content, resolution, NTFS identity, image machine, and file ACL."""
+
+    metadata = path.stat(follow_symlinks=False)
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    if path.is_symlink() or attributes & 0x400:
+        raise ValueError("registered path is a reparse point")
+    payload = path.read_bytes()
+    return {
+        "resolved_path": str(path.resolve(strict=True)),
+        "file_id": f"{metadata.st_dev:016x}:{metadata.st_ino:016x}",
+        "sha256": sha256_bytes(payload),
+        "size_bytes": len(payload),
+        "pe_machine": pe_machine(payload),
+        "security_descriptor_sha256": _security_descriptor_sha256(advapi32, path),
+        "reparse_point": False,
+    }
+
+
 def _sid_text(advapi32: Any, kernel32: Any, sid: wintypes.LPVOID) -> str:
     text = wintypes.LPWSTR()
     _require(
@@ -206,20 +340,22 @@ def _appcontainer_folder(userenv: Any, ole32: Any, sid: str) -> Path:
         ole32.CoTaskMemFree(ctypes.cast(value, wintypes.LPVOID))
 
 
-def _grant_window_object(
+def _add_access_entry(
     advapi32: Any,
     kernel32: Any,
     handle: wintypes.HANDLE,
     sid: wintypes.LPVOID,
     access: int,
+    access_mode: int,
+    object_type: int,
 ) -> None:
-    """Add one AppContainer allow entry to a private window object."""
+    """Add one explicit SID access entry to a kernel or file object."""
 
     old_dacl = wintypes.LPVOID()
     security_descriptor = wintypes.LPVOID()
     result = advapi32.GetSecurityInfo(
         handle,
-        SE_WINDOW_OBJECT,
+        object_type,
         DACL_SECURITY_INFORMATION,
         None,
         None,
@@ -232,7 +368,7 @@ def _grant_window_object(
     new_dacl = wintypes.LPVOID()
     entry = ExplicitAccessW(
         access,
-        GRANT_ACCESS,
+        access_mode,
         NO_INHERITANCE,
         TrusteeW(
             None,
@@ -250,7 +386,7 @@ def _grant_window_object(
             raise OSError(result, "SetEntriesInAclW")
         result = advapi32.SetSecurityInfo(
             handle,
-            SE_WINDOW_OBJECT,
+            object_type,
             DACL_SECURITY_INFORMATION,
             None,
             None,
@@ -264,6 +400,62 @@ def _grant_window_object(
             kernel32.LocalFree(new_dacl)
         if security_descriptor:
             kernel32.LocalFree(security_descriptor)
+
+
+def _grant_window_object(
+    advapi32: Any,
+    kernel32: Any,
+    handle: wintypes.HANDLE,
+    sid: wintypes.LPVOID,
+    access: int,
+) -> None:
+    """Grant one AppContainer SID access to a private window object."""
+
+    _add_access_entry(
+        advapi32,
+        kernel32,
+        handle,
+        sid,
+        access,
+        GRANT_ACCESS,
+        SE_WINDOW_OBJECT,
+    )
+
+
+def _deny_path_mutation(
+    advapi32: Any,
+    kernel32: Any,
+    path: Path,
+    sid: wintypes.LPVOID,
+    *,
+    directory: bool,
+) -> None:
+    """Deny the AppContainer SID mutation authority over one staged path."""
+
+    handle = kernel32.CreateFileW(
+        str(path),
+        READ_CONTROL | WRITE_DAC,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        None,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS if directory else 0,
+        None,
+    )
+    if handle == wintypes.HANDLE(-1).value:
+        raise _windows_error("CreateFileW(DACL)")
+    try:
+        access = FILE_MUTATION_ACCESS | (FILE_DELETE_CHILD if directory else 0)
+        _add_access_entry(
+            advapi32,
+            kernel32,
+            handle,
+            sid,
+            access,
+            DENY_ACCESS,
+            SE_FILE_OBJECT,
+        )
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def _token_information(advapi32: Any, token: wintypes.HANDLE, kind: int) -> Any:
@@ -361,17 +553,33 @@ def run_appcontainer_process(
     *,
     stage_application: bool = False,
     staged_files: tuple[tuple[Path, str], ...] = (),
+    captured_files: tuple[str, ...] = (),
     options: WindowsBoundaryOptions | None = None,
 ) -> dict[str, Any]:
     """Run one command after all registered Windows boundary layers exist."""
 
     boundary = options or WindowsBoundaryOptions()
-    if os.name != "nt":
-        raise OSError("native Windows boundary requested on a non-Windows host")
     if not command or not Path(command[0]).is_absolute():
         raise ValueError("the application path must be absolute")
-    if staged_files and not stage_application:
-        raise ValueError("staged_files require stage_application")
+    staged_specs = tuple(
+        (source, _safe_staged_path(destination)) for source, destination in staged_files
+    )
+    captured_paths = tuple(_safe_staged_path(value) for value in captured_files)
+    staged_destinations = [destination for _, destination in staged_specs]
+    if stage_application:
+        staged_destinations.append(_safe_staged_path(Path(command[0]).name))
+    _validate_disjoint_paths(staged_destinations, "staged file destinations")
+    _validate_disjoint_paths(list(captured_paths), "captured file paths")
+    staged_keys = {path.as_posix().casefold() for path in staged_destinations}
+    if any(path.as_posix().casefold() in staged_keys for path in captured_paths):
+        raise ValueError("captured files must not overwrite staged inputs")
+    for source, _ in staged_specs:
+        if source.is_symlink() or not source.is_file():
+            raise ValueError("staged file source must be a regular non-symlink")
+    if os.name != "nt":
+        raise OSError("native Windows boundary requested on a non-Windows host")
+    if captured_files and not (stage_application or staged_files):
+        raise ValueError("captured_files require an application staging root")
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
     userenv = ctypes.WinDLL("userenv", use_last_error=True)
@@ -381,6 +589,16 @@ def run_appcontainer_process(
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
     kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
     kernel32.LocalFree.restype = wintypes.HLOCAL
     kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
@@ -423,6 +641,18 @@ def run_appcontainer_process(
     ]
     kernel32.UpdateProcThreadAttribute.restype = wintypes.BOOL
     kernel32.DeleteProcThreadAttributeList.argtypes = [wintypes.LPVOID]
+    kernel32.DefineDosDeviceW.argtypes = [
+        wintypes.DWORD,
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+    ]
+    kernel32.DefineDosDeviceW.restype = wintypes.BOOL
+    kernel32.QueryDosDeviceW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+    ]
+    kernel32.QueryDosDeviceW.restype = wintypes.DWORD
 
     advapi32.OpenProcessToken.argtypes = [
         wintypes.HANDLE,
@@ -469,6 +699,14 @@ def run_appcontainer_process(
         wintypes.DWORD,
     ]
     advapi32.SetTokenInformation.restype = wintypes.BOOL
+    advapi32.GetFileSecurityW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.GetFileSecurityW.restype = wintypes.BOOL
     advapi32.CreateProcessAsUserW.argtypes = [
         wintypes.HANDLE,
         wintypes.LPCWSTR,
@@ -572,6 +810,14 @@ def run_appcontainer_process(
     stdout_path: Path | None = None
     stderr_path: Path | None = None
     staged_identities: list[dict[str, Any]] = []
+    application_root: Path | None = None
+    drive_alias_created = False
+    drive_alias_target: str | None = None
+    drive_alias_cleanup_error: OSError | None = None
+    requested_application_identity = {
+        "requested_path": command[0],
+        **_file_identity(Path(command[0]), advapi32),
+    }
     try:
         _hresult(
             userenv.CreateAppContainerProfile(
@@ -591,54 +837,114 @@ def run_appcontainer_process(
         profile_temp.mkdir(parents=True, exist_ok=True)
         child_command = list(command)
         child_cwd = cwd
-        if stage_application:
+        if stage_application or staged_files:
             application_root = profile_storage / "Application"
             application_root.mkdir(parents=True, exist_ok=False)
+        if stage_application:
+            assert application_root is not None
             application = application_root / Path(command[0]).name
             shutil.copy2(command[0], application)
             staged_identities.append(
                 {
                     "source": str(command[0]),
+                    "source_identity": requested_application_identity,
                     "destination": application.name,
-                    "sha256": sha256_bytes(application.read_bytes()),
-                    "size_bytes": application.stat().st_size,
+                    **_file_identity(application, advapi32),
                 }
             )
-            destinations = {application.name.casefold()}
-            for source, destination_text in staged_files:
-                destination_path = Path(destination_text)
-                if (
-                    "\\" in destination_text
-                    or destination_path.is_absolute()
-                    or not destination_path.parts
-                    or any(part in {"", ".", ".."} for part in destination_path.parts)
-                ):
-                    raise ValueError("staged file destination must be safely relative")
-                if source.is_symlink() or not source.is_file():
-                    raise ValueError("staged file source must be a regular non-symlink")
-                destination_key = str(destination_path).replace("\\", "/").casefold()
-                if destination_key in destinations:
-                    raise ValueError("staged file destinations must be unique")
-                destinations.add(destination_key)
-                destination = application_root / destination_path
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, destination)
-                staged_identities.append(
-                    {
-                        "source": str(source),
-                        "destination": str(destination_path).replace("\\", "/"),
-                        "sha256": sha256_bytes(destination.read_bytes()),
-                        "size_bytes": destination.stat().st_size,
-                    }
-                )
             child_command[0] = str(application)
+        for source, destination_path in staged_specs:
+            assert application_root is not None
+            destination = application_root / destination_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            staged_identities.append(
+                {
+                    "source": str(source),
+                    "source_identity": _file_identity(source, advapi32),
+                    "destination": destination_path.as_posix(),
+                    **_file_identity(destination, advapi32),
+                }
+            )
+        for captured_path in captured_paths:
+            assert application_root is not None
+            (application_root / captured_path).parent.mkdir(parents=True, exist_ok=True)
+        if application_root is not None:
+            writable_directories = {
+                parent
+                for captured_path in captured_paths
+                for parent in (application_root / captured_path).parents
+                if parent != application_root and application_root in parent.parents
+            }
+            for destination_path in staged_destinations:
+                _deny_path_mutation(
+                    advapi32,
+                    kernel32,
+                    application_root / destination_path,
+                    appcontainer_sid,
+                    directory=False,
+                )
+            protected_directories = [
+                application_root,
+                *sorted(
+                    (
+                        path
+                        for path in application_root.rglob("*")
+                        if path.is_dir() and path not in writable_directories
+                    ),
+                    key=lambda path: (len(path.parts), path.as_posix()),
+                    reverse=True,
+                ),
+            ]
+            for directory in protected_directories:
+                _deny_path_mutation(
+                    advapi32,
+                    kernel32,
+                    directory,
+                    appcontainer_sid,
+                    directory=True,
+                )
+            for identity in staged_identities:
+                identity.update(
+                    _file_identity(application_root / identity["destination"], advapi32)
+                )
+        if application_root is not None:
             child_cwd = application_root
+        application_reference = str(application_root) if application_root else None
+        if boundary.drive_alias is not None:
+            if application_root is None:
+                raise ValueError("drive_alias requires an application staging root")
+            existing_target = ctypes.create_unicode_buffer(32768)
+            ctypes.set_last_error(0)
+            existing_size = kernel32.QueryDosDeviceW(
+                boundary.drive_alias, existing_target, len(existing_target)
+            )
+            if existing_size:
+                raise ValueError("drive_alias is already in use")
+            if ctypes.get_last_error() != 2:
+                raise _windows_error("QueryDosDeviceW")
+            drive_alias_target = str(application_root)
+            _require(
+                kernel32.DefineDosDeviceW(
+                    DDD_NO_BROADCAST_SYSTEM,
+                    boundary.drive_alias,
+                    drive_alias_target,
+                ),
+                "DefineDosDeviceW",
+            )
+            drive_alias_created = True
+            application_reference = boundary.drive_alias
+            child_cwd = Path(f"{boundary.drive_alias}/")
         child_environment = dict(environment)
-        if stage_application:
+        if application_reference is not None:
             child_environment = {
-                name: value.replace("{APPLICATION_ROOT}", str(application_root))
+                name: value.replace("{APPLICATION_ROOT}", application_reference)
                 for name, value in child_environment.items()
             }
+            child_command = [
+                value.replace("{APPLICATION_ROOT}", application_reference)
+                for value in child_command
+            ]
         child_environment.update(
             {
                 "LOCALAPPDATA": str(profile_storage),
@@ -829,6 +1135,24 @@ def run_appcontainer_process(
                 kernel32.GetExitCodeProcess(process.process, ctypes.byref(exit_code)),
                 "GetExitCodeProcess",
             )
+        captured = []
+        for captured_path in captured_paths:
+            assert application_root is not None
+            path = application_root / captured_path
+            if not path.exists():
+                captured.append({"path": captured_path.as_posix(), "present": False})
+                continue
+            if path.is_symlink() or not path.is_file():
+                raise ValueError("captured output must be a regular non-symlink")
+            content = path.read_bytes()
+            captured.append(
+                {
+                    "path": captured_path.as_posix(),
+                    "present": True,
+                    **_file_identity(path, advapi32),
+                    "content_base64": base64.b64encode(content).decode("ascii"),
+                }
+            )
         return {
             "profile": profile,
             "profile_storage": str(profile_storage),
@@ -840,8 +1164,12 @@ def run_appcontainer_process(
             },
             "requested_command": command,
             "executed_command": child_command,
+            "requested_application_identity": requested_application_identity,
             "application_staged": stage_application,
             "staged_files": staged_identities,
+            "captured_files": captured,
+            "drive_alias": boundary.drive_alias,
+            "drive_alias_target": drive_alias_target,
             "appcontainer_sid": sid,
             "restricted_token": True,
             "administrator_sids": "deny-only",
@@ -858,6 +1186,20 @@ def run_appcontainer_process(
             "stderr": stderr_path.read_text(encoding="utf-8", errors="strict"),
         }
     finally:
+        if (
+            drive_alias_created
+            and boundary.drive_alias is not None
+            and drive_alias_target is not None
+        ):
+            removed = kernel32.DefineDosDeviceW(
+                DDD_REMOVE_DEFINITION
+                | DDD_EXACT_MATCH_ON_REMOVE
+                | DDD_NO_BROADCAST_SYSTEM,
+                boundary.drive_alias,
+                drive_alias_target,
+            )
+            if not removed:
+                drive_alias_cleanup_error = _windows_error("DefineDosDeviceW(remove)")
         if process.thread:
             kernel32.CloseHandle(process.thread)
         if process.process:
@@ -886,3 +1228,5 @@ def run_appcontainer_process(
             stdout_path.unlink(missing_ok=True)
         if stderr_path is not None:
             stderr_path.unlink(missing_ok=True)
+        if drive_alias_cleanup_error is not None:
+            raise drive_alias_cleanup_error

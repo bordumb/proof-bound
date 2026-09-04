@@ -94,41 +94,121 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  windows-initialization-discovery:
-    name: EXP-0025 · Windows initialization discovery
+  windows-initialization-confirmation:
+    name: EXP-0025 · native Windows enforcement confirmation
     if: github.event_name == 'workflow_dispatch' && inputs.experiment == 'exp-0025'
     runs-on: windows-11-arm
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
-      - name: Check out the preregistered revision
+      - name: Check out the frozen candidate revision
         uses: actions/checkout@v5
 
-      - name: Install the repository Python version
+      - name: Install exact Python runtime
         uses: actions/setup-python@v6
         with:
-          python-version-file: .python-version
+          python-version: "3.12.10"
 
-      - name: Probe the sealed Python initialization closure
+      - name: Install exact Node runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.20.0"
+
+      - name: Install exact Rust toolchain
+        uses: dtolnay/rust-toolchain@1.94.0
+
+      - name: Execute all frozen workloads and authority probes
         shell: pwsh
         env:
           PYTHONPATH: ${{ github.workspace }}/python
         run: |
           $root = "$env:RUNNER_TEMP/exp0025-results"
           New-Item -ItemType Directory -Force $root
-          python -m proofbound.windows_python_closure_discovery `
-            "$root/python-closure.json"
+          python -m proofbound.windows_initialization_execute `
+            "$env:GITHUB_WORKSPACE" `
+            "$env:RUNNER_TEMP/exp0025-state" `
+            "$root/capture.json"
           if ($LASTEXITCODE -ne 0) {
-            throw "the Python initialization closure did not complete"
+            throw "the frozen Windows confirmation did not produce a capture"
           }
 
-      - name: Retain the non-reusable Python closure discovery
+      - name: Validate independently in Python and Rust
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0025-results"
+          python -m proofbound.windows_initialization_research `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/capture.json" `
+            "$root/python-report.json"
+          if ($LASTEXITCODE -ne 0) { throw "Python validation failed" }
+          cargo run --locked -p proofbound-ir-prototype -- `
+            validate-windows-initialization `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/capture.json" `
+            "$root/rust-report.json"
+          if ($LASTEXITCODE -ne 0) { throw "Rust validation failed" }
+          $python = [IO.File]::ReadAllBytes("$root/python-report.json")
+          $rust = [IO.File]::ReadAllBytes("$root/rust-report.json")
+          if (-not [Linq.Enumerable]::SequenceEqual[byte]($python, $rust)) {
+            throw "independent main reports differ"
+          }
+
+      - name: Reject all registered capture attacks independently
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0025-results"
+          python -m proofbound.windows_initialization_attacks `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/capture.json" `
+            "$root/attacks" `
+            "$root/attacks/index.json" `
+            "$root/python-attacks.json"
+          if ($LASTEXITCODE -ne 0) { throw "Python attack validation failed" }
+          cargo run --locked -p proofbound-ir-prototype -- `
+            validate-windows-initialization-attacks `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/attacks/index.json" `
+            "$root/rust-attacks.json"
+          if ($LASTEXITCODE -ne 0) { throw "Rust attack validation failed" }
+          $python = [IO.File]::ReadAllBytes("$root/python-attacks.json")
+          $rust = [IO.File]::ReadAllBytes("$root/rust-attacks.json")
+          if (-not [Linq.Enumerable]::SequenceEqual[byte]($python, $rust)) {
+            throw "independent attack reports differ"
+          }
+
+      - name: Derive and require the preregistered decision
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0025-results"
+          python -m proofbound.windows_initialization_confirmation `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/capture.json" `
+            "$root/rust-report.json" `
+            "$root/python-report.json" `
+            "$root/rust-attacks.json" `
+            "$root/python-attacks.json" `
+            "$root/execution.json"
+          $decisionExit = $LASTEXITCODE
+          if (Test-Path "$root/execution.json") {
+            python -m json.tool "$root/execution.json"
+          }
+          if ($decisionExit -ne 0) {
+            throw "EXP-0025 did not satisfy its preregistered pass rule"
+          }
+
+      - name: Retain the exact native Windows confirmation
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: exp-0025-windows-python-closure-discovery
+          name: exp-0025-windows-enforcement
           path: ${{ runner.temp }}/exp0025-results
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
   linux-confirmation:
     name: EXP-0022 · native Linux confirmation

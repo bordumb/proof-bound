@@ -43,7 +43,9 @@ def build_standard_library_archive(library: Path, destination: Path) -> int:
     return len(sources)
 
 
-def _native_files(root: Path) -> tuple[tuple[Path, str], ...]:
+def native_runtime_files(root: Path) -> tuple[tuple[Path, str], ...]:
+    """Return the canonical staged native CPython file inventory."""
+
     rows = [(path, path.name) for path in sorted(root.glob("*.dll"))]
     dlls = root / "DLLs"
     if dlls.is_dir():
@@ -64,7 +66,7 @@ def capture() -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="proofbound-exp0025-python-") as temporary:
         archive = Path(temporary) / archive_name
         module_count = build_standard_library_archive(library, archive)
-        staged = (*_native_files(runtime_root), (archive, archive_name))
+        staged = (*native_runtime_files(runtime_root), (archive, archive_name))
         if len(staged) > MAX_STAGED_FILES:
             raise ValueError("the Python native closure exceeds its registered bound")
         application = "{APPLICATION_ROOT}"
