@@ -167,7 +167,10 @@ def _tree_identity(root: Path) -> str:
 def _strict_tool_output(arguments: list[str]) -> str:
     process = subprocess.run(arguments, check=True, capture_output=True, timeout=120)
     if process.stderr or not process.stdout.endswith(b"\n"):
-        raise ValueError(f"tool identity output differs: {arguments[0]}")
+        raise ValueError(
+            f"tool identity output differs: {arguments[0]}: "
+            f"stdout={process.stdout!r} stderr={process.stderr!r}"
+        )
     value = process.stdout[:-1]
     if value.endswith(b"\r"):
         value = value[:-1]
@@ -176,10 +179,30 @@ def _strict_tool_output(arguments: list[str]) -> str:
     return value.decode("utf-8", errors="strict")
 
 
-def _compile_rust(source: Path, destination: Path) -> None:
+def _rust_compiler() -> Path:
+    """Resolve the installed compiler behind rustup before measuring it."""
+
+    process = subprocess.run(
+        ["rustup", "which", "--toolchain", RUST_VERSION, "rustc"],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    if process.stderr or not process.stdout.endswith(b"\n"):
+        raise ValueError(
+            "rustup did not return one silent compiler path: "
+            f"stdout={process.stdout!r} stderr={process.stderr!r}"
+        )
+    path = Path(process.stdout[:-1].decode("utf-8", errors="strict"))
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise ValueError("rustup returned an unsafe compiler path")
+    return path.resolve(strict=True)
+
+
+def _compile_rust(compiler: Path, source: Path, destination: Path) -> None:
     process = subprocess.run(
         [
-            "rustc",
+            str(compiler),
             "--edition",
             "2021",
             "-C",
@@ -223,13 +246,13 @@ def _build_runtimes(
     node_text = _strict_tool_output(["node", "--version"])
     if node_text != f"v{NODE_VERSION}":
         raise ValueError(f"Node identity differs: {node_text}")
-    rust_text = _strict_tool_output(["rustc", "--version"])
+    rustc_executable = _rust_compiler()
+    rust_text = _strict_tool_output([str(rustc_executable), "--version"])
     if not rust_text.startswith(f"rustc {RUST_VERSION} "):
         raise ValueError(f"Rust identity differs: {rust_text}")
 
     node_executable_text = shutil.which("node")
-    rustc_executable_text = shutil.which("rustc")
-    if node_executable_text is None or rustc_executable_text is None:
+    if node_executable_text is None:
         raise OSError("a frozen runtime executable is unavailable")
     node_executable = Path(node_executable_text)
     python_executable = Path(sys.executable)
@@ -237,11 +260,11 @@ def _build_runtimes(
     corpus = repository / CORPUS_PATH
     rust_source = corpus / "workspace/subjects/rust_subject.rs"
     rust_binary = build_root / "rust_subject.exe"
-    _compile_rust(rust_source, rust_binary)
+    _compile_rust(rustc_executable, rust_source, rust_binary)
     helper_source = build_root / "registered_true.rs"
     helper_source.write_bytes(b"fn main() {}\n")
     helper_binary = build_root / "registered_true.exe"
-    _compile_rust(helper_source, helper_binary)
+    _compile_rust(rustc_executable, helper_source, helper_binary)
 
     runtime_root = python_executable.parent
     archive_name = "python312.zip"
@@ -300,7 +323,7 @@ def _build_runtimes(
             {
                 "toolchain": RUST_VERSION,
                 "version_output": rust_text,
-                "compiler": _artifact(Path(rustc_executable_text), "tool/rustc.exe"),
+                "compiler": _artifact(rustc_executable, "tool/rustc.exe"),
                 "source": _artifact(rust_source, "source/rust_subject.rs"),
                 "executable": _artifact(rust_binary, "runtime/rust_subject.exe"),
             },

@@ -577,9 +577,7 @@ def _validate_output(value: object, positive: bool) -> bool:
     if (
         not isinstance(value.get("resolved_path"), str)
         or not value["resolved_path"]
-        or re.fullmatch(
-            r"[0-9a-f]{16}:[0-9a-f]{16}", str(value.get("file_id", ""))
-        )
+        or re.fullmatch(r"[0-9a-f]{16}:[0-9a-f]{16}", str(value.get("file_id", "")))
         is None
         or not _valid_sha(value.get("sha256"))
         or not isinstance(value.get("size_bytes"), int)
