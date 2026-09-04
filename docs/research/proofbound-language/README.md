@@ -13,7 +13,10 @@
 
 ## Current position
 
-No language decision has been made. Experiment 0005 concluded the first
+The current [language-direction decision](decisions/0001-language-direction.md)
+keeps the framework and existing-language bridge first-class while advancing
+the assurance language incrementally. A from-scratch general-purpose language
+is deferred. Experiment 0005 concluded the first
 Assurance IR extraction with a useful falsification. Fifteen of sixteen
 registered semantic field classes survive exact forward and reverse
 projection, but portable evidence does not retain the complete role-typed
@@ -144,6 +147,8 @@ subscription is not a sufficient attribution source on this runner.
 | [Metrics](metrics.md) | Shared definitions used by several experiments |
 | [Open questions](open-questions.md) | Unresolved issues that have not become findings or decisions |
 | [Detailed plan](plan.md) | Complete initial methods, workstream rationale, and research backlog |
+| [Syntheses](syntheses/README.md) | Cross-experiment comparisons that preserve each source decision |
+| [Research decisions](decisions/README.md) | Evidence-backed programme direction and review triggers |
 | [Draft Assurance IR `/1`](assurance-ir-v1.md) | Non-normative semantic model to test against EXP-0005 |
 | [Assurance IR `/2`](assurance-ir-v2.md) | Bounded joined semantic candidate supported by EXP-LANG-010 |
 | [Workstreams](workstreams/README.md) | Bounded programmes of work and their dependencies |
@@ -294,6 +299,8 @@ mediated/opaque/external boundary and EXP-LANG-006's typed
 uncertainty/claim-impact boundary without claiming current adapters are
 sandboxed or that machine volume predicts human fatigue. Final syntax and
 native executable semantics remain downstream. Preserve existing-language
-Proofbound as the adoption bridge: the current evidence supports honest mixed
-graphs, not abandoning the framework or beginning an unrestricted language
-implementation.
+Proofbound as the adoption bridge and advance a typed assurance language over
+the shared IR. The evidence supports honest mixed graphs and platform-specific
+evidence profiles, not abandoning the framework or beginning an unrestricted
+general-purpose language implementation. The rationale and review triggers are
+recorded in [research decision 0001](decisions/0001-language-direction.md).
