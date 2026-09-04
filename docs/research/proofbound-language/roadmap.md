@@ -96,10 +96,15 @@ of policy denial. A preregistered successor must repair the platform-neutral
 byte contract and use a proven-reachable network oracle without weakening the
 retained Windows boundary.
 
-EXP-LANG-019 / Experiment 0026 is preregistered as that successor. It makes no
-new platform claim until all 30 outputs, all 21 denials, 38 attacks, both
-independent validators, the no-reuse invariant, and the original latency
-ceiling pass together.
+EXP-LANG-019 / Experiment 0026 executes that successor and concludes `revise`.
+All 30 outputs are exact, the 18 non-network probes are denied, three live
+controls connect, zero sandbox connections are accepted, all 38 attacks reject
+exactly, independent reports agree, and non-reuse and latency invariants hold.
+The three network attempts return timeouts or a process deadline rather than
+the frozen exact access-denied results. Gate 1 therefore has bounded Windows
+execution and independently observed network non-delivery, but not the exact
+Windows denial fact required for cross-platform closure. The next candidate
+must type that distinction and test an independent kernel-level observer.
 
 ## Gate 2 — Authoring and authority
 

@@ -129,7 +129,14 @@ next study must preregister platform-neutral output bytes and a reachable
 network oracle while retaining the successful initialization closure.
 
 [EXP-LANG-019 / Experiment 0026](../../../experiments/0026-windows-output-network-confirmation/README.md)
-is that preregistered study. Its network oracle includes a same-subject control
-connection, an unchanged live endpoint, listener acceptance counts, exact
-native denial classes, and proof that the fresh AppContainer SID is absent
-from Windows' loopback-exemption set.
+executes that study. All 30 outputs now match exactly. Its same-subject controls
+connect to three live endpoints, while the sandboxed attempts yield no accepted
+connection, no output, no loopback exemption, and no reusable receipt. All 38
+attacks reject and the independent reports agree within the latency ceiling.
+
+The result remains `revise`: Node and Python report timeouts and Rust reaches
+the process deadline, rather than returning the exact synchronous access-
+denied codes frozen by the registration. The next effects model must represent
+`synchronous-denial` and independently observed `bounded-non-delivery` as
+different outcomes, then test whether a kernel observer can authorize the
+latter without expanding subject authority.

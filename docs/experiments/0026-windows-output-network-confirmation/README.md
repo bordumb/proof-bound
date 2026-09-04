@@ -1,6 +1,6 @@
 # Experiment 0026: exact Windows output and network confirmation
 
-- **Status:** preregistered — not executed
+- **Status:** concluded — revise
 - **Registered:** 2026-09-04
 - **Subject baseline:** `f770cf8f87e43f4b4f3e789a3099db74a22889c8`
 - **Predecessor:** [Experiment 0025](../0025-windows-initialization-closure/README.md)
@@ -122,4 +122,24 @@ traffic](https://learn.microsoft.com/en-us/windows/win32/api/networkisolation/nf
   denied, a denied/incomplete result becomes reusable, or execution falls back.
 
 The machine-readable registration is [preregistration.json](preregistration.json).
-No EXP-0026 runner, validator, capture, or result exists at registration.
+No EXP-0026 runner, validator, capture, or result existed at registration.
+
+## Conclusion
+
+The native Windows 11 ARM64 run completed all registered work and retained an
+honest `revise` decision. All 30 permitted workloads produced the exact bytes;
+all 18 non-network authority probes were denied; and no denied or incomplete
+execution was reusable. Each unsandboxed network control connected to its live
+loopback listener, while no sandboxed connection was accepted and no
+AppContainer SID appeared in the loopback-exemption set.
+
+Q2 nevertheless fails under the preregistered rule. Node and Python observed
+connection timeouts, and Rust reached the process deadline. Those observations
+are consistent with network isolation but are not the exact `EACCES` / Winsock
+10013 results required to classify a definite denial. All three remain
+`incomplete` and non-reusable. Both independent validators agreed byte for
+byte, all 38 attacks rejected exactly, the reviewed tree was unchanged, and
+the 58,609 ms run stayed below the 60,000 ms ceiling.
+
+See the [conclusion](CONCLUSION.md), [journal](JOURNAL.md), [artifact
+ledger](ARTIFACTS.md), and [checked-in results](results/README.md).
