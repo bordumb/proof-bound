@@ -270,7 +270,11 @@ def _build_runtimes(
     archive_name = "python312.zip"
     archive = build_root / archive_name
     pure_module_count = build_standard_library_archive(runtime_root / "Lib", archive)
-    python_native = native_runtime_files(runtime_root)
+    python_native = tuple(
+        (path, destination)
+        for path, destination in native_runtime_files(runtime_root)
+        if pe_machine(path.read_bytes()) == "aarch64"
+    )
     python_staged = (*python_native, (archive, archive_name))
     if len(python_staged) + 4 > MAX_INITIALIZATION_ARTIFACTS:
         raise ValueError("Python initialization closure exceeds its frozen ceiling")
@@ -464,7 +468,7 @@ def _policy(runtime: Runtime, slot: dict[str, Any]) -> dict[str, Any]:
         "environment": sorted(runtime.environment),
         "unregistered_child": {
             "logical_path": "/usr/bin/true",
-            "drive_alias": DRIVE_ALIAS if slot["mode"] == "exec-unregistered" else None,
+            "drive_alias": DRIVE_ALIAS,
             "denied_by": "job-active-process-limit",
         },
     }
@@ -585,10 +589,9 @@ def _execute_slot(
         (subject, source_destination),
         (workspace / "registered.txt", "registered.txt"),
     ]
-    drive_alias = None
+    drive_alias = DRIVE_ALIAS
     if slot["mode"] == "exec-unregistered":
         staged.append((helper_binary, "usr/bin/true.exe"))
-        drive_alias = DRIVE_ALIAS
     command = _runtime_command(runtime, source_destination, slot, attack_path)
     policy = _policy(runtime, slot)
     result = run_appcontainer_process(

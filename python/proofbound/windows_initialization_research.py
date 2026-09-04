@@ -455,9 +455,7 @@ def _expected_policy(
         "environment": sorted(environment),
         "unregistered_child": {
             "logical_path": "/usr/bin/true",
-            "drive_alias": DRIVE_ALIAS
-            if expected["mode"] == "exec-unregistered"
-            else None,
+            "drive_alias": DRIVE_ALIAS,
             "denied_by": "job-active-process-limit",
         },
     }
@@ -670,9 +668,11 @@ def _validate_boundary(
         _fail("WIN25-JOB", "actual job boundary differs")
     if boundary["create_no_window"] is not False:
         _fail("WIN25-PROCESS-CREATION", "actual console initialization differs")
-    alias = DRIVE_ALIAS if expected["mode"] == "exec-unregistered" else None
-    if boundary["drive_alias"] != alias or (alias is None) != (
-        boundary["drive_alias_target"] is None
+    alias = DRIVE_ALIAS
+    if (
+        boundary["drive_alias"] != alias
+        or not isinstance(boundary["drive_alias_target"], str)
+        or boundary["drive_alias_target"].casefold() != application_root.casefold()
     ):
         _fail("WIN25-DRIVE-ALIAS", "actual drive alias differs")
     runtime = closure["runtime_closures"][expected["runtime"]]

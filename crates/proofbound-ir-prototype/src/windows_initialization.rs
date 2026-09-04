@@ -640,7 +640,7 @@ fn expected_policy(
         "environment": environment,
         "unregistered_child": {
             "logical_path": "/usr/bin/true",
-            "drive_alias": if expected.mode == "exec-unregistered" { Some("P:") } else { None },
+            "drive_alias": "P:",
             "denied_by": "job-active-process-limit",
         },
     });
@@ -962,16 +962,9 @@ fn validate_boundary(
     if boolean(boundary.get("create_no_window")) != Some(false) {
         return Err(error("WIN25-PROCESS-CREATION", "creation flags differ"));
     }
-    let expected_alias = if expected.mode == "exec-unregistered" {
-        Some("P:")
-    } else {
-        None
-    };
-    if text(boundary.get("drive_alias")) != expected_alias
-        || boundary
-            .get("drive_alias_target")
-            .is_some_and(Value::is_null)
-            != expected_alias.is_none()
+    if text(boundary.get("drive_alias")) != Some("P:")
+        || text(boundary.get("drive_alias_target"))
+            .is_none_or(|target| !target.eq_ignore_ascii_case(application_root))
     {
         return Err(error("WIN25-DRIVE-ALIAS", "actual drive alias differs"));
     }
