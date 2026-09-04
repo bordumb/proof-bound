@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
+import re
+import subprocess
 import sys
 from typing import Any
 
@@ -20,6 +23,10 @@ def _sha256(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
+def _sha256_bytes(value: bytes) -> str:
+    return f"sha256:{hashlib.sha256(value).hexdigest()}"
+
+
 def _load_object(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_bytes())
     if not isinstance(value, dict):
@@ -28,10 +35,26 @@ def _load_object(path: Path) -> dict[str, Any]:
 
 
 def _validate_frozen_inputs(repository: Path, registration: dict[str, Any]) -> None:
+    subject = registration.get("subject")
+    if not isinstance(subject, str) or re.fullmatch(r"git:[0-9a-f]{40}", subject) is None:
+        raise ValueError("registered subject revision is invalid")
+    revision = subject.removeprefix("git:")
     for item in registration["frozen_inputs"]:
-        path = repository / item["path"]
-        if _sha256(path) != item["sha256"]:
-            raise ValueError(f"frozen input changed: {item['path']}")
+        logical = item["path"]
+        relative = PurePosixPath(logical)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"frozen input path is invalid: {logical}")
+        path = repository / logical
+        if _sha256(path) == item["sha256"]:
+            continue
+        historical = subprocess.run(
+            ["git", "show", f"{revision}:{logical}"],
+            cwd=repository,
+            capture_output=True,
+            check=False,
+        )
+        if historical.returncode != 0 or _sha256_bytes(historical.stdout) != item["sha256"]:
+            raise ValueError(f"frozen input changed: {logical}")
 
 
 def _decision(availability: str, questions: dict[str, bool]) -> str:
