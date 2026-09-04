@@ -499,29 +499,33 @@ def _runtime_command(
 
 
 def _compact_boundary(result: dict[str, Any]) -> dict[str, Any]:
-    staged = []
-    for row in result["staged_files"]:
-        staged.append(
-            {
-                key: row[key]
-                for key in (
-                    "destination",
-                    "resolved_path",
-                    "file_id",
-                    "sha256",
-                    "size_bytes",
-                    "pe_machine",
-                    "security_descriptor_sha256",
-                    "reparse_point",
-                )
-            }
-        )
+    ordered = sorted(result["staged_files"], key=lambda row: row["destination"])
+    staged = [
+        {
+            key: row[key]
+            for key in (
+                "destination",
+                "file_id",
+                "security_descriptor_sha256",
+                "reparse_point",
+            )
+        }
+        for row in ordered
+    ]
+    staged_content = [
+        [row["destination"], row["sha256"], row["size_bytes"], row["pe_machine"]]
+        for row in ordered
+    ]
     return {
         "profile": result["profile"],
         "window_station": result["window_station"],
         "application_staged": result["application_staged"],
+        "application_root": result["application_root"],
         "requested_application_identity": result["requested_application_identity"],
         "staged_files": staged,
+        "staged_content_identity": domain_hash(
+            "proofbound-research-windows-staged-content/1", staged_content
+        ),
         "captured_files": result["captured_files"],
         "drive_alias": result["drive_alias"],
         "drive_alias_target": result["drive_alias_target"],

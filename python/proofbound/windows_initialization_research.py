@@ -221,11 +221,7 @@ def _validate_staged_artifact(value: object) -> dict[str, Any]:
         value,
         {
             "destination",
-            "resolved_path",
             "file_id",
-            "sha256",
-            "size_bytes",
-            "pe_machine",
             "security_descriptor_sha256",
             "reparse_point",
         },
@@ -236,17 +232,8 @@ def _validate_staged_artifact(value: object) -> dict[str, Any]:
         or not artifact["destination"]
         or "\\" in artifact["destination"]
         or PureWindowsPath(artifact["destination"]).is_absolute()
-        or not isinstance(artifact["resolved_path"], str)
-        or not artifact["resolved_path"]
-        .replace("\\", "/")
-        .casefold()
-        .endswith(f"/application/{artifact['destination']}".casefold())
         or not isinstance(artifact["file_id"], str)
         or re.fullmatch(r"[0-9a-f]{16}:[0-9a-f]{16}", artifact["file_id"]) is None
-        or not _valid_sha(artifact["sha256"])
-        or not isinstance(artifact["size_bytes"], int)
-        or artifact["size_bytes"] < 0
-        or artifact["pe_machine"] not in {None, "aarch64"}
         or not _valid_sha(artifact["security_descriptor_sha256"])
         or artifact["reparse_point"] is not False
     ):
@@ -620,8 +607,10 @@ def _validate_boundary(
             "profile",
             "window_station",
             "application_staged",
+            "application_root",
             "requested_application_identity",
             "staged_files",
+            "staged_content_identity",
             "captured_files",
             "drive_alias",
             "drive_alias_target",
@@ -648,6 +637,13 @@ def _validate_boundary(
         or boundary["integrity_level"] != "low"
     ):
         _fail("WIN25-APPCONTAINER", "executed AppContainer boundary differs")
+    application_root = boundary["application_root"]
+    if (
+        not isinstance(application_root, str)
+        or not PureWindowsPath(application_root).is_absolute()
+        or PureWindowsPath(application_root).name.casefold() != "application"
+    ):
+        _fail("WIN25-ARTIFACT", "application root identity differs")
     station = boundary["window_station"]
     if (
         not isinstance(station, dict)
@@ -707,19 +703,28 @@ def _validate_boundary(
     staged = boundary["staged_files"]
     if not isinstance(staged, list):
         _fail("WIN25-ARTIFACT", "staged inventory is absent")
-    actual: dict[str, tuple[str, int, str | None]] = {}
+    actual: set[str] = set()
     for row in staged:
         artifact = _validate_staged_artifact(row)
         destination = artifact["destination"]
         if destination.casefold() in {name.casefold() for name in actual}:
             _fail("WIN25-ARTIFACT", "staged destinations are duplicated")
-        actual[destination] = (
-            artifact["sha256"],
-            artifact["size_bytes"],
-            artifact["pe_machine"],
-        )
-    if actual != _expected_staged(closure, corpus, expected):
+        actual.add(destination)
+    expected_staged = _expected_staged(closure, corpus, expected)
+    if actual != set(expected_staged) or [
+        row["destination"] for row in staged
+    ] != sorted(expected_staged):
         _fail("WIN25-ARTIFACT", "staged artifact inventory differs")
+    staged_content = [
+        [destination, sha256, size_bytes, machine]
+        for destination, (sha256, size_bytes, machine) in sorted(
+            expected_staged.items()
+        )
+    ]
+    if boundary["staged_content_identity"] != domain_hash(
+        "proofbound-research-windows-staged-content/1", staged_content
+    ):
+        _fail("WIN25-ARTIFACT", "staged content identity differs")
     captured = boundary["captured_files"]
     if not isinstance(captured, list) or len(captured) != 1:
         _fail("WIN25-POSITIVE", "captured output inventory differs")

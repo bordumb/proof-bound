@@ -1165,6 +1165,7 @@ def run_appcontainer_process(
             "requested_command": command,
             "executed_command": child_command,
             "requested_application_identity": requested_application_identity,
+            "application_root": str(application_root) if application_root else None,
             "application_staged": stage_application,
             "staged_files": staged_identities,
             "captured_files": captured,

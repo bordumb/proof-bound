@@ -244,30 +244,17 @@ fn staged_artifact(value: &Value) -> Result<&Map<String, Value>, WindowsInitiali
         value,
         &[
             "destination",
-            "resolved_path",
             "file_id",
-            "sha256",
-            "size_bytes",
-            "pe_machine",
             "security_descriptor_sha256",
             "reparse_point",
         ],
         "WIN25-ARTIFACT",
     )?;
     let destination = text(value.get("destination")).unwrap_or_default();
-    let resolved = text(value.get("resolved_path")).unwrap_or_default();
-    let normalized = resolved.replace('\\', "/").to_ascii_lowercase();
     if destination.is_empty()
         || destination.contains('\\')
         || destination.contains("..")
-        || !normalized.ends_with(&format!(
-            "/application/{}",
-            destination.to_ascii_lowercase()
-        ))
         || !valid_file_id(value.get("file_id"))
-        || !valid_sha256(value.get("sha256"))
-        || number(value.get("size_bytes")).is_none()
-        || !valid_pe_machine(value.get("pe_machine"))
         || !valid_sha256(value.get("security_descriptor_sha256"))
         || boolean(value.get("reparse_point")) != Some(false)
     {
@@ -901,8 +888,10 @@ fn validate_boundary(
             "profile",
             "window_station",
             "application_staged",
+            "application_root",
             "requested_application_identity",
             "staged_files",
+            "staged_content_identity",
             "captured_files",
             "drive_alias",
             "drive_alias_target",
@@ -933,6 +922,17 @@ fn validate_boundary(
         || text(boundary.get("integrity_level")) != Some("low")
     {
         return Err(error("WIN25-APPCONTAINER", "executed boundary differs"));
+    }
+    let application_root = text(boundary.get("application_root")).unwrap_or_default();
+    let normalized_root = application_root.replace('\\', "/");
+    if normalized_root.len() < 15
+        || normalized_root.as_bytes().get(1) != Some(&b':')
+        || normalized_root.as_bytes().get(2) != Some(&b'/')
+        || !normalized_root
+            .to_ascii_lowercase()
+            .ends_with("/application")
+    {
+        return Err(error("WIN25-ARTIFACT", "application root differs"));
     }
     let station = object(&boundary["window_station"], "WIN25-DESKTOP")?;
     if boolean(station.get("private")) != Some(true)
@@ -1004,8 +1004,9 @@ fn validate_boundary(
     {
         return Err(error("WIN25-ARTIFACT", "requested runtime differs"));
     }
-    let mut staged = Map::new();
+    let mut staged = BTreeSet::new();
     let mut staged_names = BTreeSet::new();
+    let mut staged_order = Vec::new();
     for row in boundary["staged_files"]
         .as_array()
         .ok_or_else(|| error("WIN25-ARTIFACT", "staged files are absent"))?
@@ -1015,17 +1016,34 @@ fn validate_boundary(
         if !staged_names.insert(destination.to_ascii_lowercase()) {
             return Err(error("WIN25-ARTIFACT", "staged path duplicated"));
         }
-        staged.insert(
-            destination.to_owned(),
-            json!([
-                text(row.get("sha256")),
-                number(row.get("size_bytes")),
-                row.get("pe_machine").cloned().unwrap_or(Value::Null),
-            ]),
-        );
+        staged.insert(destination.to_owned());
+        staged_order.push(destination.to_owned());
     }
-    if staged != expected_staged(closure, expected)? {
+    let expected_content = expected_staged(closure, expected)?;
+    let expected_names = expected_content.keys().cloned().collect::<BTreeSet<_>>();
+    let expected_order = expected_content.keys().cloned().collect::<Vec<_>>();
+    if staged != expected_names || staged_order != expected_order {
         return Err(error("WIN25-ARTIFACT", "staged inventory differs"));
+    }
+    let content_rows = expected_content
+        .iter()
+        .map(|(destination, identity)| {
+            let identity = identity.as_array().expect("expected identity is an array");
+            json!([destination, identity[0], identity[1], identity[2]])
+        })
+        .collect::<Vec<_>>();
+    let content_bytes = canonical_json(&Value::Array(content_rows))
+        .map_err(|issue| error("WIN25-ENCODE", issue.to_string()))?;
+    if text(boundary.get("staged_content_identity"))
+        != Some(
+            domain_hash(
+                "proofbound-research-windows-staged-content/1",
+                &content_bytes,
+            )
+            .as_str(),
+        )
+    {
+        return Err(error("WIN25-ARTIFACT", "staged content differs"));
     }
     let captured = boundary["captured_files"]
         .as_array()
