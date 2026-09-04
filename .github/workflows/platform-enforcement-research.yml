@@ -12,6 +12,7 @@ on:
           - exp-0023
           - exp-0024
           - exp-0025
+          - exp-0026
   push:
     paths:
       - .github/workflows/platform-enforcement-research.yml
@@ -216,6 +217,133 @@ jobs:
         with:
           name: exp-0025-windows-enforcement
           path: ${{ runner.temp }}/exp0025-results
+          if-no-files-found: error
+          retention-days: 30
+
+  windows-output-network-confirmation:
+    name: EXP-0026 · exact Windows output and network confirmation
+    if: github.event_name == 'workflow_dispatch' && inputs.experiment == 'exp-0026'
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    steps:
+      - name: Preserve registered repository bytes
+        shell: pwsh
+        run: git config --global core.autocrlf false
+
+      - name: Check out the frozen candidate revision
+        uses: actions/checkout@v5
+
+      - name: Install exact Python runtime
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12.10"
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.20.0"
+
+      - name: Install exact Rust toolchain
+        uses: dtolnay/rust-toolchain@1.94.0
+
+      - name: Execute the frozen workloads and live network oracles
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0026-results"
+          New-Item -ItemType Directory -Force $root
+          python -m proofbound.windows_output_network_execute `
+            "$env:GITHUB_WORKSPACE" `
+            "$env:RUNNER_TEMP/exp0026-state" `
+            "$root/capture.json"
+          if ($LASTEXITCODE -ne 0) {
+            throw "the frozen Windows output/network confirmation did not produce a capture"
+          }
+
+      - name: Validate independently in Python and Rust
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0026-results"
+          python -m proofbound.windows_output_network_research `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/capture.json" `
+            "$root/python-report.json"
+          if ($LASTEXITCODE -ne 0) { throw "Python validation failed" }
+          cargo run --locked -p proofbound-ir-prototype -- `
+            validate-windows-output-network `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/capture.json" `
+            "$root/rust-report.json"
+          if ($LASTEXITCODE -ne 0) { throw "Rust validation failed" }
+          $python = [IO.File]::ReadAllBytes("$root/python-report.json")
+          $rust = [IO.File]::ReadAllBytes("$root/rust-report.json")
+          if (-not [Linq.Enumerable]::SequenceEqual[byte]($python, $rust)) {
+            throw "independent main reports differ"
+          }
+
+      - name: Reject every registered capture attack independently
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0026-results"
+          python -m proofbound.windows_output_network_attacks `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/capture.json" `
+            "$root/attacks" `
+            "$root/attacks/index.json" `
+            "$root/python-attacks.json"
+          if ($LASTEXITCODE -ne 0) { throw "Python attack validation failed" }
+          cargo run --locked -p proofbound-ir-prototype -- `
+            validate-windows-output-network-attacks `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/attacks/index.json" `
+            "$root/rust-attacks.json"
+          if ($LASTEXITCODE -ne 0) { throw "Rust attack validation failed" }
+          $python = [IO.File]::ReadAllBytes("$root/python-attacks.json")
+          $rust = [IO.File]::ReadAllBytes("$root/rust-attacks.json")
+          if (-not [Linq.Enumerable]::SequenceEqual[byte]($python, $rust)) {
+            throw "independent attack reports differ"
+          }
+
+      - name: Derive the preregistered decision
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
+        run: |
+          $root = "$env:RUNNER_TEMP/exp0026-results"
+          python -m proofbound.windows_output_network_confirmation `
+            "$env:GITHUB_WORKSPACE" `
+            "$root/capture.json" `
+            "$root/rust-report.json" `
+            "$root/python-report.json" `
+            "$root/rust-attacks.json" `
+            "$root/python-attacks.json" `
+            "$root/execution.json"
+          $decisionExit = $LASTEXITCODE
+          if (Test-Path "$root/execution.json") {
+            python -m json.tool "$root/execution.json"
+            $decision = Get-Content "$root/execution.json" | ConvertFrom-Json
+            "## EXP-0026 exact Windows output and network confirmation" >> $env:GITHUB_STEP_SUMMARY
+            "- Decision: ``$($decision.decision)``" >> $env:GITHUB_STEP_SUMMARY
+            "- Positive completions: $($decision.metrics.positive_executions) / 30" >> $env:GITHUB_STEP_SUMMARY
+            "- Authority denials: $($decision.metrics.authority_probe_executions) / 21" >> $env:GITHUB_STEP_SUMMARY
+            "- Live controls accepted: $($decision.metrics.network_control_connections) / 3" >> $env:GITHUB_STEP_SUMMARY
+            "- Sandboxed connections accepted: $($decision.metrics.network_sandbox_connections) / 0" >> $env:GITHUB_STEP_SUMMARY
+          }
+          if ($decisionExit -ne 0) {
+            throw "EXP-0026 did not produce an admissible pass-or-revise decision"
+          }
+
+      - name: Retain the exact native Windows confirmation
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: exp-0026-windows-output-network
+          path: ${{ runner.temp }}/exp0026-results
           if-no-files-found: error
           retention-days: 30
 

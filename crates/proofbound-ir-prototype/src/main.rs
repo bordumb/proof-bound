@@ -18,7 +18,8 @@ use proofbound_ir_prototype::{
     validate_linux_capture_bytes, validate_linux_loader_capture_bytes,
     validate_pkl_frontend_source, validate_release_trace_bundle, validate_sampling_observation,
     validate_windows_capture_bytes, validate_windows_initialization_attacks,
-    validate_windows_initialization_capture_bytes,
+    validate_windows_initialization_capture_bytes, validate_windows_output_network_attacks,
+    validate_windows_output_network_capture_bytes,
 };
 
 fn main() -> ExitCode {
@@ -709,6 +710,62 @@ fn main() -> ExitCode {
         }
         return write_canonical_file_result(
             validate_windows_initialization_attacks(&root, &index)
+                .map_err(|error| error.to_string()),
+            &output,
+        );
+    }
+    if first.as_deref() == Some(std::ffi::OsStr::new("validate-windows-output-network")) {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype validate-windows-output-network <repository-root> <capture.json> <report.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(capture) = args.next().map(PathBuf::from) else {
+            eprintln!("missing capture");
+            return ExitCode::from(2);
+        };
+        let Some(output) = args.next().map(PathBuf::from) else {
+            eprintln!("missing report output");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        let result = std::fs::read(capture)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                validate_windows_output_network_capture_bytes(&root, &bytes)
+                    .map_err(|error| error.to_string())
+            });
+        return write_canonical_file_result(result, &output);
+    }
+    if first.as_deref()
+        == Some(std::ffi::OsStr::new(
+            "validate-windows-output-network-attacks",
+        ))
+    {
+        let Some(root) = args.next().map(PathBuf::from) else {
+            eprintln!(
+                "usage: proofbound-ir-prototype validate-windows-output-network-attacks <repository-root> <attack-index.json> <report.json>"
+            );
+            return ExitCode::from(2);
+        };
+        let Some(index) = args.next().map(PathBuf::from) else {
+            eprintln!("missing attack index");
+            return ExitCode::from(2);
+        };
+        let Some(output) = args.next().map(PathBuf::from) else {
+            eprintln!("missing report output");
+            return ExitCode::from(2);
+        };
+        if args.next().is_some() {
+            eprintln!("unexpected extra argument");
+            return ExitCode::from(2);
+        }
+        return write_canonical_file_result(
+            validate_windows_output_network_attacks(&root, &index)
                 .map_err(|error| error.to_string()),
             &output,
         );

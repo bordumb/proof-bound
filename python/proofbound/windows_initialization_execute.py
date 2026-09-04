@@ -481,6 +481,7 @@ def _runtime_command(
     source_destination: str,
     slot: dict[str, Any],
     attack_path: Path,
+    network_port: int = 1,
 ) -> list[str]:
     root = "{APPLICATION_ROOT}"
     tail = [
@@ -488,7 +489,7 @@ def _runtime_command(
         f"{root}/registered.txt",
         f"{root}/outputs/output.txt",
         str(attack_path),
-        "1",
+        str(network_port),
     ]
     if runtime.name == "python":
         return [
@@ -631,13 +632,20 @@ def _execute_slot(
     helper_binary: Path,
     slot: dict[str, Any],
     closure_identity: str,
+    *,
+    subject_overrides: dict[str, Path] | None = None,
+    network_port: int = 1,
 ) -> dict[str, Any]:
     workspace = state_root / "reviewed" / slot["slot_id"]
     shutil.copytree(repository / CORPUS_PATH / "workspace", workspace, symlinks=True)
+    _, subject_relative = SUBJECTS[slot["subject_id"]]
+    subject = (subject_overrides or {}).get(
+        slot["subject_id"], repository / CORPUS_PATH / subject_relative
+    )
+    if slot["subject_id"] in (subject_overrides or {}):
+        shutil.copy2(subject, workspace / subject_relative.removeprefix("workspace/"))
     before = _tree_identity(workspace)
     attack_path, target = _attack_target(workspace, state_root, slot)
-    _, subject_relative = SUBJECTS[slot["subject_id"]]
-    subject = repository / CORPUS_PATH / subject_relative
     source_destination = f"subjects/{subject.name}"
     staged = [
         *runtime.staged_files,
@@ -647,7 +655,9 @@ def _execute_slot(
     drive_alias = DRIVE_ALIAS
     if slot["mode"] == "exec-unregistered":
         staged.append((helper_binary, "usr/bin/true.exe"))
-    command = _runtime_command(runtime, source_destination, slot, attack_path)
+    command = _runtime_command(
+        runtime, source_destination, slot, attack_path, network_port
+    )
     policy = _policy(runtime, slot)
     result = run_appcontainer_process(
         command,
@@ -706,7 +716,7 @@ def _execute_slot(
             "registered.txt",
             "outputs/output.txt",
             slot["attack_path"],
-            "1",
+            str(network_port),
         ],
         "attack_target": target,
         "reviewed_tree_before": before,

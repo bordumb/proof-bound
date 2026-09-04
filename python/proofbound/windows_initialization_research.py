@@ -786,6 +786,7 @@ def _validate_slot(
     expected: dict[str, Any],
     closure: dict[str, Any],
     corpus: dict[str, dict[str, Any]],
+    network_port: int = 1,
 ) -> str:
     slot = _exact_keys(
         value,
@@ -837,7 +838,7 @@ def _validate_slot(
         "registered.txt",
         "outputs/output.txt",
         expected["attack_path"],
-        "1",
+        str(network_port),
     ]
     if slot["logical_command"] != expected_command:
         _fail("WIN25-POLICY", "logical workload command differs")

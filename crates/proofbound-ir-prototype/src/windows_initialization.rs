@@ -8,15 +8,15 @@ pub const WINDOWS_INITIALIZATION_CAPTURE_SCHEMA: &str =
 pub const WINDOWS_INITIALIZATION_REPORT_SCHEMA: &str =
     "proofbound-research-windows-initialization-report/1";
 
-const CLOSURE_SCHEMA: &str = "proofbound-research-windows-initialization-closure/1";
+pub(crate) const CLOSURE_SCHEMA: &str = "proofbound-research-windows-initialization-closure/1";
 const POLICY_SCHEMA: &str = "proofbound-research-windows-initialization-policy/1";
-const SLOT_SCHEMA: &str = "proofbound-research-windows-initialization-slot/1";
+pub(crate) const SLOT_SCHEMA: &str = "proofbound-research-windows-initialization-slot/1";
 const ATTACK_INDEX_SCHEMA: &str = "proofbound-research-windows-initialization-attack-index/1";
 const ATTACK_REPORT_SCHEMA: &str = "proofbound-research-windows-initialization-attack-report/1";
-const CONTRACT_SHA256: &str =
+pub(crate) const CONTRACT_SHA256: &str =
     "sha256:589244f93383788fcc61587ec665ddc9e38ebf96ce59f82da2fce9e7510d967d";
 const CANDIDATE_PATH: &str = "docs/experiments/0025-windows-initialization-closure/candidate.json";
-const CORPUS_ROOT: &str = "docs/experiments/0018-os-enforced-effects/corpus";
+pub(crate) const CORPUS_ROOT: &str = "docs/experiments/0018-os-enforced-effects/corpus";
 const EXPECTED_OUTPUT_SHA256: &str =
     "sha256:6897a0406cd3b5b1aa1c9fb86c784f443606a03f487d2cc00e9fd1a0e2144d22";
 const EXPECTED_OUTPUT_BASE64: &str = "cmVnaXN0ZXJlZC1pbnB1dHxyZWdpc3RlcmVkLWVudgo=";
@@ -129,14 +129,14 @@ impl fmt::Display for WindowsInitializationError {
 
 impl std::error::Error for WindowsInitializationError {}
 
-fn error(code: &'static str, message: impl Into<String>) -> WindowsInitializationError {
+pub(crate) fn error(code: &'static str, message: impl Into<String>) -> WindowsInitializationError {
     WindowsInitializationError {
         code,
         message: message.into(),
     }
 }
 
-fn object<'a>(
+pub(crate) fn object<'a>(
     value: &'a Value,
     code: &'static str,
 ) -> Result<&'a Map<String, Value>, WindowsInitializationError> {
@@ -145,7 +145,7 @@ fn object<'a>(
         .ok_or_else(|| error(code, "value is not an object"))
 }
 
-fn exact_keys(
+pub(crate) fn exact_keys(
     value: &Map<String, Value>,
     expected: &[&str],
     code: &'static str,
@@ -158,19 +158,19 @@ fn exact_keys(
     Ok(())
 }
 
-fn text(value: Option<&Value>) -> Option<&str> {
+pub(crate) fn text(value: Option<&Value>) -> Option<&str> {
     value.and_then(Value::as_str)
 }
 
-fn boolean(value: Option<&Value>) -> Option<bool> {
+pub(crate) fn boolean(value: Option<&Value>) -> Option<bool> {
     value.and_then(Value::as_bool)
 }
 
-fn number(value: Option<&Value>) -> Option<u64> {
+pub(crate) fn number(value: Option<&Value>) -> Option<u64> {
     value.and_then(Value::as_u64)
 }
 
-fn hash_without(
+pub(crate) fn hash_without(
     domain: &str,
     value: &Map<String, Value>,
 ) -> Result<String, WindowsInitializationError> {
@@ -263,13 +263,13 @@ fn staged_artifact(value: &Value) -> Result<&Map<String, Value>, WindowsInitiali
     Ok(value)
 }
 
-fn candidate_sha256(repository: &Path) -> Result<String, WindowsInitializationError> {
+pub(crate) fn candidate_sha256(repository: &Path) -> Result<String, WindowsInitializationError> {
     fs::read(repository.join(CANDIDATE_PATH))
         .map(|bytes| sha256_bytes(&bytes))
         .map_err(|issue| error("WIN25-CANDIDATE", issue.to_string()))
 }
 
-fn corpus_files(repository: &Path) -> Result<Value, WindowsInitializationError> {
+pub(crate) fn corpus_files(repository: &Path) -> Result<Value, WindowsInitializationError> {
     let bytes = fs::read(repository.join(CORPUS_ROOT).join("index.json"))
         .map_err(|issue| error("WIN25-CORPUS", issue.to_string()))?;
     let index: Value =
@@ -312,7 +312,7 @@ fn expected_probe_values() -> Value {
     )
 }
 
-fn validate_closure<'a>(
+pub(crate) fn validate_closure<'a>(
     repository: &Path,
     value: &'a Value,
 ) -> Result<&'a Map<String, Value>, WindowsInitializationError> {
@@ -536,19 +536,19 @@ fn validate_runtimes(closure: &Map<String, Value>) -> Result<(), WindowsInitiali
 }
 
 #[derive(Clone)]
-struct ExpectedSlot {
-    slot_id: String,
-    kind: &'static str,
-    subject_id: &'static str,
-    runtime: &'static str,
-    repetition: Option<u64>,
-    attack_id: Option<&'static str>,
-    mode: &'static str,
-    attack_path: &'static str,
-    denial_mechanism: Option<&'static str>,
+pub(crate) struct ExpectedSlot {
+    pub(crate) slot_id: String,
+    pub(crate) kind: &'static str,
+    pub(crate) subject_id: &'static str,
+    pub(crate) runtime: &'static str,
+    pub(crate) repetition: Option<u64>,
+    pub(crate) attack_id: Option<&'static str>,
+    pub(crate) mode: &'static str,
+    pub(crate) attack_path: &'static str,
+    pub(crate) denial_mechanism: Option<&'static str>,
 }
 
-fn expected_slots() -> Vec<ExpectedSlot> {
+pub(crate) fn expected_slots() -> Vec<ExpectedSlot> {
     let mut values = Vec::new();
     for (subject, runtime, _) in SUBJECTS {
         for repetition in 0..10 {
@@ -583,7 +583,7 @@ fn expected_slots() -> Vec<ExpectedSlot> {
     values
 }
 
-fn runtime<'a>(
+pub(crate) fn runtime<'a>(
     closure: &'a Map<String, Value>,
     name: &str,
 ) -> Result<&'a Map<String, Value>, WindowsInitializationError> {
@@ -1080,10 +1080,11 @@ fn denial_marker(mode: &str, stderr: &str) -> bool {
     markers.iter().any(|marker| stderr.contains(marker))
 }
 
-fn validate_slot(
+pub(crate) fn validate_slot(
     value: &Value,
     expected: &ExpectedSlot,
     closure: &Map<String, Value>,
+    network_port: u16,
 ) -> Result<String, WindowsInitializationError> {
     let slot = object(value, "WIN25-SLOT-INVENTORY")?;
     exact_keys(
@@ -1152,7 +1153,7 @@ fn validate_slot(
         "registered.txt",
         "outputs/output.txt",
         expected.attack_path,
-        "1",
+        network_port.to_string(),
     ]);
     if slot.get("logical_command") != Some(&expected_command) {
         return Err(error("WIN25-POLICY", "logical command differs"));
@@ -1313,7 +1314,7 @@ pub fn validate_windows_initialization_capture(
         .ok_or_else(|| error("WIN25-SLOT-INVENTORY", "slot count differs"))?;
     let mut profiles = BTreeSet::new();
     for (slot, expected) in slots.iter().zip(&expected) {
-        let profile = validate_slot(slot, expected, closure)?;
+        let profile = validate_slot(slot, expected, closure, 1)?;
         if !profiles.insert(profile) {
             return Err(error("WIN25-FRESHNESS", "profile was reused"));
         }

@@ -86,6 +86,7 @@ FILE_MUTATION_ACCESS = (
 )
 HRESULT_SHARING_VIOLATION = 0x80070020
 PROFILE_DELETE_TIMEOUT_SECONDS = 5.0
+MAX_LOOPBACK_EXEMPTIONS = 4096
 
 
 @dataclass(frozen=True)
@@ -356,6 +357,69 @@ def _delete_appcontainer_profile(userenv: Any, profile: str) -> None:
         if time.monotonic() >= deadline:
             _hresult(result, "DeleteAppContainerProfile")
         time.sleep(0.05)
+
+
+def loopback_exempt_appcontainer_sids() -> tuple[str, ...]:
+    """Return AppContainer SIDs configured for loopback traffic.
+
+    Raises:
+        OSError: The native Windows API is unavailable or fails.
+        ValueError: The operating system returns an unsafe or duplicate list.
+    """
+
+    if os.name != "nt":
+        raise OSError("loopback exemption inventory requires native Windows")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    firewall = ctypes.WinDLL("FirewallAPI", use_last_error=True)
+
+    kernel32.GetProcessHeap.restype = wintypes.HANDLE
+    kernel32.HeapFree.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+    ]
+    kernel32.HeapFree.restype = wintypes.BOOL
+    kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
+    kernel32.LocalFree.restype = wintypes.HLOCAL
+    advapi32.ConvertSidToStringSidW.argtypes = [
+        wintypes.LPVOID,
+        ctypes.POINTER(wintypes.LPWSTR),
+    ]
+    advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
+    firewall.NetworkIsolationGetAppContainerConfig.argtypes = [
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(ctypes.POINTER(SidAndAttributes)),
+    ]
+    firewall.NetworkIsolationGetAppContainerConfig.restype = wintypes.DWORD
+
+    count = wintypes.DWORD()
+    entries = ctypes.POINTER(SidAndAttributes)()
+    result = firewall.NetworkIsolationGetAppContainerConfig(
+        ctypes.byref(count), ctypes.byref(entries)
+    )
+    if result != 0:
+        raise OSError(result, "NetworkIsolationGetAppContainerConfig")
+    if count.value > MAX_LOOPBACK_EXEMPTIONS:
+        raise ValueError("loopback exemption inventory exceeds its bound")
+    heap = kernel32.GetProcessHeap()
+    _require(heap, "GetProcessHeap")
+    try:
+        values = tuple(
+            sorted(
+                _sid_text(advapi32, kernel32, entries[index].sid)
+                for index in range(count.value)
+            )
+        )
+        if len(values) != len(set(values)):
+            raise ValueError("loopback exemption inventory contains duplicates")
+        return values
+    finally:
+        if entries:
+            for index in range(count.value):
+                if entries[index].sid:
+                    kernel32.HeapFree(heap, 0, entries[index].sid)
+            kernel32.HeapFree(heap, 0, ctypes.cast(entries, wintypes.LPVOID))
 
 
 def _add_access_entry(
