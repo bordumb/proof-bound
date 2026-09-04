@@ -12,7 +12,7 @@ stop decision; questions are not deleted.
 | OQ-003 | Which claim wording is machine meaning, bounded-domain meaning, and reader presentation? | H1, WS-IR | Claim IR design |
 | OQ-004 | Can cache eligibility be derived entirely from typed dependencies rather than maintained as a parallel manually assembled projection? | H3, WS-IN, EXP-LANG-003, EXP-LANG-005 | resolved for mediated operations; opaque processes remain non-reusable |
 | OQ-005 | What proof object can an SMT-backed native prototype emit for independent checking without trusting proof search? | H7, WS-NE, WS-IK | Native parser experiment |
-| OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, H9, WS-FX, EXP-LANG-005, EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014, EXP-LANG-015, EXP-LANG-016, EXP-LANG-017, EXP-LANG-018, EXP-LANG-019, EXP-LANG-020 | bounded fast macOS and exact-loader Linux tested; Windows exact execution supported and WFP attribution preregistered; broader system effects open |
+| OQ-006 | Which effects can be enforced statically, which require an OS sandbox, and which can only be observed afterward? | H5, H9, WS-FX, EXP-LANG-005, EXP-LANG-011, EXP-LANG-012, EXP-LANG-013, EXP-LANG-014, EXP-LANG-015, EXP-LANG-016, EXP-LANG-017, EXP-LANG-018, EXP-LANG-019, EXP-LANG-020 | bounded fast macOS and exact-loader Linux tested; Windows exact execution supported, but read-only WFP attribution produced no events; broader system effects open |
 | OQ-007 | How should uncertainty differ from assumptions, exclusions, open obligations, stale evidence, and conflicting evidence? | H6, WS-UQ, EXP-LANG-006 | split structurally; human validation pending |
 | OQ-008 | Is a custom DSL materially better than a restricted Pkl or CUE frontend once effective-program review and evaluator identity are included? | H4, WS-DSL, EXP-LANG-004 | split; no frontend selected |
 
@@ -107,11 +107,14 @@ not the required access-denied code. OQ-006 therefore gains a concrete
 distinction between synchronous denial and independently observed bounded
 non-delivery; the latter needs its own typed outcome and observation authority.
 
-EXP-LANG-020 preregisters a direct test of that authority. Its parent-side WFP
-observer may read existing capability-drop events but may not change event
-collection or firewall state. Only an event bound to the exact fresh package,
-application, flow, time window, capability, and filter can upgrade non-delivery
-to a definite denial.
+EXP-LANG-020 directly tests that authority and concludes `revise`. Its read-only
+WFP observer confirms that event collection is enabled and unchanged, but
+receives zero capability events across the three bounded attempts. The typed
+model correctly retains all three as `bounded-non-delivery`; it does not upgrade
+them to denial. OQ-006 therefore remains open specifically on Windows: either a
+documented read-only mechanism must expose exact subject-and-flow attribution,
+or strong denial evidence must be modeled as a host-provisioned capability
+rather than assumed portable behavior.
 
 ### OQ-007 — split between typed semantics and human effect
 

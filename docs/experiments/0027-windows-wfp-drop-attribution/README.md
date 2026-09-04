@@ -1,11 +1,14 @@
 # Experiment 0027: Windows WFP drop attribution
 
-- **Status:** preregistered — not executed
+- **Status:** concluded — revise
 - **Registered:** 2026-09-04
 - **Subject baseline:** `96206dc3b8bb95c3124c7c41aab31c8cea822658`
 - **Predecessor:** [Experiment 0026](../0026-windows-output-network-confirmation/README.md)
 - **Operator:** Codex
 - **Programme ID:** EXP-LANG-020
+
+[Conclusion](CONCLUSION.md) · [Machine result](results/execution.json) ·
+[Journal](JOURNAL.md) · [Artifacts](ARTIFACTS.md)
 
 ## Purpose
 
@@ -145,5 +148,6 @@ ports, and timestamp in
   reusable, changes the frozen corpus, or uses a fallback.
 
 The machine-readable registration is [preregistration.json](preregistration.json).
-No EXP-0027 observer, runner, validator, capture, or result exists at
-registration.
+At registration, no EXP-0027 observer, runner, validator, capture, or result
+existed. The immutable registration remains above; the linked conclusion and
+results record the later execution.

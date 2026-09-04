@@ -142,8 +142,11 @@ different outcomes, then test whether a kernel observer can authorize the
 latter without expanding subject authority.
 
 [EXP-LANG-020 / Experiment 0027](../../../experiments/0027-windows-wfp-drop-attribution/README.md)
-preregisters that observer. It retains every EXP-0026 workload and boundary
-constraint, adds no subject capability, and forbids changes to WFP collection
-or firewall policy. A WFP capability drop counts only when package SID,
-application ID, protocol, loopback endpoint, time window, missing capability,
-and enforcing filter are all present and exact.
+executes that observer and concludes `revise`. It retains every EXP-0026
+workload and boundary constraint, adds no subject capability, and leaves WFP
+collection and firewall policy unchanged. Collection is available and all
+operational containment observations repeat, but the subscriber receives zero
+capability events. The candidate correctly preserves three `bounded-non-
+delivery` outcomes as non-reusable instead of calling them denials. A stronger
+Windows claim now requires a separately provisioned, exact attribution source;
+adding more uncorrelated logs would not close the effect proof.
