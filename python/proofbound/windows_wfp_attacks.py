@@ -18,6 +18,7 @@ from proofbound.windows_wfp_execute import (
     ATTRIBUTION_SCHEMA,
     CAPTURE_SCHEMA,
     OBSERVER_SCHEMA,
+    REQUIRED_FLAGS,
 )
 from proofbound.windows_wfp_research import ATTACKS, WindowsWfpError, validate_capture
 
@@ -51,11 +52,43 @@ def _first_attribution(value: dict[str, Any]) -> dict[str, Any]:
 
 
 def _first_event_attribution(value: dict[str, Any]) -> dict[str, Any]:
-    return next(
-        attribution
-        for attribution in value["network_attributions"]
-        if attribution["events"]
+    existing = next(
+        (
+            attribution
+            for attribution in value["network_attributions"]
+            if attribution["events"]
+        ),
+        None,
     )
+    if existing is not None:
+        return existing
+    attribution = _first_attribution(value)
+    window = attribution["window"]
+    event = {
+        "timestamp": window["start_filetime"],
+        "flags": REQUIRED_FLAGS,
+        "event_type": 7,
+        "ip_version": 0,
+        "ip_protocol": 6,
+        "local_address": "127.0.0.1",
+        "remote_address": attribution["endpoint"]["address"],
+        "local_port": 1,
+        "remote_port": attribution["endpoint"]["port"],
+        "application_id_hex": attribution["expected_application_id_hex"],
+        "package_sid": attribution["appcontainer_sid"],
+        "capability_id": 0,
+        "filter_id": 1,
+        "is_loopback": True,
+    }
+    event["identity"] = domain_hash(EVENT_SCHEMA, event)
+    attribution["events"] = [event]
+    attribution["matching_capability_drops"] = 1
+    observer = value["observer"]
+    observer["event_count"] += 1
+    observer["retained_event_identities"].append(event["identity"])
+    _rehash(observer, OBSERVER_SCHEMA)
+    _rehash_attribution(value, attribution)
+    return attribution
 
 
 def _rehash_attribution(value: dict[str, Any], attribution: dict[str, Any]) -> None:
