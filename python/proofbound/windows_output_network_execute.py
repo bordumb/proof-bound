@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -240,6 +241,17 @@ def _accept(listener: socket.socket, timeout: float) -> bool:
         return True
 
 
+def _accept_until_closed(listener: socket.socket, timeout: float) -> bool:
+    """Observe one connection, treating deliberate listener closure as no connection."""
+
+    try:
+        return _accept(listener, timeout)
+    except OSError:
+        if listener.fileno() == -1:
+            return False
+        raise
+
+
 def _network_slot(
     repository: Path,
     state_root: Path,
@@ -256,18 +268,23 @@ def _network_slot(
         listener.listen(2)
         address, port = listener.getsockname()
         control = _run_network_control(repository, state_root, runtime, listener, port)
-        sandboxed = initialization._execute_slot(
-            repository,
-            state_root,
-            runtime,
-            instruments,
-            helper_binary,
-            slot,
-            closure_identity,
-            subject_overrides={"subject:python": repository / PYTHON_SUBJECT},
-            network_port=port,
-        )
-        sandbox_accepted = _accept(listener, 0.5)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            accepted = executor.submit(_accept_until_closed, listener, 12.0)
+            try:
+                sandboxed = initialization._execute_slot(
+                    repository,
+                    state_root,
+                    runtime,
+                    instruments,
+                    helper_binary,
+                    slot,
+                    closure_identity,
+                    subject_overrides={"subject:python": repository / PYTHON_SUBJECT},
+                    network_port=port,
+                )
+            finally:
+                listener.close()
+            sandbox_accepted = accepted.result()
     exemptions_after = loopback_exempt_appcontainer_sids()
     appcontainer_sid = sandboxed["boundary"]["appcontainer_sid"]
     body = {
