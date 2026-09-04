@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from typing import Any
 
@@ -83,6 +84,8 @@ FILE_MUTATION_ACCESS = (
     | WRITE_DAC
     | WRITE_OWNER
 )
+HRESULT_SHARING_VIOLATION = 0x80070020
+PROFILE_DELETE_TIMEOUT_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -338,6 +341,21 @@ def _appcontainer_folder(userenv: Any, ole32: Any, sid: str) -> Path:
         return Path(value.value)
     finally:
         ole32.CoTaskMemFree(ctypes.cast(value, wintypes.LPVOID))
+
+
+def _delete_appcontainer_profile(userenv: Any, profile: str) -> None:
+    """Delete a profile after bounded console-broker teardown retries."""
+
+    deadline = time.monotonic() + PROFILE_DELETE_TIMEOUT_SECONDS
+    while True:
+        result = userenv.DeleteAppContainerProfile(profile)
+        if result == 0:
+            return
+        if result & 0xFFFFFFFF != HRESULT_SHARING_VIOLATION:
+            _hresult(result, "DeleteAppContainerProfile")
+        if time.monotonic() >= deadline:
+            _hresult(result, "DeleteAppContainerProfile")
+        time.sleep(0.05)
 
 
 def _add_access_entry(
@@ -1222,9 +1240,7 @@ def run_appcontainer_process(
         if private_station:
             user32.CloseWindowStation(private_station)
         if profile_created:
-            _hresult(
-                userenv.DeleteAppContainerProfile(profile), "DeleteAppContainerProfile"
-            )
+            _delete_appcontainer_profile(userenv, profile)
         if stdout_path is not None:
             stdout_path.unlink(missing_ok=True)
         if stderr_path is not None:
