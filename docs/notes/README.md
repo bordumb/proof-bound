@@ -59,6 +59,7 @@ it `promoted` and link to the authoritative document.
 
 | Note | Status | Last reviewed | Likely destination | Purpose |
 |---|---|---|---|---|
+| [Assurance platform verticals](assurance-platform-verticals.md) | exploring | 2026-09-04 | Research programme, then specifications and plugin ADRs | Explore recursive release, deployment, and execution assurance across high-consequence products, with Kernel of Proof as the first external consumer. |
 | [Distribution wedge](distribution-wedge.md) | exploring | 2026-09-01 | Product vision Phase 4 | Firsthand FOSDEM and Local-First demand signals, the two-audience pitch split, and the CFP-dated path to the first external receipt verification. |
 | [First-hour experience](first-hour-experience.md) | active | 2026-09-01 | Spec 0001 revision (§12.2, §12.3) and a release-layout ADR | Ranked, acceptance-tested plan for the five fixes that gate a stranger's first hour, from install to error localization. |
 | [Language support](language-support.md) | promoted | 2026-09-01 | Specifications 0002 and 0003 | Separate Proofbound's language-neutral assurance model from its supported evidence adapters; its Python and TypeScript plans now live in the ecosystem specifications. |
