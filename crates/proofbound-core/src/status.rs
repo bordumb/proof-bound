@@ -649,17 +649,22 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         match &premise.theorem_evidence {
             Some(owner) => match evidence_catalog.get(owner) {
                 Some(record)
-                    if record.kind == EvidenceKind::Theorem
-                        && relevant_evidence.contains(owner) => {}
-                Some(record) if record.kind != EvidenceKind::Theorem => {
+                    if relevant_evidence.contains(owner)
+                        && premise_owner_is_registered(record, premise, &input.graph) => {}
+                Some(record)
+                    if !matches!(
+                        record.kind,
+                        EvidenceKind::Theorem | EvidenceKind::SourceRefinement
+                    ) =>
+                {
                     errors.push(claim_error(
                         claim_id,
                         ErrorCode::PbCoreInvalidEvidence,
                         format!(
-                            "premise '{}' owner '{}' is not theorem evidence",
+                            "premise '{}' owner '{}' is neither theorem nor source-refinement evidence",
                             premise.id, owner
                         ),
-                        "bind the premise to its exact registered theorem evidence",
+                        "bind the premise to its exact registered theorem or source-refinement evidence",
                     ));
                 }
                 _ => {
@@ -667,10 +672,10 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
                         claim_id,
                         ErrorCode::PbCoreInvalidEvidence,
                         format!(
-                            "premise '{}' is detached from its registered theorem '{}'",
+                            "premise '{}' is detached from its registered evidence owner '{}'",
                             premise.id, owner
                         ),
-                        "cite and register the owning theorem, or omit the owner and add an exact claim-to-premise assumes edge",
+                        "cite the owner and add its exact assumes edge, or omit the owner and add an exact claim-to-premise assumes edge",
                     ));
                 }
             },
@@ -1028,6 +1033,24 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         premises: all_premises,
         not_proved_out_of_scope,
         errors,
+    }
+}
+
+fn premise_owner_is_registered(
+    record: &EvidenceRecord,
+    premise: &PremiseRecord,
+    graph: &AssuranceGraph,
+) -> bool {
+    match record.kind {
+        EvidenceKind::Theorem => true,
+        EvidenceKind::SourceRefinement => {
+            record.premises.contains(&premise.id)
+                && record.source_refinement.as_ref().is_some_and(|refinement| {
+                    refinement.representation_premises.contains(&premise.id)
+                })
+                && graph.has_edge(&record.node_id, &premise.node_id, EdgeKind::Assumes)
+        }
+        _ => false,
     }
 }
 

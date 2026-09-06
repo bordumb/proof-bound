@@ -19,9 +19,9 @@ use crate::{
     LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V2, NodeKind,
     OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
     RELEASE_ENVELOPE_SCHEMA_V3, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
-    SourceClosureReceipt, TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
-    TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole, TreeState, canonical_json,
-    domain_hash, raw_sha256,
+    SourceClosureReceipt, SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1,
+    TRANSCRIPTION_TCB_ROLE_DOMAIN_V1, TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole,
+    TreeState, canonical_json, domain_hash, raw_sha256,
     statement_wire::{LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding, statement_digest},
 };
 
@@ -866,6 +866,11 @@ const LEGAL_EDGE_ENDPOINTS: &[(EdgeKind, NodeKind, NodeKind)] = &[
     (EdgeKind::Assumes, NodeKind::Claim, NodeKind::Assumption),
     (EdgeKind::Assumes, NodeKind::Claim, NodeKind::Premise),
     (EdgeKind::Assumes, NodeKind::Theorem, NodeKind::Premise),
+    (
+        EdgeKind::Assumes,
+        NodeKind::TranslationUnit,
+        NodeKind::Premise,
+    ),
     (EdgeKind::Assumes, NodeKind::Assumption, NodeKind::Claim),
     (EdgeKind::Assumes, NodeKind::Claim, NodeKind::Claim),
     (EdgeKind::DischargedBy, NodeKind::Premise, NodeKind::Theorem),
@@ -2993,13 +2998,13 @@ fn validate_closed_references(
         match &premise.theorem_evidence {
             Some(owner)
                 if valid_digest(owner)
-                    && evidence
-                        .get(owner)
-                        .is_some_and(|record| record.kind == EvidenceKind::Theorem) => {}
+                    && evidence.get(owner).is_some_and(|record| {
+                        premise_owner_is_registered(record, premise, &release.graph)
+                    }) => {}
             Some(_) => issues.push(
                 VerificationIssue::new(
                     VerificationIssueCode::PbvInvalidPremise,
-                    "premise is detached from a registered theorem",
+                    "premise is detached from registered theorem or source-refinement evidence",
                 )
                 .at(&premise.id),
             ),
@@ -3522,9 +3527,9 @@ fn derive_claim(
         let owner_bound = match &premise.theorem_evidence {
             Some(owner) => {
                 relevant.contains(owner)
-                    && evidence
-                        .get(owner)
-                        .is_some_and(|record| record.kind == EvidenceKind::Theorem)
+                    && evidence.get(owner).is_some_and(|record| {
+                        premise_owner_is_registered(record, premise, &release.graph)
+                    })
             }
             None => release.graph.edges.iter().any(|edge| {
                 edge.from == claim.node_id
@@ -3758,6 +3763,40 @@ fn derive_claim(
         },
         issues,
     )
+}
+
+fn premise_owner_is_registered(
+    record: &EvidenceReceipt,
+    premise: &PremiseReceipt,
+    graph: &AssuranceGraph,
+) -> bool {
+    match record.kind {
+        EvidenceKind::Theorem => true,
+        EvidenceKind::SourceRefinement => source_refinement_owns_premise(
+            &record.node_id,
+            &record.premises,
+            record.source_refinement.as_ref(),
+            &premise.id,
+            &premise.node_id,
+            graph,
+        ),
+        _ => false,
+    }
+}
+
+fn source_refinement_owns_premise(
+    owner_node: &str,
+    owner_premises: &BTreeSet<String>,
+    refinement: Option<&SourceRefinementReceipt>,
+    premise_id: &str,
+    premise_node: &str,
+    graph: &AssuranceGraph,
+) -> bool {
+    owner_premises.contains(premise_id)
+        && refinement.is_some_and(|item| item.representation_premises.contains(premise_id))
+        && graph.edges.iter().any(|edge| {
+            edge.from == owner_node && edge.to == premise_node && edge.kind == EdgeKind::Assumes
+        })
 }
 
 fn bounded_public_statement(property: &str, domain: &str) -> String {
@@ -3997,6 +4036,7 @@ impl fmt::Display for VerificationIssueCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{GraphEdge, RefinementStrength};
 
     const ALL_NODE_KINDS: [NodeKind; 14] = [
         NodeKind::Claim,
@@ -4082,7 +4122,7 @@ mod tests {
 
     #[test]
     fn endpoint_legality_table_is_complete_unique_and_fail_closed() {
-        assert_eq!(LEGAL_EDGE_ENDPOINTS.len(), 22);
+        assert_eq!(LEGAL_EDGE_ENDPOINTS.len(), 23);
         let unique = LEGAL_EDGE_ENDPOINTS
             .iter()
             .copied()
@@ -4115,5 +4155,54 @@ mod tests {
             !matches!(from, NodeKind::Toolchain | NodeKind::TcbComponent)
                 && !matches!(to, NodeKind::Toolchain | NodeKind::TcbComponent)
         }));
+        assert!(legal_edge_endpoints(
+            EdgeKind::Assumes,
+            NodeKind::TranslationUnit,
+            NodeKind::Premise,
+        ));
+    }
+
+    #[test]
+    fn source_refinement_premise_requires_exact_registered_edge() {
+        let owner = "evidence:source-refinement:translation";
+        let premise_id = "PBR-REP-001";
+        let premise_node = "premise:PBR-REP-001";
+        let owner_premises = BTreeSet::from([premise_id.to_owned()]);
+        let refinement = SourceRefinementReceipt {
+            refinement_theorem_evidence: "sha256:theorem".into(),
+            representation_premises: BTreeSet::from([premise_id.to_owned()]),
+            deterministic_translation: true,
+            pinned_toolchain: true,
+            generated_axioms_clean: true,
+            strength: RefinementStrength::DecisionAdequate,
+        };
+        let mut graph = AssuranceGraph {
+            schema: GRAPH_SCHEMA_V1.into(),
+            nodes: Vec::new(),
+            edges: vec![GraphEdge {
+                from: owner.into(),
+                to: premise_node.into(),
+                kind: EdgeKind::Assumes,
+            }],
+            mutual_theorem_groups: Vec::new(),
+        };
+
+        assert!(source_refinement_owns_premise(
+            owner,
+            &owner_premises,
+            Some(&refinement),
+            premise_id,
+            premise_node,
+            &graph,
+        ));
+        graph.edges.clear();
+        assert!(!source_refinement_owns_premise(
+            owner,
+            &owner_premises,
+            Some(&refinement),
+            premise_id,
+            premise_node,
+            &graph,
+        ));
     }
 }

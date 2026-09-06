@@ -169,6 +169,7 @@ edge_endpoint_table! {
         (Claim, Assumption),
         (Claim, Premise),
         (Theorem, Premise),
+        (TranslationUnit, Premise),
         (Assumption, Claim),
         (Claim, Claim),
     ],
@@ -770,6 +771,15 @@ mod tests {
             claim.typed::<node_types::Claim>().unwrap(),
         );
         let checked = GraphEdge::checked(&theorem, &claim, EdgeKind::Proves).unwrap();
+        assert_eq!(typed, checked);
+
+        let translation = node("translation:legal", NodeKind::TranslationUnit);
+        let premise = node("premise:legal", NodeKind::Premise);
+        let typed = GraphEdge::typed::<edge_types::Assumes, _, _>(
+            translation.typed::<node_types::TranslationUnit>().unwrap(),
+            premise.typed::<node_types::Premise>().unwrap(),
+        );
+        let checked = GraphEdge::checked(&translation, &premise, EdgeKind::Assumes).unwrap();
         assert_eq!(typed, checked);
 
         let tests = node("tests:illegal", NodeKind::TestSuite);

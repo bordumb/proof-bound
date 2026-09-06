@@ -1139,7 +1139,6 @@ fn source_refinement_premise_is_assumed_until_scoped_policy_admitted_discharge()
     let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::SourceRefined));
     let proof = theorem_record("refinement-proof", crate::EvaluationMode::Kernel);
     let proof_id = proof.id.clone();
-    let proof_node = proof.node_id.clone();
     add_record(&mut input, proof, NodeKind::Theorem, true);
 
     let premise_id = PremiseId::new("PREMISE-VALID").unwrap();
@@ -1158,20 +1157,22 @@ fn source_refinement_premise_is_assumed_until_scoped_policy_admitted_discharge()
         generated_axioms_clean: true,
         adapter_strength: AdapterStrength::DecisionAdequate,
     });
+    let refinement_id = refinement.id.clone();
+    let refinement_node = refinement.node_id.clone();
     add_record(&mut input, refinement, NodeKind::TranslationUnit, true);
     input.graph.nodes.push(GraphNode {
         id: premise_node.clone(),
         kind: NodeKind::Premise,
         proof_environment: None,
     });
-    let edge = checked_graph_edge(&input, &proof_node, &premise_node, EdgeKind::Assumes);
+    let edge = checked_graph_edge(&input, &refinement_node, &premise_node, EdgeKind::Assumes);
     input.graph.edges.push(edge);
     input.premises.push(PremiseRecord {
         id: premise_id,
         node_id: premise_node.clone(),
         statement: "The decoded carrier is valid.".into(),
         category: AssumptionCategory::RepresentationPremise,
-        theorem_evidence: Some(proof_id),
+        theorem_evidence: Some(refinement_id),
         scope: FlowScope::AllRegisteredInputs,
         discharge: None,
     });
@@ -1181,6 +1182,25 @@ fn source_refinement_premise_is_assumed_until_scoped_policy_admitted_discharge()
     assert_eq!(assumed.linkage, Some(LinkageFacet::Refined));
     assert_eq!(assumed.assumption.standing, AssumptionStanding::Assumed);
     assert!(assumed.policy.admitted);
+
+    input.graph.edges.retain(|edge| {
+        !(edge.from() == &refinement_node
+            && edge.to() == &premise_node
+            && edge.kind() == EdgeKind::Assumes)
+    });
+    let detached = derive_claim_status(&input);
+    assert!(!detached.policy.admitted);
+    assert!(detached.errors.iter().any(|error| {
+        error
+            .message
+            .contains("detached from its registered evidence owner")
+    }));
+    input.graph.edges.push(checked_graph_edge(
+        &input,
+        &refinement_node,
+        &premise_node,
+        EdgeKind::Assumes,
+    ));
 
     let discharge = theorem_record("decoder-proof", crate::EvaluationMode::Kernel);
     let discharge_id = discharge.id.clone();
