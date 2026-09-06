@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import tomllib
 from typing import Any
 import unicodedata
@@ -189,6 +190,7 @@ def audit_artifact_roles(
     """Join registered input selectors to exact observed artifact identities."""
 
     receipt = _strict_json(receipt_bytes, require_canonical=False)
+    project_revision = _required_text(receipt, "project_revision")
     absolute_root = repository_root / project_root
     registrations: dict[str, list[dict[str, Any]]] = {}
     for path in sorted(absolute_root.rglob("*.toml")):
@@ -256,7 +258,9 @@ def audit_artifact_roles(
         ]
         registered_inputs.sort(key=lambda item: item["logical_name"])
         for artifact in observed:
-            _verify_project_artifact(absolute_root, artifact)
+            _verify_project_artifact(
+                repository_root, project_root, project_revision, artifact
+            )
         registered_names = set(registration["inputs"])
         supplemental = [
             item for item in observed if item["logical_name"] not in registered_names
@@ -332,10 +336,35 @@ def _require_unique_artifact_names(artifacts: list[dict[str, Any]], role: str) -
         raise AssuranceIrError(f"duplicate {role} artifact role")
 
 
-def _verify_project_artifact(root: Path, artifact: dict[str, Any]) -> None:
-    data = (root / artifact["logical_name"]).read_bytes()
+def _verify_project_artifact(
+    repository_root: Path,
+    project_root: Path,
+    project_revision: str,
+    artifact: dict[str, Any],
+) -> None:
+    if len(project_revision) != 40 or any(
+        character not in "0123456789abcdef" for character in project_revision
+    ):
+        raise AssuranceIrError(
+            "captured project revision is not a full lowercase Git identity"
+        )
+    path = project_root / artifact["logical_name"]
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise AssuranceIrError("registered artifact path is not normalized")
+    logical_path = path.as_posix()
+    result = subprocess.run(
+        ["git", "show", f"{project_revision}:{logical_path}"],
+        cwd=repository_root,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AssuranceIrError(
+            f"captured artifact is absent from revision {project_revision}"
+        )
+    data = result.stdout
     if _sha256(data) != artifact["sha256"] or len(data) != artifact["size_bytes"]:
-        raise AssuranceIrError("registered artifact identity differs")
+        raise AssuranceIrError("captured artifact identity differs")
 
 
 def _collect_bound_roles(value: object, path: str, roles: list[dict[str, Any]]) -> None:

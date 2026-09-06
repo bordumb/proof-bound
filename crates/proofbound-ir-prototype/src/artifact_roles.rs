@@ -283,9 +283,11 @@ fn verify_project_artifact(
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
         "captured project revision is not a full lowercase Git identity"
     );
-    let path = project_root.join(&artifact.logical_name);
+    let joined_path = project_root.join(&artifact.logical_name);
+    let path = joined_path.strip_prefix(".").unwrap_or(&joined_path);
     ensure!(
         !path.is_absolute()
+            && path.components().next().is_some()
             && path
                 .components()
                 .all(|component| { matches!(component, std::path::Component::Normal(_)) }),
