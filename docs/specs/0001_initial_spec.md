@@ -820,6 +820,13 @@ premise, materializes its discharge record, and emits the exact
 verifier still require that theorem to be policy-admitted before removing the
 premise from the assumption facet.
 
+This join creates one deliberately typed provenance cycle: the claim assumes
+the premise, the premise is discharged by the theorem, and the theorem proves
+the claim. Graph validation admits only that exact `claim -> premise -> theorem
+-> claim` shape (including multiple premises or discharge theorems in the same
+join). Additional internal edges, owner edges back to a discharged premise, or
+mixed node and edge kinds remain invalid cycles.
+
 ### 8.2 Lean axiom audit
 
 For every registered Lean theorem, Proofbound MUST compile an axiom audit from

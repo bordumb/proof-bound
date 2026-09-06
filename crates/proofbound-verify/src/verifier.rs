@@ -15,7 +15,7 @@ use crate::{
     CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3, ClaimReceipt, ClosureKind,
     CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EdgeKind,
     EvaluationMode, EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, ExecutionKind,
-    FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphNode, HashedRecord, IndependenceMode,
+    FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphEdge, GraphNode, HashedRecord, IndependenceMode,
     LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V2, NodeKind,
     OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
     RELEASE_ENVELOPE_SCHEMA_V3, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
@@ -829,7 +829,9 @@ fn validate_graph(graph: &AssuranceGraph, issues: &mut Vec<VerificationIssue>) {
                     })
                 })
             });
-            if self_loop || !only_dependencies || !exact_environment {
+            let exact_discharge_cycle =
+                exact_premise_discharge_cycle(&component, &members, &nodes, &graph.edges);
+            if self_loop || ((!only_dependencies || !exact_environment) && !exact_discharge_cycle) {
                 issues.push(VerificationIssue::new(
                     VerificationIssueCode::PbvInvalidGraph,
                     format!(
@@ -840,6 +842,91 @@ fn validate_graph(graph: &AssuranceGraph, issues: &mut Vec<VerificationIssue>) {
             }
         }
     }
+}
+
+fn exact_premise_discharge_cycle(
+    component: &[String],
+    members: &BTreeSet<String>,
+    nodes: &BTreeMap<String, &GraphNode>,
+    edges: &[GraphEdge],
+) -> bool {
+    let claims = component
+        .iter()
+        .filter(|id| {
+            nodes
+                .get(id.as_str())
+                .is_some_and(|node| node.kind == NodeKind::Claim)
+        })
+        .collect::<Vec<_>>();
+    let premises = component
+        .iter()
+        .filter(|id| {
+            nodes
+                .get(id.as_str())
+                .is_some_and(|node| node.kind == NodeKind::Premise)
+        })
+        .collect::<Vec<_>>();
+    let theorems = component
+        .iter()
+        .filter(|id| {
+            nodes
+                .get(id.as_str())
+                .is_some_and(|node| node.kind == NodeKind::Theorem)
+        })
+        .collect::<Vec<_>>();
+    if claims.len() != 1 || premises.is_empty() || theorems.is_empty() {
+        return false;
+    }
+    let claim = claims[0];
+    let internal = edges
+        .iter()
+        .filter(|edge| members.contains(&edge.from) && members.contains(&edge.to))
+        .collect::<Vec<_>>();
+    if !internal.iter().all(|edge| {
+        matches!(
+            (
+                nodes[edge.from.as_str()].kind,
+                edge.kind,
+                nodes[edge.to.as_str()].kind,
+            ),
+            (NodeKind::Claim, EdgeKind::Assumes, NodeKind::Premise)
+                | (NodeKind::Premise, EdgeKind::DischargedBy, NodeKind::Theorem)
+                | (NodeKind::Theorem, EdgeKind::Proves, NodeKind::Claim)
+        )
+    }) {
+        return false;
+    }
+    premises.iter().all(|premise| {
+        internal
+            .iter()
+            .filter(|edge| {
+                edge.from.as_str() == claim.as_str()
+                    && edge.to.as_str() == premise.as_str()
+                    && edge.kind == EdgeKind::Assumes
+            })
+            .count()
+            == 1
+            && internal
+                .iter()
+                .filter(|edge| {
+                    edge.from.as_str() == premise.as_str() && edge.kind == EdgeKind::DischargedBy
+                })
+                .count()
+                == 1
+    }) && theorems.iter().all(|theorem| {
+        internal
+            .iter()
+            .filter(|edge| {
+                edge.from.as_str() == theorem.as_str()
+                    && edge.to.as_str() == claim.as_str()
+                    && edge.kind == EdgeKind::Proves
+            })
+            .count()
+            == 1
+            && internal.iter().any(|edge| {
+                edge.to.as_str() == theorem.as_str() && edge.kind == EdgeKind::DischargedBy
+            })
+    })
 }
 
 // This is intentionally independent of `proofbound-core`: the standalone
@@ -4204,5 +4291,62 @@ mod tests {
             premise_node,
             &graph,
         ));
+    }
+
+    #[test]
+    fn exact_typed_premise_discharge_cycle_matches_core() {
+        let mut graph = AssuranceGraph {
+            schema: GRAPH_SCHEMA_V1.into(),
+            nodes: vec![
+                GraphNode {
+                    id: "claim:c".into(),
+                    kind: NodeKind::Claim,
+                    proof_environment: None,
+                },
+                GraphNode {
+                    id: "premise:p".into(),
+                    kind: NodeKind::Premise,
+                    proof_environment: None,
+                },
+                GraphNode {
+                    id: "theorem:t".into(),
+                    kind: NodeKind::Theorem,
+                    proof_environment: Some("lean:main".into()),
+                },
+            ],
+            edges: vec![
+                GraphEdge {
+                    from: "claim:c".into(),
+                    to: "premise:p".into(),
+                    kind: EdgeKind::Assumes,
+                },
+                GraphEdge {
+                    from: "premise:p".into(),
+                    to: "theorem:t".into(),
+                    kind: EdgeKind::DischargedBy,
+                },
+                GraphEdge {
+                    from: "theorem:t".into(),
+                    to: "claim:c".into(),
+                    kind: EdgeKind::Proves,
+                },
+            ],
+            mutual_theorem_groups: Vec::new(),
+        };
+        let mut issues = Vec::new();
+        validate_graph(&graph, &mut issues);
+        assert!(issues.is_empty());
+
+        graph.edges.push(GraphEdge {
+            from: "theorem:t".into(),
+            to: "premise:p".into(),
+            kind: EdgeKind::Assumes,
+        });
+        validate_graph(&graph, &mut issues);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.code == VerificationIssueCode::PbvInvalidGraph)
+        );
     }
 }

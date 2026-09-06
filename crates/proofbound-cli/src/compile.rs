@@ -6084,7 +6084,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_materializes_owner_and_discharge_edges_for_a_premise() {
+    fn compiled_premise_discharge_graph_is_valid_end_to_end() {
         let claim_id = ClaimId::new("PB-TEST-DISCHARGE-001").unwrap();
         let policy = scope_built_in_policy(
             PolicyDefinition::ledger(PolicyId::new("ledger").unwrap()),
@@ -6117,6 +6117,20 @@ mod tests {
             value["unit_id"] = json!(format!("unit:{id}"));
             value["kind"] = json!(kind);
             value["claims"] = json!([claim_id.as_str()]);
+            if kind == "theorem" {
+                value["theorem"] = json!({
+                    "declaration": "Example.carrierBound",
+                    "statement_encoding": "lean-expr-cbor/1",
+                    "statement_wire": ["lean-expr-cbor/1", [0]],
+                    "statement_sha256": format!("sha256:{}", "00".repeat(32)),
+                    "attributed_claim": claim_id.as_str(),
+                    "environment": "lean:main",
+                    "axiom_audit_passed": true,
+                    "contains_sorry_ax": false,
+                    "foundational_axioms": [],
+                    "project_axioms": [],
+                });
+            }
             serde_json::from_value::<EvidenceRecord>(value).unwrap()
         };
         let owner = evidence_record(
@@ -6150,6 +6164,7 @@ mod tests {
         .unwrap();
         assert!(graph.has_edge(&owner.node_id, &premise_node, EdgeKind::Assumes));
         assert!(graph.has_edge(&premise_node, &discharge.node_id, EdgeKind::DischargedBy));
+        assert!(graph.validate().is_ok());
     }
 
     fn theorem_unit(id: &str, declaration: &str) -> EvidenceUnitManifest {

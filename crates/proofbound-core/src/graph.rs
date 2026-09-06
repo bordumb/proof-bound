@@ -14,7 +14,7 @@ use crate::{
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 
 /// One typed graph node. Proof-environment identity is required only for
-/// theorem nodes and is what bounds the sole allowed cycle form.
+/// theorem nodes and is what bounds declared mutual-theorem cycles.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphNode {
@@ -481,7 +481,13 @@ impl AssuranceGraph {
                     })
                 });
 
-                if self_loop || !all_dependency_edges || !all_theorems_in_environment {
+                let exact_discharge_cycle =
+                    exact_premise_discharge_cycle(&component, &members, &nodes, &self.edges);
+
+                if self_loop
+                    || ((!all_dependency_edges || !all_theorems_in_environment)
+                        && !exact_discharge_cycle)
+                {
                     errors.push(StructuredError::new(
                         ErrorCode::PbCoreInvalidCycle,
                         format!(
@@ -492,7 +498,7 @@ impl AssuranceGraph {
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         ),
-                        "break provenance cycles; only exact declared mutual theorem dependencies in one environment are allowed",
+                        "break provenance cycles; only exact declared mutual-theorem dependencies or typed premise-discharge joins are allowed",
                     ));
                 }
             }
@@ -518,6 +524,81 @@ impl AssuranceGraph {
             .iter()
             .any(|edge| &edge.from == from && &edge.to == to && edge.kind == kind)
     }
+}
+
+fn exact_premise_discharge_cycle(
+    component: &[NodeId],
+    members: &BTreeSet<NodeId>,
+    nodes: &BTreeMap<NodeId, &GraphNode>,
+    edges: &[GraphEdge],
+) -> bool {
+    let claims = component
+        .iter()
+        .filter(|id| {
+            nodes
+                .get(*id)
+                .is_some_and(|node| node.kind == NodeKind::Claim)
+        })
+        .collect::<Vec<_>>();
+    let premises = component
+        .iter()
+        .filter(|id| {
+            nodes
+                .get(*id)
+                .is_some_and(|node| node.kind == NodeKind::Premise)
+        })
+        .collect::<Vec<_>>();
+    let theorems = component
+        .iter()
+        .filter(|id| {
+            nodes
+                .get(*id)
+                .is_some_and(|node| node.kind == NodeKind::Theorem)
+        })
+        .collect::<Vec<_>>();
+    if claims.len() != 1 || premises.is_empty() || theorems.is_empty() {
+        return false;
+    }
+    let claim = claims[0];
+    let internal = edges
+        .iter()
+        .filter(|edge| members.contains(&edge.from) && members.contains(&edge.to))
+        .collect::<Vec<_>>();
+    if !internal.iter().all(|edge| {
+        matches!(
+            (nodes[&edge.from].kind, edge.kind, nodes[&edge.to].kind,),
+            (NodeKind::Claim, EdgeKind::Assumes, NodeKind::Premise)
+                | (NodeKind::Premise, EdgeKind::DischargedBy, NodeKind::Theorem)
+                | (NodeKind::Theorem, EdgeKind::Proves, NodeKind::Claim)
+        )
+    }) {
+        return false;
+    }
+    premises.iter().all(|premise| {
+        internal
+            .iter()
+            .filter(|edge| {
+                &edge.from == claim && &edge.to == *premise && edge.kind == EdgeKind::Assumes
+            })
+            .count()
+            == 1
+            && internal
+                .iter()
+                .filter(|edge| &edge.from == *premise && edge.kind == EdgeKind::DischargedBy)
+                .count()
+                == 1
+    }) && theorems.iter().all(|theorem| {
+        internal
+            .iter()
+            .filter(|edge| {
+                &edge.from == *theorem && &edge.to == claim && edge.kind == EdgeKind::Proves
+            })
+            .count()
+            == 1
+            && internal
+                .iter()
+                .any(|edge| &edge.to == *theorem && edge.kind == EdgeKind::DischargedBy)
+    })
 }
 
 fn strongly_connected_components(nodes: &[GraphNode], edges: &[GraphEdge]) -> Vec<Vec<NodeId>> {
@@ -724,6 +805,45 @@ mod tests {
         let mut not_dependency = graph;
         not_dependency.edges[0].kind = EdgeKind::GeneratedFrom;
         assert!(not_dependency.validate().is_err());
+    }
+
+    #[test]
+    fn exact_typed_premise_discharge_cycle_is_allowed() {
+        let graph = AssuranceGraph {
+            schema: GRAPH_SCHEMA_V1.into(),
+            nodes: vec![
+                node("claim:c", NodeKind::Claim),
+                node("premise:p", NodeKind::Premise),
+                node("theorem:t", NodeKind::Theorem),
+            ],
+            edges: vec![
+                GraphEdge {
+                    from: NodeId::new("claim:c").unwrap(),
+                    to: NodeId::new("premise:p").unwrap(),
+                    kind: EdgeKind::Assumes,
+                },
+                GraphEdge {
+                    from: NodeId::new("premise:p").unwrap(),
+                    to: NodeId::new("theorem:t").unwrap(),
+                    kind: EdgeKind::DischargedBy,
+                },
+                GraphEdge {
+                    from: NodeId::new("theorem:t").unwrap(),
+                    to: NodeId::new("claim:c").unwrap(),
+                    kind: EdgeKind::Proves,
+                },
+            ],
+            mutual_theorem_groups: vec![],
+        };
+        assert!(graph.validate().is_ok());
+
+        let mut theorem_owns_premise = graph;
+        theorem_owns_premise.edges.push(GraphEdge {
+            from: NodeId::new("theorem:t").unwrap(),
+            to: NodeId::new("premise:p").unwrap(),
+            kind: EdgeKind::Assumes,
+        });
+        assert!(theorem_owns_premise.validate().is_err());
     }
 
     #[test]
