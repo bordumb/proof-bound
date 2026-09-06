@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -141,6 +141,24 @@ pub struct AssumptionManifest {
     pub discharge_plan: String,
     pub source_citation: Option<String>,
     pub status: AssumptionStatus,
+    #[serde(default)]
+    pub premise_scope: Option<FlowScopeManifest>,
+    #[serde(default)]
+    pub discharge: Option<PremiseDischargeManifest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PremiseDischargeManifest {
+    pub theorem: String,
+    pub scope: FlowScopeManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum FlowScopeManifest {
+    AllRegisteredInputs,
+    Flows { flows: BTreeSet<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

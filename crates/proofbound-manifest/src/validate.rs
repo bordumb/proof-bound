@@ -8,13 +8,13 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
-    AdapterKind, AssumptionCategory, BindingMode, EvidenceKind, ImportMappingMode,
-    MAX_ADAPTER_INVENTORY_ITEM_CHARS, MAX_ADAPTER_INVENTORY_ITEMS, MAX_TRANSLATION_CLAIMS,
-    MAX_TRANSLATION_EXTERNAL_BRIDGES, MAX_TRANSLATION_INVOCATIONS, MAX_TRANSLATION_MAPPED_OUTPUTS,
-    MAX_TRANSLATION_PATH_BYTES, MAX_TRANSLATION_SOURCE_ROOTS, MAX_TRANSLATION_SYMBOLS,
-    MAX_TRANSLATION_TEMPLATE_AXIOMS, MAX_TRANSLATION_WARNINGS, OperationKind, ProjectBundle,
-    TRANSLATION_RESERVED_PATH_COMPONENTS, TranslationOutputKind, TranslationPipeline,
-    canonical_adapter_inventory,
+    AdapterKind, AssumptionCategory, AssumptionStatus, BindingMode, EvidenceKind,
+    FlowScopeManifest, ImportMappingMode, MAX_ADAPTER_INVENTORY_ITEM_CHARS,
+    MAX_ADAPTER_INVENTORY_ITEMS, MAX_TRANSLATION_CLAIMS, MAX_TRANSLATION_EXTERNAL_BRIDGES,
+    MAX_TRANSLATION_INVOCATIONS, MAX_TRANSLATION_MAPPED_OUTPUTS, MAX_TRANSLATION_PATH_BYTES,
+    MAX_TRANSLATION_SOURCE_ROOTS, MAX_TRANSLATION_SYMBOLS, MAX_TRANSLATION_TEMPLATE_AXIOMS,
+    MAX_TRANSLATION_WARNINGS, OperationKind, ProjectBundle, TRANSLATION_RESERVED_PATH_COMPONENTS,
+    TranslationOutputKind, TranslationPipeline, canonical_adapter_inventory,
 };
 
 const BUILTIN_PROFILES: &[&str] = &[
@@ -246,6 +246,8 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
         }
     }
 
+    validate_premise_discharges(bundle)?;
+
     validate_evidence(bundle)?;
     validate_mutation_replays(bundle)?;
     validate_translations(bundle)?;
@@ -254,6 +256,140 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     validate_reviews(bundle)?;
     validate_demos(bundle)?;
     Ok(())
+}
+
+fn validate_premise_discharges(bundle: &ProjectBundle) -> Result<(), SemanticError> {
+    for (id, (_, premise)) in &bundle.assumptions {
+        if let Some(scope) = &premise.premise_scope {
+            validate_flow_scope(id, "premise", scope)?;
+            if premise.category != AssumptionCategory::RepresentationPremise
+                || premise
+                    .affected_claims
+                    .iter()
+                    .any(|claim_id| !bundle.claims[claim_id].1.premises.contains(id))
+            {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: id.clone(),
+                    message: "premise_scope is valid only for a representation-premise registered as a premise by every affected claim"
+                        .to_owned(),
+                });
+            }
+        }
+        let Some(discharge) = &premise.discharge else {
+            if premise.status == AssumptionStatus::Discharged {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: id.clone(),
+                    message: "status is discharged without a first-class premise discharge"
+                        .to_owned(),
+                });
+            }
+            continue;
+        };
+
+        if premise.category != AssumptionCategory::RepresentationPremise {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: "only a representation-premise may declare a premise discharge".to_owned(),
+            });
+        }
+        if premise.status != AssumptionStatus::Discharged {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: "a declared premise discharge requires status = \"discharged\"".to_owned(),
+            });
+        }
+        validate_flow_scope(id, "premise discharge", &discharge.scope)?;
+        if !flow_scope_covers(
+            &discharge.scope,
+            premise
+                .premise_scope
+                .as_ref()
+                .unwrap_or(&FlowScopeManifest::AllRegisteredInputs),
+        ) {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: "premise discharge scope does not cover the declared premise_scope"
+                    .to_owned(),
+            });
+        }
+
+        let Some((_, theorem)) = bundle.evidence_units.get(&discharge.theorem) else {
+            return Err(SemanticError::MissingReference {
+                owner: id.clone(),
+                kind: "discharge theorem evidence",
+                id: discharge.theorem.clone(),
+            });
+        };
+        if theorem.kind != EvidenceKind::Theorem {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: format!(
+                    "premise discharge {} is not theorem evidence",
+                    discharge.theorem
+                ),
+            });
+        }
+        if theorem.premises.contains(id) {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: format!(
+                    "discharge theorem {} circularly depends on the premise it discharges",
+                    discharge.theorem
+                ),
+            });
+        }
+
+        let theorem_reference = format!("theorem:{}", discharge.theorem);
+        for claim_id in &premise.affected_claims {
+            let (_, claim) = &bundle.claims[claim_id];
+            if !claim.premises.contains(id) {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: id.clone(),
+                    message: format!(
+                        "discharged premise is not registered as a premise of affected claim {claim_id}"
+                    ),
+                });
+            }
+            if !theorem.claims.contains(claim_id) || !claim.evidence.contains(&theorem_reference) {
+                return Err(SemanticError::InverseMissing {
+                    owner: discharge.theorem.clone(),
+                    target: claim_id.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_flow_scope(
+    id: &str,
+    label: &str,
+    scope: &FlowScopeManifest,
+) -> Result<(), SemanticError> {
+    if let FlowScopeManifest::Flows { flows } = scope
+        && (flows.is_empty()
+            || flows.len() > 4_096
+            || flows.iter().any(|flow| flow.is_empty() || flow.len() > 512))
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: id.to_owned(),
+            message: format!(
+                "a flow-scoped {label} requires 1..=4096 non-empty flow IDs of at most 512 characters"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn flow_scope_covers(discharge: &FlowScopeManifest, premise: &FlowScopeManifest) -> bool {
+    match (discharge, premise) {
+        (FlowScopeManifest::AllRegisteredInputs, _) => true,
+        (
+            FlowScopeManifest::Flows { flows: discharge },
+            FlowScopeManifest::Flows { flows: premise },
+        ) => discharge.is_superset(premise),
+        (FlowScopeManifest::Flows { .. }, FlowScopeManifest::AllRegisteredInputs) => false,
+    }
 }
 
 fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
@@ -2782,6 +2918,183 @@ mod tests {
             (bundle.root.join("proofbound/reviews/test.toml"), review),
         );
         bundle
+    }
+
+    fn bundle_with_premise_discharge() -> crate::ProjectBundle {
+        let mut bundle = repository_bundle();
+        let claim_id = "PB-SELF-MANIFEST-001";
+        let premise_id = "PB-TEST-PREMISE-001";
+        let theorem_id = "premise-discharge";
+
+        let claim = &mut bundle.claims.get_mut(claim_id).unwrap().1;
+        claim.premises.push(premise_id.to_owned());
+        claim.evidence.push(format!("theorem:{theorem_id}"));
+
+        let premise = serde_json::from_value(serde_json::json!({
+            "schema": "proofbound-assumption/1",
+            "id": premise_id,
+            "statement": "The registered carrier length is representable.",
+            "category": "representation-premise",
+            "owner": "Proofbound test suite",
+            "rationale": "Exercises first-class premise discharge validation.",
+            "scope": "The registered claim inputs.",
+            "affected_claims": [claim_id],
+            "review_evidence": [],
+            "discharge_plan": "Discharge with the registered kernel theorem.",
+            "status": "discharged",
+            "premise_scope": {"kind": "all-registered-inputs"},
+            "discharge": {
+                "theorem": theorem_id,
+                "scope": {"kind": "all-registered-inputs"}
+            }
+        }))
+        .unwrap();
+        bundle.assumptions.insert(
+            premise_id.to_owned(),
+            (bundle.root.join("assumptions/test-premise.toml"), premise),
+        );
+
+        let mut theorem = bundle.evidence_units["manifest-workspace"].1.clone();
+        theorem.id = theorem_id.to_owned();
+        theorem.kind = EvidenceKind::Theorem;
+        theorem.claims = vec![claim_id.to_owned()];
+        theorem.premises.clear();
+        bundle.evidence_units.insert(
+            theorem_id.to_owned(),
+            (
+                bundle.root.join("proofbound/evidence/discharge.toml"),
+                theorem,
+            ),
+        );
+        bundle
+    }
+
+    #[test]
+    fn premise_discharge_requires_exact_lifecycle_and_theorem_ownership() {
+        let bundle = bundle_with_premise_discharge();
+        assert!(validate_premise_discharges(&bundle).is_ok());
+
+        let mut missing_record = bundle_with_premise_discharge();
+        missing_record
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1
+            .discharge = None;
+        let error = validate_premise_discharges(&missing_record)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("without a first-class premise discharge"));
+
+        let mut active = bundle_with_premise_discharge();
+        active
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1
+            .status = AssumptionStatus::Active;
+        let error = validate_premise_discharges(&active)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("requires status = \"discharged\""));
+    }
+
+    #[test]
+    fn premise_discharge_rejects_missing_non_theorem_and_circular_evidence() {
+        let mut missing = bundle_with_premise_discharge();
+        missing.evidence_units.remove("premise-discharge");
+        let error = validate_premise_discharges(&missing)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("missing discharge theorem evidence"));
+
+        let mut non_theorem = bundle_with_premise_discharge();
+        non_theorem
+            .evidence_units
+            .get_mut("premise-discharge")
+            .unwrap()
+            .1
+            .kind = EvidenceKind::ExampleTest;
+        let error = validate_premise_discharges(&non_theorem)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("is not theorem evidence"));
+
+        let mut circular = bundle_with_premise_discharge();
+        circular
+            .evidence_units
+            .get_mut("premise-discharge")
+            .unwrap()
+            .1
+            .premises
+            .push("PB-TEST-PREMISE-001".to_owned());
+        let error = validate_premise_discharges(&circular)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("circularly depends"));
+    }
+
+    #[test]
+    fn premise_discharge_rejects_empty_flow_scope_and_missing_inverse_claim_link() {
+        let mut empty_scope = bundle_with_premise_discharge();
+        empty_scope
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1
+            .discharge
+            .as_mut()
+            .unwrap()
+            .scope = FlowScopeManifest::Flows {
+            flows: BTreeSet::new(),
+        };
+        let error = validate_premise_discharges(&empty_scope)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("requires 1..=4096"));
+
+        let mut detached = bundle_with_premise_discharge();
+        detached
+            .claims
+            .get_mut("PB-SELF-MANIFEST-001")
+            .unwrap()
+            .1
+            .evidence
+            .retain(|item| item != "theorem:premise-discharge");
+        assert!(matches!(
+            validate_premise_discharges(&detached),
+            Err(SemanticError::InverseMissing { .. })
+        ));
+    }
+
+    #[test]
+    fn premise_discharge_scope_must_cover_the_typed_premise_scope() {
+        let mut covered = bundle_with_premise_discharge();
+        let premise = &mut covered
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1;
+        premise.premise_scope = Some(FlowScopeManifest::Flows {
+            flows: BTreeSet::from(["input-a".to_owned()]),
+        });
+        premise.discharge.as_mut().unwrap().scope = FlowScopeManifest::Flows {
+            flows: BTreeSet::from(["input-a".to_owned(), "input-b".to_owned()]),
+        };
+        assert!(validate_premise_discharges(&covered).is_ok());
+
+        let premise = &mut covered
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1;
+        premise.discharge.as_mut().unwrap().scope = FlowScopeManifest::Flows {
+            flows: BTreeSet::from(["input-b".to_owned()]),
+        };
+        let error = validate_premise_discharges(&covered)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("does not cover the declared premise_scope"));
     }
 
     #[test]
