@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use anyhow::{Context, Result, bail, ensure};
@@ -50,6 +51,7 @@ pub fn audit_artifact_roles(
     receipt_bytes: &[u8],
 ) -> Result<ArtifactRoleReport> {
     let receipt: Value = serde_json::from_slice(receipt_bytes).context("decode receipt")?;
+    let project_revision = required_value_text(&receipt, "project_revision")?;
     let registered = discover_registered_units(repository_root, project_root)?;
     let mut units = Vec::new();
     for wrapped in required_value_array(&receipt, "evidence")? {
@@ -93,7 +95,7 @@ pub fn audit_artifact_roles(
             let artifact = observed_by_name
                 .get(selector.as_str())
                 .with_context(|| format!("{unit_id} omits registered input role {selector}"))?;
-            verify_project_artifact(repository_root, project_root, artifact)?;
+            verify_project_artifact(repository_root, project_root, project_revision, artifact)?;
             registered_inputs.push((*artifact).clone());
         }
         registered_inputs.sort_by(|left, right| left.logical_name.cmp(&right.logical_name));
@@ -108,7 +110,7 @@ pub fn audit_artifact_roles(
             .cloned()
             .collect::<Vec<_>>();
         for artifact in &supplemental_inputs {
-            verify_project_artifact(repository_root, project_root, artifact)?;
+            verify_project_artifact(repository_root, project_root, project_revision, artifact)?;
         }
         let mut bound_roles = Vec::new();
         collect_bound_roles(record, "record", &mut bound_roles)?;
@@ -271,16 +273,39 @@ fn require_unique_artifacts(artifacts: &[Artifact], role: &str) -> Result<()> {
 fn verify_project_artifact(
     repository_root: &Path,
     project_root: &Path,
+    project_revision: &str,
     artifact: &Artifact,
 ) -> Result<()> {
-    let path = repository_root
-        .join(project_root)
-        .join(&artifact.logical_name);
-    let bytes =
-        fs::read(&path).with_context(|| format!("read registered artifact {}", path.display()))?;
+    ensure!(
+        project_revision.len() == 40
+            && project_revision
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "captured project revision is not a full lowercase Git identity"
+    );
+    let path = project_root.join(&artifact.logical_name);
+    ensure!(
+        !path.is_absolute()
+            && path
+                .components()
+                .all(|component| { matches!(component, std::path::Component::Normal(_)) }),
+        "registered artifact path is not normalized"
+    );
+    let logical_path = path.to_string_lossy().replace('\\', "/");
+    let object = format!("{project_revision}:{logical_path}");
+    let output = Command::new("git")
+        .args(["show", object.as_str()])
+        .current_dir(repository_root)
+        .output()
+        .with_context(|| format!("read captured artifact {logical_path}"))?;
+    ensure!(
+        output.status.success(),
+        "captured artifact {logical_path} is absent from revision {project_revision}"
+    );
+    let bytes = output.stdout;
     ensure!(
         sha256_bytes(&bytes) == artifact.sha256 && bytes.len() as u64 == artifact.size_bytes,
-        "registered artifact identity differs at {}",
+        "captured artifact identity differs at {}",
         artifact.logical_name
     );
     Ok(())
