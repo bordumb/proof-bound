@@ -789,6 +789,37 @@ is the normal way a claim's assumption burden shrinks over time. A framework
 that hid undischarged premises would be reporting a stronger claim than the
 theorem states.
 
+A discharged representation-premise uses the same
+`proofbound-assumption/1` manifest with an explicit typed scope and discharge:
+
+```toml
+schema = "proofbound-assumption/1"
+id = "DEMO-U64-REP-001"
+statement = "Every decoded value fits the registered u64 carrier."
+category = "representation-premise"
+owner = "Demo maintainers"
+rationale = "The source-refinement theorem represents decoded values as u64."
+scope = "Every value accepted by the registered decoder."
+affected_claims = ["DEMO-TRANSFER-001"]
+review_evidence = []
+discharge_plan = "Prove the decoder establishes the carrier bound."
+status = "discharged"
+premise_scope = { kind = "all-registered-inputs" }
+discharge = { theorem = "decoder-carrier-bound", scope = { kind = "all-registered-inputs" } }
+```
+
+`premise_scope` defaults to `all-registered-inputs`; a narrower scope is
+`{ kind = "flows", flows = ["flow-a", "flow-b"] }`. A discharge scope MUST
+cover the premise scope. The `theorem` field names a local evidence unit of
+kind `theorem`; that unit MUST cite every affected claim, every affected claim
+MUST cite `theorem:<id>`, and the theorem MUST NOT depend on the premise it
+discharges. A discharge declaration requires `status = "discharged"`, while
+that status without the typed declaration is invalid. The compiler retains the
+premise, materializes its discharge record, and emits the exact
+`premise -> theorem` `discharged-by` edge. The core status engine and independent
+verifier still require that theorem to be policy-admitted before removing the
+premise from the assumption facet.
+
 ### 8.2 Lean axiom audit
 
 For every registered Lean theorem, Proofbound MUST compile an axiom audit from
