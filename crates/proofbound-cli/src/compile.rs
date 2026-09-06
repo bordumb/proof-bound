@@ -17,11 +17,11 @@ use proofbound_core::{
     EvidenceProvenance, EvidenceRecord, EvidenceStatus, ExecutionKind, ExecutionRun,
     ExpectedFailure, FlowScope, GraphEdge, GraphNode, IndependenceMode, LinkageFacet,
     MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind, ObligationId, OpenObligation,
-    OutOfScope, PolicyDefinition, PolicyId, PremiseId, PremiseRecord, PythonPluginEvidence,
-    PythonPropertyEvidence, ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence,
-    StaticCheckEvidence, TRANSCRIPTION_DRIVER_ABI_V1, Tier, ToolIdentity, TranscriptionRole,
-    TranscriptionTcbRole, TreeState, TrustedTranscriptionEvidence, UnitId, derive_claim_status,
-    transcription_role_identity,
+    OutOfScope, PolicyDefinition, PolicyId, PremiseDischarge, PremiseId, PremiseRecord,
+    PythonPluginEvidence, PythonPropertyEvidence, ResourceBudget, ResourceUsage, Sha256Digest,
+    SourceRefinementEvidence, StaticCheckEvidence, TRANSCRIPTION_DRIVER_ABI_V1, Tier, ToolIdentity,
+    TranscriptionRole, TranscriptionTcbRole, TreeState, TrustedTranscriptionEvidence, UnitId,
+    derive_claim_status, transcription_role_identity,
 };
 use proofbound_evidence::{
     ClosureMember, ClosureRecord, ContentAddressedStore, canonical_json, domain_hash, git_identity,
@@ -30,9 +30,9 @@ use proofbound_evidence::{
 use proofbound_manifest::{
     AdapterDiagnostic, AdapterKind, AdapterResponse,
     AssumptionCategory as ManifestAssumptionCategory, AssumptionStatus as ManifestAssumptionStatus,
-    ClaimManifest, EvidenceKind as ManifestEvidenceKind, EvidenceUnitManifest, ManifestLimits,
-    ModelCheckUnitManifest, MutationRegistry, OperationKind, PolicyManifest, PrimaryLinkage,
-    ProjectBundle, TranslationUnitManifest, load_toml,
+    ClaimManifest, EvidenceKind as ManifestEvidenceKind, EvidenceUnitManifest, FlowScopeManifest,
+    ManifestLimits, ModelCheckUnitManifest, MutationRegistry, OperationKind, PolicyManifest,
+    PremiseDischargeManifest, PrimaryLinkage, ProjectBundle, TranslationUnitManifest, load_toml,
 };
 use serde::{Deserialize, Serialize};
 
@@ -3541,8 +3541,12 @@ fn compile_claim(
                 statement: item.statement.clone(),
                 category: assumption_category(item.category),
                 theorem_evidence,
-                scope: FlowScope::AllRegisteredInputs,
-                discharge: None,
+                scope: item
+                    .premise_scope
+                    .as_ref()
+                    .map(flow_scope)
+                    .unwrap_or(FlowScope::AllRegisteredInputs),
+                discharge: item.discharge.as_ref().map(premise_discharge).transpose()?,
             });
         } else {
             assumptions.push(assumption_record(item)?);
@@ -3715,6 +3719,17 @@ fn graph_for_claim(
                 record.node_id.clone(),
                 premise.node_id.clone(),
                 EdgeKind::Assumes,
+            ));
+        }
+        if let Some(record) = premise.discharge.as_ref().and_then(|discharge| {
+            evidence
+                .iter()
+                .find(|record| record.id == discharge.theorem_evidence)
+        }) {
+            edge_specs.push((
+                premise.node_id.clone(),
+                record.node_id.clone(),
+                EdgeKind::DischargedBy,
             ));
         }
     }
@@ -4059,6 +4074,25 @@ fn assumption_record(item: &proofbound_manifest::AssumptionManifest) -> Result<A
         status: assumption_status(item.status),
         depends_on: BTreeSet::new(),
     })
+}
+
+fn premise_discharge(item: &PremiseDischargeManifest) -> Result<PremiseDischarge> {
+    Ok(PremiseDischarge {
+        theorem_evidence: EvidenceId::new(canonical_reference(
+            ManifestEvidenceKind::Theorem,
+            &item.theorem,
+        ))?,
+        scope: flow_scope(&item.scope),
+    })
+}
+
+fn flow_scope(item: &FlowScopeManifest) -> FlowScope {
+    match item {
+        FlowScopeManifest::AllRegisteredInputs => FlowScope::AllRegisteredInputs,
+        FlowScopeManifest::Flows { flows } => FlowScope::Flows {
+            flows: flows.clone(),
+        },
+    }
 }
 
 fn synthesize_review_records(
@@ -6023,6 +6057,99 @@ mod tests {
         let cited = cited_evidence_ids(&manifest).unwrap();
         assert!(cited.contains(&EvidenceId::new("example-test:registered-test").unwrap()));
         assert!(cited.contains(&EvidenceId::new("review:PREMISE-ONE").unwrap()));
+    }
+
+    #[test]
+    fn scoped_premise_discharge_compiles_to_canonical_core_identity() {
+        let manifest: PremiseDischargeManifest = serde_json::from_value(json!({
+            "theorem": "carrier-bound",
+            "scope": {
+                "kind": "flows",
+                "flows": ["environment", "paths"]
+            }
+        }))
+        .unwrap();
+
+        let compiled = premise_discharge(&manifest).unwrap();
+        assert_eq!(
+            compiled.theorem_evidence,
+            EvidenceId::new("theorem:carrier-bound").unwrap()
+        );
+        assert_eq!(
+            compiled.scope,
+            FlowScope::Flows {
+                flows: BTreeSet::from(["environment".to_owned(), "paths".to_owned()])
+            }
+        );
+    }
+
+    #[test]
+    fn graph_materializes_owner_and_discharge_edges_for_a_premise() {
+        let claim_id = ClaimId::new("PB-TEST-DISCHARGE-001").unwrap();
+        let policy = scope_built_in_policy(
+            PolicyDefinition::ledger(PolicyId::new("ledger").unwrap()),
+            claim_id.as_str(),
+        )
+        .unwrap();
+        let claim = ClaimDefinition {
+            schema: "proofbound-claim/1".into(),
+            id: claim_id.clone(),
+            node_id: NodeId::new("claim:PB-TEST-DISCHARGE-001").unwrap(),
+            title: "Premise discharge graph".into(),
+            statement: "The compiler emits both required premise edges.".into(),
+            public_language: None,
+            subject: NodeId::new("subject:premise-discharge").unwrap(),
+            policy: policy.id.clone(),
+            tier: Some(Tier::Bound),
+            cited_evidence: BTreeSet::new(),
+            assumptions: BTreeSet::new(),
+            open_obligations: BTreeSet::new(),
+            out_of_scope: BTreeSet::new(),
+            primary_linkage: Some(LinkageFacet::Refined),
+            registered_inputs: BTreeSet::new(),
+            registered_domain_language: None,
+        };
+
+        let evidence_record = |id: &str, node_id: &str, kind: &str| {
+            let mut value = direct_example_record_value(vec!["registered"]);
+            value["id"] = json!(id);
+            value["node_id"] = json!(node_id);
+            value["unit_id"] = json!(format!("unit:{id}"));
+            value["kind"] = json!(kind);
+            value["claims"] = json!([claim_id.as_str()]);
+            serde_json::from_value::<EvidenceRecord>(value).unwrap()
+        };
+        let owner = evidence_record(
+            "source-refinement:owner",
+            "translation:owner",
+            "source-refinement",
+        );
+        let discharge =
+            evidence_record("theorem:carrier-bound", "theorem:carrier-bound", "theorem");
+        let premise_node = NodeId::new("premise:PB-TEST-PREMISE-001").unwrap();
+        let premise = PremiseRecord {
+            id: PremiseId::new("PB-TEST-PREMISE-001").unwrap(),
+            node_id: premise_node.clone(),
+            statement: "The carrier length is representable.".into(),
+            category: AssumptionCategory::RepresentationPremise,
+            theorem_evidence: Some(owner.id.clone()),
+            scope: FlowScope::AllRegisteredInputs,
+            discharge: Some(PremiseDischarge {
+                theorem_evidence: discharge.id.clone(),
+                scope: FlowScope::AllRegisteredInputs,
+            }),
+        };
+
+        let graph = graph_for_claim(
+            &claim,
+            &policy,
+            &[owner.clone(), discharge.clone()],
+            &[],
+            &[premise],
+        )
+        .unwrap();
+        assert!(graph.has_edge(&owner.node_id, &premise_node, EdgeKind::Assumes));
+        assert!(graph.has_edge(&premise_node, &discharge.node_id, EdgeKind::DischargedBy));
     }
 
     fn theorem_unit(id: &str, declaration: &str) -> EvidenceUnitManifest {
