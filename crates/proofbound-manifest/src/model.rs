@@ -17,6 +17,10 @@ pub struct ProjectManifest {
     #[serde(default)]
     pub evidence_units: Vec<String>,
     #[serde(default)]
+    pub evidence_contexts: Vec<String>,
+    #[serde(default)]
+    pub required_release_contexts: Vec<String>,
+    #[serde(default)]
     pub translation_units: Vec<String>,
     #[serde(default)]
     pub model_check_units: Vec<String>,
@@ -188,6 +192,8 @@ pub enum AssumptionStatus {
 pub struct EvidenceUnitManifest {
     pub schema: String,
     pub id: String,
+    #[serde(default)]
+    pub context: Option<String>,
     pub adapter: AdapterKind,
     pub kind: EvidenceKind,
     pub claims: Vec<String>,

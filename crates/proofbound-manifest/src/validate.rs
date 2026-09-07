@@ -2,6 +2,7 @@ use std::{
     collections::BTreeSet,
     fs,
     path::{Component, Path, PathBuf},
+    process::Command,
 };
 
 use sha2::{Digest, Sha256};
@@ -79,6 +80,8 @@ pub enum SemanticError {
     StatementEncoding { claim: String, encoding: String },
     #[error("evidence unit {unit}: {message}")]
     EvidenceQualifier { unit: String, message: String },
+    #[error("{code}: {message}")]
+    EvidenceContext { code: &'static str, message: String },
     #[error("translation unit {unit}: {message}")]
     Translation { unit: String, message: String },
     #[error("custom policy {policy} weakens built-in profile {base}: {message}")]
@@ -100,10 +103,13 @@ pub enum SemanticError {
 }
 
 pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
-    if bundle.project.schema != "proofbound-project/1" {
+    if !matches!(
+        bundle.project.schema.as_str(),
+        "proofbound-project/1" | "proofbound-project/2"
+    ) {
         return Err(SemanticError::Schema {
             path: bundle.root.join("proofbound.toml"),
-            expected: "proofbound-project/1",
+            expected: "proofbound-project/1 or proofbound-project/2",
             actual: bundle.project.schema.clone(),
         });
     }
@@ -111,6 +117,7 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
         return Err(SemanticError::InvalidTier(bundle.project.tier));
     }
     validate_project_paths(bundle)?;
+    validate_evidence_context_registration(bundle)?;
 
     let mut global_ids = BTreeSet::new();
     for (id, (path, claim)) in &bundle.claims {
@@ -396,6 +403,7 @@ fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     let mut known_refs = BTreeSet::new();
     for (id, (path, unit)) in &bundle.evidence_units {
         validate_evidence_schema(path, unit)?;
+        validate_context_unit(bundle, id, path, unit)?;
         local_id(id, path)?;
         if unit.tier > bundle.project.tier {
             return Err(SemanticError::TierExceeded {
@@ -499,6 +507,91 @@ fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                 });
             }
         }
+    }
+    Ok(())
+}
+
+fn valid_context_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.as_bytes()[0].is_ascii_lowercase()
+        && value.split('-').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+}
+
+fn validate_evidence_context_registration(bundle: &ProjectBundle) -> Result<(), SemanticError> {
+    let contexts = &bundle.project.evidence_contexts;
+    let release_contexts = &bundle.project.required_release_contexts;
+    if bundle.project.schema == "proofbound-project/1"
+        && (!contexts.is_empty() || !release_contexts.is_empty())
+    {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0002",
+            message: "project schema version 1 cannot register evidence contexts".to_owned(),
+        });
+    }
+    if !contexts.windows(2).all(|pair| pair[0] < pair[1])
+        || contexts.iter().any(|context| !valid_context_name(context))
+        || !release_contexts.windows(2).all(|pair| pair[0] < pair[1])
+        || release_contexts
+            .iter()
+            .any(|context| !contexts.contains(context))
+    {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0002",
+            message: "evidence contexts must be canonical strict sets and every required release context must be registered".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_context_unit(
+    bundle: &ProjectBundle,
+    id: &str,
+    path: &Path,
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    let Some(context) = unit.context.as_ref() else {
+        return Ok(());
+    };
+    if unit.schema != "proofbound-evidence-unit/5"
+        || unit.artifact_observation.is_none()
+        || !bundle.project.evidence_contexts.contains(context)
+    {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0001",
+            message: format!(
+                "evidence unit {id} does not name one registered exact-observation context"
+            ),
+        });
+    }
+    let relative = path
+        .strip_prefix(&bundle.root)
+        .map_err(|_| SemanticError::EvidenceContext {
+            code: "PB-CTX-0003",
+            message: format!(
+                "context evidence manifest is outside the project: {}",
+                path.display()
+            ),
+        })?;
+    let tracked = Command::new("git")
+        .args(["ls-files", "--error-unmatch", "--"])
+        .arg(relative)
+        .current_dir(&bundle.root)
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !tracked {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0003",
+            message: format!(
+                "context evidence manifest is not tracked in the reviewed tree: {}",
+                relative.display()
+            ),
+        });
     }
     Ok(())
 }
@@ -3577,6 +3670,7 @@ mod tests {
         let unit = crate::EvidenceUnitManifest {
             schema: "proofbound-evidence-unit/1".into(),
             id: "x".into(),
+            context: None,
             adapter: AdapterKind::IndependentCheck,
             kind: EvidenceKind::TrustedTranscription,
             claims: vec!["TEST-X-001".into()],
@@ -3651,6 +3745,62 @@ mod tests {
         let mut legacy = unit;
         legacy.schema = "proofbound-evidence-unit/1".to_owned();
         assert!(validate_unit_qualifiers(&legacy).is_err());
+    }
+
+    #[test]
+    fn reviewed_evidence_context_registration_is_closed_and_tracked() {
+        let mut bundle = repository_bundle();
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+        bundle.project.required_release_contexts = bundle.project.evidence_contexts.clone();
+        validate_evidence_context_registration(&bundle).unwrap();
+
+        let (path, mut unit) = bundle.evidence_units["manifest-workspace"].clone();
+        unit.schema = "proofbound-evidence-unit/5".to_owned();
+        unit.context = Some("release-linux-x86-64".to_owned());
+        unit.artifact_observation = Some(crate::ExactArtifactObservationConfig {
+            schema: crate::ExactArtifactObservationSchema::Version1,
+            subject_role: "runtime-release".to_owned(),
+            artifact: "crates/proofbound-manifest/src/model.rs".to_owned(),
+            procedure: "crates/proofbound-manifest/src/load.rs".to_owned(),
+            operating_system: crate::ObservationOperatingSystem::Linux,
+            architecture: crate::ObservationArchitecture::X86_64,
+            toolchain_inputs: vec!["schemas/project.schema.json".to_owned()],
+            dependencies: vec!["test:release-build".to_owned()],
+        });
+        validate_context_unit(&bundle, &unit.id, &path, &unit).unwrap();
+
+        let mut unknown = unit.clone();
+        unknown.context = Some("release-linux-aarch64".to_owned());
+        assert!(matches!(
+            validate_context_unit(&bundle, &unknown.id, &path, &unknown),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0001",
+                ..
+            })
+        ));
+
+        let mut malformed = bundle.project.clone();
+        malformed.evidence_contexts = vec!["Release-Linux".to_owned()];
+        bundle.project = malformed;
+        assert!(matches!(
+            validate_evidence_context_registration(&bundle),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0002",
+                ..
+            })
+        ));
+
+        bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+        bundle.project.required_release_contexts = bundle.project.evidence_contexts.clone();
+        let untracked = bundle.root.join("untracked-context.toml");
+        assert!(matches!(
+            validate_context_unit(&bundle, &unit.id, &untracked, &unit),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0003",
+                ..
+            })
+        ));
     }
 
     #[test]

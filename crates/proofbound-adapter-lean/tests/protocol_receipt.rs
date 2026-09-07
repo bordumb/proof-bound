@@ -50,6 +50,7 @@ fn request() -> AdapterRequest {
         evidence_unit: EvidenceUnitManifest {
             schema: "proofbound-evidence-unit/1".to_owned(),
             id: "fixture-theorem".to_owned(),
+            context: None,
             adapter: AdapterKind::Lean,
             kind: EvidenceKind::Theorem,
             claims: vec!["FIXTURE-CLAIM-001".to_owned()],

@@ -8,6 +8,7 @@
   "properties": {
     "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2", "proofbound-evidence-unit/3", "proofbound-evidence-unit/4", "proofbound-evidence-unit/5"] },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+    "context": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "adapter": { "enum": ["lean", "charon-aeneas", "kani", "rust-test", "python-test", "node-test", "canonical-artifact", "independent-check", "trusted-transcription"] },
     "kind": { "$ref": "evidence.schema.json#/$defs/kind" },
     "claims": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
@@ -56,6 +57,10 @@
     "resource_budget": { "type": "object", "additionalProperties": false, "required": ["time_seconds", "disk_bytes", "memory_bytes"], "properties": { "time_seconds": { "type": "integer", "minimum": 1 }, "disk_bytes": { "type": "integer", "minimum": 1 }, "memory_bytes": { "type": "integer", "minimum": 1 } } }
   },
   "allOf": [
+    {
+      "if": { "required": ["context"] },
+      "then": { "properties": { "schema": { "const": "proofbound-evidence-unit/5" } } }
+    },
     {
       "if": { "properties": { "schema": { "const": "proofbound-evidence-unit/1" } }, "required": ["schema"] },
       "then": {
