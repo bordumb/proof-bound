@@ -363,6 +363,7 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     if compiled.inputs.len() != bundle.claims.len() {
         bail!("PB-RELEASE-0006: a release requires a full-project check, not a filtered check");
     }
+    validate_release_evidence_context(&bundle, &compiled)?;
     let destination = output
         .map(Path::to_owned)
         .unwrap_or_else(|| root.join(".proofbound/release"));
@@ -418,10 +419,10 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
         .as_str()
         .context("PB-RELEASE-0021: compiled receipt omitted its schema")?;
     let payload_sha256 = domain_hash(payload_schema, &payload_bytes);
-    let envelope_schema = if payload_schema == "proofbound-compiled-release/4" {
-        "proofbound-release-envelope/4"
-    } else {
-        "proofbound-release-envelope/3"
+    let envelope_schema = match payload_schema {
+        "proofbound-compiled-release/5" => "proofbound-release-envelope/5",
+        "proofbound-compiled-release/4" => "proofbound-release-envelope/4",
+        _ => "proofbound-release-envelope/3",
     };
     write_canonical(
         &destination.join("release.json"),
@@ -432,6 +433,46 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
         }),
     )?;
     Ok(destination)
+}
+
+fn validate_release_evidence_context(
+    bundle: &ProjectBundle,
+    compiled: &CompiledProject,
+) -> Result<()> {
+    match compiled.evidence_context.as_ref() {
+        Some(context) if !bundle.project.evidence_contexts.contains(context) => {
+            bail!("PB-CTX-0007: compiled evidence context is not registered by this project");
+        }
+        Some(context)
+            if !bundle.project.required_release_contexts.is_empty()
+                && !bundle.project.required_release_contexts.contains(context) =>
+        {
+            bail!("PB-CTX-0007: compiled evidence context is not admitted for release");
+        }
+        None if !bundle.project.required_release_contexts.is_empty() => {
+            bail!("PB-CTX-0006: this project requires one reviewed evidence context for release");
+        }
+        Some(context) => {
+            for (_, unit) in bundle
+                .evidence_units
+                .values()
+                .filter(|(_, unit)| unit.context.as_deref() == Some(context.as_str()))
+            {
+                let expected_unit_id = format!("unit:{}", unit.id);
+                if !compiled.evidence.iter().any(|record| {
+                    record.unit_id.as_str() == expected_unit_id
+                        && record.artifact_observation.is_some()
+                }) {
+                    bail!(
+                        "PB-CTX-0004: selected context evidence unit {} has no exact observation record",
+                        unit.id
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Construct a deterministic, proof-free release through the same graph and
@@ -5869,10 +5910,20 @@ fn compiled_release_value(
         .statuses
         .iter()
         .any(|status| !status.artifact_observations.is_empty());
+    if compiled.evidence_context.is_some() && !has_artifact_observations {
+        bail!("PB-CTX-0004: a contextual release contains no admitted exact observations");
+    }
     let mut payload = serde_json::json!({
-        "schema": if has_artifact_observations { "proofbound-compiled-release/4" } else { "proofbound-compiled-release/3" },
+        "schema": if compiled.evidence_context.is_some() {
+            "proofbound-compiled-release/5"
+        } else if has_artifact_observations {
+            "proofbound-compiled-release/4"
+        } else {
+            "proofbound-compiled-release/3"
+        },
         "project": compiled.project,
         "project_revision": compiled.project_revision,
+        "evidence_context": compiled.evidence_context,
         "project_tier": project_tier,
         "tree_state": compiled.tree_state,
         "graph": graph,
@@ -6424,6 +6475,63 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("PB-CTX-0005")
+        );
+    }
+
+    #[test]
+    fn required_release_contexts_reject_omission_replay_and_missing_observations() {
+        let mut bundle = repository_bundle();
+        let context = "release-linux-x86-64".to_owned();
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec![context.clone()];
+        bundle.project.required_release_contexts = vec![context.clone()];
+        bundle
+            .evidence_units
+            .get_mut("manifest-workspace")
+            .unwrap()
+            .1
+            .context = Some(context.clone());
+
+        let compiled = CompiledProject {
+            schema: COMPILED_SCHEMA_V3.to_owned(),
+            project: "context-fixture".to_owned(),
+            project_revision: "fixture-revision".to_owned(),
+            evidence_context: None,
+            tree_state: "clean".to_owned(),
+            reviewed_tree_sha256: sha256_bytes(b"fixture"),
+            generated_at: "1970-01-01T00:00:00.000Z".to_owned(),
+            inputs: Vec::new(),
+            statuses: Vec::new(),
+            evidence: Vec::new(),
+            closures: Vec::new(),
+            unit_runs: Vec::new(),
+            claim_input_identities: BTreeMap::new(),
+        };
+        assert!(
+            validate_release_evidence_context(&bundle, &compiled)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0006")
+        );
+
+        let mut replayed = compiled.clone();
+        replayed.schema = COMPILED_SCHEMA_V4.to_owned();
+        replayed.evidence_context = Some("release-linux-aarch64".to_owned());
+        assert!(
+            validate_release_evidence_context(&bundle, &replayed)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0007")
+        );
+
+        let mut missing = compiled;
+        missing.schema = COMPILED_SCHEMA_V4.to_owned();
+        missing.evidence_context = Some(context);
+        assert!(
+            validate_release_evidence_context(&bundle, &missing)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0004")
         );
     }
 

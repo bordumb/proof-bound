@@ -33,7 +33,7 @@
       "additionalProperties": false,
       "required": ["schema", "payload", "payload_sha256"],
       "properties": {
-        "schema": { "enum": ["proofbound-release-envelope/3", "proofbound-release-envelope/4"] },
+        "schema": { "enum": ["proofbound-release-envelope/3", "proofbound-release-envelope/4", "proofbound-release-envelope/5"] },
         "payload": { "const": "compiled-receipt.json" },
         "payload_sha256": { "$ref": "#/$defs/digest" }
       }
@@ -43,9 +43,10 @@
       "additionalProperties": false,
       "required": ["schema", "project", "project_revision", "project_tier", "tree_state", "graph", "graph_sha256", "claims", "evidence", "assumptions", "premises", "policies", "closures", "sealed_files", "reported_statuses"],
       "properties": {
-        "schema": { "enum": ["proofbound-compiled-release/3", "proofbound-compiled-release/4"] },
+        "schema": { "enum": ["proofbound-compiled-release/3", "proofbound-compiled-release/4", "proofbound-compiled-release/5"] },
         "project": { "type": "string", "minLength": 1, "maxLength": 128 },
         "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "evidence_context": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
         "project_tier": { "type": "integer", "minimum": 0, "maximum": 3 },
         "tree_state": { "enum": ["clean", "dirty"] },
         "graph": { "$ref": "graph.schema.json#/$defs/assuranceGraph" },
@@ -58,7 +59,14 @@
         "closures": { "type": "array", "items": { "$ref": "#/$defs/hashedClosure" }, "maxItems": 100000 },
         "sealed_files": { "type": "array", "items": { "$ref": "#/$defs/sealedFile" }, "maxItems": 100000 },
         "reported_statuses": { "type": "array", "items": { "$ref": "#/$defs/reportedStatus" }, "maxItems": 100000 }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "schema": { "const": "proofbound-compiled-release/5" } }, "required": ["schema"] },
+          "then": { "required": ["evidence_context"] },
+          "else": { "not": { "required": ["evidence_context"] } }
+        }
+      ]
     },
     "claimReceipt": {
       "type": "object",
