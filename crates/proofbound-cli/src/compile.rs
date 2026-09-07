@@ -439,6 +439,24 @@ fn validate_release_evidence_context(
     bundle: &ProjectBundle,
     compiled: &CompiledProject,
 ) -> Result<()> {
+    for (_, unit) in bundle
+        .evidence_units
+        .values()
+        .filter(|(_, unit)| unit.context.is_some())
+    {
+        let unit_id = format!("unit:{}", unit.id);
+        if compiled
+            .evidence
+            .iter()
+            .any(|record| record.unit_id.as_str() == unit_id)
+            && unit.context.as_deref() != compiled.evidence_context.as_deref()
+        {
+            bail!(
+                "PB-CTX-0004: compiled state contains evidence unit {} from an inactive context",
+                unit.id
+            );
+        }
+    }
     match compiled.evidence_context.as_ref() {
         Some(context) if !bundle.project.evidence_contexts.contains(context) => {
             bail!("PB-CTX-0007: compiled evidence context is not registered by this project");
@@ -6489,9 +6507,10 @@ mod tests {
     fn required_release_contexts_reject_omission_replay_and_missing_observations() {
         let mut bundle = repository_bundle();
         let context = "release-linux-x86-64".to_owned();
+        let inactive_context = "release-linux-aarch64".to_owned();
         bundle.project.schema = "proofbound-project/2".to_owned();
-        bundle.project.evidence_contexts = vec![context.clone()];
-        bundle.project.required_release_contexts = vec![context.clone()];
+        bundle.project.evidence_contexts = vec![inactive_context.clone(), context.clone()];
+        bundle.project.required_release_contexts = bundle.project.evidence_contexts.clone();
         bundle
             .evidence_units
             .get_mut("manifest-workspace")
@@ -6499,7 +6518,7 @@ mod tests {
             .1
             .context = Some(context.clone());
 
-        let compiled = CompiledProject {
+        let mut compiled = CompiledProject {
             schema: COMPILED_SCHEMA_V3.to_owned(),
             project: "context-fixture".to_owned(),
             project_revision: "fixture-revision".to_owned(),
@@ -6521,9 +6540,33 @@ mod tests {
                 .contains("PB-CTX-0006")
         );
 
+        let (inactive_path, mut inactive_unit) =
+            bundle.evidence_units["manifest-workspace"].clone();
+        inactive_unit.id = "inactive-context".to_owned();
+        inactive_unit.context = Some(inactive_context);
+        bundle.evidence_units.insert(
+            inactive_unit.id.clone(),
+            (inactive_path, inactive_unit.clone()),
+        );
+        let mut smuggled_record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["inactive"])).unwrap();
+        smuggled_record.unit_id = UnitId::new("unit:inactive-context").unwrap();
+        compiled.evidence.push(smuggled_record);
+        compiled.schema = COMPILED_SCHEMA_V4.to_owned();
+        compiled.evidence_context = Some(context.clone());
+        assert!(
+            validate_release_evidence_context(&bundle, &compiled)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0004")
+        );
+        compiled.evidence.clear();
+        compiled.schema = COMPILED_SCHEMA_V3.to_owned();
+        compiled.evidence_context = None;
+
         let mut replayed = compiled.clone();
         replayed.schema = COMPILED_SCHEMA_V4.to_owned();
-        replayed.evidence_context = Some("release-linux-aarch64".to_owned());
+        replayed.evidence_context = Some("release-linux-riscv64".to_owned());
         assert!(
             validate_release_evidence_context(&bundle, &replayed)
                 .unwrap_err()
