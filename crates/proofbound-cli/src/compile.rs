@@ -5739,6 +5739,7 @@ fn compiled_release_value(
                 closure,
                 &release_closure_by_internal_id,
                 &evidence_ids,
+                compiled.evidence_context.as_deref(),
             )?;
             let record_schema = record["schema"]
                 .as_str()
@@ -5962,6 +5963,7 @@ fn release_evidence_record(
     closure: &str,
     closure_ids: &BTreeMap<String, String>,
     evidence_ids: &BTreeMap<String, String>,
+    evidence_context: Option<&str>,
 ) -> Result<serde_json::Value> {
     let input_artifacts = artifact_records(&evidence.provenance.input_artifacts)?;
     let generated_artifacts = artifact_records(&evidence.provenance.generated_artifacts)?;
@@ -6080,6 +6082,10 @@ fn release_evidence_record(
             }))
         })
         .transpose()?;
+    let observation_context = artifact_observation
+        .as_ref()
+        .and(evidence_context)
+        .map(str::to_owned);
     let trusted_transcription = evidence.trusted_transcription.as_ref().map(|item| {
         serde_json::json!({
             "schema": item.schema,
@@ -6222,6 +6228,7 @@ fn release_evidence_record(
         "theorem": theorem,
         "artifact_binding": artifact_binding,
         "artifact_observation": artifact_observation,
+        "evidence_context": observation_context,
         "trusted_transcription": trusted_transcription,
         "source_refinement": source_refinement,
         "bounded_check": bounded_check,
@@ -8087,6 +8094,7 @@ description = {description:?}
             &closure,
             &BTreeMap::from([(closure.clone(), closure.clone())]),
             &BTreeMap::new(),
+            None,
         )
         .unwrap();
         assert!(
@@ -8344,6 +8352,7 @@ description = {description:?}
             &closure,
             &BTreeMap::from([(closure.clone(), closure.clone())]),
             &BTreeMap::new(),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -8636,9 +8645,11 @@ description = {description:?}
             &release_digest("portable semantic closure"),
             &BTreeMap::from([(internal_toolchain, portable_toolchain.clone())]),
             &BTreeMap::from([("test:release-build".to_owned(), portable_dependency.clone())]),
+            Some("release-linux-x86-64"),
         )
         .unwrap();
         assert_eq!(released["schema"], "proofbound-evidence/4");
+        assert_eq!(released["evidence_context"], "release-linux-x86-64");
         assert_eq!(
             released["artifact_observation"]["toolchain_closure"]["sha256"],
             portable_toolchain

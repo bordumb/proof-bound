@@ -13,17 +13,18 @@ use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, ArtifactObservationRelation, AssumptionCategory,
     AssumptionFacet, AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode,
     BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3,
-    COMPILED_RELEASE_SCHEMA_V4, ClaimReceipt, ClosureKind, CompiledRelease,
-    DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EVIDENCE_SCHEMA_V4,
+    COMPILED_RELEASE_SCHEMA_V4, COMPILED_RELEASE_SCHEMA_V5, ClaimReceipt, ClosureKind,
+    CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EVIDENCE_SCHEMA_V4,
     EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
     EvidenceReceipt, Exclusion, ExecutionKind, ExternalObservationInput, FlowScope, FormalFacet,
     GRAPH_SCHEMA_V1, GraphEdge, GraphNode, HashedRecord, IndependenceMode, LinkageFacet,
     MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V2, NodeKind, ObservationPlatform,
     OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
-    RELEASE_ENVELOPE_SCHEMA_V3, RELEASE_ENVELOPE_SCHEMA_V4, ReleaseEnvelope, ReportedClaimStatus,
-    STATIC_CHECK_SCHEMA_V1, SourceClosureReceipt, SourceRefinementReceipt,
-    TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1, TRUSTED_TRANSCRIPTION_SCHEMA_V1,
-    Tier, TranscriptionRole, TreeState, canonical_json, domain_hash, raw_sha256,
+    RELEASE_ENVELOPE_SCHEMA_V3, RELEASE_ENVELOPE_SCHEMA_V4, RELEASE_ENVELOPE_SCHEMA_V5,
+    ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1, SourceClosureReceipt,
+    SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
+    TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole, TreeState, canonical_json,
+    domain_hash, raw_sha256,
     statement_wire::{LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding, statement_digest},
 };
 
@@ -95,6 +96,8 @@ pub enum VerificationIssueCode {
     PbObs0011,
     #[serde(rename = "PB-OBS-0012")]
     PbObs0012,
+    #[serde(rename = "PB-CTX-0008")]
+    PbCtx0008,
 }
 
 /// One portable verifier diagnostic.
@@ -192,6 +195,8 @@ pub struct VerificationReport {
     pub verdict: String,
     pub project: String,
     pub project_revision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_context: Option<String>,
     pub payload_sha256: String,
     pub publication_blocked: bool,
     pub claims: Vec<ReportedClaimStatus>,
@@ -235,7 +240,7 @@ pub fn verify_release_dir_with_observations(
     let (envelope, _) = read_canonical::<ReleaseEnvelope>(&envelope_path, MAX_ENVELOPE_BYTES)?;
     if !matches!(
         envelope.schema.as_str(),
-        RELEASE_ENVELOPE_SCHEMA_V3 | RELEASE_ENVELOPE_SCHEMA_V4
+        RELEASE_ENVELOPE_SCHEMA_V3 | RELEASE_ENVELOPE_SCHEMA_V4 | RELEASE_ENVELOPE_SCHEMA_V5
     ) {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
@@ -261,6 +266,7 @@ pub fn verify_release_dir_with_observations(
     let payload_domain = match release.schema.as_str() {
         COMPILED_RELEASE_SCHEMA_V3 => COMPILED_RELEASE_SCHEMA_V3,
         COMPILED_RELEASE_SCHEMA_V4 => COMPILED_RELEASE_SCHEMA_V4,
+        COMPILED_RELEASE_SCHEMA_V5 => COMPILED_RELEASE_SCHEMA_V5,
         _ => COMPILED_RELEASE_SCHEMA_V3,
     };
     let actual_payload = domain_hash(payload_domain, &payload_bytes);
@@ -277,10 +283,10 @@ pub fn verify_release_dir_with_observations(
         ));
     }
 
-    let expected_envelope = if release.schema == COMPILED_RELEASE_SCHEMA_V4 {
-        RELEASE_ENVELOPE_SCHEMA_V4
-    } else {
-        RELEASE_ENVELOPE_SCHEMA_V3
+    let expected_envelope = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
+        COMPILED_RELEASE_SCHEMA_V4 => RELEASE_ENVELOPE_SCHEMA_V4,
+        _ => RELEASE_ENVELOPE_SCHEMA_V3,
     };
     if envelope.schema != expected_envelope {
         return Err(VerificationErrors::one(
@@ -327,7 +333,7 @@ fn verify_compiled_release_internal(
     let mut issues = Vec::new();
     if !matches!(
         release.schema.as_str(),
-        COMPILED_RELEASE_SCHEMA_V3 | COMPILED_RELEASE_SCHEMA_V4
+        COMPILED_RELEASE_SCHEMA_V3 | COMPILED_RELEASE_SCHEMA_V4 | COMPILED_RELEASE_SCHEMA_V5
     ) {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
@@ -338,12 +344,32 @@ fn verify_compiled_release_internal(
         .evidence
         .iter()
         .any(|item| item.record.artifact_observation.is_some());
-    if (release.schema == COMPILED_RELEASE_SCHEMA_V4) != has_observations {
-        issues.push(VerificationIssue::new(
-            VerificationIssueCode::PbvSchema,
-            "compiled release v4 is required exactly when exact artifact observations are present",
-        ));
+    let valid_context = release
+        .evidence_context
+        .as_deref()
+        .is_some_and(valid_observation_role);
+    match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V3 if has_observations || release.evidence_context.is_some() => {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbvSchema,
+                "compiled release v3 cannot contain exact observations or an evidence context",
+            ));
+        }
+        COMPILED_RELEASE_SCHEMA_V4 if !has_observations || release.evidence_context.is_some() => {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbvSchema,
+                "compiled release v4 requires noncontextual exact observations",
+            ));
+        }
+        COMPILED_RELEASE_SCHEMA_V5 if !has_observations || !valid_context => {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbCtx0008,
+                "compiled release v5 requires exact observations and one canonical evidence context",
+            ));
+        }
+        _ => {}
     }
+    validate_evidence_context_bindings(release, &mut issues);
     if release.project.trim().is_empty() || release.project_revision.trim().is_empty() {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
@@ -489,7 +515,9 @@ fn verify_compiled_release_internal(
         })
         .collect();
     Ok(VerificationReport {
-        schema: if has_observations {
+        schema: if release.evidence_context.is_some() {
+            "proofbound-verification-report/3"
+        } else if has_observations {
             "proofbound-verification-report/2"
         } else {
             "proofbound-verification-report/1"
@@ -503,6 +531,7 @@ fn verify_compiled_release_internal(
         .into(),
         project: release.project.clone(),
         project_revision: release.project_revision.clone(),
+        evidence_context: release.evidence_context.clone(),
         payload_sha256: String::new(),
         publication_blocked: has_observations
             || recomputed.iter().any(|status| !status.policy_admitted),
@@ -620,6 +649,28 @@ fn validate_observation_bytes(
         Ok(all_observed)
     } else {
         Err(VerificationErrors::many(issues))
+    }
+}
+
+fn validate_evidence_context_bindings(
+    release: &CompiledRelease,
+    issues: &mut Vec<VerificationIssue>,
+) {
+    for evidence in &release.evidence {
+        let expected = if evidence.record.artifact_observation.is_some() {
+            release.evidence_context.as_deref()
+        } else {
+            None
+        };
+        if evidence.record.evidence_context.as_deref() != expected {
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbCtx0008,
+                    "portable evidence context does not match the release and observation shape",
+                )
+                .at(&evidence.sha256),
+            );
+        }
     }
 }
 

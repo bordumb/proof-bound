@@ -1,4 +1,4 @@
-//! Closed `proofbound-compiled-release/3` and `/4` receipt formats.
+//! Closed `proofbound-compiled-release/3`, `/4`, and `/5` receipt formats.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 
 pub const RELEASE_ENVELOPE_SCHEMA_V3: &str = "proofbound-release-envelope/3";
 pub const RELEASE_ENVELOPE_SCHEMA_V4: &str = "proofbound-release-envelope/4";
+pub const RELEASE_ENVELOPE_SCHEMA_V5: &str = "proofbound-release-envelope/5";
 pub const COMPILED_RELEASE_SCHEMA_V3: &str = "proofbound-compiled-release/3";
 pub const COMPILED_RELEASE_SCHEMA_V4: &str = "proofbound-compiled-release/4";
+pub const COMPILED_RELEASE_SCHEMA_V5: &str = "proofbound-compiled-release/5";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
@@ -45,6 +47,8 @@ pub struct CompiledRelease {
     pub schema: String,
     pub project: String,
     pub project_revision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_context: Option<String>,
     pub project_tier: Tier,
     pub tree_state: TreeState,
     pub graph: AssuranceGraph,
@@ -674,6 +678,8 @@ pub struct ClosureReference {
 #[serde(deny_unknown_fields)]
 pub struct EvidenceReceipt {
     pub schema: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_context: Option<String>,
     pub unit_id: String,
     pub node_id: String,
     pub kind: EvidenceKind,

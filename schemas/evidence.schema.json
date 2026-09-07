@@ -18,6 +18,7 @@
     "theorem": { "$ref": "#/$defs/theorem" },
     "artifact_binding": { "$ref": "#/$defs/artifactBinding" },
     "artifact_observation": { "$ref": "#/$defs/exactArtifactObservation" },
+    "evidence_context": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "trusted_transcription": { "$ref": "#/$defs/trustedTranscription" },
     "source_refinement": { "$ref": "#/$defs/sourceRefinement" },
     "bounded_check": { "$ref": "#/$defs/boundedCheck" },
@@ -36,7 +37,7 @@
   "allOf": [
     {
       "if": { "properties": { "schema": { "const": "proofbound-evidence/3" } }, "required": ["schema"] },
-      "then": { "not": { "required": ["artifact_observation"] } }
+      "then": { "not": { "anyOf": [{ "required": ["artifact_observation"] }, { "required": ["evidence_context"] }] } }
     },
     {
       "if": { "properties": { "schema": { "const": "proofbound-evidence/4" } }, "required": ["schema"] },

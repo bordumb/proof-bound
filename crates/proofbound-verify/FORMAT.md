@@ -1,4 +1,4 @@
-# Proofbound compiled release receipts v3 and v4
+# Proofbound compiled release receipts v3, v4, and v5
 
 This document is the handoff contract between a release producer and the
 standalone `proofbound-verify` binary. The authoritative field types are the
@@ -43,6 +43,7 @@ The domains are fixed:
 |---|---|
 | compiled payload | `proofbound-compiled-release/3` |
 | compiled payload with exact observations | `proofbound-compiled-release/4` |
+| compiled payload with context-bound exact observations | `proofbound-compiled-release/5` |
 | graph | `proofbound-graph/1` |
 | evidence record | `proofbound-evidence/3` |
 | evidence record with exact observation | `proofbound-evidence/4` |
@@ -58,13 +59,17 @@ the exact file bytes, still rendered as `sha256:<64 lowercase hex>`.
 
 The v3 payload schema is `proofbound-compiled-release/3`. Version 4 is selected
 exactly when at least one `proofbound-evidence/4` record carries a
-`proofbound-exact-artifact-observation/1` detail. Its envelope, compiled
-payload, evidence record, and verification report advance together; mixed
-versions fail closed. Both versions contain exactly:
+`proofbound-exact-artifact-observation/1` detail without an evidence context.
+Version 5 is selected for a contextual release and binds the same canonical
+`evidence_context` into the compiled payload and every exact-observation
+evidence record; non-observation evidence cannot carry a context. Its envelope,
+compiled payload, evidence record, and verification report advance together;
+mixed versions fail closed. All versions contain exactly:
 
 | Field | Meaning |
 |---|---|
 | `project`, `project_revision` | non-empty release identity |
+| `evidence_context` | v5-only reviewed context active for this release |
 | `project_tier` | integer `0`, `1`, `2`, or `3` |
 | `tree_state` | `clean` for a portable release |
 | `graph`, `graph_sha256` | complete typed graph and its domain hash |
@@ -288,10 +293,14 @@ The verifier rejects symlinks and hashes both byte streams itself. An exact
 identity is also byte-observed when its logical name, digest, and size match a
 validated `sealed_files` entry.
 
-For v3, exit `0` means receipt-consistent and policy-admitted. For v4,
+For v3, exit `0` means receipt-consistent and policy-admitted. For v4 and v5,
 `record-consistent` means the relation was independently reconstructed but at
 least one byte stream was unavailable, so publication remains blocked;
 `bytes-observed` means every artifact and procedure identity was recomputed.
+Version 5 additionally requires one canonical `evidence_context` on the
+release and every exact-observation evidence record. The verifier rejects
+context omission or mismatch and retains the context in verification report
+version 3. Context selection never changes a claim facet.
 Exit `3` means the
 receipt is internally consistent but at least one claim is blocked by policy.
 Exit `2` means malformed, tampered, structurally invalid, or inconsistent with

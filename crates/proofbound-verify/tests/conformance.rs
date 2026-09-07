@@ -273,6 +273,7 @@ fn base_release() -> CompiledRelease {
     };
     let test = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V3.into(),
+        evidence_context: None,
         unit_id: "unit:test".into(),
         node_id: "test:t".into(),
         kind: EvidenceKind::ExampleTest,
@@ -331,6 +332,7 @@ fn base_release() -> CompiledRelease {
         schema: COMPILED_RELEASE_SCHEMA_V3.into(),
         project: "synthetic".into(),
         project_revision: "rev-1".into(),
+        evidence_context: None,
         project_tier: Tier::Ledger,
         tree_state: TreeState::Clean,
         graph_sha256: graph_hash(&graph),
@@ -450,6 +452,48 @@ fn exact_observation_release() -> CompiledRelease {
     });
     release.graph_sha256 = graph_hash(&release.graph);
     release.reported_statuses[0].artifact_observations = vec![relation];
+    release
+}
+
+fn contextual_observation_release() -> CompiledRelease {
+    let mut release = exact_observation_release();
+    let context = "release-linux-x86-64".to_owned();
+    release.schema = COMPILED_RELEASE_SCHEMA_V5.into();
+    release.evidence_context = Some(context.clone());
+    let observation_index = release
+        .evidence
+        .iter()
+        .position(|item| item.record.artifact_observation.is_some())
+        .unwrap();
+    let old_evidence = release.evidence[observation_index].sha256.clone();
+    release.evidence[observation_index].record.evidence_context = Some(context);
+    let new_evidence = domain_hash(
+        EVIDENCE_SCHEMA_V4,
+        &canonical_json(&release.evidence[observation_index].record).unwrap(),
+    );
+    release.evidence[observation_index]
+        .sha256
+        .clone_from(&new_evidence);
+    release.claims[0].cited_evidence.remove(&old_evidence);
+    release.claims[0]
+        .cited_evidence
+        .insert(new_evidence.clone());
+    let relation = &mut release.reported_statuses[0].artifact_observations[0];
+    relation.evidence = new_evidence;
+    let material = serde_json::json!({
+        "evidence": relation.evidence,
+        "semantic_kind": relation.semantic_kind,
+        "subject_role": relation.subject_role,
+        "artifact": relation.artifact,
+        "platform": relation.platform,
+        "procedure": relation.procedure,
+        "toolchain_closure": relation.toolchain_closure,
+        "dependencies": relation.dependencies,
+    });
+    relation.identity = domain_hash(
+        EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1,
+        &canonical_json(&material).unwrap(),
+    );
     release
 }
 
@@ -682,6 +726,7 @@ fn theorem_release() -> CompiledRelease {
     let statement_wire = plain_statement("Synthetic.statement");
     let theorem = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V3.into(),
+        evidence_context: None,
         unit_id: "unit:theorem".into(),
         node_id: "theorem:t".into(),
         kind: EvidenceKind::Theorem,
@@ -899,6 +944,32 @@ fn valid_closed_receipt_is_consistent_in_memory_and_on_disk() {
 }
 
 #[test]
+fn contextual_release_v5_is_independently_bound_and_reported() {
+    let release = contextual_observation_release();
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.schema, "proofbound-verification-report/3");
+    assert_eq!(
+        report.evidence_context.as_deref(),
+        Some("release-linux-x86-64")
+    );
+
+    let mut omitted = release.clone();
+    omitted.evidence_context = None;
+    let error = verify_compiled_release(&omitted).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbCtx0008));
+
+    let mut substituted = release;
+    let observed = substituted
+        .evidence
+        .iter_mut()
+        .find(|item| item.record.artifact_observation.is_some())
+        .unwrap();
+    observed.record.evidence_context = Some("release-linux-aarch64".into());
+    let error = verify_compiled_release(&substituted).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbCtx0008));
+}
+
+#[test]
 fn exact_observation_is_independently_reconstructed_without_status_upgrade() {
     let release = exact_observation_release();
     let report = verify_compiled_release(&release).unwrap();
@@ -960,7 +1031,7 @@ fn exact_observation_is_independently_reconstructed_without_status_upgrade() {
 
     fs::write(procedure_path, b"tampered procedure").unwrap();
     let error = verify_release_dir_with_observations(directory.path(), &inputs).unwrap_err();
-    assert!(codes(&error).contains(&VerificationIssueCode::PbvDigest));
+    assert!(codes(&error).contains(&VerificationIssueCode::PbObs0007));
 
     let mut forged = release.clone();
     forged.reported_statuses[0].artifact_observations[0].identity = digest("forged relation");
@@ -1786,6 +1857,7 @@ fn unresolved_assumption_cannot_be_omitted_from_output() {
     ]);
     let review = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V3.into(),
+        evidence_context: None,
         unit_id: "unit:review".into(),
         node_id: "review:a".into(),
         kind: EvidenceKind::Review,
@@ -2018,6 +2090,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
     );
     let artifact = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V3.into(),
+        evidence_context: None,
         unit_id: "unit:artifact".into(),
         node_id: "artifact:a".into(),
         kind: EvidenceKind::ArtifactSoundness,
@@ -2051,6 +2124,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
     let transcription_inventory = trusted_transcription_inventory(&trusted_transcription);
     let transcription = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V3.into(),
+        evidence_context: None,
         unit_id: "unit:transcription".into(),
         node_id: "artifact:a".into(),
         kind: EvidenceKind::TrustedTranscription,
@@ -2123,6 +2197,7 @@ fn transcribed_release() -> CompiledRelease {
     let transcription_inventory = trusted_transcription_inventory(&detail);
     let transcription = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V3.into(),
+        evidence_context: None,
         unit_id: "unit:transcription".into(),
         node_id: "artifact:transcription".into(),
         kind: EvidenceKind::TrustedTranscription,
@@ -2905,6 +2980,7 @@ fn unit_scoped_transcription_tcb_roles_allow_distinct_drivers() {
     let second_inventory = trusted_transcription_inventory(&detail);
     let second = hash_evidence(EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V3.into(),
+        evidence_context: None,
         unit_id: "unit:transcription-two".into(),
         node_id: "artifact:transcription-two".into(),
         kind: EvidenceKind::TrustedTranscription,
@@ -3046,10 +3122,10 @@ fn tcb_ledger_rejects_duplicate_and_conflicting_components() {
 fn write_payload_at(directory: &Path, release: &CompiledRelease) {
     let payload = canonical_json(release).unwrap();
     fs::write(directory.join("compiled-receipt.json"), &payload).unwrap();
-    let envelope_schema = if release.schema == COMPILED_RELEASE_SCHEMA_V4 {
-        RELEASE_ENVELOPE_SCHEMA_V4
-    } else {
-        RELEASE_ENVELOPE_SCHEMA_V3
+    let envelope_schema = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
+        COMPILED_RELEASE_SCHEMA_V4 => RELEASE_ENVELOPE_SCHEMA_V4,
+        _ => RELEASE_ENVELOPE_SCHEMA_V3,
     };
     let envelope = ReleaseEnvelope {
         schema: envelope_schema.into(),
@@ -3206,6 +3282,7 @@ fn empty_raw_record(
 ) -> EvidenceReceipt {
     EvidenceReceipt {
         schema: EVIDENCE_SCHEMA_V3.into(),
+        evidence_context: None,
         unit_id: format!("unit:{}", raw.id),
         node_id,
         kind,
