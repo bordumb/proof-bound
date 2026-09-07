@@ -40,7 +40,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{adapter, closures, model::CompiledProject, model::UnitRun, safe_component};
 
-const COMPILED_SCHEMA: &str = "proofbound-compiled-project/3";
+const COMPILED_SCHEMA_V3: &str = "proofbound-compiled-project/3";
+const COMPILED_SCHEMA_V4: &str = "proofbound-compiled-project/4";
 const CLAIM_INPUT_DOMAIN: &str = "proofbound-claim-input/3";
 const EVIDENCE_DOMAIN: &str = "proofbound-evidence/3";
 const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
@@ -50,6 +51,7 @@ const MAX_CARGO_METADATA_OUTPUT: usize = 64 << 20;
 pub struct CheckOptions {
     pub claim: Option<String>,
     pub profile: Option<String>,
+    pub evidence_context: Option<String>,
     pub fresh: bool,
     pub reproduce_unit: Option<String>,
 }
@@ -76,12 +78,13 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
         ProjectBundle::load(root).context("PB-MANIFEST-0001: manifest validation failed")?;
     let identity = git_identity(root).context("PB-PROVENANCE-0001: git identity unavailable")?;
     let tier = Tier::try_from(bundle.project.tier).map_err(anyhow::Error::msg)?;
+    let evidence_context = effective_evidence_context(&bundle, options)?;
     let selected = select_claims(&bundle, options)?;
     let state_root = root.join(".proofbound");
     create_sealed_directories(&state_root)?;
     let store = ContentAddressedStore::new(state_root.join("evidence"));
 
-    let selected_units = select_units(&bundle, &selected, options)?;
+    let selected_units = select_units(&bundle, &selected, options, evidence_context.as_deref())?;
     let mut required_closure_claims = selected.iter().cloned().collect::<BTreeSet<_>>();
     for unit_id in &selected_units {
         required_closure_claims.extend(bundle.evidence_units[unit_id].1.claims.iter().cloned());
@@ -237,7 +240,14 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
     let mut statuses = Vec::new();
     let mut identities = BTreeMap::new();
     for claim_id in selected {
-        let input = compile_claim(&bundle, &claim_id, tier, &records, &closure_by_claim)?;
+        let input = compile_claim(
+            &bundle,
+            &claim_id,
+            tier,
+            &records,
+            &closure_by_claim,
+            evidence_context.as_deref(),
+        )?;
         let status = derive_claim_status(&input);
         let input_bytes = canonical_json(&input)?;
         let input_identity = domain_hash(CLAIM_INPUT_DOMAIN, &input_bytes);
@@ -256,9 +266,15 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
     runs.sort_by(|left, right| left.unit_id.cmp(&right.unit_id));
 
     let compiled = CompiledProject {
-        schema: COMPILED_SCHEMA.into(),
+        schema: if evidence_context.is_some() {
+            COMPILED_SCHEMA_V4
+        } else {
+            COMPILED_SCHEMA_V3
+        }
+        .into(),
         project: bundle.project.project,
         project_revision: identity.revision,
+        evidence_context,
         tree_state: identity.tree_state,
         reviewed_tree_sha256,
         generated_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
@@ -285,7 +301,12 @@ pub fn load_compiled(root: &Path) -> Result<CompiledProject> {
         bail!("PB-RECEIPT-0001: compiled result crosses an unsafe boundary");
     }
     let compiled: CompiledProject = serde_json::from_slice(&fs::read(&path)?)?;
-    if compiled.schema != COMPILED_SCHEMA {
+    if !matches!(
+        compiled.schema.as_str(),
+        COMPILED_SCHEMA_V3 | COMPILED_SCHEMA_V4
+    ) || (compiled.schema == COMPILED_SCHEMA_V3 && compiled.evidence_context.is_some())
+        || (compiled.schema == COMPILED_SCHEMA_V4 && compiled.evidence_context.is_none())
+    {
         bail!("PB-RECEIPT-0002: unsupported compiled-project schema");
     }
     validate_reviewed_tree_snapshot(root, &compiled.reviewed_tree_sha256)?;
@@ -549,9 +570,10 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         bail!("PB-RELEASE-0019: internal release-smoke claim is inadmissible");
     }
     let compiled = CompiledProject {
-        schema: COMPILED_SCHEMA.into(),
+        schema: COMPILED_SCHEMA_V3.into(),
         project: "proofbound-release-smoke".into(),
         project_revision: "proofbound-release-smoke-v1".into(),
+        evidence_context: None,
         tree_state: "clean".into(),
         reviewed_tree_sha256: sha256_bytes(b"proofbound-release-smoke-v1"),
         generated_at: "1970-01-01T00:00:00.000Z".into(),
@@ -1522,10 +1544,48 @@ fn select_claims(bundle: &ProjectBundle, options: &CheckOptions) -> Result<Vec<S
     Ok(claims)
 }
 
+fn effective_evidence_context(
+    bundle: &ProjectBundle,
+    options: &CheckOptions,
+) -> Result<Option<String>> {
+    let requested = if let Some(unit_id) = &options.reproduce_unit {
+        let (_, unit) = bundle
+            .evidence_units
+            .get(unit_id)
+            .with_context(|| format!("PB-UNIT-0001: unknown evidence unit {unit_id}"))?;
+        if options.evidence_context.is_some() && options.evidence_context != unit.context {
+            bail!("PB-CTX-0007: reproduction context differs from the unit registration");
+        }
+        unit.context
+            .clone()
+            .or_else(|| options.evidence_context.clone())
+    } else {
+        options.evidence_context.clone()
+    };
+    let Some(context) = requested else {
+        return Ok(None);
+    };
+    if options.claim.is_some() || options.profile.is_some() {
+        bail!("PB-CTX-0005: an evidence context requires a full-project check");
+    }
+    if !bundle.project.evidence_contexts.contains(&context) {
+        bail!("PB-CTX-0001: unknown evidence context {context}");
+    }
+    if !bundle
+        .evidence_units
+        .values()
+        .any(|(_, unit)| unit.context.as_deref() == Some(context.as_str()))
+    {
+        bail!("PB-CTX-0001: evidence context {context} owns no registered units");
+    }
+    Ok(Some(context))
+}
+
 fn select_units(
     bundle: &ProjectBundle,
     claims: &[String],
     options: &CheckOptions,
+    evidence_context: Option<&str>,
 ) -> Result<Vec<String>> {
     if let Some(unit) = &options.reproduce_unit {
         if !bundle.evidence_units.contains_key(unit) {
@@ -1537,7 +1597,13 @@ fn select_units(
     let mut units = bundle
         .evidence_units
         .iter()
-        .filter(|(_, (_, unit))| unit.claims.iter().any(|claim| selected.contains(claim)))
+        .filter(|(_, (_, unit))| {
+            unit.claims.iter().any(|claim| selected.contains(claim))
+                && unit
+                    .context
+                    .as_deref()
+                    .is_none_or(|context| Some(context) == evidence_context)
+        })
         .map(|(id, _)| id.clone())
         .collect::<Vec<_>>();
     units.sort();
@@ -3608,11 +3674,12 @@ fn compile_claim(
     tier: Tier,
     all_records: &[EvidenceRecord],
     closures: &BTreeMap<String, ClosureRecord>,
+    evidence_context: Option<&str>,
 ) -> Result<ClaimEvaluationInput> {
     let (_, manifest) = &bundle.claims[claim_id];
     let claim_id_typed = ClaimId::new(claim_id)?;
     let policy = resolve_policy(bundle, manifest)?;
-    let cited = cited_evidence_ids(manifest)?;
+    let cited = contextual_cited_evidence_ids(bundle, manifest, evidence_context)?;
     let assumption_ids = manifest
         .assumptions
         .iter()
@@ -3726,10 +3793,24 @@ fn compile_claim(
     })
 }
 
-fn cited_evidence_ids(manifest: &ClaimManifest) -> Result<BTreeSet<EvidenceId>> {
-    let mut cited = manifest
-        .evidence
-        .iter()
+fn contextual_cited_evidence_ids(
+    bundle: &ProjectBundle,
+    manifest: &ClaimManifest,
+    evidence_context: Option<&str>,
+) -> Result<BTreeSet<EvidenceId>> {
+    let active_references = manifest.evidence.iter().filter(|reference| {
+        let normalized = normalize_evidence_reference(reference);
+        bundle
+            .evidence_units
+            .iter()
+            .find(|(id, (_, unit))| canonical_reference(unit.kind, id) == normalized)
+            .is_none_or(|(_, (_, unit))| {
+                unit.context
+                    .as_deref()
+                    .is_none_or(|context| Some(context) == evidence_context)
+            })
+    });
+    let mut cited = active_references
         .map(|reference| EvidenceId::new(normalize_evidence_reference(reference)))
         .collect::<Result<BTreeSet<_>, _>>()?;
     // A registered premise carries reviewed representation/runtime meaning even
@@ -3738,6 +3819,19 @@ fn cited_evidence_ids(manifest: &ClaimManifest) -> Result<BTreeSet<EvidenceId>> 
     // part of the claim's explicit evidence closure. Otherwise a portable
     // release contains globally targeted review evidence that neither the graph
     // nor the claim cites, which the independent verifier correctly rejects.
+    for premise in &manifest.premises {
+        cited.insert(EvidenceId::new(format!("review:{premise}"))?);
+    }
+    Ok(cited)
+}
+
+#[cfg(test)]
+fn cited_evidence_ids(manifest: &ClaimManifest) -> Result<BTreeSet<EvidenceId>> {
+    let mut cited = manifest
+        .evidence
+        .iter()
+        .map(|reference| EvidenceId::new(normalize_evidence_reference(reference)))
+        .collect::<Result<BTreeSet<_>, _>>()?;
     for premise in &manifest.premises {
         cited.insert(EvidenceId::new(format!("review:{premise}"))?);
     }
@@ -6242,6 +6336,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn repository_bundle() -> ProjectBundle {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        ProjectBundle::load(&root).unwrap()
+    }
+
     fn policy_manifest(overrides: serde_json::Value) -> PolicyManifest {
         let mut value = json!({
             "schema": "proofbound-policy/1",
@@ -6271,6 +6370,61 @@ mod tests {
         assert_eq!(normalize_evidence_reference("kani:x"), "bounded-check:x");
         assert_eq!(normalize_evidence_reference("test:x"), "example-test:x");
         assert_eq!(normalize_evidence_reference("theorem:x"), "theorem:x");
+    }
+
+    #[test]
+    fn evidence_context_activation_is_exact_and_not_a_partial_check() {
+        let mut bundle = repository_bundle();
+        let context = "release-linux-x86-64".to_owned();
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec![context.clone()];
+        bundle.project.required_release_contexts = vec![context.clone()];
+        let (claim_id, reference) = {
+            let (_, unit) = bundle.evidence_units.get_mut("manifest-workspace").unwrap();
+            unit.context = Some(context.clone());
+            (
+                unit.claims[0].clone(),
+                EvidenceId::new(canonical_reference(unit.kind, &unit.id)).unwrap(),
+            )
+        };
+
+        let options = CheckOptions {
+            evidence_context: Some(context.clone()),
+            ..CheckOptions::default()
+        };
+        assert_eq!(
+            effective_evidence_context(&bundle, &options).unwrap(),
+            Some(context.clone())
+        );
+        let claims = select_claims(&bundle, &options).unwrap();
+        let base_units = select_units(&bundle, &claims, &CheckOptions::default(), None).unwrap();
+        assert!(!base_units.contains(&"manifest-workspace".to_owned()));
+        let context_units = select_units(&bundle, &claims, &options, Some(&context)).unwrap();
+        assert!(context_units.contains(&"manifest-workspace".to_owned()));
+
+        let claim = &bundle.claims[&claim_id].1;
+        assert!(
+            !contextual_cited_evidence_ids(&bundle, claim, None)
+                .unwrap()
+                .contains(&reference)
+        );
+        assert!(
+            contextual_cited_evidence_ids(&bundle, claim, Some(&context))
+                .unwrap()
+                .contains(&reference)
+        );
+
+        let partial = CheckOptions {
+            claim: Some(claim_id),
+            evidence_context: Some(context),
+            ..CheckOptions::default()
+        };
+        assert!(
+            effective_evidence_context(&bundle, &partial)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0005")
+        );
     }
 
     #[test]
@@ -8727,9 +8881,10 @@ description = {description:?}
         fs::write(temporary.path().join("reviewed.txt"), b"reviewed-v1").unwrap();
         let expected = sha256_bytes(&worktree_snapshot(temporary.path()).unwrap());
         let compiled = CompiledProject {
-            schema: COMPILED_SCHEMA.to_owned(),
+            schema: COMPILED_SCHEMA_V3.to_owned(),
             project: "freshness-fixture".to_owned(),
             project_revision: "fixture-revision".to_owned(),
+            evidence_context: None,
             tree_state: "dirty".to_owned(),
             reviewed_tree_sha256: expected,
             generated_at: "1970-01-01T00:00:00.000Z".to_owned(),
