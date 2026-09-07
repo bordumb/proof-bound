@@ -18,6 +18,8 @@ substitution, platform replay, assumption loss, status upgrade, and canonical
 relation identity substitution.
 
 `evidence-context-attacks.json` preregisters the reviewed activation boundary
-for ADR 0021. Its eight cases remain a falsifier contract until project schema,
-compiler selection, release enforcement, portable projection, and independent
-verification execute the inventory.
+for ADR 0021. The corpus is now executable across the manifest, compiler,
+release, and independent-verifier boundaries. Every registered mutation is
+loaded from the frozen JSON inventory and must produce its exact `PB-CTX-*`
+diagnostic; unknown corpus entries fail the tests until an explicit falsifier
+is added.

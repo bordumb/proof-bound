@@ -970,6 +970,62 @@ fn contextual_release_v5_is_independently_bound_and_reported() {
 }
 
 #[test]
+fn frozen_evidence_context_receipt_attack_rejects_with_registered_code() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../proofbound/conformance/v2/evidence-context-attacks.json");
+    let corpus: ObservationAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(corpus.schema, "proofbound-evidence-context-attacks/1");
+    assert_eq!(corpus.cases.len(), 8);
+    let mut seen = BTreeSet::new();
+    let mut executed = false;
+
+    for case in corpus.cases {
+        assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+        assert!(!case.mutation.trim().is_empty());
+        match case.id.as_str() {
+            "receipt-context-substitution" => {
+                executed = true;
+                let mut omitted = contextual_observation_release();
+                omitted.evidence_context = None;
+                let omission = verify_compiled_release(&omitted).unwrap_err();
+                let mut substituted = contextual_observation_release();
+                substituted
+                    .evidence
+                    .iter_mut()
+                    .find(|item| item.record.artifact_observation.is_some())
+                    .unwrap()
+                    .record
+                    .evidence_context = Some("release-linux-aarch64".into());
+                let substitution = verify_compiled_release(&substituted).unwrap_err();
+                for error in [&omission, &substitution] {
+                    let actual = error
+                        .issues
+                        .iter()
+                        .map(|issue| issue.code.to_string())
+                        .collect::<BTreeSet<_>>();
+                    assert!(
+                        actual.contains(&case.expected_code),
+                        "{} expected {}, received {:?}",
+                        case.id,
+                        case.expected_code,
+                        actual
+                    );
+                }
+            }
+            "unknown-context"
+            | "malformed-context"
+            | "unreviewed-manifest"
+            | "inactive-evidence-smuggling"
+            | "partial-context-check"
+            | "required-context-omission"
+            | "context-replay" => {}
+            unknown => panic!("unimplemented frozen context attack {unknown}"),
+        }
+    }
+    assert!(executed, "receipt-context-substitution was not executed");
+}
+
+#[test]
 fn exact_observation_is_independently_reconstructed_without_status_upgrade() {
     let release = exact_observation_release();
     let report = verify_compiled_release(&release).unwrap();

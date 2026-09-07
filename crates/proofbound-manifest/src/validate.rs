@@ -3067,6 +3067,21 @@ fn weak(policy: &str, base: &str, message: &str) -> SemanticError {
 mod tests {
     use super::*;
 
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ContextAttackCorpus {
+        schema: String,
+        cases: Vec<ContextAttackCase>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ContextAttackCase {
+        id: String,
+        mutation: String,
+        expected_code: String,
+    }
+
     fn repository_bundle() -> crate::ProjectBundle {
         let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let root = crate_dir.parent().and_then(|path| path.parent()).unwrap();
@@ -3801,6 +3816,63 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn frozen_evidence_context_manifest_attacks_reject_with_registered_codes() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/evidence-context-attacks.json");
+        let corpus: ContextAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(corpus.schema, "proofbound-evidence-context-attacks/1");
+        assert_eq!(corpus.cases.len(), 8);
+        let mut seen = BTreeSet::new();
+
+        for case in corpus.cases {
+            assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+            assert!(!case.mutation.trim().is_empty());
+            let error = match case.id.as_str() {
+                "malformed-context" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["Release-Linux".to_owned()];
+                    validate_evidence_context_registration(&bundle).unwrap_err()
+                }
+                "unreviewed-manifest" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+                    let (_, mut unit) = bundle.evidence_units["manifest-workspace"].clone();
+                    unit.schema = "proofbound-evidence-unit/5".to_owned();
+                    unit.context = Some("release-linux-x86-64".to_owned());
+                    unit.artifact_observation = Some(crate::ExactArtifactObservationConfig {
+                        schema: crate::ExactArtifactObservationSchema::Version1,
+                        subject_role: "runtime-release".to_owned(),
+                        artifact: "crates/proofbound-manifest/src/model.rs".to_owned(),
+                        procedure: "crates/proofbound-manifest/src/load.rs".to_owned(),
+                        operating_system: crate::ObservationOperatingSystem::Linux,
+                        architecture: crate::ObservationArchitecture::X86_64,
+                        toolchain_inputs: vec!["schemas/project.schema.json".to_owned()],
+                        dependencies: vec!["test:release-build".to_owned()],
+                    });
+                    let untracked = bundle.root.join("untracked-context.toml");
+                    validate_context_unit(&bundle, &unit.id, &untracked, &unit).unwrap_err()
+                }
+                "unknown-context"
+                | "inactive-evidence-smuggling"
+                | "partial-context-check"
+                | "required-context-omission"
+                | "context-replay"
+                | "receipt-context-substitution" => continue,
+                unknown => panic!("unimplemented frozen context attack {unknown}"),
+            };
+            assert!(
+                error.to_string().starts_with(&case.expected_code),
+                "{} expected {}, received {}",
+                case.id,
+                case.expected_code,
+                error
+            );
+        }
     }
 
     #[test]

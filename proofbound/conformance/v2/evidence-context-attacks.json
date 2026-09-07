@@ -38,7 +38,7 @@
     },
     {
       "id": "receipt-context-substitution",
-      "mutation": "change or omit the selected context in a version 4 portable receipt",
+      "mutation": "change or omit the selected context in a version 5 portable receipt",
       "expected_code": "PB-CTX-0008"
     }
   ]

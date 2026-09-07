@@ -6412,9 +6412,46 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ContextAttackCorpus {
+        schema: String,
+        cases: Vec<ContextAttackCase>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ContextAttackCase {
+        id: String,
+        mutation: String,
+        expected_code: String,
+    }
+
     fn repository_bundle() -> ProjectBundle {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         ProjectBundle::load(&root).unwrap()
+    }
+
+    fn empty_context_compiled(evidence_context: Option<&str>) -> CompiledProject {
+        CompiledProject {
+            schema: if evidence_context.is_some() {
+                COMPILED_SCHEMA_V4.to_owned()
+            } else {
+                COMPILED_SCHEMA_V3.to_owned()
+            },
+            project: "context-fixture".to_owned(),
+            project_revision: "fixture-revision".to_owned(),
+            evidence_context: evidence_context.map(str::to_owned),
+            tree_state: "clean".to_owned(),
+            reviewed_tree_sha256: sha256_bytes(b"fixture"),
+            generated_at: "1970-01-01T00:00:00.000Z".to_owned(),
+            inputs: Vec::new(),
+            statuses: Vec::new(),
+            evidence: Vec::new(),
+            closures: Vec::new(),
+            unit_runs: Vec::new(),
+            claim_input_identities: BTreeMap::new(),
+        }
     }
 
     fn policy_manifest(overrides: serde_json::Value) -> PolicyManifest {
@@ -6583,6 +6620,110 @@ mod tests {
                 .to_string()
                 .contains("PB-CTX-0004")
         );
+    }
+
+    #[test]
+    fn frozen_evidence_context_compiler_attacks_reject_with_registered_codes() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/evidence-context-attacks.json");
+        let corpus: ContextAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(corpus.schema, "proofbound-evidence-context-attacks/1");
+        assert_eq!(corpus.cases.len(), 8);
+        let mut seen = BTreeSet::new();
+
+        for case in corpus.cases {
+            assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+            assert!(!case.mutation.trim().is_empty());
+            let error = match case.id.as_str() {
+                "unknown-context" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+                    effective_evidence_context(
+                        &bundle,
+                        &CheckOptions {
+                            evidence_context: Some("release-linux-riscv64".to_owned()),
+                            ..CheckOptions::default()
+                        },
+                    )
+                    .unwrap_err()
+                }
+                "inactive-evidence-smuggling" => {
+                    let mut bundle = repository_bundle();
+                    let active = "release-linux-x86-64".to_owned();
+                    let inactive = "release-linux-aarch64".to_owned();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec![inactive.clone(), active.clone()];
+                    bundle.project.required_release_contexts =
+                        bundle.project.evidence_contexts.clone();
+                    bundle
+                        .evidence_units
+                        .get_mut("manifest-workspace")
+                        .unwrap()
+                        .1
+                        .context = Some(active.clone());
+                    let (path, mut unit) = bundle.evidence_units["manifest-workspace"].clone();
+                    unit.id = "inactive-context".to_owned();
+                    unit.context = Some(inactive);
+                    bundle.evidence_units.insert(unit.id.clone(), (path, unit));
+                    let mut compiled = empty_context_compiled(Some(&active));
+                    let mut record: EvidenceRecord =
+                        serde_json::from_value(direct_example_record_value(vec![
+                            "inactive-context",
+                        ]))
+                        .unwrap();
+                    record.unit_id = UnitId::new("unit:inactive-context").unwrap();
+                    compiled.evidence.push(record);
+                    validate_release_evidence_context(&bundle, &compiled).unwrap_err()
+                }
+                "partial-context-check" => {
+                    let mut bundle = repository_bundle();
+                    let context = "release-linux-x86-64".to_owned();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec![context.clone()];
+                    effective_evidence_context(
+                        &bundle,
+                        &CheckOptions {
+                            claim: Some(bundle.claims.keys().next().unwrap().clone()),
+                            evidence_context: Some(context),
+                            ..CheckOptions::default()
+                        },
+                    )
+                    .unwrap_err()
+                }
+                "required-context-omission" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+                    bundle.project.required_release_contexts =
+                        bundle.project.evidence_contexts.clone();
+                    validate_release_evidence_context(&bundle, &empty_context_compiled(None))
+                        .unwrap_err()
+                }
+                "context-replay" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+                    validate_release_evidence_context(
+                        &bundle,
+                        &empty_context_compiled(Some("release-linux-riscv64")),
+                    )
+                    .unwrap_err()
+                }
+                "malformed-context" | "unreviewed-manifest" | "receipt-context-substitution" => {
+                    continue;
+                }
+                unknown => panic!("unimplemented frozen context attack {unknown}"),
+            };
+            let actual = error.to_string();
+            assert!(
+                actual.starts_with(&case.expected_code),
+                "{} expected {}, received {}",
+                case.id,
+                case.expected_code,
+                actual
+            );
+        }
     }
 
     #[test]
