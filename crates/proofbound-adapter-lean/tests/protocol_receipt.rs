@@ -83,6 +83,7 @@ fn request() -> AdapterRequest {
             mutation: None,
             property: None,
             distribution: None,
+            artifact_observation: None,
             resource_budget: ResourceBudget {
                 time_seconds: 10,
                 disk_bytes: 1 << 20,

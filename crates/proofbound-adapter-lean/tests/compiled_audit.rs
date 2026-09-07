@@ -74,6 +74,7 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
             mutation: None,
             property: None,
             distribution: None,
+            artifact_observation: None,
             resource_budget: ResourceBudget {
                 time_seconds: 60,
                 disk_bytes: 256 << 20,

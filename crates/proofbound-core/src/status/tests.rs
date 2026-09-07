@@ -493,6 +493,7 @@ fn example_record(id: &str) -> EvidenceRecord {
 }
 
 fn attach_artifact_observation(record: &mut EvidenceRecord, dependency: EvidenceId) {
+    record.schema = crate::EVIDENCE_SCHEMA_V4.into();
     let artifact = named_artifact("release/runtime.tar.zst", "runtime-release", 4096);
     let procedure = named_artifact("tools/ci/native-linux.sh", "native-procedure", 512);
     let toolchain_closure = ClosureIdentity {

@@ -1130,7 +1130,9 @@ fn validate_unit(
             ));
         }
     };
-    let expected_schema = if unit.kind == EvidenceKind::MutationWitness {
+    let expected_schema = if unit.artifact_observation.is_some() {
+        "proofbound-evidence-unit/5"
+    } else if unit.kind == EvidenceKind::MutationWitness {
         "proofbound-evidence-unit/3"
     } else if flavor == TestFlavor::TrustedTranscription {
         "proofbound-evidence-unit/2"

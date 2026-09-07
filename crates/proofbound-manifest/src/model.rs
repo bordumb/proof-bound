@@ -218,7 +218,44 @@ pub struct EvidenceUnitManifest {
     pub property: Option<PythonPropertyConfig>,
     #[serde(default)]
     pub distribution: Option<DistributionReproductionConfig>,
+    #[serde(default)]
+    pub artifact_observation: Option<ExactArtifactObservationConfig>,
     pub resource_budget: ResourceBudget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExactArtifactObservationConfig {
+    pub schema: ExactArtifactObservationSchema,
+    pub subject_role: String,
+    pub artifact: String,
+    pub procedure: String,
+    pub operating_system: ObservationOperatingSystem,
+    pub architecture: ObservationArchitecture,
+    pub toolchain_inputs: Vec<String>,
+    pub dependencies: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExactArtifactObservationSchema {
+    #[serde(rename = "proofbound-exact-artifact-observation/1")]
+    Version1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationOperatingSystem {
+    Linux,
+    Macos,
+    Windows,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationArchitecture {
+    #[serde(rename = "x86_64")]
+    X86_64,
+    Aarch64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -512,6 +512,7 @@ fn validate_evidence_schema(
             if unit.transcription.is_none()
                 && unit.mutation.is_none()
                 && unit.distribution.is_none()
+                && unit.artifact_observation.is_none()
                 && unit.adapter != AdapterKind::TrustedTranscription
                 && unit.kind != EvidenceKind::TrustedTranscription
                 && unit.kind != EvidenceKind::MutationWitness
@@ -522,6 +523,7 @@ fn validate_evidence_schema(
         "proofbound-evidence-unit/2"
             if unit.transcription.is_some()
                 && unit.mutation.is_none()
+                && unit.artifact_observation.is_none()
                 && unit.adapter == AdapterKind::TrustedTranscription
                 && unit.kind == EvidenceKind::TrustedTranscription
                 && unit.operation.kind == OperationKind::Transcription =>
@@ -531,6 +533,7 @@ fn validate_evidence_schema(
         "proofbound-evidence-unit/3"
             if unit.transcription.is_none()
                 && unit.mutation.is_some()
+                && unit.artifact_observation.is_none()
                 && unit.kind == EvidenceKind::MutationWitness
                 && matches!(
                     (unit.adapter, unit.operation.kind),
@@ -546,6 +549,7 @@ fn validate_evidence_schema(
                 && unit.mutation.is_none()
                 && unit.property.is_none()
                 && unit.distribution.is_some()
+                && unit.artifact_observation.is_none()
                 && unit.kind == EvidenceKind::ExampleTest
                 && matches!(
                     (unit.adapter, unit.operation.kind),
@@ -555,19 +559,30 @@ fn validate_evidence_schema(
         {
             Ok(())
         }
+        "proofbound-evidence-unit/5"
+            if unit.transcription.is_none()
+                && unit.mutation.is_none()
+                && unit.distribution.is_none()
+                && unit.artifact_observation.is_some()
+                && unit.adapter == AdapterKind::RustTest
+                && unit.kind == EvidenceKind::ExampleTest
+                && unit.operation.kind == OperationKind::CargoTest =>
+        {
+            Ok(())
+        }
         "proofbound-evidence-unit/1"
         | "proofbound-evidence-unit/2"
         | "proofbound-evidence-unit/3"
-        | "proofbound-evidence-unit/4" => {
-            Err(SemanticError::EvidenceQualifier {
-                unit: unit.id.clone(),
-                message: "evidence-unit/1 excludes trusted transcription, mutation replay, and distribution reproduction; evidence-unit/2 is reserved for typed trusted transcription; evidence-unit/3 is reserved for typed singleton mutation replay; evidence-unit/4 is reserved for typed distribution reproduction"
+        | "proofbound-evidence-unit/4"
+        | "proofbound-evidence-unit/5" => Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message:
+                "each versioned evidence-unit schema admits only its closed typed qualifier family"
                     .to_owned(),
-            })
-        }
+        }),
         _ => Err(SemanticError::Schema {
             path: path.to_owned(),
-            expected: "proofbound-evidence-unit/1, proofbound-evidence-unit/2, proofbound-evidence-unit/3, or proofbound-evidence-unit/4",
+            expected: "proofbound-evidence-unit/1 through proofbound-evidence-unit/5",
             actual: unit.schema.clone(),
         }),
     }
@@ -693,7 +708,82 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
     validate_python_property_qualifiers(unit)?;
     validate_static_check_qualifiers(unit)?;
     validate_distribution_qualifiers(unit)?;
+    validate_artifact_observation_qualifiers(unit)?;
     validate_node_qualifiers(unit)?;
+    Ok(())
+}
+
+fn validate_artifact_observation_qualifiers(
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    let Some(observation) = &unit.artifact_observation else {
+        if unit.schema == "proofbound-evidence-unit/5" {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: unit.id.clone(),
+                message: "evidence-unit/5 requires [artifact_observation]".to_owned(),
+            });
+        }
+        return Ok(());
+    };
+    let role_valid = !observation.subject_role.is_empty()
+        && observation.subject_role.len() <= 128
+        && observation.subject_role.as_bytes()[0].is_ascii_lowercase()
+        && observation.subject_role.split('-').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        });
+    let mut selectors = vec![
+        observation.artifact.as_str(),
+        observation.procedure.as_str(),
+    ];
+    selectors.extend(observation.toolchain_inputs.iter().map(String::as_str));
+    let selectors_unique =
+        selectors.iter().copied().collect::<BTreeSet<_>>().len() == selectors.len();
+    let dependencies_unique = observation
+        .dependencies
+        .iter()
+        .collect::<BTreeSet<_>>()
+        .len()
+        == observation.dependencies.len();
+    if unit.schema != "proofbound-evidence-unit/5"
+        || unit.adapter != AdapterKind::RustTest
+        || unit.kind != EvidenceKind::ExampleTest
+        || unit.operation.kind != OperationKind::CargoTest
+        || !role_valid
+        || observation.toolchain_inputs.is_empty()
+        || observation.toolchain_inputs.len() > 256
+        || observation.dependencies.is_empty()
+        || observation.dependencies.len() > 4096
+        || !selectors_unique
+        || !dependencies_unique
+        || selectors
+            .iter()
+            .any(|selector| !unit.inputs.iter().any(|input| input == selector))
+        || observation.dependencies.iter().any(|dependency| {
+            dependency.is_empty()
+                || dependency.len() > 255
+                || !dependency.as_bytes()[0].is_ascii_alphanumeric()
+                || !dependency
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_.:/-".contains(&byte))
+        })
+        || unit.evaluation_mode.is_some()
+        || unit.binding_mode.is_some()
+        || unit.theorem.is_some()
+        || unit.refinement_theorem.is_some()
+        || unit.bounded_domain.is_some()
+        || unit.transcription.is_some()
+        || unit.mutation.is_some()
+        || unit.property.is_some()
+        || unit.distribution.is_some()
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "evidence-unit/5 must register one closed Rust exact-artifact observation with distinct input selectors, a nonempty toolchain closure, and typed dependencies".to_owned(),
+        });
+    }
     Ok(())
 }
 
@@ -3518,6 +3608,7 @@ mod tests {
             mutation: None,
             property: None,
             distribution: None,
+            artifact_observation: None,
             resource_budget: crate::ResourceBudget {
                 time_seconds: 1,
                 disk_bytes: 1,
@@ -3525,6 +3616,41 @@ mod tests {
             },
         };
         assert!(validate_unit_qualifiers(&unit).is_err());
+    }
+
+    #[test]
+    fn exact_artifact_observation_v5_is_closed_and_input_bound() {
+        let bundle = repository_bundle();
+        let mut unit = bundle.evidence_units["manifest-workspace"].1.clone();
+        unit.schema = "proofbound-evidence-unit/5".to_owned();
+        unit.artifact_observation = Some(crate::ExactArtifactObservationConfig {
+            schema: crate::ExactArtifactObservationSchema::Version1,
+            subject_role: "runtime-release".to_owned(),
+            artifact: "crates/proofbound-manifest/src/model.rs".to_owned(),
+            procedure: "crates/proofbound-manifest/src/load.rs".to_owned(),
+            operating_system: crate::ObservationOperatingSystem::Linux,
+            architecture: crate::ObservationArchitecture::X86_64,
+            toolchain_inputs: vec!["schemas/project.schema.json".to_owned()],
+            dependencies: vec!["test:release-build".to_owned()],
+        });
+        validate_unit_qualifiers(&unit).unwrap();
+        validate_evidence_schema(Path::new("observation.toml"), &unit).unwrap();
+
+        let mut missing_input = unit.clone();
+        missing_input.inputs.pop();
+        assert!(validate_unit_qualifiers(&missing_input).is_err());
+
+        let mut aliased_role = unit.clone();
+        aliased_role
+            .artifact_observation
+            .as_mut()
+            .unwrap()
+            .procedure = "crates/proofbound-manifest/src/model.rs".to_owned();
+        assert!(validate_unit_qualifiers(&aliased_role).is_err());
+
+        let mut legacy = unit;
+        legacy.schema = "proofbound-evidence-unit/1".to_owned();
+        assert!(validate_unit_qualifiers(&legacy).is_err());
     }
 
     #[test]

@@ -23,6 +23,7 @@ pub const EVIDENCE_SCHEMA_V1: &str = "proofbound-evidence/1";
 /// Superseded version-2 evidence schema retained for explicit migration errors.
 pub const EVIDENCE_SCHEMA_V2: &str = "proofbound-evidence/2";
 pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
+pub const EVIDENCE_SCHEMA_V4: &str = "proofbound-evidence/4";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcription/1";
 pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
@@ -760,6 +761,7 @@ pub enum ObservationOperatingSystem {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ObservationArchitecture {
+    #[serde(rename = "x86_64")]
     X86_64,
     Aarch64,
 }
@@ -1267,16 +1269,21 @@ impl EvidenceRecord {
                 .for_unit(self.unit_id.clone())
         };
 
-        if self.schema != EVIDENCE_SCHEMA_V3 {
+        let expected_schema = if self.artifact_observation.is_some() {
+            EVIDENCE_SCHEMA_V4
+        } else {
+            EVIDENCE_SCHEMA_V3
+        };
+        if self.schema != expected_schema {
             errors.push(
                 StructuredError::new(
                     ErrorCode::PbCoreUnsupportedSchema,
                     format!("unsupported evidence schema '{}'", self.schema),
-                    "migrate the evidence record to proofbound-evidence/3",
+                    format!("migrate the evidence record to {expected_schema}"),
                 )
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
-                .identities(EVIDENCE_SCHEMA_V3, &self.schema),
+                .identities(expected_schema, &self.schema),
             );
         }
         if !self.claims.contains(claim_id) {

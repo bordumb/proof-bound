@@ -10,18 +10,20 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::{SecondsFormat, Utc};
 use proofbound_core::{
     AdapterStrength, ArtifactBindingEvidence, ArtifactIdentity, ArtifactLogicalName,
-    AssumptionCategory, AssumptionId, AssumptionRecord, AssumptionStatus, AssuranceGraph,
-    BoundedCheckEvidence, BoundedDomain, BuiltInProfile, CacheOrigin, ClaimDefinition,
-    ClaimEvaluationInput, ClaimId, ClosureIdentity, CommandSpec, DistributionReproductionEvidence,
-    EdgeKind, EnvironmentVariable, EnvironmentVariableName, EvidenceId, EvidenceKind,
-    EvidenceProvenance, EvidenceRecord, EvidenceStatus, ExecutionKind, ExecutionRun,
-    ExpectedFailure, FlowScope, GraphEdge, GraphNode, IndependenceMode, LinkageFacet,
-    MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind, ObligationId, OpenObligation,
-    OutOfScope, PolicyDefinition, PolicyId, PremiseDischarge, PremiseId, PremiseRecord,
-    PythonPluginEvidence, PythonPropertyEvidence, ResourceBudget, ResourceUsage, Sha256Digest,
-    SourceRefinementEvidence, StaticCheckEvidence, TRANSCRIPTION_DRIVER_ABI_V1, Tier, ToolIdentity,
-    TranscriptionRole, TranscriptionTcbRole, TreeState, TrustedTranscriptionEvidence, UnitId,
-    derive_claim_status, transcription_role_identity,
+    ArtifactObservationPlatform, ArtifactObservationRole, AssumptionCategory, AssumptionId,
+    AssumptionRecord, AssumptionStatus, AssuranceGraph, BoundedCheckEvidence, BoundedDomain,
+    BuiltInProfile, CacheOrigin, ClaimDefinition, ClaimEvaluationInput, ClaimId, ClosureIdentity,
+    CommandSpec, DistributionReproductionEvidence, EdgeKind, EnvironmentVariable,
+    EnvironmentVariableName, EvidenceId, EvidenceKind, EvidenceProvenance, EvidenceRecord,
+    EvidenceStatus, ExactArtifactObservationEvidence, ExecutionKind, ExecutionRun, ExpectedFailure,
+    FlowScope, GraphEdge, GraphNode, IndependenceMode, LinkageFacet, MutationWitnessEvidence,
+    NativePremiseRule, NodeId, NodeKind, ObligationId, ObservationArchitecture,
+    ObservationOperatingSystem, OpenObligation, OutOfScope, PolicyDefinition, PolicyId,
+    PremiseDischarge, PremiseId, PremiseRecord, PythonPluginEvidence, PythonPropertyEvidence,
+    ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence, StaticCheckEvidence,
+    TRANSCRIPTION_DRIVER_ABI_V1, Tier, ToolIdentity, TranscriptionRole, TranscriptionTcbRole,
+    TreeState, TrustedTranscriptionEvidence, UnitId, derive_claim_status,
+    transcription_role_identity,
 };
 use proofbound_evidence::{
     ClosureMember, ClosureRecord, ContentAddressedStore, canonical_json, domain_hash, git_identity,
@@ -2809,7 +2811,7 @@ fn observation_to_record(
         &closure_ids.iter().collect::<BTreeSet<_>>(),
     )?);
     let execution_identity = git_identity(root)?;
-    let provenance = EvidenceProvenance {
+    let mut provenance = EvidenceProvenance {
         project_revision: execution_identity.revision,
         tree_state: match execution_identity.tree_state.as_str() {
             "clean" => TreeState::Clean,
@@ -2853,8 +2855,13 @@ fn observation_to_record(
         prior_receipt_sha256: None,
         python_plugins,
     };
+    let artifact_observation = core_exact_artifact_observation(unit, &mut provenance)?;
     Ok(EvidenceRecord {
-        schema: EVIDENCE_DOMAIN.into(),
+        schema: if artifact_observation.is_some() {
+            proofbound_core::EVIDENCE_SCHEMA_V4.into()
+        } else {
+            EVIDENCE_DOMAIN.into()
+        },
         id: evidence_id.clone(),
         node_id: NodeId::new(format!("evidence:{evidence_id}"))?,
         unit_id: UnitId::new(format!("unit:{}", unit.id))?,
@@ -2874,7 +2881,7 @@ fn observation_to_record(
         }),
         theorem: None,
         artifact_binding,
-        artifact_observation: None,
+        artifact_observation,
         trusted_transcription,
         source_refinement,
         bounded_check,
@@ -2891,6 +2898,81 @@ fn observation_to_record(
         open_obligation: None,
         provenance,
     })
+}
+
+fn core_exact_artifact_observation(
+    unit: &EvidenceUnitManifest,
+    provenance: &mut EvidenceProvenance,
+) -> Result<Option<ExactArtifactObservationEvidence>> {
+    let Some(config) = &unit.artifact_observation else {
+        return Ok(None);
+    };
+    let select = |logical_name: &str| -> Result<ArtifactIdentity> {
+        let mut matches = provenance
+            .input_artifacts
+            .iter()
+            .filter(|artifact| artifact.logical_name.as_str() == logical_name);
+        let artifact = matches.next().with_context(|| {
+            format!("PB-OBS-0001: registered input {logical_name:?} was not observed")
+        })?;
+        if matches.next().is_some() {
+            bail!("PB-OBS-0003: registered input role {logical_name:?} is ambiguous");
+        }
+        Ok(artifact.clone())
+    };
+    let artifact = select(&config.artifact)?;
+    let procedure =
+        select(&config.procedure).context("PB-OBS-0006: observation procedure was not observed")?;
+    let mut toolchain_artifacts = config
+        .toolchain_inputs
+        .iter()
+        .map(|logical_name| select(logical_name))
+        .collect::<Result<Vec<_>>>()?;
+    toolchain_artifacts.sort_by(|left, right| left.logical_name.cmp(&right.logical_name));
+    let canonical = canonical_json(&toolchain_artifacts)?;
+    let domain = b"proofbound-observation-toolchain-closure/1\0";
+    let mut framed = Vec::with_capacity(domain.len() + canonical.len());
+    framed.extend_from_slice(domain);
+    framed.extend_from_slice(&canonical);
+    let toolchain_closure = ClosureIdentity {
+        kind: proofbound_core::ClosureKind::Toolchain,
+        sha256: Sha256Digest::of_bytes(framed),
+    };
+    provenance
+        .additional_closures
+        .push(toolchain_closure.clone());
+    provenance.additional_closures.sort_by(|left, right| {
+        left.kind
+            .cmp(&right.kind)
+            .then(left.sha256.cmp(&right.sha256))
+    });
+    let operating_system = match config.operating_system {
+        proofbound_manifest::ObservationOperatingSystem::Linux => ObservationOperatingSystem::Linux,
+        proofbound_manifest::ObservationOperatingSystem::Macos => ObservationOperatingSystem::Macos,
+        proofbound_manifest::ObservationOperatingSystem::Windows => {
+            ObservationOperatingSystem::Windows
+        }
+    };
+    let architecture = match config.architecture {
+        proofbound_manifest::ObservationArchitecture::X86_64 => ObservationArchitecture::X86_64,
+        proofbound_manifest::ObservationArchitecture::Aarch64 => ObservationArchitecture::Aarch64,
+    };
+    Ok(Some(ExactArtifactObservationEvidence {
+        schema: proofbound_core::EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1.into(),
+        subject_role: ArtifactObservationRole::new(config.subject_role.clone())?,
+        artifact,
+        platform: ArtifactObservationPlatform {
+            operating_system,
+            architecture,
+        },
+        procedure,
+        toolchain_closure,
+        dependencies: config
+            .dependencies
+            .iter()
+            .map(|dependency| EvidenceId::new(dependency.clone()))
+            .collect::<Result<_, _>>()?,
+    }))
 }
 
 fn core_artifact(value: ArtifactObservation) -> Result<ArtifactIdentity> {
@@ -3672,6 +3754,21 @@ fn graph_for_claim(
                 claim.node_id.clone(),
                 evidence_edge_kind(record.kind),
             ));
+        }
+        if let Some(observation) = &record.artifact_observation {
+            for dependency in &observation.dependencies {
+                let dependency_record = evidence.iter().find(|item| &item.id == dependency).with_context(|| {
+                    format!(
+                        "PB-OBS-0009: observation '{}' dependency '{}' is absent from the claim closure",
+                        record.id, dependency
+                    )
+                })?;
+                edge_specs.push((
+                    record.node_id.clone(),
+                    dependency_record.node_id.clone(),
+                    EdgeKind::DependsOn,
+                ));
+            }
         }
     }
     for assumption in assumptions {
@@ -8011,6 +8108,73 @@ description = {description:?}
                 "cache_origin": "executed"
             }
         })
+    }
+
+    #[test]
+    fn exact_artifact_observation_is_derived_from_registered_input_bytes() {
+        let unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/5",
+            "id": "native-release",
+            "adapter": "rust-test",
+            "kind": "example-test",
+            "claims": ["CLAIM-ONE"],
+            "tier": 0,
+            "operation": {"type": "cargo-test", "package": "subject"},
+            "expected_inventory": ["native_release"],
+            "inputs": ["dist/runtime.tar.zst", "tools/native.sh", "rust-toolchain.toml"],
+            "outputs": [],
+            "environment_allowlist": [],
+            "artifact_observation": {
+                "schema": "proofbound-exact-artifact-observation/1",
+                "subject_role": "runtime-release",
+                "artifact": "dist/runtime.tar.zst",
+                "procedure": "tools/native.sh",
+                "operating_system": "linux",
+                "architecture": "x86_64",
+                "toolchain_inputs": ["rust-toolchain.toml"],
+                "dependencies": ["test:release-build"]
+            },
+            "resource_budget": {"time_seconds": 1, "disk_bytes": 1, "memory_bytes": 1}
+        }))
+        .unwrap();
+        let mut record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["native_release"])).unwrap();
+        let artifact = |logical_name: &str, bytes: &[u8]| ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new(logical_name).unwrap(),
+            sha256: Sha256Digest::of_bytes(bytes),
+            size_bytes: bytes.len() as u64,
+        };
+        record.provenance.input_artifacts = vec![
+            artifact("dist/runtime.tar.zst", b"runtime"),
+            artifact("tools/native.sh", b"procedure"),
+            artifact("rust-toolchain.toml", b"toolchain"),
+        ];
+
+        let observation = core_exact_artifact_observation(&unit, &mut record.provenance)
+            .unwrap()
+            .unwrap();
+        assert_eq!(observation.subject_role.as_str(), "runtime-release");
+        assert_eq!(
+            observation.artifact.sha256,
+            Sha256Digest::of_bytes(b"runtime")
+        );
+        assert_eq!(
+            observation.procedure.sha256,
+            Sha256Digest::of_bytes(b"procedure")
+        );
+        assert_eq!(
+            observation.toolchain_closure.kind,
+            proofbound_core::ClosureKind::Toolchain
+        );
+        assert_eq!(
+            record
+                .provenance
+                .additional_closures
+                .iter()
+                .filter(|closure| closure.kind == proofbound_core::ClosureKind::Toolchain)
+                .count(),
+            1
+        );
     }
 
     #[test]

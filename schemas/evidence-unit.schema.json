@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "adapter", "kind", "claims", "tier", "operation", "resource_budget"],
   "properties": {
-    "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2", "proofbound-evidence-unit/3", "proofbound-evidence-unit/4"] },
+    "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2", "proofbound-evidence-unit/3", "proofbound-evidence-unit/4", "proofbound-evidence-unit/5"] },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "adapter": { "enum": ["lean", "charon-aeneas", "kani", "rust-test", "python-test", "node-test", "canonical-artifact", "independent-check", "trusted-transcription"] },
     "kind": { "$ref": "evidence.schema.json#/$defs/kind" },
@@ -52,6 +52,7 @@
     "mutation": { "$ref": "#/$defs/mutationReplay" },
     "property": { "$ref": "#/$defs/pythonProperty" },
     "distribution": { "$ref": "#/$defs/distributionReproduction" },
+    "artifact_observation": { "$ref": "#/$defs/exactArtifactObservation" },
     "resource_budget": { "type": "object", "additionalProperties": false, "required": ["time_seconds", "disk_bytes", "memory_bytes"], "properties": { "time_seconds": { "type": "integer", "minimum": 1 }, "disk_bytes": { "type": "integer", "minimum": 1 }, "memory_bytes": { "type": "integer", "minimum": 1 } } }
   },
   "allOf": [
@@ -371,6 +372,34 @@
           "inputs": { "minItems": 1 }
         }
       }
+    },
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-evidence-unit/5" } }, "required": ["schema"] },
+      "then": {
+        "required": ["artifact_observation", "expected_inventory", "inputs", "outputs", "environment_allowlist"],
+        "properties": {
+          "adapter": { "const": "rust-test" },
+          "kind": { "const": "example-test" },
+          "operation": {
+            "required": ["type", "package"],
+            "properties": {
+              "type": { "const": "cargo-test" },
+              "package": { "type": "string", "minLength": 1, "maxLength": 256 }
+            }
+          },
+          "evaluation_mode": false,
+          "binding_mode": false,
+          "theorem": false,
+          "refinement_theorem": false,
+          "bounded_domain": false,
+          "transcription": false,
+          "mutation": false,
+          "property": false,
+          "distribution": false,
+          "outputs": { "maxItems": 0 },
+          "inputs": { "minItems": 3 }
+        }
+      }
     }
   ],
   "$defs": {
@@ -384,6 +413,21 @@
       "type": "string",
       "maxLength": 128,
       "pattern": "^[a-z][a-z0-9]*(?:[-_.+][a-z0-9]+)*/[1-9][0-9]*$"
+    },
+    "exactArtifactObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "subject_role", "artifact", "procedure", "operating_system", "architecture", "toolchain_inputs", "dependencies"],
+      "properties": {
+        "schema": { "const": "proofbound-exact-artifact-observation/1" },
+        "subject_role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "artifact": { "$ref": "#/$defs/exactPath" },
+        "procedure": { "$ref": "#/$defs/exactPath" },
+        "operating_system": { "enum": ["linux", "macos", "windows"] },
+        "architecture": { "enum": ["x86_64", "aarch64"] },
+        "toolchain_inputs": { "type": "array", "items": { "$ref": "#/$defs/exactPath" }, "uniqueItems": true, "minItems": 1, "maxItems": 256 },
+        "dependencies": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,254}$" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 }
+      }
     },
     "trustedTranscription": {
       "type": "object",

@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "node_id", "unit_id", "kind", "status", "claims", "inventoried_targets", "assumptions", "premises", "provenance"],
   "properties": {
-    "schema": { "const": "proofbound-evidence/3" },
+    "schema": { "enum": ["proofbound-evidence/3", "proofbound-evidence/4"] },
     "id": { "$ref": "#/$defs/id" },
     "node_id": { "$ref": "#/$defs/id" },
     "unit_id": { "$ref": "#/$defs/id" },
@@ -17,6 +17,7 @@
     "binding_mode": { "enum": ["bytes-in-theorem", "digest-theorem", "external-round-trip"] },
     "theorem": { "$ref": "#/$defs/theorem" },
     "artifact_binding": { "$ref": "#/$defs/artifactBinding" },
+    "artifact_observation": { "$ref": "#/$defs/exactArtifactObservation" },
     "trusted_transcription": { "$ref": "#/$defs/trustedTranscription" },
     "source_refinement": { "$ref": "#/$defs/sourceRefinement" },
     "bounded_check": { "$ref": "#/$defs/boundedCheck" },
@@ -33,6 +34,14 @@
     "provenance": { "$ref": "#/$defs/provenance" }
   },
   "allOf": [
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-evidence/3" } }, "required": ["schema"] },
+      "then": { "not": { "required": ["artifact_observation"] } }
+    },
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-evidence/4" } }, "required": ["schema"] },
+      "then": { "required": ["artifact_observation"] }
+    },
     {
       "if": {
         "required": ["status", "provenance"],
@@ -133,6 +142,26 @@
         "logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 },
         "sha256": { "$ref": "#/$defs/digest" },
         "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "exactArtifactObservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "subject_role", "artifact", "platform", "procedure", "toolchain_closure", "dependencies"],
+      "properties": {
+        "schema": { "const": "proofbound-exact-artifact-observation/1" },
+        "subject_role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "artifact": { "$ref": "#/$defs/artifact" },
+        "platform": {
+          "type": "object", "additionalProperties": false,
+          "required": ["operating_system", "architecture"],
+          "properties": {
+            "operating_system": { "enum": ["linux", "macos", "windows"] },
+            "architecture": { "enum": ["x86_64", "aarch64"] }
+          }
+        },
+        "procedure": { "$ref": "#/$defs/artifact" },
+        "toolchain_closure": { "$ref": "#/$defs/closure" },
+        "dependencies": { "$ref": "#/$defs/ids" }
       }
     },
     "closure": {
