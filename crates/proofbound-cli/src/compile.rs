@@ -393,11 +393,19 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     let payload = compiled_release_value(&compiled, bundle.project.tier, graph, sealed_files)?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&destination.join("compiled-receipt.json"), &payload_bytes)?;
-    let payload_sha256 = domain_hash("proofbound-compiled-release/3", &payload_bytes);
+    let payload_schema = payload["schema"]
+        .as_str()
+        .context("PB-RELEASE-0021: compiled receipt omitted its schema")?;
+    let payload_sha256 = domain_hash(payload_schema, &payload_bytes);
+    let envelope_schema = if payload_schema == "proofbound-compiled-release/4" {
+        "proofbound-release-envelope/4"
+    } else {
+        "proofbound-release-envelope/3"
+    };
     write_canonical(
         &destination.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/3",
+            "schema": envelope_schema,
             "payload": "compiled-receipt.json",
             "payload_sha256": payload_sha256,
         }),
@@ -5510,8 +5518,9 @@ fn compiled_release_value(
             if !included_evidence.contains(&evidence.id) {
                 continue;
             }
-            let is_dependent =
-                evidence.artifact_binding.is_some() || evidence.source_refinement.is_some();
+            let is_dependent = evidence.artifact_binding.is_some()
+                || evidence.source_refinement.is_some()
+                || evidence.artifact_observation.is_some();
             if is_dependent != dependent {
                 continue;
             }
@@ -5533,7 +5542,10 @@ fn compiled_release_value(
                 &release_closure_by_internal_id,
                 &evidence_ids,
             )?;
-            let sha = domain_hash(EVIDENCE_DOMAIN, &canonical_json(&record)?);
+            let record_schema = record["schema"]
+                .as_str()
+                .context("PB-RELEASE-0001: evidence record schema is missing")?;
+            let sha = domain_hash(record_schema, &canonical_json(&record)?);
             evidence_ids.insert(evidence.id.to_string(), sha.clone());
             evidence_values.push(serde_json::json!({"sha256": sha, "record": record}));
         }
@@ -5633,8 +5645,48 @@ fn compiled_release_value(
     let statuses = compiled
         .statuses
         .iter()
-        .map(|status| {
-            serde_json::json!({
+        .map(|status| -> Result<serde_json::Value> {
+            let artifact_observations = status
+                .artifact_observations
+                .iter()
+                .map(|relation| {
+                    let evidence = evidence_ids
+                        .get(relation.evidence.as_str())
+                        .with_context(|| format!("PB-OBS-0009: observation evidence {} is missing", relation.evidence))?;
+                    let dependencies = relation
+                        .dependencies
+                        .iter()
+                        .map(|dependency| {
+                            evidence_ids.get(dependency.as_str()).cloned().with_context(|| {
+                                format!("PB-OBS-0009: observation dependency {dependency} is missing")
+                            })
+                        })
+                        .collect::<Result<BTreeSet<_>>>()?;
+                    let material = serde_json::json!({
+                        "evidence": evidence,
+                        "semantic_kind": relation.semantic_kind,
+                        "subject_role": relation.subject_role,
+                        "artifact": release_artifact_identity(&relation.artifact),
+                        "platform": relation.platform,
+                        "procedure": release_artifact_identity(&relation.procedure),
+                        "toolchain_closure": {
+                            "kind": relation.toolchain_closure.kind,
+                            "sha256": release_closure_by_internal_id.get(&format!("sha256:{}", relation.toolchain_closure.sha256))
+                                .context("PB-OBS-0008: observation toolchain closure is missing from release")?,
+                        },
+                        "dependencies": dependencies,
+                    });
+                    let identity = domain_hash(
+                        proofbound_core::EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1,
+                        &canonical_json(&material)?,
+                    );
+                    let mut value = material;
+                    value.as_object_mut().expect("relation material is an object")
+                        .insert("identity".to_owned(), serde_json::json!(identity));
+                    Ok::<_, anyhow::Error>(value)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let mut value = serde_json::json!({
                 "claim_id": status.claim_id,
                 "public_statement": status.public_statement,
                 "formal": status.formal,
@@ -5645,11 +5697,23 @@ fn compiled_release_value(
                 "undischarged_premises": status.assumption.undischarged_premises.iter()
                     .map(|item| item.id.to_string()).collect::<BTreeSet<_>>(),
                 "policy_admitted": status.policy.admitted,
-            })
+                "artifact_observations": artifact_observations,
+            });
+            if artifact_observations.is_empty() {
+                value
+                    .as_object_mut()
+                    .expect("reported status is an object")
+                    .remove("artifact_observations");
+            }
+            Ok(value)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
+    let has_artifact_observations = compiled
+        .statuses
+        .iter()
+        .any(|status| !status.artifact_observations.is_empty());
     let mut payload = serde_json::json!({
-        "schema": "proofbound-compiled-release/3",
+        "schema": if has_artifact_observations { "proofbound-compiled-release/4" } else { "proofbound-compiled-release/3" },
         "project": compiled.project,
         "project_revision": compiled.project_revision,
         "project_tier": project_tier,
@@ -5691,11 +5755,6 @@ fn release_evidence_record(
     closure_ids: &BTreeMap<String, String>,
     evidence_ids: &BTreeMap<String, String>,
 ) -> Result<serde_json::Value> {
-    if evidence.artifact_observation.is_some() {
-        bail!(
-            "PB-RELEASE-0021: exact artifact observations require the versioned portable receipt projection"
-        );
-    }
     let input_artifacts = artifact_records(&evidence.provenance.input_artifacts)?;
     let generated_artifacts = artifact_records(&evidence.provenance.generated_artifacts)?;
     let tool = serde_json::json!({
@@ -5786,6 +5845,30 @@ fn release_evidence_record(
                     "sha256": format!("sha256:{}", item.artifact.sha256),
                     "size_bytes": item.artifact.size_bytes,
                 },
+            }))
+        })
+        .transpose()?;
+    let artifact_observation = evidence
+        .artifact_observation
+        .as_ref()
+        .map(|item| {
+            let toolchain_internal = format!("sha256:{}", item.toolchain_closure.sha256);
+            Ok::<serde_json::Value, anyhow::Error>(serde_json::json!({
+                "schema": item.schema,
+                "subject_role": item.subject_role,
+                "artifact": release_artifact_identity(&item.artifact),
+                "platform": item.platform,
+                "procedure": release_artifact_identity(&item.procedure),
+                "toolchain_closure": {
+                    "kind": item.toolchain_closure.kind,
+                    "sha256": closure_ids.get(&toolchain_internal)
+                        .context("PB-OBS-0008: observation toolchain closure is missing from release")?,
+                },
+                "dependencies": item.dependencies.iter().map(|dependency| {
+                    evidence_ids.get(dependency.as_str()).cloned().with_context(|| {
+                        format!("PB-OBS-0009: observation dependency {dependency} is missing from release")
+                    })
+                }).collect::<Result<BTreeSet<_>>>()?,
             }))
         })
         .transpose()?;
@@ -5920,7 +6003,7 @@ fn release_evidence_record(
         })
     });
     let mut record = serde_json::json!({
-        "schema": EVIDENCE_DOMAIN,
+        "schema": if artifact_observation.is_some() { "proofbound-evidence/4" } else { EVIDENCE_DOMAIN },
         "unit_id": evidence.unit_id,
         "node_id": evidence.node_id,
         "kind": evidence.kind,
@@ -5930,6 +6013,7 @@ fn release_evidence_record(
         "binding_mode": evidence.binding_mode,
         "theorem": theorem,
         "artifact_binding": artifact_binding,
+        "artifact_observation": artifact_observation,
         "trusted_transcription": trusted_transcription,
         "source_refinement": source_refinement,
         "bounded_check": bounded_check,
@@ -8177,6 +8261,33 @@ description = {description:?}
                 .filter(|closure| closure.kind == proofbound_core::ClosureKind::Toolchain)
                 .count(),
             1
+        );
+
+        let release_digest =
+            |label: &str| format!("sha256:{}", Sha256Digest::of_bytes(label.as_bytes()));
+        let internal_toolchain = format!("sha256:{}", observation.toolchain_closure.sha256);
+        let portable_toolchain = release_digest("portable toolchain closure");
+        let portable_dependency = release_digest("portable dependency evidence");
+        record.artifact_observation = Some(observation);
+        let released = release_evidence_record(
+            &record,
+            &release_digest("portable semantic closure"),
+            &BTreeMap::from([(internal_toolchain, portable_toolchain.clone())]),
+            &BTreeMap::from([("test:release-build".to_owned(), portable_dependency.clone())]),
+        )
+        .unwrap();
+        assert_eq!(released["schema"], "proofbound-evidence/4");
+        assert_eq!(
+            released["artifact_observation"]["toolchain_closure"]["sha256"],
+            portable_toolchain
+        );
+        assert_eq!(
+            released["artifact_observation"]["dependencies"],
+            json!([portable_dependency])
+        );
+        assert_eq!(
+            released["artifact_observation"]["artifact"]["logical_name"],
+            "dist/runtime.tar.zst"
         );
     }
 

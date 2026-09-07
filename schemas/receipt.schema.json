@@ -33,7 +33,7 @@
       "additionalProperties": false,
       "required": ["schema", "payload", "payload_sha256"],
       "properties": {
-        "schema": { "const": "proofbound-release-envelope/3" },
+        "schema": { "enum": ["proofbound-release-envelope/3", "proofbound-release-envelope/4"] },
         "payload": { "const": "compiled-receipt.json" },
         "payload_sha256": { "$ref": "#/$defs/digest" }
       }
@@ -43,7 +43,7 @@
       "additionalProperties": false,
       "required": ["schema", "project", "project_revision", "project_tier", "tree_state", "graph", "graph_sha256", "claims", "evidence", "assumptions", "premises", "policies", "closures", "sealed_files", "reported_statuses"],
       "properties": {
-        "schema": { "const": "proofbound-compiled-release/3" },
+        "schema": { "enum": ["proofbound-compiled-release/3", "proofbound-compiled-release/4"] },
         "project": { "type": "string", "minLength": 1, "maxLength": 128 },
         "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
         "project_tier": { "type": "integer", "minimum": 0, "maximum": 3 },
@@ -97,7 +97,7 @@
       "additionalProperties": false,
       "required": ["schema", "unit_id", "node_id", "kind", "claim_ids", "outcome", "inventoried_targets", "assumptions", "premises", "provenance"],
       "properties": {
-        "schema": { "const": "proofbound-evidence/3" },
+        "schema": { "enum": ["proofbound-evidence/3", "proofbound-evidence/4"] },
         "unit_id": { "$ref": "#/$defs/id" },
         "node_id": { "$ref": "#/$defs/id" },
         "kind": { "$ref": "#/$defs/evidenceKind" },
@@ -107,6 +107,7 @@
         "binding_mode": { "enum": ["bytes-in-theorem", "digest-theorem", "external-round-trip"] },
         "theorem": { "$ref": "#/$defs/theoremReceipt" },
         "artifact_binding": { "$ref": "#/$defs/artifactBindingReceipt" },
+        "artifact_observation": { "$ref": "#/$defs/artifactObservationReceipt" },
         "trusted_transcription": { "$ref": "#/$defs/trustedTranscriptionReceipt" },
         "source_refinement": { "$ref": "#/$defs/sourceRefinementReceipt" },
         "bounded_check": { "$ref": "#/$defs/boundedCheckReceipt" },
@@ -123,6 +124,14 @@
         "provenance": { "$ref": "#/$defs/evidenceProvenance" }
       },
       "allOf": [
+        {
+          "if": { "properties": { "schema": { "const": "proofbound-evidence/3" } }, "required": ["schema"] },
+          "then": { "not": { "required": ["artifact_observation"] } }
+        },
+        {
+          "if": { "properties": { "schema": { "const": "proofbound-evidence/4" } }, "required": ["schema"] },
+          "then": { "required": ["artifact_observation"] }
+        },
         {
           "if": {
             "required": ["outcome", "provenance"],
@@ -215,6 +224,42 @@
       "required": ["theorem_evidence", "artifact"],
       "properties": {
         "theorem_evidence": { "$ref": "#/$defs/digest" }, "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "artifactObservationReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "subject_role", "artifact", "platform", "procedure", "toolchain_closure", "dependencies"],
+      "properties": {
+        "schema": { "const": "proofbound-exact-artifact-observation/1" },
+        "subject_role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "artifact": { "$ref": "#/$defs/artifact" },
+        "platform": { "$ref": "#/$defs/observationPlatform" },
+        "procedure": { "$ref": "#/$defs/artifact" },
+        "toolchain_closure": { "$ref": "#/$defs/closureReference" },
+        "dependencies": { "$ref": "#/$defs/digests" }
+      }
+    },
+    "observationPlatform": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operating_system", "architecture"],
+      "properties": {
+        "operating_system": { "enum": ["linux", "macos", "windows"] },
+        "architecture": { "enum": ["x86_64", "aarch64"] }
+      }
+    },
+    "artifactObservationRelation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity", "evidence", "semantic_kind", "subject_role", "artifact", "platform", "procedure", "toolchain_closure", "dependencies"],
+      "properties": {
+        "identity": { "$ref": "#/$defs/digest" },
+        "evidence": { "$ref": "#/$defs/digest" },
+        "semantic_kind": { "$ref": "#/$defs/evidenceKind" },
+        "subject_role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "artifact": { "$ref": "#/$defs/artifact" },
+        "platform": { "$ref": "#/$defs/observationPlatform" },
+        "procedure": { "$ref": "#/$defs/artifact" },
+        "toolchain_closure": { "$ref": "#/$defs/closureReference" },
+        "dependencies": { "$ref": "#/$defs/digests" }
       }
     },
     "trustedTranscriptionReceipt": {
@@ -464,7 +509,7 @@
     "reportedStatus": {
       "type": "object", "additionalProperties": false,
       "required": ["claim_id", "public_statement", "formal", "assumption", "assumptions", "undischarged_premises", "policy_admitted"],
-      "properties": { "claim_id": { "$ref": "#/$defs/id" }, "public_statement": { "type": "string", "minLength": 1, "pattern": "\\S" }, "formal": { "enum": ["PROVED", "BOUNDED_CHECKED", "TESTED", "OPEN", "INVALID"] }, "linkage": { "$ref": "#/$defs/linkage" }, "assumption": { "enum": ["NONE", "ASSUMED"] }, "assumptions": { "$ref": "#/$defs/ids" }, "undischarged_premises": { "$ref": "#/$defs/ids" }, "policy_admitted": { "type": "boolean" } }
+      "properties": { "claim_id": { "$ref": "#/$defs/id" }, "public_statement": { "type": "string", "minLength": 1, "pattern": "\\S" }, "formal": { "enum": ["PROVED", "BOUNDED_CHECKED", "TESTED", "OPEN", "INVALID"] }, "linkage": { "$ref": "#/$defs/linkage" }, "assumption": { "enum": ["NONE", "ASSUMED"] }, "assumptions": { "$ref": "#/$defs/ids" }, "undischarged_premises": { "$ref": "#/$defs/ids" }, "policy_admitted": { "type": "boolean" }, "artifact_observations": { "type": "array", "items": { "$ref": "#/$defs/artifactObservationRelation" }, "maxItems": 100000 } }
     },
     "digests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "uniqueItems": true, "maxItems": 100000 },
     "assumptionCategory": { "enum": ["mathematical-hypothesis", "representation-premise", "translator-tcb", "compiler-tcb", "runtime-environment", "external-provider", "cryptographic-library", "human-attestation", "native-evaluation"] },
