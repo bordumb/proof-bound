@@ -235,8 +235,9 @@ fn provenance(closure: &str) -> EvidenceProvenance {
 }
 
 fn hash_evidence(record: EvidenceReceipt) -> HashedRecord<EvidenceReceipt> {
+    let domain = record.schema.clone();
     HashedRecord {
-        sha256: domain_hash(EVIDENCE_SCHEMA_V3, &canonical_json(&record).unwrap()),
+        sha256: domain_hash(&domain, &canonical_json(&record).unwrap()),
         record,
     }
 }
@@ -281,6 +282,7 @@ fn base_release() -> CompiledRelease {
         binding_mode: None,
         theorem: None,
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: None,
         source_refinement: None,
         bounded_check: None,
@@ -323,6 +325,7 @@ fn base_release() -> CompiledRelease {
         assumptions: Default::default(),
         undischarged_premises: Default::default(),
         policy_admitted: true,
+        artifact_observations: Default::default(),
     };
     CompiledRelease {
         schema: COMPILED_RELEASE_SCHEMA_V3.into(),
@@ -352,6 +355,102 @@ fn base_release() -> CompiledRelease {
         sealed_files: Vec::new(),
         reported_statuses: vec![status],
     }
+}
+
+fn exact_observation_release() -> CompiledRelease {
+    let mut release = base_release();
+    let dependency = release.evidence[0].sha256.clone();
+    let artifact = named_artifact("dist/runtime.tar.zst", "runtime artifact", 16);
+    let procedure = named_artifact("tools/native.sh", "native procedure", 16);
+    let toolchain_record = SourceClosureReceipt {
+        schema: CLOSURE_SCHEMA_V1.into(),
+        kind: ClosureKind::Toolchain,
+        members: vec![ClosureMember {
+            path: "rust-toolchain.toml".into(),
+            sha256: digest("rust toolchain"),
+            size_bytes: 18,
+        }],
+    };
+    let toolchain = HashedRecord {
+        sha256: domain_hash(
+            CLOSURE_SCHEMA_V1,
+            &canonical_json(&toolchain_record).unwrap(),
+        ),
+        record: toolchain_record,
+    };
+    let toolchain_reference = ClosureReference {
+        kind: ClosureKind::Toolchain,
+        sha256: toolchain.sha256.clone(),
+    };
+    let detail = ExactArtifactObservationReceipt {
+        schema: EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1.into(),
+        subject_role: "runtime-release".into(),
+        artifact: artifact.clone(),
+        platform: ObservationPlatform {
+            operating_system: ObservationOperatingSystem::Linux,
+            architecture: ObservationArchitecture::X86_64,
+        },
+        procedure: procedure.clone(),
+        toolchain_closure: toolchain_reference.clone(),
+        dependencies: BTreeSet::from([dependency.clone()]),
+    };
+    let mut observed_record = release.evidence[0].record.clone();
+    observed_record.schema = EVIDENCE_SCHEMA_V4.into();
+    observed_record.unit_id = "unit:native-release".into();
+    observed_record.node_id = "test:native-release".into();
+    observed_record.inventoried_targets = BTreeSet::from(["native-release".into()]);
+    observed_record.provenance.input_artifacts = vec![artifact.clone(), procedure.clone()];
+    observed_record.provenance.input_artifacts.sort();
+    observed_record.provenance.additional_closures = vec![toolchain_reference.clone()];
+    observed_record.provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&observed_record.provenance.cache_material()).unwrap(),
+    );
+    observed_record.artifact_observation = Some(detail.clone());
+    let observed = hash_evidence(observed_record);
+    let material = serde_json::json!({
+        "evidence": observed.sha256,
+        "semantic_kind": EvidenceKind::ExampleTest,
+        "subject_role": detail.subject_role,
+        "artifact": detail.artifact,
+        "platform": detail.platform,
+        "procedure": detail.procedure,
+        "toolchain_closure": detail.toolchain_closure,
+        "dependencies": detail.dependencies,
+    });
+    let relation = ArtifactObservationRelation {
+        identity: domain_hash(
+            EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1,
+            &canonical_json(&material).unwrap(),
+        ),
+        evidence: observed.sha256.clone(),
+        semantic_kind: EvidenceKind::ExampleTest,
+        subject_role: detail.subject_role,
+        artifact: detail.artifact,
+        platform: detail.platform,
+        procedure: detail.procedure,
+        toolchain_closure: detail.toolchain_closure,
+        dependencies: detail.dependencies,
+    };
+    release.schema = COMPILED_RELEASE_SCHEMA_V4.into();
+    release.claims[0]
+        .cited_evidence
+        .insert(observed.sha256.clone());
+    release.evidence.push(observed);
+    release.closures.push(toolchain);
+    release.graph.nodes.push(GraphNode {
+        id: "test:native-release".into(),
+        kind: NodeKind::TestSuite,
+        proof_environment: None,
+    });
+    release.graph.edges.push(GraphEdge {
+        from: "test:native-release".into(),
+        to: "test:t".into(),
+        kind: EdgeKind::DependsOn,
+    });
+    release.graph_sha256 = graph_hash(&release.graph);
+    release.reported_statuses[0].artifact_observations = vec![relation];
+    release
 }
 
 fn mutation_release() -> CompiledRelease {
@@ -603,6 +702,7 @@ fn theorem_release() -> CompiledRelease {
             project_axioms: Default::default(),
         }),
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: None,
         source_refinement: None,
         bounded_check: None,
@@ -796,6 +896,82 @@ fn valid_closed_receipt_is_consistent_in_memory_and_on_disk() {
     let directory = write_release(&release);
     let report = verify_release_dir(directory.path()).unwrap();
     assert!(report.payload_sha256.starts_with("sha256:"));
+}
+
+#[test]
+fn exact_observation_is_independently_reconstructed_without_status_upgrade() {
+    let release = exact_observation_release();
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.claims[0].formal, FormalFacet::Tested);
+    assert_eq!(report.claims[0].linkage, Some(LinkageFacet::ModelOnly));
+    assert_eq!(report.claims[0].artifact_observations.len(), 1);
+
+    let directory = write_release(&release);
+    let recorded = verify_release_dir(directory.path()).unwrap();
+    assert_eq!(recorded.verdict, "record-consistent");
+    assert!(recorded.publication_blocked);
+
+    let artifact_path = directory.path().join("external-runtime.tar.zst");
+    let procedure_path = directory.path().join("external-native.sh");
+    fs::write(&artifact_path, b"runtime artifact").unwrap();
+    fs::write(&procedure_path, b"native procedure").unwrap();
+    let inputs = vec![ExternalObservationInput {
+        claim_id: "c".into(),
+        subject_role: "runtime-release".into(),
+        platform: ObservationPlatform {
+            operating_system: ObservationOperatingSystem::Linux,
+            architecture: ObservationArchitecture::X86_64,
+        },
+        artifact_path,
+        procedure_path: procedure_path.clone(),
+    }];
+    let observed = verify_release_dir_with_observations(directory.path(), &inputs).unwrap();
+    assert_eq!(observed.verdict, "bytes-observed");
+    assert!(!observed.publication_blocked);
+
+    let manifest_path = directory.path().join("observation-inputs.json");
+    let manifest = ExternalObservationInputs {
+        schema: OBSERVATION_INPUTS_SCHEMA_V1.into(),
+        observations: vec![ExternalObservationInput {
+            claim_id: "c".into(),
+            subject_role: "runtime-release".into(),
+            platform: ObservationPlatform {
+                operating_system: ObservationOperatingSystem::Linux,
+                architecture: ObservationArchitecture::X86_64,
+            },
+            artifact_path: "external-runtime.tar.zst".into(),
+            procedure_path: "external-native.sh".into(),
+        }],
+    };
+    fs::write(&manifest_path, canonical_json(&manifest).unwrap()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_proofbound-verify"))
+        .args([
+            "--release",
+            directory.path().to_str().unwrap(),
+            "--observation-inputs",
+            manifest_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let cli_report: VerificationReport = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(cli_report.verdict, "bytes-observed");
+
+    fs::write(procedure_path, b"tampered procedure").unwrap();
+    let error = verify_release_dir_with_observations(directory.path(), &inputs).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvDigest));
+
+    let mut forged = release.clone();
+    forged.reported_statuses[0].artifact_observations[0].identity = digest("forged relation");
+    let error = verify_compiled_release(&forged).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+
+    let mut disconnected = release;
+    disconnected.graph.edges.clear();
+    disconnected.graph_sha256 = graph_hash(&disconnected.graph);
+    let error = verify_compiled_release(&disconnected).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidGraph));
 }
 
 #[test]
@@ -1411,6 +1587,7 @@ fn unresolved_assumption_cannot_be_omitted_from_output() {
         binding_mode: None,
         theorem: None,
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: None,
         source_refinement: None,
         bounded_check: None,
@@ -1645,6 +1822,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
             theorem_evidence: theorem,
             artifact: artifact_identity,
         }),
+        artifact_observation: None,
         trusted_transcription: None,
         source_refinement: None,
         bounded_check: None,
@@ -1674,6 +1852,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         binding_mode: Some(BindingMode::ExternalRoundTrip),
         theorem: None,
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: Some(trusted_transcription),
         source_refinement: None,
         bounded_check: None,
@@ -1745,6 +1924,7 @@ fn transcribed_release() -> CompiledRelease {
         binding_mode: Some(BindingMode::ExternalRoundTrip),
         theorem: None,
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: Some(detail),
         source_refinement: None,
         bounded_check: None,
@@ -2526,6 +2706,7 @@ fn unit_scoped_transcription_tcb_roles_allow_distinct_drivers() {
         binding_mode: Some(BindingMode::ExternalRoundTrip),
         theorem: None,
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: Some(detail),
         source_refinement: None,
         bounded_check: None,
@@ -2657,10 +2838,15 @@ fn tcb_ledger_rejects_duplicate_and_conflicting_components() {
 fn write_payload_at(directory: &Path, release: &CompiledRelease) {
     let payload = canonical_json(release).unwrap();
     fs::write(directory.join("compiled-receipt.json"), &payload).unwrap();
+    let envelope_schema = if release.schema == COMPILED_RELEASE_SCHEMA_V4 {
+        RELEASE_ENVELOPE_SCHEMA_V4
+    } else {
+        RELEASE_ENVELOPE_SCHEMA_V3
+    };
     let envelope = ReleaseEnvelope {
-        schema: RELEASE_ENVELOPE_SCHEMA_V3.into(),
+        schema: envelope_schema.into(),
         payload: "compiled-receipt.json".into(),
-        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V3, &payload),
+        payload_sha256: domain_hash(&release.schema, &payload),
     };
     fs::write(
         directory.join("release.json"),
@@ -2821,6 +3007,7 @@ fn empty_raw_record(
         binding_mode: None,
         theorem: None,
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: None,
         source_refinement: None,
         bounded_check: None,
@@ -3225,6 +3412,7 @@ fn raw_reported_status(status: &RawStatus) -> ReportedClaimStatus {
         assumptions: status.assumptions.clone(),
         undischarged_premises: status.undischarged_premises.clone(),
         policy_admitted: status.policy_admitted,
+        artifact_observations: Default::default(),
     }
 }
 

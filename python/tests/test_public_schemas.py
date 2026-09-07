@@ -195,6 +195,28 @@ def test_every_public_schema_is_valid_draft_2020_12() -> None:
     assert schemas
 
 
+def test_external_observation_input_manifest_is_closed() -> None:
+    value = {
+        "schema": "proofbound-observation-inputs/1",
+        "observations": [
+            {
+                "claim_id": "PBR-RUN",
+                "subject_role": "runtime-release",
+                "platform": {
+                    "operating_system": "linux",
+                    "architecture": "x86_64",
+                },
+                "artifact_path": "dist/proofbound-runtime.tar.zst",
+                "procedure_path": "tools/run-native.sh",
+            }
+        ],
+    }
+    schema = validator("observation-inputs.schema.json")
+    schema.validate(value)
+    value["observations"][0]["formal"] = "PROVED"
+    assert list(schema.iter_errors(value))
+
+
 def test_actual_runtime_closure_records_match_public_schema() -> None:
     configured_target = Path(os.environ.get("CARGO_TARGET_DIR", "target"))
     target = (

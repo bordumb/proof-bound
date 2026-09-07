@@ -68,6 +68,13 @@ optional reader-facing `public_language`, and required derived status
 `public_statement` as distinct values. The final field is recomputed, never
 accepted as a replacement for the first.
 
+Version 4 adds exact artifact observations without changing the formal or
+linkage facets. `observation-inputs.schema.json` is the closed manifest used to
+supply artifact and procedure paths when those bytes are not sealed into the
+release. Relative paths are resolved from the manifest directory. The
+standalone verifier hashes those files itself and rejects duplicate
+claim/role/platform entries, symlinks, oversize files, and identity drift.
+
 `mutation-registry.schema.json` defines only
 `proofbound-mutation-registry/2`: one subject and one mutation with byte-pinned
 target preimage, full-file mutant, and witness source. The corresponding

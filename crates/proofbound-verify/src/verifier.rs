@@ -10,18 +10,20 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 use crate::{
-    ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, AssumptionCategory, AssumptionFacet,
-    AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode, BuiltInProfile,
-    CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3, ClaimReceipt, ClosureKind,
-    CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EdgeKind,
-    EvaluationMode, EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, ExecutionKind,
-    FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphEdge, GraphNode, HashedRecord, IndependenceMode,
-    LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V2, NodeKind,
+    ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, ArtifactObservationRelation, AssumptionCategory,
+    AssumptionFacet, AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode,
+    BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3,
+    COMPILED_RELEASE_SCHEMA_V4, ClaimReceipt, ClosureKind, CompiledRelease,
+    DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EVIDENCE_SCHEMA_V4,
+    EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
+    EvidenceReceipt, Exclusion, ExecutionKind, ExternalObservationInput, FlowScope, FormalFacet,
+    GRAPH_SCHEMA_V1, GraphEdge, GraphNode, HashedRecord, IndependenceMode, LinkageFacet,
+    MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V2, NodeKind, ObservationPlatform,
     OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
-    RELEASE_ENVELOPE_SCHEMA_V3, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
-    SourceClosureReceipt, SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1,
-    TRANSCRIPTION_TCB_ROLE_DOMAIN_V1, TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole,
-    TreeState, canonical_json, domain_hash, raw_sha256,
+    RELEASE_ENVELOPE_SCHEMA_V3, RELEASE_ENVELOPE_SCHEMA_V4, ReleaseEnvelope, ReportedClaimStatus,
+    STATIC_CHECK_SCHEMA_V1, SourceClosureReceipt, SourceRefinementReceipt,
+    TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1, TRUSTED_TRANSCRIPTION_SCHEMA_V1,
+    Tier, TranscriptionRole, TreeState, canonical_json, domain_hash, raw_sha256,
     statement_wire::{LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding, statement_digest},
 };
 
@@ -177,6 +179,14 @@ pub struct VerificationReport {
 /// Verifies `<dir>/release.json`, its canonical payload, sealed files, and all
 /// recomputed status/policy output. It never executes an external process.
 pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, VerificationErrors> {
+    verify_release_dir_with_observations(release_dir, &[])
+}
+
+/// Verifies a release and hashes explicitly supplied external observation bytes.
+pub fn verify_release_dir_with_observations(
+    release_dir: &Path,
+    observation_inputs: &[ExternalObservationInput],
+) -> Result<VerificationReport, VerificationErrors> {
     reject_root_symlink(release_dir)?;
     let root = fs::canonicalize(release_dir).map_err(|error| {
         VerificationErrors::one(
@@ -199,7 +209,10 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
 
     let envelope_path = root.join("release.json");
     let (envelope, _) = read_canonical::<ReleaseEnvelope>(&envelope_path, MAX_ENVELOPE_BYTES)?;
-    if envelope.schema != RELEASE_ENVELOPE_SCHEMA_V3 {
+    if !matches!(
+        envelope.schema.as_str(),
+        RELEASE_ENVELOPE_SCHEMA_V3 | RELEASE_ENVELOPE_SCHEMA_V4
+    ) {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
                 VerificationIssueCode::PbvSchema,
@@ -221,7 +234,12 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
     }
     let (release, payload_bytes) =
         read_canonical::<CompiledRelease>(&payload_path, MAX_PAYLOAD_BYTES)?;
-    let actual_payload = domain_hash(COMPILED_RELEASE_SCHEMA_V3, &payload_bytes);
+    let payload_domain = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V3 => COMPILED_RELEASE_SCHEMA_V3,
+        COMPILED_RELEASE_SCHEMA_V4 => COMPILED_RELEASE_SCHEMA_V4,
+        _ => COMPILED_RELEASE_SCHEMA_V3,
+    };
+    let actual_payload = domain_hash(payload_domain, &payload_bytes);
     if actual_payload != envelope.payload_sha256 {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
@@ -235,7 +253,37 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
         ));
     }
 
+    let expected_envelope = if release.schema == COMPILED_RELEASE_SCHEMA_V4 {
+        RELEASE_ENVELOPE_SCHEMA_V4
+    } else {
+        RELEASE_ENVELOPE_SCHEMA_V3
+    };
+    if envelope.schema != expected_envelope {
+        return Err(VerificationErrors::one(
+            VerificationIssue::new(
+                VerificationIssueCode::PbvSchema,
+                "release envelope and compiled payload schema versions do not match",
+            )
+            .at("release.json"),
+        ));
+    }
     let mut report = verify_compiled_release_internal(&release, Some(&root))?;
+    let bytes_observed = validate_observation_bytes(&release, &report.claims, observation_inputs)?;
+    if report
+        .claims
+        .iter()
+        .any(|claim| !claim.artifact_observations.is_empty())
+    {
+        if bytes_observed {
+            report.verdict = "bytes-observed".into();
+            report.publication_blocked = report.claims.iter().any(|claim| !claim.policy_admitted);
+            report.trust_boundary = "Bytes-observed: receipt relationships were independently checked and every exact observation artifact and procedure identity was recomputed from supplied or sealed bytes; external tool honesty remains outside this verdict.".into();
+        } else {
+            report.verdict = "record-consistent".into();
+            report.publication_blocked = true;
+            report.trust_boundary = "Record-consistent only: exact observation relations are internally consistent, but at least one artifact or procedure byte stream was not supplied to the verifier.".into();
+        }
+    }
     report.payload_sha256 = actual_payload;
     Ok(report)
 }
@@ -253,10 +301,23 @@ fn verify_compiled_release_internal(
     release_root: Option<&Path>,
 ) -> Result<VerificationReport, VerificationErrors> {
     let mut issues = Vec::new();
-    if release.schema != COMPILED_RELEASE_SCHEMA_V3 {
+    if !matches!(
+        release.schema.as_str(),
+        COMPILED_RELEASE_SCHEMA_V3 | COMPILED_RELEASE_SCHEMA_V4
+    ) {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
             format!("unsupported compiled release schema '{}'", release.schema),
+        ));
+    }
+    let has_observations = release
+        .evidence
+        .iter()
+        .any(|item| item.record.artifact_observation.is_some());
+    if (release.schema == COMPILED_RELEASE_SCHEMA_V4) != has_observations {
+        issues.push(VerificationIssue::new(
+            VerificationIssueCode::PbvSchema,
+            "compiled release v4 is required exactly when exact artifact observations are present",
         ));
     }
     if release.project.trim().is_empty() || release.project_revision.trim().is_empty() {
@@ -404,16 +465,219 @@ fn verify_compiled_release_internal(
         })
         .collect();
     Ok(VerificationReport {
-        schema: "proofbound-verification-report/1".into(),
-        verdict: "receipt-consistent".into(),
+        schema: if has_observations {
+            "proofbound-verification-report/2"
+        } else {
+            "proofbound-verification-report/1"
+        }
+        .into(),
+        verdict: if has_observations {
+            "record-consistent"
+        } else {
+            "receipt-consistent"
+        }
+        .into(),
         project: release.project.clone(),
         project_revision: release.project_revision.clone(),
         payload_sha256: String::new(),
-        publication_blocked: recomputed.iter().any(|status| !status.policy_admitted),
+        publication_blocked: has_observations
+            || recomputed.iter().any(|status| !status.policy_admitted),
         claims: recomputed,
         not_proved_out_of_scope,
-        trust_boundary: "Receipt-consistent only: this independently checks recorded identities, graph facts, facets, assumptions, and policies; it does not attest that external tools ran honestly.".into(),
+        trust_boundary: if has_observations {
+            "Record-consistent only: exact observation relations are internally consistent, but byte identities require sealed or explicitly supplied artifacts and procedures."
+        } else {
+            "Receipt-consistent only: this independently checks recorded identities, graph facts, facets, assumptions, and policies; it does not attest that external tools ran honestly."
+        }.into(),
     })
+}
+
+fn validate_observation_bytes(
+    release: &CompiledRelease,
+    claims: &[ReportedClaimStatus],
+    inputs: &[ExternalObservationInput],
+) -> Result<bool, VerificationErrors> {
+    type InputKey = (String, String, ObservationPlatform);
+    let mut issues = Vec::new();
+    let mut indexed = BTreeMap::<InputKey, &ExternalObservationInput>::new();
+    for input in inputs {
+        let key = (
+            input.claim_id.clone(),
+            input.subject_role.clone(),
+            input.platform.clone(),
+        );
+        if input.claim_id.trim().is_empty() || !valid_observation_role(&input.subject_role) {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbvSchema,
+                "external observation input has an invalid claim or subject role",
+            ));
+        }
+        if indexed.insert(key, input).is_some() {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbvDuplicateId,
+                "external observation inputs repeat a claim, role, and platform key",
+            ));
+        }
+    }
+
+    let mut all_observed = true;
+    let mut used = BTreeSet::<InputKey>::new();
+    for claim in claims {
+        for relation in &claim.artifact_observations {
+            let artifact_sealed =
+                sealed_identity_available(release, &relation.artifact, &mut issues);
+            let procedure_sealed =
+                sealed_identity_available(release, &relation.procedure, &mut issues);
+            if artifact_sealed && procedure_sealed {
+                continue;
+            }
+            let key = (
+                claim.claim_id.clone(),
+                relation.subject_role.clone(),
+                relation.platform.clone(),
+            );
+            let Some(input) = indexed.get(&key).copied() else {
+                all_observed = false;
+                continue;
+            };
+            used.insert(key);
+            let artifact_matches = external_identity_matches(
+                &input.artifact_path,
+                &relation.artifact,
+                "observed artifact",
+                &mut issues,
+            );
+            let procedure_matches = external_identity_matches(
+                &input.procedure_path,
+                &relation.procedure,
+                "observation procedure",
+                &mut issues,
+            );
+            all_observed &= artifact_matches && procedure_matches;
+        }
+    }
+    for key in indexed.keys() {
+        if !used.contains(key) {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbvMissingReference,
+                format!(
+                    "external observation input for claim '{}', role '{}' does not match an unsealed relation",
+                    key.0, key.1
+                ),
+            ));
+        }
+    }
+    if issues.is_empty() {
+        Ok(all_observed)
+    } else {
+        Err(VerificationErrors::many(issues))
+    }
+}
+
+fn sealed_identity_available(
+    release: &CompiledRelease,
+    identity: &crate::ArtifactIdentityReceipt,
+    issues: &mut Vec<VerificationIssue>,
+) -> bool {
+    let Some(sealed) = release
+        .sealed_files
+        .iter()
+        .find(|sealed| sealed.path == identity.logical_name)
+    else {
+        return false;
+    };
+    if sealed.sha256 == identity.sha256 && sealed.size_bytes == identity.size_bytes {
+        true
+    } else {
+        issues.push(
+            VerificationIssue::new(
+                VerificationIssueCode::PbvDigest,
+                format!(
+                    "sealed file '{}' disagrees with its exact observation identity",
+                    identity.logical_name
+                ),
+            )
+            .at(&sealed.path),
+        );
+        false
+    }
+}
+
+fn external_identity_matches(
+    path: &Path,
+    expected: &crate::ArtifactIdentityReceipt,
+    label: &str,
+    issues: &mut Vec<VerificationIssue>,
+) -> bool {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbvIo,
+                    format!("cannot stat external {label}: {error}"),
+                )
+                .at(path.display().to_string()),
+            );
+            return false;
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        issues.push(
+            VerificationIssue::new(
+                VerificationIssueCode::PbvSymlink,
+                format!("external {label} cannot be a symlink"),
+            )
+            .at(path.display().to_string()),
+        );
+        return false;
+    }
+    if !metadata.is_file() {
+        issues.push(
+            VerificationIssue::new(
+                VerificationIssueCode::PbvUnsafePath,
+                format!("external {label} is not a regular file"),
+            )
+            .at(path.display().to_string()),
+        );
+        return false;
+    }
+    if metadata.len() > MAX_SEALED_FILE_BYTES {
+        issues.push(
+            VerificationIssue::new(
+                VerificationIssueCode::PbvSizeLimit,
+                format!("external {label} exceeds the verifier byte limit"),
+            )
+            .at(path.display().to_string()),
+        );
+        return false;
+    }
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbvIo,
+                    format!("cannot read external {label}: {error}"),
+                )
+                .at(path.display().to_string()),
+            );
+            return false;
+        }
+    };
+    let actual_digest = raw_sha256(&bytes);
+    let actual_size = bytes.len() as u64;
+    if actual_digest != expected.sha256 || actual_size != expected.size_bytes {
+        issues.push(
+            VerificationIssue::new(
+                VerificationIssueCode::PbvDigest,
+                format!("external {label} does not match the recorded exact byte identity"),
+            )
+            .at(path.display().to_string()),
+        );
+        return false;
+    }
+    true
 }
 
 fn read_canonical<T: DeserializeOwned + Serialize>(
@@ -950,6 +1214,26 @@ const LEGAL_EDGE_ENDPOINTS: &[(EdgeKind, NodeKind, NodeKind)] = &[
     (EdgeKind::DependsOn, NodeKind::Claim, NodeKind::Subject),
     (EdgeKind::DependsOn, NodeKind::Subject, NodeKind::Artifact),
     (EdgeKind::DependsOn, NodeKind::Theorem, NodeKind::Theorem),
+    (
+        EdgeKind::DependsOn,
+        NodeKind::TestSuite,
+        NodeKind::TestSuite,
+    ),
+    (
+        EdgeKind::DependsOn,
+        NodeKind::TestSuite,
+        NodeKind::ModelCheckUnit,
+    ),
+    (
+        EdgeKind::DependsOn,
+        NodeKind::ModelCheckUnit,
+        NodeKind::TestSuite,
+    ),
+    (
+        EdgeKind::DependsOn,
+        NodeKind::ModelCheckUnit,
+        NodeKind::ModelCheckUnit,
+    ),
     (EdgeKind::Assumes, NodeKind::Claim, NodeKind::Assumption),
     (EdgeKind::Assumes, NodeKind::Claim, NodeKind::Premise),
     (EdgeKind::Assumes, NodeKind::Theorem, NodeKind::Premise),
@@ -1167,7 +1451,12 @@ fn validate_evidence_records(
             ));
         }
         if let Ok(bytes) = canonical_json(evidence) {
-            let actual = domain_hash(EVIDENCE_SCHEMA_V3, &bytes);
+            let evidence_domain = match evidence.schema.as_str() {
+                EVIDENCE_SCHEMA_V3 => EVIDENCE_SCHEMA_V3,
+                EVIDENCE_SCHEMA_V4 => EVIDENCE_SCHEMA_V4,
+                _ => EVIDENCE_SCHEMA_V3,
+            };
+            let actual = domain_hash(evidence_domain, &bytes);
             if actual != wrapper.sha256 {
                 evidence_issue(
                     issues,
@@ -1176,11 +1465,21 @@ fn validate_evidence_records(
                 );
             }
         }
-        if evidence.schema != EVIDENCE_SCHEMA_V3 {
+        if !matches!(
+            evidence.schema.as_str(),
+            EVIDENCE_SCHEMA_V3 | EVIDENCE_SCHEMA_V4
+        ) {
             evidence_issue(
                 issues,
                 &wrapper.sha256,
                 format!("unsupported evidence schema '{}'", evidence.schema),
+            );
+        }
+        if (evidence.schema == EVIDENCE_SCHEMA_V4) != evidence.artifact_observation.is_some() {
+            evidence_issue(
+                issues,
+                &wrapper.sha256,
+                "evidence v4 is required exactly when an exact artifact observation is present",
             );
         }
         if evidence.unit_id.trim().is_empty() {
@@ -1655,6 +1954,75 @@ fn validate_evidence_shape(
             "evidence kind/detail blocks do not match exactly",
         );
     }
+    if let Some(observation) = &evidence.artifact_observation {
+        let supported_kind = matches!(
+            evidence.kind,
+            EvidenceKind::BoundedCheck
+                | EvidenceKind::IndependentCheck
+                | EvidenceKind::ExhaustiveCheck
+                | EvidenceKind::PropertyTest
+                | EvidenceKind::ExampleTest
+                | EvidenceKind::MutationWitness
+                | EvidenceKind::StaticCheck
+        );
+        if observation.schema != EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1
+            || !valid_observation_role(&observation.subject_role)
+            || !supported_kind
+        {
+            evidence_issue(
+                issues,
+                id,
+                "exact artifact observation has an unsupported schema, role, or empirical kind",
+            );
+        }
+        for artifact in [&observation.artifact, &observation.procedure] {
+            if evidence
+                .provenance
+                .input_artifacts
+                .iter()
+                .filter(|candidate| *candidate == artifact)
+                .count()
+                != 1
+            {
+                evidence_issue(
+                    issues,
+                    id,
+                    format!(
+                        "exact artifact observation input '{}' is not present exactly once in provenance",
+                        artifact.logical_name
+                    ),
+                );
+            }
+        }
+        if observation.toolchain_closure.kind != ClosureKind::Toolchain
+            || evidence
+                .provenance
+                .additional_closures
+                .iter()
+                .filter(|candidate| *candidate == &observation.toolchain_closure)
+                .count()
+                != 1
+        {
+            evidence_issue(
+                issues,
+                id,
+                "exact artifact observation toolchain closure is not present exactly once in provenance",
+            );
+        }
+        if observation.dependencies.is_empty()
+            || observation.dependencies.len() > 4096
+            || observation
+                .dependencies
+                .iter()
+                .any(|dependency| dependency == id || !valid_digest(dependency))
+        {
+            evidence_issue(
+                issues,
+                id,
+                "exact artifact observation dependencies must be nonempty canonical evidence digests and exclude self-reference",
+            );
+        }
+    }
 
     match evidence.kind {
         EvidenceKind::Theorem => {
@@ -2101,6 +2469,18 @@ fn validate_evidence_shape(
             "ecosystem detail appears on the wrong evidence kind",
         );
     }
+}
+
+fn valid_observation_role(role: &str) -> bool {
+    !role.is_empty()
+        && role.len() <= 128
+        && role.split('-').enumerate().all(|(index, part)| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                && (index > 0 || part.as_bytes()[0].is_ascii_lowercase())
+        })
 }
 
 fn distribution_reproduction_valid(
@@ -3339,6 +3719,7 @@ fn derive_claim(
                 assumptions: BTreeSet::new(),
                 undischarged_premises: BTreeSet::new(),
                 policy_admitted: false,
+                artifact_observations: Vec::new(),
             },
             issues,
         );
@@ -3523,6 +3904,110 @@ fn derive_claim(
         }
         valid.insert(id.clone());
     }
+
+    let mut artifact_observations = Vec::new();
+    let mut observation_roles =
+        BTreeMap::<(String, crate::ObservationPlatform), crate::ArtifactIdentityReceipt>::new();
+    for id in &valid {
+        let record = evidence[id];
+        let Some(observation) = &record.artifact_observation else {
+            continue;
+        };
+        let mut dependencies_valid = true;
+        for dependency in &observation.dependencies {
+            let Some(dependency_record) = evidence.get(dependency).copied() else {
+                claim_issue!(
+                    VerificationIssueCode::PbvMissingReference,
+                    format!("exact observation '{id}' dependency '{dependency}' is absent"),
+                );
+                dependencies_valid = false;
+                continue;
+            };
+            if !claim.cited_evidence.contains(dependency)
+                || dependency_record.outcome != EvidenceOutcome::Passed
+                || invalid_evidence.contains(dependency)
+                || !dependency_record.claim_ids.contains(&claim.id)
+            {
+                claim_issue!(
+                    VerificationIssueCode::PbvInvalidEvidence,
+                    format!(
+                        "exact observation '{id}' dependency '{dependency}' is not a cited, passed, valid dependency for this claim"
+                    ),
+                );
+                dependencies_valid = false;
+            }
+            if !release.graph.edges.iter().any(|edge| {
+                edge.from == record.node_id
+                    && edge.to == dependency_record.node_id
+                    && edge.kind == EdgeKind::DependsOn
+            }) {
+                claim_issue!(
+                    VerificationIssueCode::PbvInvalidGraph,
+                    format!(
+                        "exact observation '{id}' has no typed depends-on edge to '{dependency}'"
+                    ),
+                );
+                dependencies_valid = false;
+            }
+        }
+        if !dependencies_valid {
+            continue;
+        }
+        if let Some(prior) = observation_roles.insert(
+            (
+                observation.subject_role.clone(),
+                observation.platform.clone(),
+            ),
+            observation.artifact.clone(),
+        ) && prior != observation.artifact
+        {
+            claim_issue!(
+                VerificationIssueCode::PbvInvalidEvidence,
+                format!(
+                    "exact observation role '{}' identifies different artifact bytes within one claim",
+                    observation.subject_role
+                ),
+            );
+            continue;
+        }
+        let material = serde_json::json!({
+            "evidence": id,
+            "semantic_kind": record.kind,
+            "subject_role": observation.subject_role,
+            "artifact": observation.artifact,
+            "platform": observation.platform,
+            "procedure": observation.procedure,
+            "toolchain_closure": observation.toolchain_closure,
+            "dependencies": observation.dependencies,
+        });
+        let identity = match canonical_json(&material) {
+            Ok(bytes) => domain_hash(EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, &bytes),
+            Err(error) => {
+                claim_issue!(
+                    VerificationIssueCode::PbvJson,
+                    format!("cannot encode exact observation '{id}': {error}"),
+                );
+                continue;
+            }
+        };
+        artifact_observations.push(ArtifactObservationRelation {
+            identity,
+            evidence: id.clone(),
+            semantic_kind: record.kind,
+            subject_role: observation.subject_role.clone(),
+            artifact: observation.artifact.clone(),
+            platform: observation.platform.clone(),
+            procedure: observation.procedure.clone(),
+            toolchain_closure: observation.toolchain_closure.clone(),
+            dependencies: observation.dependencies.clone(),
+        });
+    }
+    artifact_observations.sort_by(|left, right| {
+        left.subject_role
+            .cmp(&right.subject_role)
+            .then(left.platform.cmp(&right.platform))
+            .then(left.evidence.cmp(&right.evidence))
+    });
 
     let mut active_assumptions = BTreeSet::new();
     for id in &assumption_ids {
@@ -3847,6 +4332,7 @@ fn derive_claim(
             assumptions: active_assumptions,
             undischarged_premises: undischarged,
             policy_admitted,
+            artifact_observations,
         },
         issues,
     )
@@ -4209,7 +4695,7 @@ mod tests {
 
     #[test]
     fn endpoint_legality_table_is_complete_unique_and_fail_closed() {
-        assert_eq!(LEGAL_EDGE_ENDPOINTS.len(), 23);
+        assert_eq!(LEGAL_EDGE_ENDPOINTS.len(), 27);
         let unique = LEGAL_EDGE_ENDPOINTS
             .iter()
             .copied()

@@ -1,14 +1,22 @@
-//! Closed `proofbound-compiled-release/3` receipt format.
+//! Closed `proofbound-compiled-release/3` and `/4` receipt formats.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 use serde::{Deserialize, Serialize};
 
 pub const RELEASE_ENVELOPE_SCHEMA_V3: &str = "proofbound-release-envelope/3";
+pub const RELEASE_ENVELOPE_SCHEMA_V4: &str = "proofbound-release-envelope/4";
 pub const COMPILED_RELEASE_SCHEMA_V3: &str = "proofbound-compiled-release/3";
+pub const COMPILED_RELEASE_SCHEMA_V4: &str = "proofbound-compiled-release/4";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
+pub const EVIDENCE_SCHEMA_V4: &str = "proofbound-evidence/4";
+pub const EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1: &str = "proofbound-exact-artifact-observation/1";
+pub const OBSERVATION_INPUTS_SCHEMA_V1: &str = "proofbound-observation-inputs/1";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const CLOSURE_SCHEMA_V1: &str = "proofbound-source-closure/1";
 pub const POLICY_SCHEMA_V1: &str = "proofbound-policy/1";
@@ -340,6 +348,73 @@ pub struct ArtifactBindingReceipt {
     pub artifact: ArtifactIdentityReceipt,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationOperatingSystem {
+    Linux,
+    Macos,
+    Windows,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationArchitecture {
+    X86_64,
+    Aarch64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservationPlatform {
+    pub operating_system: ObservationOperatingSystem,
+    pub architecture: ObservationArchitecture,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExactArtifactObservationReceipt {
+    pub schema: String,
+    pub subject_role: String,
+    pub artifact: ArtifactIdentityReceipt,
+    pub platform: ObservationPlatform,
+    pub procedure: ArtifactIdentityReceipt,
+    pub toolchain_closure: ClosureReference,
+    pub dependencies: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactObservationRelation {
+    pub identity: String,
+    pub evidence: String,
+    pub semantic_kind: EvidenceKind,
+    pub subject_role: String,
+    pub artifact: ArtifactIdentityReceipt,
+    pub platform: ObservationPlatform,
+    pub procedure: ArtifactIdentityReceipt,
+    pub toolchain_closure: ClosureReference,
+    pub dependencies: BTreeSet<String>,
+}
+
+/// User-supplied byte locations for observations not sealed into a release.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExternalObservationInput {
+    pub claim_id: String,
+    pub subject_role: String,
+    pub platform: ObservationPlatform,
+    pub artifact_path: PathBuf,
+    pub procedure_path: PathBuf,
+}
+
+/// Closed manifest accepted by the standalone verifier's CLI.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExternalObservationInputs {
+    pub schema: String,
+    pub observations: Vec<ExternalObservationInput>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TranscriptionRole {
@@ -588,7 +663,7 @@ impl EvidenceProvenance {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClosureReference {
     pub kind: ClosureKind,
@@ -612,6 +687,8 @@ pub struct EvidenceReceipt {
     pub theorem: Option<TheoremReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_binding: Option<ArtifactBindingReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_observation: Option<ExactArtifactObservationReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_transcription: Option<TrustedTranscriptionReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -892,4 +969,6 @@ pub struct ReportedClaimStatus {
     #[serde(default)]
     pub undischarged_premises: BTreeSet<String>,
     pub policy_admitted: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifact_observations: Vec<ArtifactObservationRelation>,
 }

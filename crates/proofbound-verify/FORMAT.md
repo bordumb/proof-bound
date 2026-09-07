@@ -1,4 +1,4 @@
-# Proofbound compiled release receipt v3
+# Proofbound compiled release receipts v3 and v4
 
 This document is the handoff contract between a release producer and the
 standalone `proofbound-verify` binary. The authoritative field types are the
@@ -42,8 +42,11 @@ The domains are fixed:
 | Value | Domain |
 |---|---|
 | compiled payload | `proofbound-compiled-release/3` |
+| compiled payload with exact observations | `proofbound-compiled-release/4` |
 | graph | `proofbound-graph/1` |
 | evidence record | `proofbound-evidence/3` |
+| evidence record with exact observation | `proofbound-evidence/4` |
+| exact observation relation | `proofbound-exact-artifact-observation/1` |
 | source-closure record | `proofbound-source-closure/1` |
 | evidence cache material | `proofbound-cache-key/1` |
 | registered mutation identity | `proofbound-mutation/2` |
@@ -53,7 +56,11 @@ the exact file bytes, still rendered as `sha256:<64 lowercase hex>`.
 
 ## Compiled payload
 
-The payload schema is `proofbound-compiled-release/3` and contains exactly:
+The v3 payload schema is `proofbound-compiled-release/3`. Version 4 is selected
+exactly when at least one `proofbound-evidence/4` record carries a
+`proofbound-exact-artifact-observation/1` detail. Its envelope, compiled
+payload, evidence record, and verification report advance together; mixed
+versions fail closed. Both versions contain exactly:
 
 | Field | Meaning |
 |---|---|
@@ -271,14 +278,25 @@ empty.
 ## CLI and trust boundary
 
 ```text
-proofbound-verify --release <directory> [--json]
+proofbound-verify --release <directory> [--observation-inputs <file>] [--json]
 ```
 
-Exit `0` means receipt-consistent and policy-admitted. Exit `3` means the
+An observation-input manifest uses schema `proofbound-observation-inputs/1`.
+Each entry names a claim, logical subject role, closed platform, artifact path,
+and procedure path. Relative paths are resolved from the manifest's directory.
+The verifier rejects symlinks and hashes both byte streams itself. An exact
+identity is also byte-observed when its logical name, digest, and size match a
+validated `sealed_files` entry.
+
+For v3, exit `0` means receipt-consistent and policy-admitted. For v4,
+`record-consistent` means the relation was independently reconstructed but at
+least one byte stream was unavailable, so publication remains blocked;
+`bytes-observed` means every artifact and procedure identity was recomputed.
+Exit `3` means the
 receipt is internally consistent but at least one claim is blocked by policy.
 Exit `2` means malformed, tampered, structurally invalid, or inconsistent with
 the reported statuses.
 
-The result is only **receipt-consistent**. It checks the relationships and
-recorded identities independently; it does not assert that an external prover,
-solver, compiler, or test runner executed honestly.
+No verdict asserts that an external prover, solver, compiler, or test runner
+executed honestly. `bytes-observed` attests only that the verifier received the
+exact byte identities named by the independently reconstructed relation.
