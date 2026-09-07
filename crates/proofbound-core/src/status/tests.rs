@@ -3,12 +3,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::*;
 use crate::{
     ASSUMPTION_SCHEMA_V1, AdapterStrength, ArtifactBindingEvidence, ArtifactIdentity,
-    ArtifactLogicalName, AssumptionStatus, BindingMode, BoundedCheckEvidence, BuiltInProfile,
-    CacheOrigin, CommandSpec, EnvironmentId, EnvironmentVariable, EnvironmentVariableName,
-    EvidenceProvenance, ExecutionKind, ExecutionRun, ExhaustiveCheckEvidence, ExpectedFailure,
-    GRAPH_SCHEMA_V1, GraphEdge, GraphNode, IndependenceMode, MutationWitnessEvidence,
-    NativePremiseRule, POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage, Sha256Digest,
-    SourceRefinementEvidence, StaticCheckEvidence, TRUSTED_TRANSCRIPTION_SCHEMA_V1,
+    ArtifactLogicalName, ArtifactObservationPlatform, ArtifactObservationRole, AssumptionStatus,
+    BindingMode, BoundedCheckEvidence, BuiltInProfile, CacheOrigin, ClosureIdentity, CommandSpec,
+    EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EnvironmentId, EnvironmentVariable,
+    EnvironmentVariableName, EvidenceProvenance, ExactArtifactObservationEvidence, ExecutionKind,
+    ExecutionRun, ExhaustiveCheckEvidence, ExpectedFailure, GRAPH_SCHEMA_V1, GraphEdge, GraphNode,
+    IndependenceMode, MutationWitnessEvidence, NativePremiseRule, ObservationArchitecture,
+    ObservationOperatingSystem, POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage,
+    Sha256Digest, SourceRefinementEvidence, StaticCheckEvidence, TRUSTED_TRANSCRIPTION_SCHEMA_V1,
     TheoremEvidence, ToolIdentity, TranscriptionRole, TranscriptionTcbRole, TreeState,
     TrustedTranscriptionEvidence, UnitId, transcription_role_identity,
 };
@@ -422,6 +424,7 @@ fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
         binding_mode: None,
         theorem: None,
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: None,
         source_refinement: None,
         bounded_check: None,
@@ -487,6 +490,35 @@ fn example_record(id: &str) -> EvidenceRecord {
         .inventoried_targets
         .insert("tests::registered".into());
     record
+}
+
+fn attach_artifact_observation(record: &mut EvidenceRecord, dependency: EvidenceId) {
+    let artifact = named_artifact("release/runtime.tar.zst", "runtime-release", 4096);
+    let procedure = named_artifact("tools/ci/native-linux.sh", "native-procedure", 512);
+    let toolchain_closure = ClosureIdentity {
+        kind: crate::ClosureKind::Toolchain,
+        sha256: digest("release-toolchain"),
+    };
+    record
+        .provenance
+        .input_artifacts
+        .extend([artifact.clone(), procedure.clone()]);
+    record
+        .provenance
+        .additional_closures
+        .push(toolchain_closure.clone());
+    record.artifact_observation = Some(ExactArtifactObservationEvidence {
+        schema: EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1.into(),
+        subject_role: ArtifactObservationRole::new("runtime-release").unwrap(),
+        artifact,
+        platform: ArtifactObservationPlatform {
+            operating_system: ObservationOperatingSystem::Linux,
+            architecture: ObservationArchitecture::X86_64,
+        },
+        procedure,
+        toolchain_closure,
+        dependencies: BTreeSet::from([dependency]),
+    });
 }
 
 fn theorem_record(id: &str, mode: crate::EvaluationMode) -> EvidenceRecord {
@@ -642,6 +674,66 @@ fn empirical_bounded_and_theorem_precedence_is_exact_and_retains_weaker_evidence
             .iter()
             .any(|item| item.kind == EvidenceKind::ExampleTest)
     );
+}
+
+#[test]
+fn exact_artifact_observation_is_typed_without_upgrading_linkage() {
+    let mut input = base_input(Tier::Ledger, ledger_policy());
+    let dependency = example_record("release-build");
+    let dependency_id = dependency.id.clone();
+    let dependency_node = dependency.node_id.clone();
+    add_record(&mut input, dependency, NodeKind::TestSuite, true);
+
+    let mut observation = example_record("native-execution");
+    attach_artifact_observation(&mut observation, dependency_id);
+    let observation_node = observation.node_id.clone();
+    add_record(&mut input, observation, NodeKind::TestSuite, true);
+    input.graph.edges.push(checked_graph_edge(
+        &input,
+        &observation_node,
+        &dependency_node,
+        EdgeKind::DependsOn,
+    ));
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Tested);
+    assert_eq!(status.linkage, Some(LinkageFacet::ModelOnly));
+    assert!(status.policy.admitted);
+    assert_eq!(status.artifact_observations.len(), 1);
+    let relation = &status.artifact_observations[0];
+    assert_eq!(relation.subject_role.as_str(), "runtime-release");
+    assert_eq!(relation.semantic_kind, EvidenceKind::ExampleTest);
+    assert_eq!(relation.artifact.sha256, digest("runtime-release"));
+    assert!(
+        status
+            .evidence
+            .iter()
+            .find(|item| item.id == relation.evidence)
+            .unwrap()
+            .roles
+            .contains(&EvidenceRole::ArtifactObservation)
+    );
+}
+
+#[test]
+fn exact_artifact_observation_requires_a_valid_typed_dependency_edge() {
+    let mut input = base_input(Tier::Ledger, ledger_policy());
+    let dependency = example_record("release-build");
+    let dependency_id = dependency.id.clone();
+    add_record(&mut input, dependency, NodeKind::TestSuite, true);
+    let mut observation = example_record("native-execution");
+    attach_artifact_observation(&mut observation, dependency_id);
+    add_record(&mut input, observation, NodeKind::TestSuite, true);
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(
+        status
+            .errors
+            .iter()
+            .any(|error| error.code == ErrorCode::PbObs0009)
+    );
+    assert!(status.artifact_observations.is_empty());
 }
 
 #[test]

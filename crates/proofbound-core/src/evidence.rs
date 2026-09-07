@@ -32,6 +32,7 @@ pub const PYTHON_PROPERTY_SCHEMA_V1: &str = "proofbound-python-property/1";
 pub const STATIC_CHECK_SCHEMA_V1: &str = "proofbound-static-check/1";
 pub const DISTRIBUTION_REPRODUCTION_SCHEMA_V1: &str = "proofbound-distribution-reproduction/1";
 pub const MUTATION_IDENTITY_DOMAIN_V2: &str = "proofbound-mutation/2";
+pub const EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1: &str = "proofbound-exact-artifact-observation/1";
 
 fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
@@ -52,6 +53,12 @@ pub enum EvidenceNameError {
     EmptyEnvironmentVariableName,
     #[error("an environment variable name must be at most 256 bytes")]
     EnvironmentVariableNameTooLong,
+    #[error("an artifact observation role must not be empty")]
+    EmptyArtifactObservationRole,
+    #[error("an artifact observation role must be at most 128 bytes")]
+    ArtifactObservationRoleTooLong,
+    #[error("an artifact observation role must use lowercase kebab-case")]
+    InvalidArtifactObservationRole,
     #[error("an environment variable name must start with an ASCII letter or underscore")]
     InvalidEnvironmentVariableNameStart,
     #[error("environment variable name contains an invalid character at byte {0}")]
@@ -123,6 +130,62 @@ impl<'de> Deserialize<'de> for ArtifactLogicalName {
     {
         let value = String::deserialize(deserializer)?;
         Self::new(value).map_err(de::Error::custom)
+    }
+}
+
+/// A stable domain-neutral role for bytes consumed by an empirical procedure.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ArtifactObservationRole(String);
+
+impl ArtifactObservationRole {
+    /// Constructs a lowercase kebab-case role suitable for exact matching.
+    pub fn new(value: impl Into<String>) -> Result<Self, EvidenceNameError> {
+        let value = value.into();
+        if value.is_empty() {
+            return Err(EvidenceNameError::EmptyArtifactObservationRole);
+        }
+        if value.len() > 128 {
+            return Err(EvidenceNameError::ArtifactObservationRoleTooLong);
+        }
+        let valid = value.split('-').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        }) && value.as_bytes()[0].is_ascii_lowercase();
+        if !valid {
+            return Err(EvidenceNameError::InvalidArtifactObservationRole);
+        }
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ArtifactObservationRole {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl Serialize for ArtifactObservationRole {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for ArtifactObservationRole {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(String::deserialize(deserializer)?).map_err(de::Error::custom)
     }
 }
 
@@ -226,6 +289,19 @@ mod evidence_name_tests {
         assert!(ArtifactLogicalName::new("").is_err());
         assert!(ArtifactLogicalName::new("x".repeat(4097)).is_err());
         assert!(serde_json::from_str::<ArtifactLogicalName>("\"\"").is_err());
+    }
+
+    #[test]
+    fn artifact_observation_roles_are_closed_lowercase_identifiers() {
+        let role = ArtifactObservationRole::new("runtime-release").unwrap();
+        assert_eq!(role.as_str(), "runtime-release");
+        assert_eq!(serde_json::to_string(&role).unwrap(), "\"runtime-release\"");
+        for invalid in ["", "Runtime", "runtime_release", "-runtime", "runtime-"] {
+            assert!(
+                ArtifactObservationRole::new(invalid).is_err(),
+                "{invalid:?}"
+            );
+        }
     }
 
     #[test]
@@ -671,6 +747,110 @@ pub struct ArtifactBindingEvidence {
     pub artifact: ArtifactIdentity,
 }
 
+/// Closed operating-system vocabulary for portable exact-byte observations.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationOperatingSystem {
+    Linux,
+    Macos,
+    Windows,
+}
+
+/// Closed architecture vocabulary for portable exact-byte observations.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationArchitecture {
+    X86_64,
+    Aarch64,
+}
+
+/// Platform on which exact artifact bytes were observed.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactObservationPlatform {
+    pub operating_system: ObservationOperatingSystem,
+    pub architecture: ObservationArchitecture,
+}
+
+/// Orthogonal empirical relation between a procedure and exact artifact bytes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExactArtifactObservationEvidence {
+    pub schema: String,
+    pub subject_role: ArtifactObservationRole,
+    pub artifact: ArtifactIdentity,
+    pub platform: ArtifactObservationPlatform,
+    pub procedure: ArtifactIdentity,
+    pub toolchain_closure: ClosureIdentity,
+    pub dependencies: BTreeSet<EvidenceId>,
+}
+
+/// Canonical claim-status projection of one validated observation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExactArtifactObservationRelation {
+    pub identity: Sha256Digest,
+    pub evidence: EvidenceId,
+    pub semantic_kind: EvidenceKind,
+    pub subject_role: ArtifactObservationRole,
+    pub artifact: ArtifactIdentity,
+    pub platform: ArtifactObservationPlatform,
+    pub procedure: ArtifactIdentity,
+    pub toolchain_closure: ClosureIdentity,
+    pub dependencies: BTreeSet<EvidenceId>,
+}
+
+#[derive(Serialize)]
+struct ExactArtifactObservationIdentityMaterial<'a> {
+    evidence: &'a EvidenceId,
+    semantic_kind: EvidenceKind,
+    subject_role: &'a ArtifactObservationRole,
+    artifact: &'a ArtifactIdentity,
+    platform: ArtifactObservationPlatform,
+    procedure: &'a ArtifactIdentity,
+    toolchain_closure: &'a ClosureIdentity,
+    dependencies: &'a BTreeSet<EvidenceId>,
+}
+
+impl ExactArtifactObservationRelation {
+    /// Projects a validated evidence detail and recomputes its portable identity.
+    #[must_use]
+    pub fn from_evidence(
+        evidence: &EvidenceId,
+        semantic_kind: EvidenceKind,
+        observation: &ExactArtifactObservationEvidence,
+    ) -> Self {
+        let material = ExactArtifactObservationIdentityMaterial {
+            evidence,
+            semantic_kind,
+            subject_role: &observation.subject_role,
+            artifact: &observation.artifact,
+            platform: observation.platform,
+            procedure: &observation.procedure,
+            toolchain_closure: &observation.toolchain_closure,
+            dependencies: &observation.dependencies,
+        };
+        let canonical = serde_json::to_vec(&material)
+            .expect("exact artifact observation identity material is serializable");
+        let mut framed =
+            Vec::with_capacity(EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1.len() + 1 + canonical.len());
+        framed.extend_from_slice(EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1.as_bytes());
+        framed.push(0);
+        framed.extend_from_slice(&canonical);
+        Self {
+            identity: Sha256Digest::of_bytes(framed),
+            evidence: evidence.clone(),
+            semantic_kind,
+            subject_role: observation.subject_role.clone(),
+            artifact: observation.artifact.clone(),
+            platform: observation.platform,
+            procedure: observation.procedure.clone(),
+            toolchain_closure: observation.toolchain_closure.clone(),
+            dependencies: observation.dependencies.clone(),
+        }
+    }
+}
+
 /// One of the two domain-separated trusted roles in a transcription boundary.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -1038,6 +1218,8 @@ pub struct EvidenceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_binding: Option<ArtifactBindingEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_observation: Option<ExactArtifactObservationEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_transcription: Option<TrustedTranscriptionEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_refinement: Option<SourceRefinementEvidence>,
@@ -1119,6 +1301,80 @@ impl EvidenceRecord {
                 "observed evidence lacks a nonempty bounded exact target inventory".into(),
                 "record 1 through 100000 unique nonblank control-free target identities of at most 4096 characters for every passed observed-process evidence record",
             ));
+        }
+
+        if let Some(observation) = &self.artifact_observation {
+            if observation.schema != EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1 {
+                errors.push(error(
+                    "exact artifact observation uses an unsupported nested schema".into(),
+                    "regenerate proofbound-exact-artifact-observation/1 evidence",
+                ));
+            }
+            if !self.kind.is_empirical() {
+                errors.push(error(
+                    "exact artifact observation decorates a non-empirical evidence kind".into(),
+                    "attach the observation only to a bounded, independent, exhaustive, property, example, mutation, or static check",
+                ));
+            }
+            let input_matches = |artifact: &ArtifactIdentity| {
+                self.provenance
+                    .input_artifacts
+                    .iter()
+                    .filter(|candidate| {
+                        *candidate == artifact && candidate.logical_name == artifact.logical_name
+                    })
+                    .count()
+            };
+            let logical_name_matches = |artifact: &ArtifactIdentity| {
+                self.provenance
+                    .input_artifacts
+                    .iter()
+                    .filter(|candidate| candidate.logical_name == artifact.logical_name)
+                    .count()
+            };
+            if input_matches(&observation.artifact) != 1
+                || logical_name_matches(&observation.artifact) != 1
+            {
+                errors.push(error(
+                    "observed artifact does not match exactly one registered input role and identity".into(),
+                    "bind the observed logical role to exactly one complete input artifact identity",
+                ));
+            }
+            if input_matches(&observation.procedure) != 1
+                || logical_name_matches(&observation.procedure) != 1
+            {
+                errors.push(error(
+                    "observation procedure does not match exactly one registered input role and identity".into(),
+                    "bind the procedure logical role to exactly one complete input artifact identity",
+                ));
+            }
+            if observation.artifact.logical_name == observation.procedure.logical_name {
+                errors.push(error(
+                    "observed artifact and observation procedure alias one logical role".into(),
+                    "register distinct artifact and procedure roles",
+                ));
+            }
+            if observation.toolchain_closure.kind != ClosureKind::Toolchain
+                || self
+                    .provenance
+                    .additional_closures
+                    .iter()
+                    .filter(|closure| *closure == &observation.toolchain_closure)
+                    .count()
+                    != 1
+            {
+                errors.push(error(
+                    "exact artifact observation lacks one matching toolchain closure".into(),
+                    "bind exactly one toolchain closure from the evidence provenance",
+                ));
+            }
+            if observation.dependencies.is_empty() || observation.dependencies.contains(&self.id) {
+                errors.push(error(
+                    "exact artifact observation has an empty or self-referential dependency set"
+                        .into(),
+                    "register the complete nonempty acyclic evidence dependency set",
+                ));
+            }
         }
 
         match self.kind {

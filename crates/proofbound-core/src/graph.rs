@@ -164,7 +164,15 @@ edge_endpoint_table! {
     Decodes => [(Artifact, Claim)],
     Checks => [(TestSuite, Claim), (ModelCheckUnit, Claim)],
     GeneratedFrom => [(Artifact, Subject)],
-    DependsOn => [(Claim, Subject), (Subject, Artifact), (Theorem, Theorem)],
+    DependsOn => [
+        (Claim, Subject),
+        (Subject, Artifact),
+        (Theorem, Theorem),
+        (TestSuite, TestSuite),
+        (TestSuite, ModelCheckUnit),
+        (ModelCheckUnit, TestSuite),
+        (ModelCheckUnit, ModelCheckUnit),
+    ],
     Assumes => [
         (Claim, Assumption),
         (Claim, Premise),
