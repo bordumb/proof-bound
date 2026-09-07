@@ -71,6 +71,30 @@ pub enum VerificationIssueCode {
     PbvInvalidPremise,
     PbvAmbiguousLinkage,
     PbvStatusMismatch,
+    #[serde(rename = "PB-OBS-0001")]
+    PbObs0001,
+    #[serde(rename = "PB-OBS-0002")]
+    PbObs0002,
+    #[serde(rename = "PB-OBS-0003")]
+    PbObs0003,
+    #[serde(rename = "PB-OBS-0004")]
+    PbObs0004,
+    #[serde(rename = "PB-OBS-0005")]
+    PbObs0005,
+    #[serde(rename = "PB-OBS-0006")]
+    PbObs0006,
+    #[serde(rename = "PB-OBS-0007")]
+    PbObs0007,
+    #[serde(rename = "PB-OBS-0008")]
+    PbObs0008,
+    #[serde(rename = "PB-OBS-0009")]
+    PbObs0009,
+    #[serde(rename = "PB-OBS-0010")]
+    PbObs0010,
+    #[serde(rename = "PB-OBS-0011")]
+    PbObs0011,
+    #[serde(rename = "PB-OBS-0012")]
+    PbObs0012,
 }
 
 /// One portable verifier diagnostic.
@@ -426,7 +450,7 @@ fn verify_compiled_release_internal(
             Some(output) if **output == status => {}
             Some(output) => claim_issues.push(
                 VerificationIssue::new(
-                    VerificationIssueCode::PbvStatusMismatch,
+                    status_mismatch_code(output, &status),
                     format!(
                         "reported status does not exactly match independent recomputation; reported {}, recomputed {}",
                         compact_status(output),
@@ -537,6 +561,29 @@ fn validate_observation_bytes(
                 relation.platform.clone(),
             );
             let Some(input) = indexed.get(&key).copied() else {
+                if let Some((candidate_key, _)) = indexed
+                    .iter()
+                    .find(|(candidate, _)| candidate.0 == claim.claim_id)
+                {
+                    let code = if candidate_key.1 != relation.subject_role {
+                        VerificationIssueCode::PbObs0003
+                    } else if candidate_key.2.architecture != relation.platform.architecture {
+                        VerificationIssueCode::PbObs0004
+                    } else if candidate_key.2.operating_system != relation.platform.operating_system
+                    {
+                        VerificationIssueCode::PbObs0005
+                    } else {
+                        VerificationIssueCode::PbvMissingReference
+                    };
+                    issues.push(
+                        VerificationIssue::new(
+                            code,
+                            "external observation input does not match the relation role or platform",
+                        )
+                        .for_claim(&claim.claim_id),
+                    );
+                    used.insert(candidate_key.clone());
+                }
                 all_observed = false;
                 continue;
             };
@@ -545,12 +592,14 @@ fn validate_observation_bytes(
                 &input.artifact_path,
                 &relation.artifact,
                 "observed artifact",
+                VerificationIssueCode::PbObs0002,
                 &mut issues,
             );
             let procedure_matches = external_identity_matches(
                 &input.procedure_path,
                 &relation.procedure,
                 "observation procedure",
+                VerificationIssueCode::PbObs0007,
                 &mut issues,
             );
             all_observed &= artifact_matches && procedure_matches;
@@ -607,6 +656,7 @@ fn external_identity_matches(
     path: &Path,
     expected: &crate::ArtifactIdentityReceipt,
     label: &str,
+    mismatch_code: VerificationIssueCode,
     issues: &mut Vec<VerificationIssue>,
 ) -> bool {
     let metadata = match fs::symlink_metadata(path) {
@@ -670,7 +720,7 @@ fn external_identity_matches(
     if actual_digest != expected.sha256 || actual_size != expected.size_bytes {
         issues.push(
             VerificationIssue::new(
-                VerificationIssueCode::PbvDigest,
+                mismatch_code,
                 format!("external {label} does not match the recorded exact byte identity"),
             )
             .at(path.display().to_string()),
@@ -1965,34 +2015,69 @@ fn validate_evidence_shape(
                 | EvidenceKind::MutationWitness
                 | EvidenceKind::StaticCheck
         );
-        if observation.schema != EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1
-            || !valid_observation_role(&observation.subject_role)
-            || !supported_kind
-        {
+        if observation.schema != EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1 || !supported_kind {
             evidence_issue(
                 issues,
                 id,
-                "exact artifact observation has an unsupported schema, role, or empirical kind",
+                "exact artifact observation has an unsupported schema or empirical kind",
             );
         }
-        for artifact in [&observation.artifact, &observation.procedure] {
-            if evidence
-                .provenance
-                .input_artifacts
-                .iter()
-                .filter(|candidate| *candidate == artifact)
-                .count()
-                != 1
-            {
-                evidence_issue(
-                    issues,
-                    id,
-                    format!(
-                        "exact artifact observation input '{}' is not present exactly once in provenance",
-                        artifact.logical_name
-                    ),
-                );
-            }
+        if !valid_observation_role(&observation.subject_role) {
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbObs0003,
+                    "exact artifact observation subject role is invalid or omitted",
+                )
+                .at(id),
+            );
+        }
+        if observation.artifact.logical_name.is_empty() {
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbObs0001,
+                    "exact artifact observation omits the artifact identity",
+                )
+                .at(id),
+            );
+        } else if evidence
+            .provenance
+            .input_artifacts
+            .iter()
+            .filter(|candidate| *candidate == &observation.artifact)
+            .count()
+            != 1
+        {
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbObs0002,
+                    "exact artifact observation artifact identity differs from provenance",
+                )
+                .at(id),
+            );
+        }
+        if observation.procedure.logical_name.is_empty() {
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbObs0006,
+                    "exact artifact observation omits the procedure identity",
+                )
+                .at(id),
+            );
+        } else if evidence
+            .provenance
+            .input_artifacts
+            .iter()
+            .filter(|candidate| *candidate == &observation.procedure)
+            .count()
+            != 1
+        {
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbObs0007,
+                    "exact artifact observation procedure identity differs from provenance",
+                )
+                .at(id),
+            );
         }
         if observation.toolchain_closure.kind != ClosureKind::Toolchain
             || evidence
@@ -2003,10 +2088,12 @@ fn validate_evidence_shape(
                 .count()
                 != 1
         {
-            evidence_issue(
-                issues,
-                id,
-                "exact artifact observation toolchain closure is not present exactly once in provenance",
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbObs0008,
+                    "exact artifact observation toolchain closure is not present exactly once in provenance",
+                )
+                .at(id),
             );
         }
         if observation.dependencies.is_empty()
@@ -2016,10 +2103,12 @@ fn validate_evidence_shape(
                 .iter()
                 .any(|dependency| dependency == id || !valid_digest(dependency))
         {
-            evidence_issue(
-                issues,
-                id,
-                "exact artifact observation dependencies must be nonempty canonical evidence digests and exclude self-reference",
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbObs0009,
+                    "exact artifact observation dependencies must be nonempty canonical evidence digests and exclude self-reference",
+                )
+                .at(id),
             );
         }
     }
@@ -3914,10 +4003,31 @@ fn derive_claim(
             continue;
         };
         let mut dependencies_valid = true;
+        let graph_dependencies = evidence
+            .iter()
+            .filter(|(candidate_id, candidate)| {
+                claim.cited_evidence.contains(*candidate_id)
+                    && release.graph.edges.iter().any(|edge| {
+                        edge.from == record.node_id
+                            && edge.to == candidate.node_id
+                            && edge.kind == EdgeKind::DependsOn
+                    })
+            })
+            .map(|(candidate_id, _)| candidate_id.clone())
+            .collect::<BTreeSet<_>>();
+        if graph_dependencies != observation.dependencies {
+            claim_issue!(
+                VerificationIssueCode::PbObs0009,
+                format!(
+                    "exact observation '{id}' dependency set does not equal its cited typed graph dependencies"
+                ),
+            );
+            dependencies_valid = false;
+        }
         for dependency in &observation.dependencies {
             let Some(dependency_record) = evidence.get(dependency).copied() else {
                 claim_issue!(
-                    VerificationIssueCode::PbvMissingReference,
+                    VerificationIssueCode::PbObs0009,
                     format!("exact observation '{id}' dependency '{dependency}' is absent"),
                 );
                 dependencies_valid = false;
@@ -3929,7 +4039,7 @@ fn derive_claim(
                 || !dependency_record.claim_ids.contains(&claim.id)
             {
                 claim_issue!(
-                    VerificationIssueCode::PbvInvalidEvidence,
+                    VerificationIssueCode::PbObs0009,
                     format!(
                         "exact observation '{id}' dependency '{dependency}' is not a cited, passed, valid dependency for this claim"
                     ),
@@ -3942,7 +4052,7 @@ fn derive_claim(
                     && edge.kind == EdgeKind::DependsOn
             }) {
                 claim_issue!(
-                    VerificationIssueCode::PbvInvalidGraph,
+                    VerificationIssueCode::PbObs0009,
                     format!(
                         "exact observation '{id}' has no typed depends-on edge to '{dependency}'"
                     ),
@@ -3962,7 +4072,7 @@ fn derive_claim(
         ) && prior != observation.artifact
         {
             claim_issue!(
-                VerificationIssueCode::PbvInvalidEvidence,
+                VerificationIssueCode::PbObs0003,
                 format!(
                     "exact observation role '{}' identifies different artifact bytes within one claim",
                     observation.subject_role
@@ -4584,6 +4694,45 @@ fn choose_linkage(
             LinkageFacet::ModelOnly
         }
     }
+}
+
+fn status_mismatch_code(
+    reported: &ReportedClaimStatus,
+    recomputed: &ReportedClaimStatus,
+) -> VerificationIssueCode {
+    if reported.artifact_observations.is_empty() && recomputed.artifact_observations.is_empty() {
+        return VerificationIssueCode::PbvStatusMismatch;
+    }
+    if reported.formal != recomputed.formal || reported.linkage != recomputed.linkage {
+        return VerificationIssueCode::PbObs0011;
+    }
+    if reported.assumption != recomputed.assumption
+        || reported.assumptions != recomputed.assumptions
+        || reported.undischarged_premises != recomputed.undischarged_premises
+    {
+        return VerificationIssueCode::PbObs0010;
+    }
+    if reported.artifact_observations.len() == recomputed.artifact_observations.len() {
+        for (reported, recomputed) in reported
+            .artifact_observations
+            .iter()
+            .zip(&recomputed.artifact_observations)
+        {
+            if reported.subject_role != recomputed.subject_role {
+                return VerificationIssueCode::PbObs0003;
+            }
+            if reported.platform.architecture != recomputed.platform.architecture {
+                return VerificationIssueCode::PbObs0004;
+            }
+            if reported.platform.operating_system != recomputed.platform.operating_system {
+                return VerificationIssueCode::PbObs0005;
+            }
+        }
+    }
+    if reported.artifact_observations != recomputed.artifact_observations {
+        return VerificationIssueCode::PbObs0012;
+    }
+    VerificationIssueCode::PbvStatusMismatch
 }
 
 fn compact_status(status: &ReportedClaimStatus) -> String {

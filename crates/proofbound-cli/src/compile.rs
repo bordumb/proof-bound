@@ -640,6 +640,10 @@ fn write_release_schemas(destination: &Path) -> Result<()> {
             include_bytes!("../../../schemas/mutation-registry.schema.json"),
         ),
         (
+            "observation-inputs.schema.json",
+            include_bytes!("../../../schemas/observation-inputs.schema.json"),
+        ),
+        (
             "policy.schema.json",
             include_bytes!("../../../schemas/policy.schema.json"),
         ),
@@ -1836,7 +1840,13 @@ fn reusable_cached_record(
         }
         None => None,
     };
-    if record.schema != EVIDENCE_DOMAIN
+    let expected_observation = core_exact_artifact_observation(unit, &record.provenance).ok()?;
+    let expected_schema = if expected_observation.is_some() {
+        proofbound_core::EVIDENCE_SCHEMA_V4
+    } else {
+        EVIDENCE_DOMAIN
+    };
+    if record.schema != expected_schema
         || record.id != expected_id
         || record.node_id != expected_node
         || record.unit_id != expected_unit
@@ -1848,6 +1858,11 @@ fn reusable_cached_record(
         || record.evaluation_mode != expected_evaluation
         || record.binding_mode != expected_binding
         || record.bounded_check.as_ref() != expected_bounded_check.as_ref()
+        || registered_exact_artifact_observation_matches(
+            expected_observation.as_ref(),
+            record.artifact_observation.as_ref(),
+        )
+        .is_err()
         || trusted_transcription_record_matches_unit(unit, &record).is_err()
         || mutation_record_matches_registration(
             context.root,
@@ -2975,6 +2990,54 @@ fn core_exact_artifact_observation(
             .map(|dependency| EvidenceId::new(dependency.clone()))
             .collect::<Result<_, _>>()?,
     }))
+}
+
+fn registered_exact_artifact_observation_matches(
+    expected: Option<&ExactArtifactObservationEvidence>,
+    actual: Option<&ExactArtifactObservationEvidence>,
+) -> Result<()> {
+    let Some(expected) = expected else {
+        if actual.is_some() {
+            bail!("PB-OBS-0003: unregistered exact artifact observation role");
+        }
+        return Ok(());
+    };
+    let Some(actual) = actual else {
+        bail!("PB-OBS-0001: registered exact artifact observation is missing");
+    };
+    if actual.artifact.logical_name.as_str().is_empty() {
+        bail!("PB-OBS-0001: registered observed artifact identity is missing");
+    }
+    if actual.artifact != expected.artifact {
+        bail!("PB-OBS-0002: observed artifact identity differs from registration");
+    }
+    if actual.subject_role != expected.subject_role {
+        bail!("PB-OBS-0003: exact artifact observation role differs from registration");
+    }
+    if actual.platform.architecture != expected.platform.architecture {
+        bail!("PB-OBS-0004: exact artifact observation architecture differs from registration");
+    }
+    if actual.platform.operating_system != expected.platform.operating_system {
+        bail!("PB-OBS-0005: exact artifact observation platform differs from registration");
+    }
+    if actual.procedure.logical_name.as_str().is_empty()
+        || actual.procedure.logical_name == actual.artifact.logical_name
+    {
+        bail!("PB-OBS-0006: registered observation procedure identity is missing");
+    }
+    if actual.procedure != expected.procedure {
+        bail!("PB-OBS-0007: observation procedure identity differs from registration");
+    }
+    if actual.toolchain_closure != expected.toolchain_closure {
+        bail!("PB-OBS-0008: exact artifact observation toolchain differs from registration");
+    }
+    if actual.dependencies != expected.dependencies {
+        bail!("PB-OBS-0009: exact artifact observation dependencies differ from registration");
+    }
+    if actual.schema != expected.schema {
+        bail!("PB-OBS-0012: exact artifact observation schema identity differs");
+    }
+    Ok(())
 }
 
 fn core_artifact(value: ArtifactObservation) -> Result<ArtifactIdentity> {
@@ -8262,6 +8325,43 @@ description = {description:?}
                 .count(),
             1
         );
+
+        let assert_registration_code =
+            |actual: Option<&ExactArtifactObservationEvidence>, expected_code: &str| {
+                let error =
+                    registered_exact_artifact_observation_matches(Some(&observation), actual)
+                        .unwrap_err()
+                        .to_string();
+                assert!(error.contains(expected_code), "{error}");
+            };
+        assert_registration_code(None, "PB-OBS-0001");
+        let mut attack = observation.clone();
+        attack.artifact.sha256 = Sha256Digest::of_bytes(b"substituted runtime");
+        assert_registration_code(Some(&attack), "PB-OBS-0002");
+        let mut attack = observation.clone();
+        attack.subject_role = ArtifactObservationRole::new("substituted-role").unwrap();
+        assert_registration_code(Some(&attack), "PB-OBS-0003");
+        let mut attack = observation.clone();
+        attack.platform.architecture = ObservationArchitecture::Aarch64;
+        assert_registration_code(Some(&attack), "PB-OBS-0004");
+        let mut attack = observation.clone();
+        attack.platform.operating_system = ObservationOperatingSystem::Macos;
+        assert_registration_code(Some(&attack), "PB-OBS-0005");
+        let mut attack = observation.clone();
+        attack.procedure = attack.artifact.clone();
+        assert_registration_code(Some(&attack), "PB-OBS-0006");
+        let mut attack = observation.clone();
+        attack.procedure.sha256 = Sha256Digest::of_bytes(b"substituted procedure");
+        assert_registration_code(Some(&attack), "PB-OBS-0007");
+        let mut attack = observation.clone();
+        attack.toolchain_closure.sha256 = Sha256Digest::of_bytes(b"substituted toolchain");
+        assert_registration_code(Some(&attack), "PB-OBS-0008");
+        let mut attack = observation.clone();
+        attack.dependencies.clear();
+        assert_registration_code(Some(&attack), "PB-OBS-0009");
+        let mut attack = observation.clone();
+        attack.schema = "proofbound-exact-artifact-observation/unknown".into();
+        assert_registration_code(Some(&attack), "PB-OBS-0012");
 
         let release_digest =
             |label: &str| format!("sha256:{}", Sha256Digest::of_bytes(label.as_bytes()));

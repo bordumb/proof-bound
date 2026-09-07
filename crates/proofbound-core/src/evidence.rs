@@ -1268,6 +1268,11 @@ impl EvidenceRecord {
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
         };
+        let observation_error = |code: ErrorCode, message: String, remediation: &'static str| {
+            StructuredError::new(code, message, remediation)
+                .for_claim(claim_id.clone())
+                .for_unit(self.unit_id.clone())
+        };
 
         let expected_schema = if self.artifact_observation.is_some() {
             EVIDENCE_SCHEMA_V4
@@ -1339,24 +1344,47 @@ impl EvidenceRecord {
                     .filter(|candidate| candidate.logical_name == artifact.logical_name)
                     .count()
             };
-            if input_matches(&observation.artifact) != 1
-                || logical_name_matches(&observation.artifact) != 1
-            {
-                errors.push(error(
+            let artifact_role_matches = logical_name_matches(&observation.artifact);
+            if artifact_role_matches == 0 {
+                errors.push(observation_error(
+                    ErrorCode::PbObs0001,
+                    "observed artifact role is absent from registered inputs".into(),
+                    "register the observed artifact as an exact input role",
+                ));
+            } else if input_matches(&observation.artifact) != 1 || artifact_role_matches != 1 {
+                let code = if artifact_role_matches > 1 {
+                    ErrorCode::PbObs0003
+                } else {
+                    ErrorCode::PbObs0002
+                };
+                errors.push(observation_error(
+                    code,
                     "observed artifact does not match exactly one registered input role and identity".into(),
                     "bind the observed logical role to exactly one complete input artifact identity",
                 ));
             }
-            if input_matches(&observation.procedure) != 1
-                || logical_name_matches(&observation.procedure) != 1
-            {
-                errors.push(error(
+            let procedure_role_matches = logical_name_matches(&observation.procedure);
+            if procedure_role_matches == 0 {
+                errors.push(observation_error(
+                    ErrorCode::PbObs0006,
+                    "observation procedure role is absent from registered inputs".into(),
+                    "register the observation procedure as an exact input role",
+                ));
+            } else if input_matches(&observation.procedure) != 1 || procedure_role_matches != 1 {
+                let code = if procedure_role_matches > 1 {
+                    ErrorCode::PbObs0003
+                } else {
+                    ErrorCode::PbObs0007
+                };
+                errors.push(observation_error(
+                    code,
                     "observation procedure does not match exactly one registered input role and identity".into(),
                     "bind the procedure logical role to exactly one complete input artifact identity",
                 ));
             }
             if observation.artifact.logical_name == observation.procedure.logical_name {
-                errors.push(error(
+                errors.push(observation_error(
+                    ErrorCode::PbObs0003,
                     "observed artifact and observation procedure alias one logical role".into(),
                     "register distinct artifact and procedure roles",
                 ));
@@ -1370,13 +1398,15 @@ impl EvidenceRecord {
                     .count()
                     != 1
             {
-                errors.push(error(
+                errors.push(observation_error(
+                    ErrorCode::PbObs0008,
                     "exact artifact observation lacks one matching toolchain closure".into(),
                     "bind exactly one toolchain closure from the evidence provenance",
                 ));
             }
             if observation.dependencies.is_empty() || observation.dependencies.contains(&self.id) {
-                errors.push(error(
+                errors.push(observation_error(
+                    ErrorCode::PbObs0009,
                     "exact artifact observation has an empty or self-referential dependency set"
                         .into(),
                     "register the complete nonempty acyclic evidence dependency set",

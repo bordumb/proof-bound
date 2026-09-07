@@ -738,6 +738,82 @@ fn exact_artifact_observation_requires_a_valid_typed_dependency_edge() {
 }
 
 #[test]
+fn exact_artifact_observation_shape_attacks_have_stable_producer_codes() {
+    let dependency = EvidenceId::new("release-build").unwrap();
+    let record = || {
+        let mut record = example_record("native-execution");
+        attach_artifact_observation(&mut record, dependency.clone());
+        record
+    };
+    let codes = |record: &EvidenceRecord| {
+        record
+            .validate(&claim_id())
+            .unwrap_err()
+            .errors
+            .into_iter()
+            .map(|error| error.code)
+            .collect::<BTreeSet<_>>()
+    };
+
+    let mut attack = record();
+    let artifact = attack
+        .artifact_observation
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    attack
+        .provenance
+        .input_artifacts
+        .retain(|candidate| candidate.logical_name != artifact.logical_name);
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0001));
+
+    let mut attack = record();
+    attack
+        .artifact_observation
+        .as_mut()
+        .unwrap()
+        .artifact
+        .sha256 = digest("substitution");
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0002));
+
+    let mut attack = record();
+    let procedure = attack
+        .artifact_observation
+        .as_ref()
+        .unwrap()
+        .procedure
+        .clone();
+    attack
+        .provenance
+        .input_artifacts
+        .retain(|candidate| candidate.logical_name != procedure.logical_name);
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0006));
+
+    let mut attack = record();
+    attack
+        .artifact_observation
+        .as_mut()
+        .unwrap()
+        .procedure
+        .sha256 = digest("substitution");
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0007));
+
+    let mut attack = record();
+    attack.provenance.additional_closures.clear();
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0008));
+
+    let mut attack = record();
+    attack
+        .artifact_observation
+        .as_mut()
+        .unwrap()
+        .dependencies
+        .clear();
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0009));
+}
+
+#[test]
 fn exhaustive_is_tested_unless_policy_explicitly_admits_finite_proof() {
     let mut default = base_input(Tier::Bounded, ledger_policy());
     default.claim.registered_domain_language =

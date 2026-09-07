@@ -965,13 +965,221 @@ fn exact_observation_is_independently_reconstructed_without_status_upgrade() {
     let mut forged = release.clone();
     forged.reported_statuses[0].artifact_observations[0].identity = digest("forged relation");
     let error = verify_compiled_release(&forged).unwrap_err();
-    assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+    assert!(codes(&error).contains(&VerificationIssueCode::PbObs0012));
 
     let mut disconnected = release;
     disconnected.graph.edges.clear();
     disconnected.graph_sha256 = graph_hash(&disconnected.graph);
     let error = verify_compiled_release(&disconnected).unwrap_err();
-    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidGraph));
+    assert!(codes(&error).contains(&VerificationIssueCode::PbObs0009));
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ObservationAttackCorpus {
+    schema: String,
+    cases: Vec<ObservationAttackCase>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ObservationAttackCase {
+    id: String,
+    mutation: String,
+    expected_code: String,
+}
+
+fn exact_observation_release_with_assumption() -> CompiledRelease {
+    let mut release = exact_observation_release();
+    release.graph.nodes.extend([
+        GraphNode {
+            id: "assumption:observation-host".into(),
+            kind: NodeKind::Assumption,
+            proof_environment: None,
+        },
+        GraphNode {
+            id: "review:observation-host".into(),
+            kind: NodeKind::Review,
+            proof_environment: None,
+        },
+    ]);
+    let mut review_record = release.evidence[0].record.clone();
+    review_record.unit_id = "unit:observation-host-review".into();
+    review_record.node_id = "review:observation-host".into();
+    review_record.kind = EvidenceKind::Review;
+    review_record.inventoried_targets = BTreeSet::from(["observation-host".into()]);
+    let review = hash_evidence(review_record);
+    release.assumptions.push(AssumptionReceipt {
+        schema: ASSUMPTION_SCHEMA_V1.into(),
+        id: "observation-host".into(),
+        node_id: "assumption:observation-host".into(),
+        statement: "The native observation host reports its platform honestly.".into(),
+        category: AssumptionCategory::NativeEvaluation,
+        owner: "release engineering".into(),
+        rationale: "The host platform is outside the proof kernel.".into(),
+        scope: "exact artifact observation".into(),
+        affected_claims: BTreeSet::from(["c".into()]),
+        review_evidence: BTreeSet::from([review.sha256.clone()]),
+        falsification_or_discharge_plan: "Reproduce on an independent native host.".into(),
+        source_citation: None,
+        state: AssumptionState::Active,
+        depends_on: BTreeSet::new(),
+    });
+    release.evidence.push(review);
+    release.reported_statuses[0].assumption = AssumptionFacet::Assumed;
+    release.reported_statuses[0]
+        .assumptions
+        .insert("observation-host".into());
+    release.graph_sha256 = graph_hash(&release.graph);
+    verify_compiled_release(&release).unwrap();
+    release
+}
+
+fn exact_observation_byte_attack(
+    artifact_bytes: &[u8],
+    procedure_bytes: &[u8],
+) -> VerificationErrors {
+    let release = exact_observation_release();
+    let directory = write_release(&release);
+    let artifact_path = directory.path().join("attack-runtime.tar.zst");
+    let procedure_path = directory.path().join("attack-native.sh");
+    fs::write(&artifact_path, artifact_bytes).unwrap();
+    fs::write(&procedure_path, procedure_bytes).unwrap();
+    verify_release_dir_with_observations(
+        directory.path(),
+        &[ExternalObservationInput {
+            claim_id: "c".into(),
+            subject_role: "runtime-release".into(),
+            platform: ObservationPlatform {
+                operating_system: ObservationOperatingSystem::Linux,
+                architecture: ObservationArchitecture::X86_64,
+            },
+            artifact_path,
+            procedure_path,
+        }],
+    )
+    .unwrap_err()
+}
+
+#[test]
+fn frozen_exact_observation_attacks_reject_with_registered_codes() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../proofbound/conformance/v2/exact-artifact-observation-attacks.json");
+    let corpus: ObservationAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(
+        corpus.schema,
+        "proofbound-exact-artifact-observation-attacks/1"
+    );
+    assert_eq!(corpus.cases.len(), 12);
+    let mut seen = BTreeSet::new();
+    for case in corpus.cases {
+        assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+        assert!(!case.mutation.trim().is_empty());
+        let error = match case.id.as_str() {
+            "artifact-omission" => {
+                let mut release = exact_observation_release();
+                release.evidence[1]
+                    .record
+                    .artifact_observation
+                    .as_mut()
+                    .unwrap()
+                    .artifact
+                    .logical_name
+                    .clear();
+                verify_compiled_release(&release).unwrap_err()
+            }
+            "artifact-substitution" => {
+                exact_observation_byte_attack(b"substitute bytes", b"native procedure")
+            }
+            "role-substitution" => {
+                let mut release = exact_observation_release();
+                release.reported_statuses[0].artifact_observations[0].subject_role =
+                    "substituted-role".into();
+                verify_compiled_release(&release).unwrap_err()
+            }
+            "architecture-replay" => {
+                let mut release = exact_observation_release();
+                release.reported_statuses[0].artifact_observations[0]
+                    .platform
+                    .architecture = ObservationArchitecture::Aarch64;
+                verify_compiled_release(&release).unwrap_err()
+            }
+            "platform-replay" => {
+                let mut release = exact_observation_release();
+                release.reported_statuses[0].artifact_observations[0]
+                    .platform
+                    .operating_system = ObservationOperatingSystem::Macos;
+                verify_compiled_release(&release).unwrap_err()
+            }
+            "procedure-omission" => {
+                let mut release = exact_observation_release();
+                release.evidence[1]
+                    .record
+                    .artifact_observation
+                    .as_mut()
+                    .unwrap()
+                    .procedure
+                    .logical_name
+                    .clear();
+                verify_compiled_release(&release).unwrap_err()
+            }
+            "procedure-substitution" => {
+                exact_observation_byte_attack(b"runtime artifact", b"substitute bytes")
+            }
+            "toolchain-loss" => {
+                let mut release = exact_observation_release();
+                release.evidence[1]
+                    .record
+                    .provenance
+                    .additional_closures
+                    .clear();
+                verify_compiled_release(&release).unwrap_err()
+            }
+            "dependency-omission" => {
+                let mut release = exact_observation_release();
+                release.evidence[1]
+                    .record
+                    .artifact_observation
+                    .as_mut()
+                    .unwrap()
+                    .dependencies
+                    .clear();
+                verify_compiled_release(&release).unwrap_err()
+            }
+            "assumption-loss" => {
+                let mut release = exact_observation_release_with_assumption();
+                release.reported_statuses[0].assumption = AssumptionFacet::None;
+                release.reported_statuses[0].assumptions.clear();
+                verify_compiled_release(&release).unwrap_err()
+            }
+            "status-upgrade" => {
+                let mut release = exact_observation_release();
+                release.reported_statuses[0].formal = FormalFacet::Proved;
+                release.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
+                verify_compiled_release(&release).unwrap_err()
+            }
+            "relation-identity-substitution" => {
+                let mut release = exact_observation_release();
+                release.reported_statuses[0].artifact_observations[0]
+                    .artifact
+                    .size_bytes += 1;
+                verify_compiled_release(&release).unwrap_err()
+            }
+            unknown => panic!("unimplemented frozen observation attack {unknown}"),
+        };
+        let actual = error
+            .issues
+            .iter()
+            .map(|issue| issue.code.to_string())
+            .collect::<BTreeSet<_>>();
+        assert!(
+            actual.contains(&case.expected_code),
+            "{} expected {}, received {:?}",
+            case.id,
+            case.expected_code,
+            actual
+        );
+    }
 }
 
 #[test]
