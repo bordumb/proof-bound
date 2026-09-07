@@ -2064,6 +2064,12 @@ fn bind_record_to_execution(
     };
     record.provenance.semantic_source_closure = parse_digest(semantic_closure)?;
     record.provenance.additional_closures = additional_closures.to_vec();
+    record.artifact_observation = core_exact_artifact_observation(unit, &record.provenance)?;
+    record.schema = if record.artifact_observation.is_some() {
+        proofbound_core::EVIDENCE_SCHEMA_V4.into()
+    } else {
+        EVIDENCE_DOMAIN.into()
+    };
     trusted_transcription_record_matches_unit(unit, record)?;
 
     for claim in &expected_claims {
@@ -2811,7 +2817,7 @@ fn observation_to_record(
         &closure_ids.iter().collect::<BTreeSet<_>>(),
     )?);
     let execution_identity = git_identity(root)?;
-    let mut provenance = EvidenceProvenance {
+    let provenance = EvidenceProvenance {
         project_revision: execution_identity.revision,
         tree_state: match execution_identity.tree_state.as_str() {
             "clean" => TreeState::Clean,
@@ -2855,13 +2861,8 @@ fn observation_to_record(
         prior_receipt_sha256: None,
         python_plugins,
     };
-    let artifact_observation = core_exact_artifact_observation(unit, &mut provenance)?;
     Ok(EvidenceRecord {
-        schema: if artifact_observation.is_some() {
-            proofbound_core::EVIDENCE_SCHEMA_V4.into()
-        } else {
-            EVIDENCE_DOMAIN.into()
-        },
+        schema: EVIDENCE_DOMAIN.into(),
         id: evidence_id.clone(),
         node_id: NodeId::new(format!("evidence:{evidence_id}"))?,
         unit_id: UnitId::new(format!("unit:{}", unit.id))?,
@@ -2881,7 +2882,7 @@ fn observation_to_record(
         }),
         theorem: None,
         artifact_binding,
-        artifact_observation,
+        artifact_observation: None,
         trusted_transcription,
         source_refinement,
         bounded_check,
@@ -2902,7 +2903,7 @@ fn observation_to_record(
 
 fn core_exact_artifact_observation(
     unit: &EvidenceUnitManifest,
-    provenance: &mut EvidenceProvenance,
+    provenance: &EvidenceProvenance,
 ) -> Result<Option<ExactArtifactObservationEvidence>> {
     let Some(config) = &unit.artifact_observation else {
         return Ok(None);
@@ -2923,29 +2924,22 @@ fn core_exact_artifact_observation(
     let artifact = select(&config.artifact)?;
     let procedure =
         select(&config.procedure).context("PB-OBS-0006: observation procedure was not observed")?;
-    let mut toolchain_artifacts = config
-        .toolchain_inputs
-        .iter()
-        .map(|logical_name| select(logical_name))
-        .collect::<Result<Vec<_>>>()?;
-    toolchain_artifacts.sort_by(|left, right| left.logical_name.cmp(&right.logical_name));
-    let canonical = canonical_json(&toolchain_artifacts)?;
-    let domain = b"proofbound-observation-toolchain-closure/1\0";
-    let mut framed = Vec::with_capacity(domain.len() + canonical.len());
-    framed.extend_from_slice(domain);
-    framed.extend_from_slice(&canonical);
-    let toolchain_closure = ClosureIdentity {
-        kind: proofbound_core::ClosureKind::Toolchain,
-        sha256: Sha256Digest::of_bytes(framed),
-    };
-    provenance
+    for logical_name in &config.toolchain_inputs {
+        select(logical_name).with_context(|| {
+            format!("PB-OBS-0008: toolchain input {logical_name:?} was not observed")
+        })?;
+    }
+    let mut toolchain_closures = provenance
         .additional_closures
-        .push(toolchain_closure.clone());
-    provenance.additional_closures.sort_by(|left, right| {
-        left.kind
-            .cmp(&right.kind)
-            .then(left.sha256.cmp(&right.sha256))
-    });
+        .iter()
+        .filter(|closure| closure.kind == proofbound_core::ClosureKind::Toolchain);
+    let toolchain_closure = toolchain_closures
+        .next()
+        .context("PB-OBS-0008: project has no registered toolchain closure")?
+        .clone();
+    if toolchain_closures.next().is_some() {
+        bail!("PB-OBS-0008: project has more than one ambiguous toolchain closure");
+    }
     let operating_system = match config.operating_system {
         proofbound_manifest::ObservationOperatingSystem::Linux => ObservationOperatingSystem::Linux,
         proofbound_manifest::ObservationOperatingSystem::Macos => ObservationOperatingSystem::Macos,
@@ -5697,6 +5691,11 @@ fn release_evidence_record(
     closure_ids: &BTreeMap<String, String>,
     evidence_ids: &BTreeMap<String, String>,
 ) -> Result<serde_json::Value> {
+    if evidence.artifact_observation.is_some() {
+        bail!(
+            "PB-RELEASE-0021: exact artifact observations require the versioned portable receipt projection"
+        );
+    }
     let input_artifacts = artifact_records(&evidence.provenance.input_artifacts)?;
     let generated_artifacts = artifact_records(&evidence.provenance.generated_artifacts)?;
     let tool = serde_json::json!({
@@ -8149,8 +8148,12 @@ description = {description:?}
             artifact("tools/native.sh", b"procedure"),
             artifact("rust-toolchain.toml", b"toolchain"),
         ];
+        record.provenance.additional_closures = vec![ClosureIdentity {
+            kind: proofbound_core::ClosureKind::Toolchain,
+            sha256: Sha256Digest::of_bytes(b"toolchain closure"),
+        }];
 
-        let observation = core_exact_artifact_observation(&unit, &mut record.provenance)
+        let observation = core_exact_artifact_observation(&unit, &record.provenance)
             .unwrap()
             .unwrap();
         assert_eq!(observation.subject_role.as_str(), "runtime-release");
