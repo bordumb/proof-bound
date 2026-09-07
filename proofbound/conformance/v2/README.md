@@ -16,3 +16,8 @@ the registered manifest before reuse, and the standalone verifier executes all
 twelve cases from the frozen JSON inventory, including external byte
 substitution, platform replay, assumption loss, status upgrade, and canonical
 relation identity substitution.
+
+`evidence-context-attacks.json` preregisters the reviewed activation boundary
+for ADR 0021. Its eight cases remain a falsifier contract until project schema,
+compiler selection, release enforcement, portable projection, and independent
+verification execute the inventory.
