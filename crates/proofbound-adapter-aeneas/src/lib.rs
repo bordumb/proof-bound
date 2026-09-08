@@ -500,9 +500,10 @@ fn execute_request<E: Executor>(
             .map_err(|error| AdapterError::Unit(error.to_string()))?,
     )
     .map_err(|error| AdapterError::Unit(format!("proofbound.toml: {error}")))?;
-    if project.schema != "proofbound-project/1" {
+    if !supported_project_schema(&project.schema) {
         return Err(AdapterError::Unit(
-            "project manifest schema is not proofbound-project/1".to_owned(),
+            "project manifest schema is not proofbound-project/1 or proofbound-project/2"
+                .to_owned(),
         ));
     }
     if project.limits.max_manifest_bytes == 0
@@ -719,6 +720,10 @@ fn execute_request<E: Executor>(
         completed_operation_evidence(&request.operation, observation)?,
         inventory,
     ))
+}
+
+fn supported_project_schema(schema: &str) -> bool {
+    matches!(schema, "proofbound-project/1" | "proofbound-project/2")
 }
 
 fn completed_operation_evidence(
@@ -3305,6 +3310,13 @@ mod tests {
             b"[package]\nname = \"second\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn project_schema_support_tracks_manifest_compatibility() {
+        assert!(supported_project_schema("proofbound-project/1"));
+        assert!(supported_project_schema("proofbound-project/2"));
+        assert!(!supported_project_schema("proofbound-project/3"));
     }
 
     #[test]
