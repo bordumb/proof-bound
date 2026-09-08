@@ -990,18 +990,21 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         });
     }
 
+    let artifact_observation_evidence = artifact_observations
+        .iter()
+        .map(|relation| relation.evidence.clone())
+        .collect();
     let evidence_assessments = evidence_assessments(
         &relevant_evidence,
         &evidence_catalog,
         &valid_evidence,
         &theorem_admissions,
         formal,
-        &linkage_evidence,
-        &artifact_observations
-            .iter()
-            .map(|relation| relation.evidence.clone())
-            .collect(),
-        &discharge_evidence,
+        EvidenceRoleSets {
+            linkage: &linkage_evidence,
+            artifact_observation: &artifact_observation_evidence,
+            premise_discharge: &discharge_evidence,
+        },
     );
 
     let reader_statement = input
@@ -1479,15 +1482,19 @@ fn policy_blockers(
     blockers
 }
 
+struct EvidenceRoleSets<'a> {
+    linkage: &'a BTreeSet<EvidenceId>,
+    artifact_observation: &'a BTreeSet<EvidenceId>,
+    premise_discharge: &'a BTreeSet<EvidenceId>,
+}
+
 fn evidence_assessments(
     relevant: &BTreeSet<EvidenceId>,
     catalog: &BTreeMap<EvidenceId, &EvidenceRecord>,
     valid: &BTreeSet<EvidenceId>,
     theorem_admissions: &BTreeMap<EvidenceId, TheoremAdmission>,
     formal: FormalFacet,
-    linkage_evidence: &BTreeSet<EvidenceId>,
-    artifact_observation_evidence: &BTreeSet<EvidenceId>,
-    discharge_evidence: &BTreeSet<EvidenceId>,
+    role_sets: EvidenceRoleSets<'_>,
 ) -> Vec<EvidenceAssessment> {
     relevant
         .iter()
@@ -1513,13 +1520,13 @@ fn evidence_assessments(
             if contributes_formal {
                 roles.insert(EvidenceRole::Formal);
             }
-            if linkage_evidence.contains(&record.id) {
+            if role_sets.linkage.contains(&record.id) {
                 roles.insert(EvidenceRole::Linkage);
             }
-            if artifact_observation_evidence.contains(&record.id) {
+            if role_sets.artifact_observation.contains(&record.id) {
                 roles.insert(EvidenceRole::ArtifactObservation);
             }
-            if discharge_evidence.contains(&record.id) {
+            if role_sets.premise_discharge.contains(&record.id) {
                 roles.insert(EvidenceRole::PremiseDischarge);
             }
             if record.kind == EvidenceKind::Review {
