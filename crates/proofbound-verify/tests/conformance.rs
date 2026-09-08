@@ -1070,7 +1070,13 @@ fn exact_observation_is_independently_reconstructed_without_status_upgrade() {
             procedure_path: "external-native.sh".into(),
         }],
     };
-    fs::write(&manifest_path, canonical_json(&manifest).unwrap()).unwrap();
+    let manifest_bytes = canonical_json(&manifest).unwrap();
+    let manifest_wire: serde_json::Value = serde_json::from_slice(&manifest_bytes).unwrap();
+    assert_eq!(
+        manifest_wire["observations"][0]["platform"]["architecture"],
+        "x86_64"
+    );
+    fs::write(&manifest_path, manifest_bytes).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_proofbound-verify"))
         .args([
             "--release",

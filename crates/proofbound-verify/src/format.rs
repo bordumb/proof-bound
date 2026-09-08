@@ -363,6 +363,7 @@ pub enum ObservationOperatingSystem {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ObservationArchitecture {
+    #[serde(rename = "x86_64")]
     X86_64,
     Aarch64,
 }
