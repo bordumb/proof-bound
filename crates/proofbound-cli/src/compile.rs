@@ -4867,7 +4867,32 @@ fn cache_input_identities(
                 .iter()
                 .map(|bridge| bridge.file.clone()),
         );
-        roots.extend(translation.import_mapping.source_roots.iter().cloned());
+        let source_root_patterns = translation
+            .import_mapping
+            .source_roots
+            .iter()
+            .map(|source_root| format!("{source_root}/**"))
+            .collect::<Vec<_>>();
+        let source_root_closure = proofbound_evidence::build_closure(
+            root,
+            proofbound_evidence::ClosureKind::Semantic,
+            &source_root_patterns,
+            None,
+            "build-tool-transitive/1",
+            closures::limits(bundle),
+        )
+        .with_context(|| {
+            format!(
+                "PB-CACHE-0001: could not close translation import roots for unit {}",
+                unit.id
+            )
+        })?;
+        roots.extend(
+            source_root_closure
+                .members
+                .into_iter()
+                .map(|member| member.path),
+        );
         roots.extend(
             translation
                 .invocations
@@ -7336,6 +7361,18 @@ mod tests {
         fs::write(root.join("lean/Refinement.lean"), b"refinement-v1").unwrap();
         fs::write(root.join("lean/Bridge.lean"), b"bridge-v1").unwrap();
         fs::write(root.join("lean/nested/Resolution.lean"), b"resolution-v1").unwrap();
+        fs::create_dir_all(root.join("lean/.lake/packages/dependency/docs")).unwrap();
+        fs::write(
+            root.join("lean/.lake/packages/dependency/Generated.lean"),
+            b"generated-state",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(
+            "../Generated.lean",
+            root.join("lean/.lake/packages/dependency/docs/README.md"),
+        )
+        .unwrap();
         let unit = cache_test_unit();
         let mut bundle = cache_test_bundle(&root);
         bundle
@@ -7364,6 +7401,10 @@ mod tests {
         ] {
             assert!(first.contains_key(path), "missing {path}");
         }
+        assert!(
+            !first.keys().any(|path| path.contains("/.lake/")),
+            "generated Lean state entered translation cache inputs: {first:?}"
+        );
 
         fs::write(root.join("proofbound/translation.toml"), b"manifest-v2").unwrap();
         let manifest_changed = cache_input_identities(&bundle, &unit).unwrap();
