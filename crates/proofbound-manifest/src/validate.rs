@@ -197,6 +197,19 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                 second: path.clone(),
             });
         }
+        let unique_formal_axioms = assumption.formal_axioms.iter().collect::<BTreeSet<_>>();
+        if assumption.formal_axioms.len() > 1024
+            || unique_formal_axioms.len() != assumption.formal_axioms.len()
+            || assumption
+                .formal_axioms
+                .iter()
+                .any(|name| !valid_lean_axiom_name(name))
+        {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: "formal_axioms must contain at most 1024 unique fully qualified Lean declaration names of at most 512 characters".to_owned(),
+            });
+        }
         for claim_id in &assumption.affected_claims {
             let Some((_, claim)) = bundle.claims.get(claim_id) else {
                 return Err(SemanticError::MissingReference {
@@ -2555,6 +2568,19 @@ fn valid_lean_module(value: &str) -> bool {
     })
 }
 
+fn valid_lean_axiom_name(value: &str) -> bool {
+    value.len() <= 512
+        && value.contains('.')
+        && value.split('.').all(|part| {
+            part.bytes()
+                .next()
+                .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+                && part
+                    .bytes()
+                    .all(|byte| byte == b'_' || byte == b'\'' || byte.is_ascii_alphanumeric())
+        })
+}
+
 fn valid_cargo_package(value: &str) -> bool {
     value.len() <= 256
         && value
@@ -4191,6 +4217,21 @@ mod tests {
             .map(|wrapper: LinkageWrapper| wrapper.value)
             .unwrap();
         assert_eq!(value, crate::PrimaryLinkage::ArtifactBound);
+    }
+
+    #[test]
+    fn formal_axiom_names_are_fully_qualified_and_bounded() {
+        assert!(valid_lean_axiom_name(
+            "ProofboundRuntime.ReleaseArtifacts.toolchainWitness"
+        ));
+        assert!(valid_lean_axiom_name("Module.Name.with_prime'"));
+        assert!(!valid_lean_axiom_name("unqualified"));
+        assert!(!valid_lean_axiom_name("docs/spec.md#axiom"));
+        assert!(!valid_lean_axiom_name("Module..axiom"));
+        assert!(!valid_lean_axiom_name(&format!(
+            "Module.{}",
+            "x".repeat(506)
+        )));
     }
 
     #[test]

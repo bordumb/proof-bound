@@ -3729,17 +3729,7 @@ fn adapter_unit(
         if declaration.rsplit_once('.').map(|(module, _)| module) != Some(surface) {
             continue;
         }
-        let mut project_axioms = BTreeMap::new();
-        for assumption_id in &claim.assumptions {
-            if let Some((_, assumption)) = bundle.assumptions.get(assumption_id)
-                && let Some(citation) = &assumption.source_citation
-            {
-                let name = citation.split_whitespace().next().unwrap_or_default();
-                if name.starts_with(surface) && name.contains('.') {
-                    project_axioms.insert(name.to_owned(), assumption_id.clone());
-                }
-            }
-        }
+        let project_axioms = registered_project_axioms(bundle, claim, surface)?;
         inventory.insert(
             claim_id.clone(),
             serde_json::json!({
@@ -3761,6 +3751,41 @@ fn adapter_unit(
         "claim_inventory": inventory.into_values().collect::<Vec<_>>(),
         "audit": {"mode": "execute"},
     }))
+}
+
+fn registered_project_axioms(
+    bundle: &ProjectBundle,
+    claim: &ClaimManifest,
+    theorem_surface: &str,
+) -> Result<BTreeMap<String, String>> {
+    let mut project_axioms = BTreeMap::new();
+    for assumption_id in &claim.assumptions {
+        let Some((_, assumption)) = bundle.assumptions.get(assumption_id) else {
+            continue;
+        };
+        let mut names = assumption
+            .formal_axioms
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        if let Some(citation) = &assumption.source_citation {
+            let legacy_name = citation.split_whitespace().next().unwrap_or_default();
+            if legacy_name.starts_with(theorem_surface) && legacy_name.contains('.') {
+                names.push(legacy_name);
+            }
+        }
+        for name in names {
+            if let Some(previous) = project_axioms.insert(name.to_owned(), assumption_id.clone())
+                && previous != *assumption_id
+            {
+                bail!(
+                    "PB-LEAN-0004: formal axiom {name} is registered by both {previous} and {assumption_id} for claim {}",
+                    claim.id
+                );
+            }
+        }
+    }
+    Ok(project_axioms)
 }
 
 fn compile_claim(
@@ -6692,6 +6717,92 @@ mod tests {
         assert_eq!(normalize_evidence_reference("kani:x"), "bounded-check:x");
         assert_eq!(normalize_evidence_reference("test:x"), "example-test:x");
         assert_eq!(normalize_evidence_reference("theorem:x"), "theorem:x");
+    }
+
+    #[test]
+    fn explicit_formal_axiom_can_be_shared_across_theorem_modules() {
+        let mut bundle = cache_test_bundle(Path::new("."));
+        let assumption = |id: &str, formal_axioms: Vec<&str>, source_citation: &str| {
+            serde_json::from_value(json!({
+                "schema": "proofbound-assumption/1",
+                "id": id,
+                "statement": "The registered toolchain preserves the source theorem.",
+                "category": "compiler-tcb",
+                "owner": "test",
+                "rationale": "The compiler remains trusted.",
+                "scope": "The exact release artifact.",
+                "affected_claims": ["CLAIM-ONE"],
+                "review_evidence": ["review.md"],
+                "discharge_plan": "Verify the compiler.",
+                "source_citation": source_citation,
+                "formal_axioms": formal_axioms,
+                "status": "active"
+            }))
+            .unwrap()
+        };
+        bundle.assumptions.insert(
+            "AX-SHARED".to_owned(),
+            (
+                PathBuf::from("assumptions/AX-SHARED.toml"),
+                assumption(
+                    "AX-SHARED",
+                    vec!["Shared.Toolchain.witness"],
+                    "docs/toolchain.md#boundary",
+                ),
+            ),
+        );
+        let claim: ClaimManifest = serde_json::from_value(json!({
+            "schema": "proofbound-claim/1",
+            "id": "CLAIM-ONE",
+            "title": "Shared axiom",
+            "statement": "The theorem uses one shared toolchain boundary.",
+            "public_language": null,
+            "formal_declaration": "ClaimOne.Release.bound",
+            "statement_encoding": "lean-expr-cbor/1",
+            "statement_sha256": format!("sha256:{}", "00".repeat(32)),
+            "foundational_axioms": [],
+            "subject": "crate::subject",
+            "subject_closure": null,
+            "profile": "kernel-with-assumptions",
+            "tier": 3,
+            "primary_linkage": "artifact-bound",
+            "evidence": [],
+            "assumptions": ["AX-SHARED"],
+            "premises": [],
+            "open_obligations": [],
+            "out_of_scope": [],
+            "bounded_domain": null,
+            "source_roots": []
+        }))
+        .unwrap();
+
+        assert_eq!(
+            registered_project_axioms(&bundle, &claim, "ClaimOne.Release").unwrap(),
+            BTreeMap::from([(
+                "Shared.Toolchain.witness".to_owned(),
+                "AX-SHARED".to_owned()
+            )])
+        );
+
+        bundle.assumptions.insert(
+            "AX-AMBIGUOUS".to_owned(),
+            (
+                PathBuf::from("assumptions/AX-AMBIGUOUS.toml"),
+                assumption(
+                    "AX-AMBIGUOUS",
+                    vec!["Shared.Toolchain.witness"],
+                    "docs/other.md#boundary",
+                ),
+            ),
+        );
+        let mut ambiguous = claim;
+        ambiguous.assumptions.push("AX-AMBIGUOUS".to_owned());
+        let error = registered_project_axioms(&bundle, &ambiguous, "ClaimOne.Release")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("PB-LEAN-0004"));
+        assert!(error.contains("AX-SHARED"));
+        assert!(error.contains("AX-AMBIGUOUS"));
     }
 
     #[test]

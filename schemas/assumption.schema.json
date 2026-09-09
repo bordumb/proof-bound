@@ -17,6 +17,16 @@
     "review_evidence": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 512 }, "uniqueItems": true, "maxItems": 4096 },
     "discharge_plan": { "type": "string", "minLength": 1, "maxLength": 8192 },
     "source_citation": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "formal_axioms": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_']*(?:\\.[A-Za-z_][A-Za-z0-9_']*)+$",
+        "maxLength": 512
+      },
+      "uniqueItems": true,
+      "maxItems": 1024
+    },
     "status": { "enum": ["active", "discharged", "retired"] },
     "premise_scope": { "$ref": "#/$defs/flowScope" },
     "discharge": { "$ref": "#/$defs/premiseDischarge" }

@@ -1373,8 +1373,14 @@ names the compiled Lean declaration; `statement_encoding` names the canonical
 encoding; and `statement_sha256` binds the encoded elaborated expression.
 `foundational_axioms` is the sorted exact expected transitive foundational
 axiom inventory for that declaration; project axioms are mapped separately to
-registered assumptions. A missing, extra, or reclassified axiom invalidates
-the compiled claim inventory.
+registered assumptions. An assumption may register a bounded, unique
+`formal_axioms` list of fully qualified Lean declaration names. This explicit
+list is the normative mapping when one project axiom is shared across theorem
+modules; the historical first-token `source_citation` mapping remains limited
+to axioms in the audited theorem's own declaration namespace. Two assumptions
+that register the same formal axiom for one claim are ambiguous and fail
+closed. A missing, extra, or reclassified axiom invalidates the compiled claim
+inventory.
 `subject_closure` optionally pins a previously reviewed semantic closure and
 drift invalidates it. The all-zero digests above are illustrative placeholders,
 not admissible reviewed evidence. `schemas/claim.schema.json` is the

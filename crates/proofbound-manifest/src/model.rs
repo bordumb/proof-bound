@@ -144,6 +144,8 @@ pub struct AssumptionManifest {
     pub review_evidence: Vec<String>,
     pub discharge_plan: String,
     pub source_citation: Option<String>,
+    #[serde(default)]
+    pub formal_axioms: Vec<String>,
     pub status: AssumptionStatus,
     #[serde(default)]
     pub premise_scope: Option<FlowScopeManifest>,
