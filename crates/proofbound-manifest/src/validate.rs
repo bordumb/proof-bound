@@ -4628,7 +4628,9 @@ mod tests {
         assert!(revision_resolver.contains("refs/remotes/origin/$default_branch"));
         assert!(revision_resolver.contains("refs/heads/$default_branch"));
         assert!(revision_resolver.contains("event_before"));
-        assert!(!revision_resolver.contains("${head}^"));
+        assert!(revision_resolver.contains("git rev-parse --verify \"${head}^2\""));
+        assert!(revision_resolver.contains("first_parent="));
+        assert!(revision_resolver.contains("$base\" != \"$first_parent"));
         assert!(pre_commit.contains("bash tools/ci/pre-commit.sh"));
         assert!(fast_checks.contains("python3 tools/ci/version.py --check"));
         assert!(fast_checks.contains("python3 tools/ci/changelog.py --staged"));
