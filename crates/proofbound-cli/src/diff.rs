@@ -683,12 +683,19 @@ fn compare_assumption_manifests(
             format!("assumption {} newly affects claim {claim}", new.id),
         )?;
     }
-    if old.status != new.status || old.statement != new.statement || old.category != new.category {
+    if old.status != new.status
+        || old.statement != new.statement
+        || old.category != new.category
+        || old.formal_axioms != new.formal_axioms
+    {
         add_for_claims(
             regressions,
             &affected,
             RegressionKind::NewAssumption,
-            format!("assumption {} meaning, category, or status changed", new.id),
+            format!(
+                "assumption {} meaning, category, status, or formal axiom registration changed",
+                new.id
+            ),
         )?;
     }
     Ok(())
