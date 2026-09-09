@@ -1,4 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 use super::*;
 use crate::{
@@ -1877,6 +1881,72 @@ fn closed_artifact_binding_set_selects_only_an_exact_member() {
     let status = derive_claim_status(&rejected);
     assert_eq!(status.formal, FormalFacet::Invalid);
     assert_eq!(status.linkage, None);
+}
+
+#[test]
+fn frozen_contextual_binding_member_attacks_reject_with_registered_code() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+    let corpus: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(
+        corpus["schema"],
+        "proofbound-contextual-artifact-binding-attacks/1"
+    );
+    let cases = corpus["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 10);
+    let mut seen = BTreeSet::new();
+    let mut executed = BTreeSet::new();
+
+    for case in cases {
+        let id = case["id"].as_str().unwrap();
+        assert!(seen.insert(id), "duplicate case {id}");
+        assert!(!case["mutation"].as_str().unwrap().trim().is_empty());
+        let first = bound_artifact();
+        let second = named_artifact("release/aarch64/pbr", "arm64 artifact", 9);
+        let selected = match id {
+            "member-omission" => named_artifact("release/riscv64/pbr", "riscv artifact", 10),
+            "member-substitution" => ArtifactIdentity {
+                logical_name: second.logical_name.clone(),
+                sha256: digest("substituted arm64 artifact"),
+                size_bytes: second.size_bytes,
+            },
+            "empty-binding-set"
+            | "duplicate-binding-member"
+            | "noncanonical-binding-order"
+            | "computed-member-identity"
+            | "context-kind-substitution"
+            | "inactive-binding-smuggling"
+            | "receipt-context-substitution"
+            | "observation-promotion" => continue,
+            unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+        };
+        executed.insert(id);
+
+        let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+        let mut theorem = theorem_record("artifact-set-attack", crate::EvaluationMode::Kernel);
+        let statement = binding_set_statement(&claim_id(), &[first, second]);
+        let detail = theorem.theorem.as_mut().unwrap();
+        detail.statement_sha256 = crate::lean_statement_wire_digest(&statement).unwrap();
+        detail.statement_wire = statement;
+        let theorem_id = theorem.id.clone();
+        add_record(&mut input, theorem, NodeKind::Theorem, true);
+        add_artifact_binding(&mut input, theorem_id, selected, id);
+        let status = derive_claim_status(&input);
+        let actual = status
+            .errors
+            .iter()
+            .map(|error| error.code.to_string())
+            .collect::<BTreeSet<_>>();
+        assert!(
+            actual.contains(case["expected_code"].as_str().unwrap()),
+            "{id} expected {}, received {actual:?}",
+            case["expected_code"].as_str().unwrap()
+        );
+    }
+    assert_eq!(
+        executed,
+        BTreeSet::from(["member-omission", "member-substitution"])
+    );
 }
 
 fn add_artifact_binding(

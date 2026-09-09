@@ -49,7 +49,7 @@
     {
       "id": "observation-promotion",
       "mutation": "replace contextual artifact soundness with an exact empirical observation while reporting ARTIFACT_BOUND",
-      "expected_code": "PBV_STATUS_MISMATCH"
+      "expected_code": "PB-OBS-0011"
     }
   ]
 }

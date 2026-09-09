@@ -362,15 +362,23 @@ Two qualifiers keep the strong kinds honest:
   kinds and binding modes are not interchangeable, and the graph never
   conflates them.
 - **Binding derivation.** A checker outcome, theorem name, or Boolean assertion
-  is never a binding. Version 0.7 admits `digest-theorem` only when the exact
-  outermost elaborated statement is
+  is never a binding. An unconditional `digest-theorem` is admitted only when
+  the exact outermost elaborated statement is
   `Proofbound.Artifact.DigestBindingV1 claimId artifactSchema logicalName
   expectedSha256 bytes meaning`, the first four arguments are direct canonical
   string literals, and the proposition establishes both the SHA-256 identity
   and `meaning bytes`. The complete `lean-expr-cbor/1` statement is carried in
   theorem evidence so both status engines recompute its identity and parse it
-  independently. `bytes-in-theorem` remains reserved but fails closed until an
-  equally exact typed proposition and portable byte comparison are specified.
+  independently. A reviewed evidence context MAY instead activate a
+  `proofbound-evidence-unit/6` artifact check whose theorem has the exact root
+  `Proofbound.Artifact.DigestBindingSetV1 claimId artifactSchema members
+  meaning`. `members` is a nonempty direct `List.cons`/`List.nil` spine of at
+  most 256 `DigestBindingMemberV1.mk logicalName expectedSha256 bytes` values,
+  strictly ordered by unique logical name with unique canonical digest
+  literals. The checked artifact identity MUST match exactly one member; the
+  inactive members confer no release fact. `bytes-in-theorem` remains reserved
+  but fails closed until an equally exact typed proposition and portable byte
+  comparison are specified.
 
 The status vocabulary MUST NOT compress these into a single scalar such as
 `verified`. Summary status is the three-facet composition defined in
@@ -500,7 +508,7 @@ Linkage facet, from the subject-binding evidence:
 | Binding evidence | Linkage facet |
 |---|---|
 | `source-refinement` with a named refinement theorem and registered representation premises | `REFINED` |
-| `artifact-soundness` whose admitted theorem has the exact typed `DigestBindingV1` root and matching checked artifact identity (§5, §9.4) | `ARTIFACT_BOUND` |
+| `artifact-soundness` whose admitted theorem has the exact typed `DigestBindingV1` root, or a selected reviewed context whose theorem has the exact typed `DigestBindingSetV1` root, and whose checked artifact identity matches exactly (§5, §9.4) | `ARTIFACT_BOUND` |
 | `trusted-transcription` with binding `external-round-trip` (§7.1.1) | `TRANSCRIBED` |
 | no subject binding | `MODEL_ONLY` |
 
@@ -960,14 +968,29 @@ The initial built-in profiles are:
   `native-evaluated` must record its exact native premise and TCB.
 - The admitted theorem receipt carries the complete canonical elaborated
   statement and its recomputed statement identity.
-- For `digest-theorem`, that statement is exactly the outermost
-  `Proofbound.Artifact.DigestBindingV1` application defined in Section 5; the
-  literal claim ID, schema, logical name, and SHA-256 identity are derived from
-  theorem content rather than checker output.
+- For an unconditional `digest-theorem`, that statement is exactly the
+  outermost `Proofbound.Artifact.DigestBindingV1` application defined in
+  Section 5; the literal claim ID, schema, logical name, and SHA-256 identity
+  are derived from theorem content rather than checker output.
+- For a contextual `digest-theorem`, the statement is exactly the outermost
+  `Proofbound.Artifact.DigestBindingSetV1` application defined in Section 5.
+  Only a `proofbound-evidence-unit/6` canonical-artifact check owned by the one
+  selected, preregistered review context may activate it. Base checks exclude
+  such units. The producer and standalone verifier independently parse the
+  closed set and require the checked logical name and digest to equal exactly
+  one direct member.
 - The derived artifact logical name and digest equal exactly one checked input
   artifact in the separate artifact-soundness record. Version-2 provenance
   carries that artifact's complete logical-name, digest, and byte-size identity;
   both status engines require an exact match, including `size_bytes`.
+- A contextual release uses `proofbound-compiled-release/6` inside
+  `proofbound-release-envelope/6`; its contextual binding records use
+  `proofbound-evidence/5` and carry the same canonical `evidence_context`.
+  The producer seals the selected artifact at its theorem-derived logical name,
+  and the verifier recomputes those bytes before publication. Context omission,
+  replay, member omission or substitution, singular-root downgrade, and
+  replacement by an empirical exact observation all fail closed. Empirical
+  observations remain orthogonal and never derive `ARTIFACT_BOUND`.
 - `bytes-in-theorem` is not admitted in 0.7; `trusted-transcription` evidence
   remains `TRANSCRIBED`, never `ARTIFACT_BOUND` (§7.1.1).
 - Canonical parsing, re-encoding, and trailing-byte rejection are required work

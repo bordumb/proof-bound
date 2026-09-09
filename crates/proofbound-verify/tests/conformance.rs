@@ -2596,6 +2596,75 @@ fn contextual_artifact_binding_v6_is_set_rooted_context_bound_and_byte_checked()
 }
 
 #[test]
+fn frozen_contextual_binding_receipt_attacks_reject_with_registered_codes() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+    let corpus: ObservationAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(
+        corpus.schema,
+        "proofbound-contextual-artifact-binding-attacks/1"
+    );
+    assert_eq!(corpus.cases.len(), 10);
+    let mut seen = BTreeSet::new();
+    let mut executed = BTreeSet::new();
+
+    for case in corpus.cases {
+        assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+        assert!(!case.mutation.trim().is_empty());
+        let errors = match case.id.as_str() {
+            "receipt-context-substitution" => {
+                let mut omitted = contextual_artifact_bound_release();
+                omitted.evidence[1].record.evidence_context = None;
+                rehash_evidence_at(&mut omitted, 1);
+                let omission = verify_compiled_release(&omitted).unwrap_err();
+
+                let mut substituted = contextual_artifact_bound_release();
+                substituted.evidence[1].record.evidence_context =
+                    Some("release-linux-x86-64".into());
+                rehash_evidence_at(&mut substituted, 1);
+                vec![omission, verify_compiled_release(&substituted).unwrap_err()]
+            }
+            "observation-promotion" => {
+                let mut promoted = contextual_observation_release();
+                promoted.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
+                vec![verify_compiled_release(&promoted).unwrap_err()]
+            }
+            "empty-binding-set"
+            | "duplicate-binding-member"
+            | "noncanonical-binding-order"
+            | "computed-member-identity"
+            | "context-kind-substitution"
+            | "inactive-binding-smuggling"
+            | "member-omission"
+            | "member-substitution" => continue,
+            unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+        };
+        executed.insert(case.id.clone());
+        for error in errors {
+            let actual = error
+                .issues
+                .iter()
+                .map(|issue| issue.code.to_string())
+                .collect::<BTreeSet<_>>();
+            assert!(
+                actual.contains(&case.expected_code),
+                "{} expected {}, received {:?}",
+                case.id,
+                case.expected_code,
+                actual
+            );
+        }
+    }
+    assert_eq!(
+        executed,
+        BTreeSet::from([
+            "observation-promotion".to_owned(),
+            "receipt-context-substitution".to_owned(),
+        ])
+    );
+}
+
+#[test]
 fn artifact_binding_rejects_a_forged_size_even_when_name_and_digest_match() {
     let mut release = artifact_bound_release();
     release.evidence[1]

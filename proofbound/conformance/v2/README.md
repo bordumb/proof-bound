@@ -25,6 +25,13 @@ diagnostic; unknown corpus entries fail the tests until an explicit falsifier
 is added.
 
 `contextual-artifact-binding-attacks.json` preregisters the closed theorem-set
-and reviewed-context boundary for ADR 0022. It is a falsifier contract until
-the Lean adapter, core compiler, release projection, and independent verifier
-execute all ten cases with their exact registered diagnostics.
+and reviewed-context boundary for ADR 0022. The corpus is now executable across
+the Lean adapter, manifest registration, core status derivation, producer
+context selection, release projection, and independent verifier. Every one of
+the ten frozen cases must reject with its registered diagnostic, and unknown
+corpus entries fail until their falsifier is implemented explicitly.
+The implementation review corrected `observation-promotion` from the generic
+`PBV_STATUS_MISMATCH` preregistration to `PB-OBS-0011`, the already normative
+and more specific diagnostic for an empirical observation attempting to
+promote the formal or linkage facet; the preregistration commit retains the
+original hypothesis in history.

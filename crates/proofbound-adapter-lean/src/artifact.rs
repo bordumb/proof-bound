@@ -237,6 +237,8 @@ fn is_canonical_sha256(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::Path};
+
     use serde_json::{Value, json};
 
     use super::*;
@@ -271,20 +273,33 @@ mod tests {
         ]
     }
 
-    fn member(name: &str, digest: &str, bytes: &str) -> Value {
+    fn member_with_identity(name: Value, digest: Value, bytes: &str) -> Value {
         let mut expression = json!([2, DIGEST_BINDING_MEMBER_CTOR_V1, []]);
-        for argument in [string(name), string(digest), json!([2, bytes, []])] {
+        for argument in [name, digest, json!([2, bytes, []])] {
             expression = apply(expression, argument);
         }
         expression
     }
 
+    fn member(name: &str, digest: &str, bytes: &str) -> Value {
+        member_with_identity(string(name), string(digest), bytes)
+    }
+
     fn binding_set(members: Vec<(&str, &str, &str)>) -> Value {
+        binding_set_members(
+            members
+                .into_iter()
+                .map(|(name, digest, bytes)| member(name, digest, bytes))
+                .collect(),
+        )
+    }
+
+    fn binding_set_members(members: Vec<Value>) -> Value {
         let member_type = json!([2, DIGEST_BINDING_MEMBER_V1, []]);
         let mut list = apply(json!([2, LIST_NIL, [[0]]]), member_type.clone());
-        for (name, digest, bytes) in members.into_iter().rev() {
+        for member in members.into_iter().rev() {
             let mut cons = json!([2, LIST_CONS, [[0]]]);
-            for argument in [member_type.clone(), member(name, digest, bytes), list] {
+            for argument in [member_type.clone(), member, list] {
                 cons = apply(cons, argument);
             }
             list = cons;
@@ -390,5 +405,65 @@ mod tests {
             let error = validate_digest_binding_v1(&value, CLAIM_ID).unwrap_err();
             assert_eq!(error.code, ARTIFACT_BINDING);
         }
+    }
+
+    #[test]
+    fn frozen_contextual_binding_statement_attacks_reject_with_registered_code() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+        let corpus: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(
+            corpus["schema"],
+            "proofbound-contextual-artifact-binding-attacks/1"
+        );
+        let cases = corpus["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 10);
+        let mut seen = BTreeSet::new();
+        let mut executed = BTreeSet::new();
+
+        for case in cases {
+            let id = case["id"].as_str().unwrap();
+            assert!(seen.insert(id), "duplicate case {id}");
+            assert!(!case["mutation"].as_str().unwrap().trim().is_empty());
+            let statement = match id {
+                "empty-binding-set" => binding_set(vec![]),
+                "duplicate-binding-member" => binding_set(vec![
+                    ("dist/a", DIGEST, "firstBytes"),
+                    ("dist/b", DIGEST, "secondBytes"),
+                ]),
+                "noncanonical-binding-order" => binding_set(vec![
+                    (
+                        "dist/b",
+                        "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+                        "secondBytes",
+                    ),
+                    ("dist/a", DIGEST, "firstBytes"),
+                ]),
+                "computed-member-identity" => binding_set_members(vec![member_with_identity(
+                    json!([2, "Demo.computedName", []]),
+                    string(DIGEST),
+                    "computedBytes",
+                )]),
+                "context-kind-substitution"
+                | "inactive-binding-smuggling"
+                | "member-omission"
+                | "member-substitution"
+                | "receipt-context-substitution"
+                | "observation-promotion" => continue,
+                unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+            };
+            executed.insert(id);
+            let error = validate_digest_binding_v1(&statement, CLAIM_ID).unwrap_err();
+            assert_eq!(error.code, case["expected_code"].as_str().unwrap(), "{id}");
+        }
+        assert_eq!(
+            executed,
+            BTreeSet::from([
+                "computed-member-identity",
+                "duplicate-binding-member",
+                "empty-binding-set",
+                "noncanonical-binding-order",
+            ])
+        );
     }
 }

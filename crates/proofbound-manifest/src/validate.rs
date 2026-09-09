@@ -3118,6 +3118,38 @@ mod tests {
         crate::ProjectBundle::load(root).unwrap()
     }
 
+    fn contextual_artifact_unit(context: &str) -> crate::EvidenceUnitManifest {
+        serde_json::from_value(serde_json::json!({
+            "schema": "proofbound-evidence-unit/6",
+            "id": "release-pbr-aarch64",
+            "context": context,
+            "adapter": "canonical-artifact",
+            "kind": "artifact-soundness",
+            "claims": ["DEMO-MANIFEST-006"],
+            "tier": 3,
+            "operation": {
+                "type": "artifact-check",
+                "checker": "tools/check_artifact.py",
+                "arguments": ["release/aarch64/pbr"]
+            },
+            "evaluation_mode": "kernel",
+            "binding_mode": "digest-theorem",
+            "theorem": "Demo.Release.pbrArtifacts",
+            "premises": [],
+            "assumptions": [],
+            "expected_inventory": ["release-pbr-aarch64"],
+            "inputs": ["release/aarch64/pbr", "tools/check_artifact.py"],
+            "outputs": [],
+            "environment_allowlist": ["PATH"],
+            "resource_budget": {
+                "time_seconds": 60,
+                "disk_bytes": 1048576,
+                "memory_bytes": 1048576
+            }
+        }))
+        .unwrap()
+    }
+
     fn review() -> crate::ReviewManifest {
         crate::ReviewManifest {
             schema: "proofbound-review/1".to_owned(),
@@ -3856,35 +3888,7 @@ mod tests {
         bundle.project.evidence_contexts = vec![context.to_owned()];
         bundle.project.required_release_contexts = vec![context.to_owned()];
         let path = bundle.evidence_units["manifest-workspace"].0.clone();
-        let unit: crate::EvidenceUnitManifest = serde_json::from_value(serde_json::json!({
-            "schema": "proofbound-evidence-unit/6",
-            "id": "release-pbr-aarch64",
-            "context": context,
-            "adapter": "canonical-artifact",
-            "kind": "artifact-soundness",
-            "claims": ["DEMO-MANIFEST-006"],
-            "tier": 3,
-            "operation": {
-                "type": "artifact-check",
-                "checker": "tools/check_artifact.py",
-                "arguments": ["release/aarch64/pbr"]
-            },
-            "evaluation_mode": "kernel",
-            "binding_mode": "digest-theorem",
-            "theorem": "Demo.Release.pbrArtifacts",
-            "premises": [],
-            "assumptions": [],
-            "expected_inventory": ["release-pbr-aarch64"],
-            "inputs": ["release/aarch64/pbr", "tools/check_artifact.py"],
-            "outputs": [],
-            "environment_allowlist": ["PATH"],
-            "resource_budget": {
-                "time_seconds": 60,
-                "disk_bytes": 1048576,
-                "memory_bytes": 1048576
-            }
-        }))
-        .unwrap();
+        let unit = contextual_artifact_unit(context);
         validate_evidence_schema(&path, &unit).unwrap();
         validate_unit_qualifiers(&unit).unwrap();
         validate_context_unit(&bundle, &unit.id, &path, &unit).unwrap();
@@ -3905,6 +3909,65 @@ mod tests {
             dependencies: vec!["theorem:closed-set".to_owned()],
         });
         assert!(validate_evidence_schema(&path, &observation_smuggling).is_err());
+    }
+
+    #[test]
+    fn frozen_contextual_binding_manifest_attack_rejects_with_registered_code() {
+        let corpus_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+        let corpus: ContextAttackCorpus =
+            serde_json::from_slice(&fs::read(corpus_path).unwrap()).unwrap();
+        assert_eq!(
+            corpus.schema,
+            "proofbound-contextual-artifact-binding-attacks/1"
+        );
+        assert_eq!(corpus.cases.len(), 10);
+        let mut seen = BTreeSet::new();
+        let mut executed = false;
+
+        for case in corpus.cases {
+            assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+            assert!(!case.mutation.trim().is_empty());
+            match case.id.as_str() {
+                "context-kind-substitution" => {
+                    executed = true;
+                    let mut bundle = repository_bundle();
+                    let context = "release-linux-aarch64";
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec![context.to_owned()];
+                    bundle.project.required_release_contexts = vec![context.to_owned()];
+                    let path = bundle.evidence_units["manifest-workspace"].0.clone();
+                    let unit = contextual_artifact_unit(context);
+
+                    let mut wrong_schema = unit.clone();
+                    wrong_schema.schema = "proofbound-evidence-unit/5".to_owned();
+                    let mut wrong_kind = unit;
+                    wrong_kind.kind = EvidenceKind::ExampleTest;
+                    for mutation in [&wrong_schema, &wrong_kind] {
+                        let error = validate_context_unit(&bundle, &mutation.id, &path, mutation)
+                            .unwrap_err();
+                        assert!(
+                            error.to_string().starts_with(&case.expected_code),
+                            "{} expected {}, received {}",
+                            case.id,
+                            case.expected_code,
+                            error
+                        );
+                    }
+                }
+                "empty-binding-set"
+                | "duplicate-binding-member"
+                | "noncanonical-binding-order"
+                | "computed-member-identity"
+                | "inactive-binding-smuggling"
+                | "member-omission"
+                | "member-substitution"
+                | "receipt-context-substitution"
+                | "observation-promotion" => {}
+                unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+            }
+        }
+        assert!(executed, "context-kind-substitution was not executed");
     }
 
     #[test]

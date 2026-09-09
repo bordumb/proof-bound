@@ -7177,6 +7177,87 @@ mod tests {
     }
 
     #[test]
+    fn frozen_contextual_binding_compiler_attack_rejects_with_registered_code() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+        let corpus: ContextAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(
+            corpus.schema,
+            "proofbound-contextual-artifact-binding-attacks/1"
+        );
+        assert_eq!(corpus.cases.len(), 10);
+        let mut seen = BTreeSet::new();
+        let mut executed = false;
+
+        for case in corpus.cases {
+            assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+            assert!(!case.mutation.trim().is_empty());
+            match case.id.as_str() {
+                "inactive-binding-smuggling" => {
+                    executed = true;
+                    let active = "release-linux-x86-64".to_owned();
+                    let inactive = "release-linux-aarch64".to_owned();
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec![inactive.clone(), active.clone()];
+                    bundle.project.required_release_contexts =
+                        bundle.project.evidence_contexts.clone();
+                    let (inactive_path, inactive_unit) = {
+                        let (path, active_unit) =
+                            bundle.evidence_units.get_mut("manifest-workspace").unwrap();
+                        active_unit.schema = "proofbound-evidence-unit/6".to_owned();
+                        active_unit.context = Some(active.clone());
+                        let mut inactive_unit = active_unit.clone();
+                        inactive_unit.id = "inactive-binding".to_owned();
+                        inactive_unit.context = Some(inactive);
+                        (path.clone(), inactive_unit)
+                    };
+                    bundle
+                        .evidence_units
+                        .insert(inactive_unit.id.clone(), (inactive_path, inactive_unit));
+
+                    let mut record: EvidenceRecord =
+                        serde_json::from_value(direct_example_record_value(vec![
+                            "inactive-binding",
+                        ]))
+                        .unwrap();
+                    record.unit_id = UnitId::new("unit:inactive-binding").unwrap();
+                    record.kind = EvidenceKind::ArtifactSoundness;
+                    record.artifact_binding = Some(ArtifactBindingEvidence {
+                        theorem: EvidenceId::new("theorem:closed-set").unwrap(),
+                        artifact: ArtifactIdentity {
+                            logical_name: ArtifactLogicalName::new("release/aarch64/pbr").unwrap(),
+                            sha256: Sha256Digest::of_bytes(b"aarch64 pbr"),
+                            size_bytes: 11,
+                        },
+                    });
+                    let mut compiled = empty_context_compiled(Some(&active));
+                    compiled.evidence.push(record);
+                    let error = validate_release_evidence_context(&bundle, &compiled).unwrap_err();
+                    assert!(
+                        error.to_string().starts_with(&case.expected_code),
+                        "{} expected {}, received {}",
+                        case.id,
+                        case.expected_code,
+                        error
+                    );
+                }
+                "empty-binding-set"
+                | "duplicate-binding-member"
+                | "noncanonical-binding-order"
+                | "computed-member-identity"
+                | "context-kind-substitution"
+                | "member-omission"
+                | "member-substitution"
+                | "receipt-context-substitution"
+                | "observation-promotion" => {}
+                unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+            }
+        }
+        assert!(executed, "inactive-binding-smuggling was not executed");
+    }
+
+    #[test]
     fn premise_reviews_are_derived_into_the_claim_evidence_closure() {
         let manifest: ClaimManifest = serde_json::from_value(json!({
             "schema": "proofbound-claim/1",
