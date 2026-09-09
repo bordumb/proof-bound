@@ -1132,6 +1132,8 @@ fn validate_unit(
     };
     let expected_schema = if unit.artifact_observation.is_some() {
         "proofbound-evidence-unit/5"
+    } else if flavor == TestFlavor::CanonicalArtifact && unit.context.is_some() {
+        "proofbound-evidence-unit/6"
     } else if unit.kind == EvidenceKind::MutationWitness {
         "proofbound-evidence-unit/3"
     } else if flavor == TestFlavor::TrustedTranscription {
@@ -5658,6 +5660,25 @@ else:
             )
             .unwrap(),
             TestFlavor::CanonicalArtifact
+        );
+        let mut contextual = canonical.clone();
+        contextual.schema = "proofbound-evidence-unit/6".to_owned();
+        contextual.context = Some("release-linux-aarch64".to_owned());
+        assert_eq!(
+            validate_unit(
+                &request("canonical-artifact", "check", &contextual),
+                &contextual
+            )
+            .unwrap(),
+            TestFlavor::CanonicalArtifact
+        );
+        contextual.schema = "proofbound-evidence-unit/1".to_owned();
+        assert!(
+            validate_unit(
+                &request("canonical-artifact", "check", &contextual),
+                &contextual
+            )
+            .is_err()
         );
         let independent = checker_unit(
             "independent-check",

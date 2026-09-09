@@ -33,7 +33,7 @@
       "additionalProperties": false,
       "required": ["schema", "payload", "payload_sha256"],
       "properties": {
-        "schema": { "enum": ["proofbound-release-envelope/3", "proofbound-release-envelope/4", "proofbound-release-envelope/5"] },
+        "schema": { "enum": ["proofbound-release-envelope/3", "proofbound-release-envelope/4", "proofbound-release-envelope/5", "proofbound-release-envelope/6"] },
         "payload": { "const": "compiled-receipt.json" },
         "payload_sha256": { "$ref": "#/$defs/digest" }
       }
@@ -43,7 +43,7 @@
       "additionalProperties": false,
       "required": ["schema", "project", "project_revision", "project_tier", "tree_state", "graph", "graph_sha256", "claims", "evidence", "assumptions", "premises", "policies", "closures", "sealed_files", "reported_statuses"],
       "properties": {
-        "schema": { "enum": ["proofbound-compiled-release/3", "proofbound-compiled-release/4", "proofbound-compiled-release/5"] },
+        "schema": { "enum": ["proofbound-compiled-release/3", "proofbound-compiled-release/4", "proofbound-compiled-release/5", "proofbound-compiled-release/6"] },
         "project": { "type": "string", "minLength": 1, "maxLength": 128 },
         "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
         "evidence_context": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
@@ -62,7 +62,7 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "schema": { "const": "proofbound-compiled-release/5" } }, "required": ["schema"] },
+          "if": { "properties": { "schema": { "enum": ["proofbound-compiled-release/5", "proofbound-compiled-release/6"] } }, "required": ["schema"] },
           "then": { "required": ["evidence_context"] },
           "else": { "not": { "required": ["evidence_context"] } }
         }
@@ -105,7 +105,7 @@
       "additionalProperties": false,
       "required": ["schema", "unit_id", "node_id", "kind", "claim_ids", "outcome", "inventoried_targets", "assumptions", "premises", "provenance"],
       "properties": {
-        "schema": { "enum": ["proofbound-evidence/3", "proofbound-evidence/4"] },
+        "schema": { "enum": ["proofbound-evidence/3", "proofbound-evidence/4", "proofbound-evidence/5"] },
         "unit_id": { "$ref": "#/$defs/id" },
         "node_id": { "$ref": "#/$defs/id" },
         "kind": { "$ref": "#/$defs/evidenceKind" },
@@ -116,6 +116,7 @@
         "theorem": { "$ref": "#/$defs/theoremReceipt" },
         "artifact_binding": { "$ref": "#/$defs/artifactBindingReceipt" },
         "artifact_observation": { "$ref": "#/$defs/artifactObservationReceipt" },
+        "evidence_context": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
         "trusted_transcription": { "$ref": "#/$defs/trustedTranscriptionReceipt" },
         "source_refinement": { "$ref": "#/$defs/sourceRefinementReceipt" },
         "bounded_check": { "$ref": "#/$defs/boundedCheckReceipt" },
@@ -134,11 +135,18 @@
       "allOf": [
         {
           "if": { "properties": { "schema": { "const": "proofbound-evidence/3" } }, "required": ["schema"] },
-          "then": { "not": { "required": ["artifact_observation"] } }
+          "then": { "not": { "anyOf": [{ "required": ["artifact_observation"] }, { "required": ["evidence_context"] }] } }
         },
         {
           "if": { "properties": { "schema": { "const": "proofbound-evidence/4" } }, "required": ["schema"] },
           "then": { "required": ["artifact_observation"] }
+        },
+        {
+          "if": { "properties": { "schema": { "const": "proofbound-evidence/5" } }, "required": ["schema"] },
+          "then": {
+            "required": ["artifact_binding", "evidence_context"],
+            "not": { "required": ["artifact_observation"] }
+          }
         },
         {
           "if": {
