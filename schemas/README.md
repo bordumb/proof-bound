@@ -75,6 +75,21 @@ release. Relative paths are resolved from the manifest directory. The
 standalone verifier hashes those files itself and rejects duplicate
 claim/role/platform entries, symlinks, oversize files, and identity drift.
 
+`proofbound-evidence-unit/6` is the only contextual theorem-derived artifact
+route. It requires a reviewed context, `canonical-artifact`,
+`artifact-soundness`, `artifact-check`, `digest-theorem`, and a named theorem;
+schema 5 remains exclusively the contextual empirical observation route. The
+compiler requires the version-6 theorem to have the exact closed
+`DigestBindingSetV1` root and the checked name/digest to select one member.
+
+`receipt.schema.json` coordinates contextual portable versions. A release with
+only contextual exact observations uses `proofbound-compiled-release/5`; one
+with any contextual artifact binding uses version 6. Contextual binding records
+use `proofbound-evidence/5`, retain the selected context and exact artifact
+identity, and require that artifact to be sealed into the release for
+byte-recomputed publication. Existing version-3 evidence and version-4
+observations keep their meanings; older schemas reject the new route.
+
 `mutation-registry.schema.json` defines only
 `proofbound-mutation-registry/2`: one subject and one mutation with byte-pinned
 target preimage, full-file mutant, and witness source. The corresponding

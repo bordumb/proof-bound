@@ -558,14 +558,25 @@ fn validate_context_unit(
     let Some(context) = unit.context.as_ref() else {
         return Ok(());
     };
-    if unit.schema != "proofbound-evidence-unit/5"
-        || unit.artifact_observation.is_none()
+    let exact_observation = unit.schema == "proofbound-evidence-unit/5"
+        && unit.artifact_observation.is_some()
+        && unit.adapter == AdapterKind::RustTest
+        && unit.kind == EvidenceKind::ExampleTest
+        && unit.operation.kind == OperationKind::CargoTest;
+    let artifact_binding = unit.schema == "proofbound-evidence-unit/6"
+        && unit.artifact_observation.is_none()
+        && unit.adapter == AdapterKind::CanonicalArtifact
+        && unit.kind == EvidenceKind::ArtifactSoundness
+        && unit.operation.kind == OperationKind::ArtifactCheck
+        && unit.binding_mode == Some(BindingMode::DigestTheorem)
+        && unit.theorem.is_some();
+    if (!exact_observation && !artifact_binding)
         || !bundle.project.evidence_contexts.contains(context)
     {
         return Err(SemanticError::EvidenceContext {
             code: "PB-CTX-0001",
             message: format!(
-                "evidence unit {id} does not name one registered exact-observation context"
+                "evidence unit {id} is not one registered contextual exact observation or artifact binding"
             ),
         });
     }
@@ -663,11 +674,30 @@ fn validate_evidence_schema(
         {
             Ok(())
         }
+        "proofbound-evidence-unit/6"
+            if unit.context.is_some()
+                && unit.transcription.is_none()
+                && unit.mutation.is_none()
+                && unit.property.is_none()
+                && unit.distribution.is_none()
+                && unit.artifact_observation.is_none()
+                && unit.adapter == AdapterKind::CanonicalArtifact
+                && unit.kind == EvidenceKind::ArtifactSoundness
+                && unit.operation.kind == OperationKind::ArtifactCheck
+                && unit.evaluation_mode.is_some()
+                && unit.binding_mode == Some(BindingMode::DigestTheorem)
+                && unit.theorem.is_some()
+                && unit.refinement_theorem.is_none()
+                && unit.bounded_domain.is_none() =>
+        {
+            Ok(())
+        }
         "proofbound-evidence-unit/1"
         | "proofbound-evidence-unit/2"
         | "proofbound-evidence-unit/3"
         | "proofbound-evidence-unit/4"
-        | "proofbound-evidence-unit/5" => Err(SemanticError::EvidenceQualifier {
+        | "proofbound-evidence-unit/5"
+        | "proofbound-evidence-unit/6" => Err(SemanticError::EvidenceQualifier {
             unit: unit.id.clone(),
             message:
                 "each versioned evidence-unit schema admits only its closed typed qualifier family"
@@ -675,7 +705,7 @@ fn validate_evidence_schema(
         }),
         _ => Err(SemanticError::Schema {
             path: path.to_owned(),
-            expected: "proofbound-evidence-unit/1 through proofbound-evidence-unit/5",
+            expected: "proofbound-evidence-unit/1 through proofbound-evidence-unit/6",
             actual: unit.schema.clone(),
         }),
     }
@@ -3088,6 +3118,38 @@ mod tests {
         crate::ProjectBundle::load(root).unwrap()
     }
 
+    fn contextual_artifact_unit(context: &str) -> crate::EvidenceUnitManifest {
+        serde_json::from_value(serde_json::json!({
+            "schema": "proofbound-evidence-unit/6",
+            "id": "release-pbr-aarch64",
+            "context": context,
+            "adapter": "canonical-artifact",
+            "kind": "artifact-soundness",
+            "claims": ["DEMO-MANIFEST-006"],
+            "tier": 3,
+            "operation": {
+                "type": "artifact-check",
+                "checker": "tools/check_artifact.py",
+                "arguments": ["release/aarch64/pbr"]
+            },
+            "evaluation_mode": "kernel",
+            "binding_mode": "digest-theorem",
+            "theorem": "Demo.Release.pbrArtifacts",
+            "premises": [],
+            "assumptions": [],
+            "expected_inventory": ["release-pbr-aarch64"],
+            "inputs": ["release/aarch64/pbr", "tools/check_artifact.py"],
+            "outputs": [],
+            "environment_allowlist": ["PATH"],
+            "resource_budget": {
+                "time_seconds": 60,
+                "disk_bytes": 1048576,
+                "memory_bytes": 1048576
+            }
+        }))
+        .unwrap()
+    }
+
     fn review() -> crate::ReviewManifest {
         crate::ReviewManifest {
             schema: "proofbound-review/1".to_owned(),
@@ -3819,6 +3881,96 @@ mod tests {
     }
 
     #[test]
+    fn contextual_artifact_soundness_v6_is_a_closed_tracked_route() {
+        let mut bundle = repository_bundle();
+        let context = "release-linux-aarch64";
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec![context.to_owned()];
+        bundle.project.required_release_contexts = vec![context.to_owned()];
+        let path = bundle.evidence_units["manifest-workspace"].0.clone();
+        let unit = contextual_artifact_unit(context);
+        validate_evidence_schema(&path, &unit).unwrap();
+        validate_unit_qualifiers(&unit).unwrap();
+        validate_context_unit(&bundle, &unit.id, &path, &unit).unwrap();
+
+        let mut unconditional = unit.clone();
+        unconditional.context = None;
+        assert!(validate_evidence_schema(&path, &unconditional).is_err());
+
+        let mut observation_smuggling = unit.clone();
+        observation_smuggling.artifact_observation = Some(crate::ExactArtifactObservationConfig {
+            schema: crate::ExactArtifactObservationSchema::Version1,
+            subject_role: "runtime-release".to_owned(),
+            artifact: "release/aarch64/pbr".to_owned(),
+            procedure: "tools/check_artifact.py".to_owned(),
+            operating_system: crate::ObservationOperatingSystem::Linux,
+            architecture: crate::ObservationArchitecture::Aarch64,
+            toolchain_inputs: vec!["schemas/project.schema.json".to_owned()],
+            dependencies: vec!["theorem:closed-set".to_owned()],
+        });
+        assert!(validate_evidence_schema(&path, &observation_smuggling).is_err());
+    }
+
+    #[test]
+    fn frozen_contextual_binding_manifest_attack_rejects_with_registered_code() {
+        let corpus_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+        let corpus: ContextAttackCorpus =
+            serde_json::from_slice(&fs::read(corpus_path).unwrap()).unwrap();
+        assert_eq!(
+            corpus.schema,
+            "proofbound-contextual-artifact-binding-attacks/1"
+        );
+        assert_eq!(corpus.cases.len(), 10);
+        let mut seen = BTreeSet::new();
+        let mut executed = false;
+
+        for case in corpus.cases {
+            assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+            assert!(!case.mutation.trim().is_empty());
+            match case.id.as_str() {
+                "context-kind-substitution" => {
+                    executed = true;
+                    let mut bundle = repository_bundle();
+                    let context = "release-linux-aarch64";
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec![context.to_owned()];
+                    bundle.project.required_release_contexts = vec![context.to_owned()];
+                    let path = bundle.evidence_units["manifest-workspace"].0.clone();
+                    let unit = contextual_artifact_unit(context);
+
+                    let mut wrong_schema = unit.clone();
+                    wrong_schema.schema = "proofbound-evidence-unit/5".to_owned();
+                    let mut wrong_kind = unit;
+                    wrong_kind.kind = EvidenceKind::ExampleTest;
+                    for mutation in [&wrong_schema, &wrong_kind] {
+                        let error = validate_context_unit(&bundle, &mutation.id, &path, mutation)
+                            .unwrap_err();
+                        assert!(
+                            error.to_string().starts_with(&case.expected_code),
+                            "{} expected {}, received {}",
+                            case.id,
+                            case.expected_code,
+                            error
+                        );
+                    }
+                }
+                "empty-binding-set"
+                | "duplicate-binding-member"
+                | "noncanonical-binding-order"
+                | "computed-member-identity"
+                | "inactive-binding-smuggling"
+                | "member-omission"
+                | "member-substitution"
+                | "receipt-context-substitution"
+                | "observation-promotion" => {}
+                unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+            }
+        }
+        assert!(executed, "context-kind-substitution was not executed");
+    }
+
+    #[test]
     fn frozen_evidence_context_manifest_attacks_reject_with_registered_codes() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../proofbound/conformance/v2/evidence-context-attacks.json");
@@ -4476,7 +4628,9 @@ mod tests {
         assert!(revision_resolver.contains("refs/remotes/origin/$default_branch"));
         assert!(revision_resolver.contains("refs/heads/$default_branch"));
         assert!(revision_resolver.contains("event_before"));
-        assert!(!revision_resolver.contains("${head}^"));
+        assert!(revision_resolver.contains("git rev-parse --verify \"${head}^2\""));
+        assert!(revision_resolver.contains("first_parent="));
+        assert!(revision_resolver.contains("$base\" != \"$first_parent"));
         assert!(pre_commit.contains("bash tools/ci/pre-commit.sh"));
         assert!(fast_checks.contains("python3 tools/ci/version.py --check"));
         assert!(fast_checks.contains("python3 tools/ci/changelog.py --staged"));

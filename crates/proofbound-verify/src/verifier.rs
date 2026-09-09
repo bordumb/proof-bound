@@ -13,19 +13,23 @@ use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, ArtifactObservationRelation, AssumptionCategory,
     AssumptionFacet, AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode,
     BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3,
-    COMPILED_RELEASE_SCHEMA_V4, COMPILED_RELEASE_SCHEMA_V5, ClaimReceipt, ClosureKind,
-    CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EVIDENCE_SCHEMA_V4,
+    COMPILED_RELEASE_SCHEMA_V4, COMPILED_RELEASE_SCHEMA_V5, COMPILED_RELEASE_SCHEMA_V6,
+    ClaimReceipt, ClosureKind, CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1,
+    EVIDENCE_SCHEMA_V3, EVIDENCE_SCHEMA_V4, EVIDENCE_SCHEMA_V5,
     EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
     EvidenceReceipt, Exclusion, ExecutionKind, ExternalObservationInput, FlowScope, FormalFacet,
     GRAPH_SCHEMA_V1, GraphEdge, GraphNode, HashedRecord, IndependenceMode, LinkageFacet,
     MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V2, NodeKind, ObservationPlatform,
     OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
     RELEASE_ENVELOPE_SCHEMA_V3, RELEASE_ENVELOPE_SCHEMA_V4, RELEASE_ENVELOPE_SCHEMA_V5,
-    ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1, SourceClosureReceipt,
-    SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
-    TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole, TreeState, canonical_json,
-    domain_hash, raw_sha256,
-    statement_wire::{LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding, statement_digest},
+    RELEASE_ENVELOPE_SCHEMA_V6, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
+    SourceClosureReceipt, SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1,
+    TRANSCRIPTION_TCB_ROLE_DOMAIN_V1, TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole,
+    TreeState, canonical_json, domain_hash, raw_sha256,
+    statement_wire::{
+        LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding_set,
+        parse_artifact_digest_bindings, statement_digest,
+    },
 };
 
 const MAX_ENVELOPE_BYTES: u64 = 1 << 20;
@@ -240,7 +244,10 @@ pub fn verify_release_dir_with_observations(
     let (envelope, _) = read_canonical::<ReleaseEnvelope>(&envelope_path, MAX_ENVELOPE_BYTES)?;
     if !matches!(
         envelope.schema.as_str(),
-        RELEASE_ENVELOPE_SCHEMA_V3 | RELEASE_ENVELOPE_SCHEMA_V4 | RELEASE_ENVELOPE_SCHEMA_V5
+        RELEASE_ENVELOPE_SCHEMA_V3
+            | RELEASE_ENVELOPE_SCHEMA_V4
+            | RELEASE_ENVELOPE_SCHEMA_V5
+            | RELEASE_ENVELOPE_SCHEMA_V6
     ) {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
@@ -267,6 +274,7 @@ pub fn verify_release_dir_with_observations(
         COMPILED_RELEASE_SCHEMA_V3 => COMPILED_RELEASE_SCHEMA_V3,
         COMPILED_RELEASE_SCHEMA_V4 => COMPILED_RELEASE_SCHEMA_V4,
         COMPILED_RELEASE_SCHEMA_V5 => COMPILED_RELEASE_SCHEMA_V5,
+        COMPILED_RELEASE_SCHEMA_V6 => COMPILED_RELEASE_SCHEMA_V6,
         _ => COMPILED_RELEASE_SCHEMA_V3,
     };
     let actual_payload = domain_hash(payload_domain, &payload_bytes);
@@ -284,6 +292,7 @@ pub fn verify_release_dir_with_observations(
     }
 
     let expected_envelope = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V6 => RELEASE_ENVELOPE_SCHEMA_V6,
         COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
         COMPILED_RELEASE_SCHEMA_V4 => RELEASE_ENVELOPE_SCHEMA_V4,
         _ => RELEASE_ENVELOPE_SCHEMA_V3,
@@ -298,20 +307,24 @@ pub fn verify_release_dir_with_observations(
         ));
     }
     let mut report = verify_compiled_release_internal(&release, Some(&root))?;
-    let bytes_observed = validate_observation_bytes(&release, &report.claims, observation_inputs)?;
-    if report
-        .claims
+    let bytes_observed = validate_contextual_bytes(&release, &report.claims, observation_inputs)?;
+    let has_byte_bound_context = release
+        .evidence
         .iter()
-        .any(|claim| !claim.artifact_observations.is_empty())
-    {
+        .any(|item| item.record.schema == EVIDENCE_SCHEMA_V5)
+        || report
+            .claims
+            .iter()
+            .any(|claim| !claim.artifact_observations.is_empty());
+    if has_byte_bound_context {
         if bytes_observed {
             report.verdict = "bytes-observed".into();
             report.publication_blocked = report.claims.iter().any(|claim| !claim.policy_admitted);
-            report.trust_boundary = "Bytes-observed: receipt relationships were independently checked and every exact observation artifact and procedure identity was recomputed from supplied or sealed bytes; external tool honesty remains outside this verdict.".into();
+            report.trust_boundary = "Bytes-observed: receipt relationships were independently checked and every contextual binding or exact-observation byte identity was recomputed from supplied or sealed bytes; external tool honesty remains outside this verdict.".into();
         } else {
             report.verdict = "record-consistent".into();
             report.publication_blocked = true;
-            report.trust_boundary = "Record-consistent only: exact observation relations are internally consistent, but at least one artifact or procedure byte stream was not supplied to the verifier.".into();
+            report.trust_boundary = "Record-consistent only: contextual byte relations are internally consistent, but at least one bound artifact or observation byte stream was not supplied or sealed.".into();
         }
     }
     report.payload_sha256 = actual_payload;
@@ -333,7 +346,10 @@ fn verify_compiled_release_internal(
     let mut issues = Vec::new();
     if !matches!(
         release.schema.as_str(),
-        COMPILED_RELEASE_SCHEMA_V3 | COMPILED_RELEASE_SCHEMA_V4 | COMPILED_RELEASE_SCHEMA_V5
+        COMPILED_RELEASE_SCHEMA_V3
+            | COMPILED_RELEASE_SCHEMA_V4
+            | COMPILED_RELEASE_SCHEMA_V5
+            | COMPILED_RELEASE_SCHEMA_V6
     ) {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
@@ -344,27 +360,47 @@ fn verify_compiled_release_internal(
         .evidence
         .iter()
         .any(|item| item.record.artifact_observation.is_some());
+    let has_contextual_bindings = release
+        .evidence
+        .iter()
+        .any(|item| item.record.schema == EVIDENCE_SCHEMA_V5);
     let valid_context = release
         .evidence_context
         .as_deref()
         .is_some_and(valid_observation_role);
     match release.schema.as_str() {
-        COMPILED_RELEASE_SCHEMA_V3 if has_observations || release.evidence_context.is_some() => {
+        COMPILED_RELEASE_SCHEMA_V3
+            if has_observations
+                || has_contextual_bindings
+                || release.evidence_context.is_some() =>
+        {
             issues.push(VerificationIssue::new(
                 VerificationIssueCode::PbvSchema,
                 "compiled release v3 cannot contain exact observations or an evidence context",
             ));
         }
-        COMPILED_RELEASE_SCHEMA_V4 if !has_observations || release.evidence_context.is_some() => {
+        COMPILED_RELEASE_SCHEMA_V4
+            if !has_observations
+                || has_contextual_bindings
+                || release.evidence_context.is_some() =>
+        {
             issues.push(VerificationIssue::new(
                 VerificationIssueCode::PbvSchema,
                 "compiled release v4 requires noncontextual exact observations",
             ));
         }
-        COMPILED_RELEASE_SCHEMA_V5 if !has_observations || !valid_context => {
+        COMPILED_RELEASE_SCHEMA_V5
+            if !has_observations || has_contextual_bindings || !valid_context =>
+        {
             issues.push(VerificationIssue::new(
                 VerificationIssueCode::PbCtx0008,
                 "compiled release v5 requires exact observations and one canonical evidence context",
+            ));
+        }
+        COMPILED_RELEASE_SCHEMA_V6 if !has_contextual_bindings || !valid_context => {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbCtx0008,
+                "compiled release v6 requires contextual artifact bindings and one canonical evidence context",
             ));
         }
         _ => {}
@@ -523,7 +559,7 @@ fn verify_compiled_release_internal(
             "proofbound-verification-report/1"
         }
         .into(),
-        verdict: if has_observations {
+        verdict: if has_observations || has_contextual_bindings {
             "record-consistent"
         } else {
             "receipt-consistent"
@@ -534,18 +570,19 @@ fn verify_compiled_release_internal(
         evidence_context: release.evidence_context.clone(),
         payload_sha256: String::new(),
         publication_blocked: has_observations
+            || has_contextual_bindings
             || recomputed.iter().any(|status| !status.policy_admitted),
         claims: recomputed,
         not_proved_out_of_scope,
-        trust_boundary: if has_observations {
-            "Record-consistent only: exact observation relations are internally consistent, but byte identities require sealed or explicitly supplied artifacts and procedures."
+        trust_boundary: if has_observations || has_contextual_bindings {
+            "Record-consistent only: contextual binding and observation relations are internally consistent, but byte identities require sealed or explicitly supplied artifacts and procedures."
         } else {
             "Receipt-consistent only: this independently checks recorded identities, graph facts, facets, assumptions, and policies; it does not attest that external tools ran honestly."
         }.into(),
     })
 }
 
-fn validate_observation_bytes(
+fn validate_contextual_bytes(
     release: &CompiledRelease,
     claims: &[ReportedClaimStatus],
     inputs: &[ExternalObservationInput],
@@ -574,6 +611,18 @@ fn validate_observation_bytes(
     }
 
     let mut all_observed = true;
+    for evidence in &release.evidence {
+        if evidence.record.schema != EVIDENCE_SCHEMA_V5 {
+            continue;
+        }
+        let Some(binding) = evidence.record.artifact_binding.as_ref() else {
+            all_observed = false;
+            continue;
+        };
+        if !sealed_identity_available(release, &binding.artifact, &mut issues) {
+            all_observed = false;
+        }
+    }
     let mut used = BTreeSet::<InputKey>::new();
     for claim in claims {
         for relation in &claim.artifact_observations {
@@ -657,7 +706,9 @@ fn validate_evidence_context_bindings(
     issues: &mut Vec<VerificationIssue>,
 ) {
     for evidence in &release.evidence {
-        let expected = if evidence.record.artifact_observation.is_some() {
+        let expected = if evidence.record.artifact_observation.is_some()
+            || evidence.record.schema == EVIDENCE_SCHEMA_V5
+        {
             release.evidence_context.as_deref()
         } else {
             None
@@ -667,6 +718,17 @@ fn validate_evidence_context_bindings(
                 VerificationIssue::new(
                     VerificationIssueCode::PbCtx0008,
                     "portable evidence context does not match the release and observation shape",
+                )
+                .at(&evidence.sha256),
+            );
+        }
+        if evidence.record.schema == EVIDENCE_SCHEMA_V5
+            && release.schema != COMPILED_RELEASE_SCHEMA_V6
+        {
+            issues.push(
+                VerificationIssue::new(
+                    VerificationIssueCode::PbCtx0008,
+                    "contextual artifact binding appears outside compiled release v6",
                 )
                 .at(&evidence.sha256),
             );
@@ -1555,6 +1617,7 @@ fn validate_evidence_records(
             let evidence_domain = match evidence.schema.as_str() {
                 EVIDENCE_SCHEMA_V3 => EVIDENCE_SCHEMA_V3,
                 EVIDENCE_SCHEMA_V4 => EVIDENCE_SCHEMA_V4,
+                EVIDENCE_SCHEMA_V5 => EVIDENCE_SCHEMA_V5,
                 _ => EVIDENCE_SCHEMA_V3,
             };
             let actual = domain_hash(evidence_domain, &bytes);
@@ -1568,7 +1631,7 @@ fn validate_evidence_records(
         }
         if !matches!(
             evidence.schema.as_str(),
-            EVIDENCE_SCHEMA_V3 | EVIDENCE_SCHEMA_V4
+            EVIDENCE_SCHEMA_V3 | EVIDENCE_SCHEMA_V4 | EVIDENCE_SCHEMA_V5
         ) {
             evidence_issue(
                 issues,
@@ -1581,6 +1644,17 @@ fn validate_evidence_records(
                 issues,
                 &wrapper.sha256,
                 "evidence v4 is required exactly when an exact artifact observation is present",
+            );
+        }
+        if evidence.schema == EVIDENCE_SCHEMA_V5
+            && (evidence.artifact_binding.is_none()
+                || evidence.artifact_observation.is_some()
+                || evidence.evidence_context.is_none())
+        {
+            evidence_issue(
+                issues,
+                &wrapper.sha256,
+                "evidence v5 requires exactly one contextual artifact binding",
             );
         }
         if evidence.unit_id.trim().is_empty() {
@@ -4398,11 +4472,19 @@ fn derive_claim(
                                 )
                             })
                             .and_then(|theorem| {
-                                parse_artifact_digest_binding(
-                                    &theorem.statement_wire,
-                                    &theorem.statement_sha256,
-                                    &claim.id,
-                                )
+                                if record.schema == EVIDENCE_SCHEMA_V5 {
+                                    parse_artifact_digest_binding_set(
+                                        &theorem.statement_wire,
+                                        &theorem.statement_sha256,
+                                        &claim.id,
+                                    )
+                                } else {
+                                    parse_artifact_digest_bindings(
+                                        &theorem.statement_wire,
+                                        &theorem.statement_sha256,
+                                        &claim.id,
+                                    )
+                                }
                                 .map_err(|error| {
                                     format!(
                                         "artifact binding '{id}' is not derived from the exact audited theorem root: {error}"
@@ -4412,8 +4494,14 @@ fn derive_claim(
                         match parsed {
                             Ok(parsed)
                                 if record.binding_mode == Some(BindingMode::DigestTheorem)
-                                    && parsed.logical_name == binding.artifact.logical_name
-                                    && parsed.sha256 == binding.artifact.sha256
+                                    && parsed
+                                        .iter()
+                                        .filter(|member| {
+                                            member.logical_name == binding.artifact.logical_name
+                                                && member.sha256 == binding.artifact.sha256
+                                        })
+                                        .count()
+                                        == 1
                                     && artifact_binding_shape(binding, record) =>
                             {
                                 linkages.insert(LinkageFacet::ArtifactBound);

@@ -1,4 +1,4 @@
-//! Closed `proofbound-compiled-release/3`, `/4`, and `/5` receipt formats.
+//! Closed `proofbound-compiled-release/3` through `/6` receipt formats.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -10,13 +10,16 @@ use serde::{Deserialize, Serialize};
 pub const RELEASE_ENVELOPE_SCHEMA_V3: &str = "proofbound-release-envelope/3";
 pub const RELEASE_ENVELOPE_SCHEMA_V4: &str = "proofbound-release-envelope/4";
 pub const RELEASE_ENVELOPE_SCHEMA_V5: &str = "proofbound-release-envelope/5";
+pub const RELEASE_ENVELOPE_SCHEMA_V6: &str = "proofbound-release-envelope/6";
 pub const COMPILED_RELEASE_SCHEMA_V3: &str = "proofbound-compiled-release/3";
 pub const COMPILED_RELEASE_SCHEMA_V4: &str = "proofbound-compiled-release/4";
 pub const COMPILED_RELEASE_SCHEMA_V5: &str = "proofbound-compiled-release/5";
+pub const COMPILED_RELEASE_SCHEMA_V6: &str = "proofbound-compiled-release/6";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
 pub const EVIDENCE_SCHEMA_V4: &str = "proofbound-evidence/4";
+pub const EVIDENCE_SCHEMA_V5: &str = "proofbound-evidence/5";
 pub const EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1: &str = "proofbound-exact-artifact-observation/1";
 pub const OBSERVATION_INPUTS_SCHEMA_V1: &str = "proofbound-observation-inputs/1";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";

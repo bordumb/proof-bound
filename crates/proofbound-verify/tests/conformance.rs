@@ -139,6 +139,40 @@ fn binding_statement(claim: &str, logical_name: &str, sha256: &str) -> serde_jso
     serde_json::json!(["lean-expr-cbor/1", root])
 }
 
+fn binding_set_statement(claim: &str, artifacts: &[ArtifactIdentityReceipt]) -> serde_json::Value {
+    let member_type = serde_json::json!([2, "Proofbound.Artifact.DigestBindingMemberV1", []]);
+    let mut members = application(
+        serde_json::json!([2, "List.nil", [[0]]]),
+        member_type.clone(),
+    );
+    for artifact in artifacts.iter().rev() {
+        let mut member = serde_json::json!([2, "Proofbound.Artifact.DigestBindingMemberV1.mk", []]);
+        for argument in [
+            string_literal(&artifact.logical_name),
+            string_literal(&artifact.sha256),
+            serde_json::json!([2, "Synthetic.bytes", []]),
+        ] {
+            member = application(member, argument);
+        }
+        let mut cons = serde_json::json!([2, "List.cons", [[0]]]);
+        for argument in [member_type.clone(), member, members] {
+            cons = application(cons, argument);
+        }
+        members = cons;
+    }
+
+    let mut root = serde_json::json!([2, "Proofbound.Artifact.DigestBindingSetV1", []]);
+    for argument in [
+        string_literal(claim),
+        string_literal("synthetic-artifact/1"),
+        members,
+        serde_json::json!([2, "Synthetic.meaning", []]),
+    ] {
+        root = application(root, argument);
+    }
+    serde_json::json!(["lean-expr-cbor/1", root])
+}
+
 fn graph_hash(graph: &AssuranceGraph) -> String {
     domain_hash(GRAPH_SCHEMA_V1, &canonical_json(graph).unwrap())
 }
@@ -2230,8 +2264,37 @@ fn artifact_bound_release() -> CompiledRelease {
         .cited_evidence
         .remove(&transcription.sha256);
     release.claims[0].primary_linkage = None;
+    release.policies[0].id = BuiltInProfile::ArtifactBound.name().into();
     release.policies[0].components = BTreeSet::from([BuiltInProfile::ArtifactBound]);
+    release.claims[0].policy = BuiltInProfile::ArtifactBound.name().into();
     release.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
+    release
+}
+
+fn contextual_artifact_bound_release() -> CompiledRelease {
+    let mut release = artifact_bound_release();
+    let selected = release.evidence[1]
+        .record
+        .artifact_binding
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    let second = ArtifactIdentityReceipt {
+        logical_name: "release/x86_64/pbr".into(),
+        sha256: digest("x86 artifact"),
+        size_bytes: 12,
+    };
+    replace_binding_theorem_statement(
+        &mut release,
+        binding_set_statement("c", &[selected, second]),
+        true,
+    );
+    release.schema = COMPILED_RELEASE_SCHEMA_V6.into();
+    release.evidence_context = Some("release-linux-aarch64".into());
+    release.evidence[1].record.schema = EVIDENCE_SCHEMA_V5.into();
+    release.evidence[1].record.evidence_context = release.evidence_context.clone();
+    rehash_evidence_at(&mut release, 1);
     release
 }
 
@@ -2299,8 +2362,9 @@ fn transcribed_release() -> CompiledRelease {
 
 fn rehash_evidence_at(release: &mut CompiledRelease, index: usize) {
     let old = release.evidence[index].sha256.clone();
+    let domain = release.evidence[index].record.schema.clone();
     let replacement = domain_hash(
-        EVIDENCE_SCHEMA_V3,
+        &domain,
         &canonical_json(&release.evidence[index].record).unwrap(),
     );
     release.evidence[index].sha256.clone_from(&replacement);
@@ -2415,6 +2479,189 @@ fn artifact_binding_rejects_wrong_claim_path_and_digest_literals() {
             error.issues
         );
     }
+}
+
+#[test]
+fn artifact_binding_set_accepts_only_an_exact_selected_member() {
+    let mut release = artifact_bound_release();
+    let first = release.evidence[1]
+        .record
+        .artifact_binding
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    let second = ArtifactIdentityReceipt {
+        logical_name: "release/aarch64/pbr".into(),
+        sha256: digest("arm64 artifact"),
+        size_bytes: 9,
+    };
+    let statement = binding_set_statement("c", &[first, second.clone()]);
+
+    let artifact_record = &mut release.evidence[1].record;
+    artifact_record.artifact_binding.as_mut().unwrap().artifact = second.clone();
+    artifact_record.provenance.input_artifacts = vec![second.clone()];
+    artifact_record.inventoried_targets = BTreeSet::from([second.logical_name.clone()]);
+    artifact_record.provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&artifact_record.provenance.cache_material()).unwrap(),
+    );
+    rehash_evidence_at(&mut release, 1);
+    replace_binding_theorem_statement(&mut release, statement, true);
+    verify_compiled_release(&release).unwrap();
+
+    let absent = ArtifactIdentityReceipt {
+        logical_name: "release/riscv64/pbr".into(),
+        sha256: digest("riscv artifact"),
+        size_bytes: 10,
+    };
+    let artifact_record = &mut release.evidence[1].record;
+    artifact_record.artifact_binding.as_mut().unwrap().artifact = absent.clone();
+    artifact_record.provenance.input_artifacts = vec![absent.clone()];
+    artifact_record.inventoried_targets = BTreeSet::from([absent.logical_name]);
+    artifact_record.provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&artifact_record.provenance.cache_material()).unwrap(),
+    );
+    rehash_evidence_at(&mut release, 1);
+
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+}
+
+#[test]
+fn contextual_artifact_binding_v6_is_set_rooted_context_bound_and_byte_checked() {
+    let release = contextual_artifact_bound_release();
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.schema, "proofbound-verification-report/3");
+    assert_eq!(report.verdict, "record-consistent");
+    assert!(report.publication_blocked);
+    assert_eq!(
+        report.evidence_context.as_deref(),
+        Some("release-linux-aarch64")
+    );
+
+    let mut omitted = release.clone();
+    omitted.evidence[1].record.evidence_context = None;
+    rehash_evidence_at(&mut omitted, 1);
+    let error = verify_compiled_release(&omitted).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbCtx0008));
+
+    let mut singular = release.clone();
+    let artifact = singular.evidence[1]
+        .record
+        .artifact_binding
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    replace_binding_theorem_statement(
+        &mut singular,
+        binding_statement("c", &artifact.logical_name, &artifact.sha256),
+        true,
+    );
+    let error = verify_compiled_release(&singular).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut sealed = release;
+    let artifact = sealed.evidence[1]
+        .record
+        .artifact_binding
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    let artifact_bytes = b"artifact bytes";
+    assert_eq!(artifact.sha256, raw_sha256(artifact_bytes));
+    assert_eq!(artifact.size_bytes, artifact_bytes.len() as u64);
+    sealed.sealed_files.push(SealedFile {
+        path: artifact.logical_name.clone(),
+        sha256: artifact.sha256,
+        size_bytes: artifact.size_bytes,
+    });
+    sealed
+        .sealed_files
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(
+        directory.path().join(&artifact.logical_name),
+        artifact_bytes,
+    )
+    .unwrap();
+    let sealed = write_tcb_ledger_at(directory.path(), &sealed, &tcb_ledger_value(&sealed));
+    write_payload_at(directory.path(), &sealed);
+    let report = verify_release_dir(directory.path()).unwrap();
+    assert_eq!(report.verdict, "bytes-observed");
+    assert!(!report.publication_blocked);
+}
+
+#[test]
+fn frozen_contextual_binding_receipt_attacks_reject_with_registered_codes() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+    let corpus: ObservationAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(
+        corpus.schema,
+        "proofbound-contextual-artifact-binding-attacks/1"
+    );
+    assert_eq!(corpus.cases.len(), 10);
+    let mut seen = BTreeSet::new();
+    let mut executed = BTreeSet::new();
+
+    for case in corpus.cases {
+        assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+        assert!(!case.mutation.trim().is_empty());
+        let errors = match case.id.as_str() {
+            "receipt-context-substitution" => {
+                let mut omitted = contextual_artifact_bound_release();
+                omitted.evidence[1].record.evidence_context = None;
+                rehash_evidence_at(&mut omitted, 1);
+                let omission = verify_compiled_release(&omitted).unwrap_err();
+
+                let mut substituted = contextual_artifact_bound_release();
+                substituted.evidence[1].record.evidence_context =
+                    Some("release-linux-x86-64".into());
+                rehash_evidence_at(&mut substituted, 1);
+                vec![omission, verify_compiled_release(&substituted).unwrap_err()]
+            }
+            "observation-promotion" => {
+                let mut promoted = contextual_observation_release();
+                promoted.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
+                vec![verify_compiled_release(&promoted).unwrap_err()]
+            }
+            "empty-binding-set"
+            | "duplicate-binding-member"
+            | "noncanonical-binding-order"
+            | "computed-member-identity"
+            | "context-kind-substitution"
+            | "inactive-binding-smuggling"
+            | "member-omission"
+            | "member-substitution" => continue,
+            unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+        };
+        executed.insert(case.id.clone());
+        for error in errors {
+            let actual = error
+                .issues
+                .iter()
+                .map(|issue| issue.code.to_string())
+                .collect::<BTreeSet<_>>();
+            assert!(
+                actual.contains(&case.expected_code),
+                "{} expected {}, received {:?}",
+                case.id,
+                case.expected_code,
+                actual
+            );
+        }
+    }
+    assert_eq!(
+        executed,
+        BTreeSet::from([
+            "observation-promotion".to_owned(),
+            "receipt-context-substitution".to_owned(),
+        ])
+    );
 }
 
 #[test]
@@ -3185,6 +3432,7 @@ fn write_payload_at(directory: &Path, release: &CompiledRelease) {
     let payload = canonical_json(release).unwrap();
     fs::write(directory.join("compiled-receipt.json"), &payload).unwrap();
     let envelope_schema = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V6 => RELEASE_ENVELOPE_SCHEMA_V6,
         COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
         COMPILED_RELEASE_SCHEMA_V4 => RELEASE_ENVELOPE_SCHEMA_V4,
         _ => RELEASE_ENVELOPE_SCHEMA_V3,

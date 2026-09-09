@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "adapter", "kind", "claims", "tier", "operation", "resource_budget"],
   "properties": {
-    "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2", "proofbound-evidence-unit/3", "proofbound-evidence-unit/4", "proofbound-evidence-unit/5"] },
+    "schema": { "enum": ["proofbound-evidence-unit/1", "proofbound-evidence-unit/2", "proofbound-evidence-unit/3", "proofbound-evidence-unit/4", "proofbound-evidence-unit/5", "proofbound-evidence-unit/6"] },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "context": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "adapter": { "enum": ["lean", "charon-aeneas", "kani", "rust-test", "python-test", "node-test", "canonical-artifact", "independent-check", "trusted-transcription"] },
@@ -59,7 +59,7 @@
   "allOf": [
     {
       "if": { "required": ["context"] },
-      "then": { "properties": { "schema": { "const": "proofbound-evidence-unit/5" } } }
+      "then": { "properties": { "schema": { "enum": ["proofbound-evidence-unit/5", "proofbound-evidence-unit/6"] } } }
     },
     {
       "if": { "properties": { "schema": { "const": "proofbound-evidence-unit/1" } }, "required": ["schema"] },
@@ -403,6 +403,33 @@
           "distribution": false,
           "outputs": { "maxItems": 0 },
           "inputs": { "minItems": 3 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-evidence-unit/6" } }, "required": ["schema"] },
+      "then": {
+        "required": ["context", "evaluation_mode", "binding_mode", "theorem", "expected_inventory", "inputs", "outputs", "environment_allowlist"],
+        "properties": {
+          "adapter": { "const": "canonical-artifact" },
+          "kind": { "const": "artifact-soundness" },
+          "operation": {
+            "required": ["type", "checker"],
+            "properties": {
+              "type": { "const": "artifact-check" },
+              "checker": { "$ref": "#/$defs/exactPath" }
+            }
+          },
+          "binding_mode": { "const": "digest-theorem" },
+          "refinement_theorem": false,
+          "bounded_domain": false,
+          "transcription": false,
+          "mutation": false,
+          "property": false,
+          "distribution": false,
+          "artifact_observation": false,
+          "outputs": { "maxItems": 0 },
+          "inputs": { "minItems": 2 }
         }
       }
     }

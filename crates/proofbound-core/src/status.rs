@@ -10,7 +10,7 @@ use crate::{
     EvidenceId, EvidenceKind, EvidenceRecord, EvidenceStatus, ExactArtifactObservationRelation,
     FlowScope, FormalFacet, LinkageFacet, NodeId, NodeKind, OpenObligation, OutOfScope,
     PolicyDefinition, PremiseId, PremiseRecord, Sha256Digest, StructuredError, TheoremAdmission,
-    Tier, parse_artifact_digest_binding,
+    Tier, parse_artifact_digest_bindings,
 };
 
 pub const CLAIM_STATUS_SCHEMA_V1: &str = "proofbound-claim-status/1";
@@ -873,7 +873,7 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
                                 )
                             })
                             .and_then(|theorem| {
-                                parse_artifact_digest_binding(
+                                parse_artifact_digest_bindings(
                                     &theorem.statement_wire,
                                     theorem.statement_sha256,
                                     claim_id,
@@ -887,10 +887,13 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
                             });
                         match parsed {
                             Ok(parsed)
-                                if record.binding_mode == Some(parsed.mode)
-                                    && parsed.artifact_logical_name
-                                        == binding.artifact.logical_name
-                                    && parsed.artifact_sha256 == binding.artifact.sha256 =>
+                                if record.binding_mode == Some(crate::BindingMode::DigestTheorem)
+                                    && parsed.iter().filter(|member| {
+                                        member.artifact_logical_name
+                                            == binding.artifact.logical_name
+                                            && member.artifact_sha256
+                                                == binding.artifact.sha256
+                                    }).count() == 1 =>
                             {
                                 linkage_candidates.insert(LinkageFacet::ArtifactBound);
                                 linkage_evidence.insert(record.id.clone());
