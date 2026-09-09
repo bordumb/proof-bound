@@ -477,12 +477,31 @@ fn validate_release_evidence_context(
                 .filter(|(_, unit)| unit.context.as_deref() == Some(context.as_str()))
             {
                 let expected_unit_id = format!("unit:{}", unit.id);
+                if !matches!(
+                    unit.schema.as_str(),
+                    "proofbound-evidence-unit/5" | "proofbound-evidence-unit/6"
+                ) {
+                    bail!(
+                        "PB-CTX-0004: selected context evidence unit {} has an unsupported schema",
+                        unit.id
+                    );
+                }
                 if !compiled.evidence.iter().any(|record| {
                     record.unit_id.as_str() == expected_unit_id
-                        && record.artifact_observation.is_some()
+                        && match unit.schema.as_str() {
+                            "proofbound-evidence-unit/5" => {
+                                record.kind == EvidenceKind::ExampleTest
+                                    && record.artifact_observation.is_some()
+                            }
+                            "proofbound-evidence-unit/6" => {
+                                record.kind == EvidenceKind::ArtifactSoundness
+                                    && record.artifact_binding.is_some()
+                            }
+                            _ => false,
+                        }
                 }) {
                     bail!(
-                        "PB-CTX-0004: selected context evidence unit {} has no exact observation record",
+                        "PB-CTX-0004: selected context evidence unit {} has no required typed detail",
                         unit.id
                     );
                 }
@@ -6578,6 +6597,12 @@ mod tests {
             .get_mut("manifest-workspace")
             .unwrap()
             .1
+            .schema = "proofbound-evidence-unit/5".to_owned();
+        bundle
+            .evidence_units
+            .get_mut("manifest-workspace")
+            .unwrap()
+            .1
             .context = Some(context.clone());
 
         let mut compiled = CompiledProject {
@@ -6648,6 +6673,44 @@ mod tests {
     }
 
     #[test]
+    fn required_contextual_artifact_binding_needs_its_exact_typed_detail() {
+        let mut bundle = repository_bundle();
+        let context = "release-linux-aarch64".to_owned();
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec![context.clone()];
+        bundle.project.required_release_contexts = vec![context.clone()];
+        let unit = &mut bundle
+            .evidence_units
+            .get_mut("manifest-workspace")
+            .unwrap()
+            .1;
+        unit.schema = "proofbound-evidence-unit/6".to_owned();
+        unit.context = Some(context.clone());
+
+        let mut record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["selected-member"])).unwrap();
+        record.unit_id = UnitId::new("unit:manifest-workspace").unwrap();
+        record.kind = EvidenceKind::ArtifactSoundness;
+        record.evaluation_mode = Some(proofbound_core::EvaluationMode::Kernel);
+        record.binding_mode = Some(proofbound_core::BindingMode::DigestTheorem);
+        record.artifact_binding = Some(ArtifactBindingEvidence {
+            theorem: EvidenceId::new("theorem:closed-set").unwrap(),
+            artifact: ArtifactIdentity {
+                logical_name: ArtifactLogicalName::new("release/aarch64/pbr").unwrap(),
+                sha256: Sha256Digest::of_bytes(b"aarch64 pbr"),
+                size_bytes: 4096,
+            },
+        });
+        let mut compiled = empty_context_compiled(Some(&context));
+        compiled.evidence.push(record);
+        validate_release_evidence_context(&bundle, &compiled).unwrap();
+
+        compiled.evidence[0].artifact_binding = None;
+        let error = validate_release_evidence_context(&bundle, &compiled).unwrap_err();
+        assert!(error.to_string().contains("PB-CTX-0004"));
+    }
+
+    #[test]
     fn frozen_evidence_context_compiler_attacks_reject_with_registered_codes() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../proofbound/conformance/v2/evidence-context-attacks.json");
@@ -6681,6 +6744,12 @@ mod tests {
                     bundle.project.evidence_contexts = vec![inactive.clone(), active.clone()];
                     bundle.project.required_release_contexts =
                         bundle.project.evidence_contexts.clone();
+                    bundle
+                        .evidence_units
+                        .get_mut("manifest-workspace")
+                        .unwrap()
+                        .1
+                        .schema = "proofbound-evidence-unit/5".to_owned();
                     bundle
                         .evidence_units
                         .get_mut("manifest-workspace")
