@@ -25,7 +25,9 @@ use crate::{
     SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
     TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole, TreeState, canonical_json,
     domain_hash, raw_sha256,
-    statement_wire::{LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding, statement_digest},
+    statement_wire::{
+        LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_bindings, statement_digest,
+    },
 };
 
 const MAX_ENVELOPE_BYTES: u64 = 1 << 20;
@@ -4398,7 +4400,7 @@ fn derive_claim(
                                 )
                             })
                             .and_then(|theorem| {
-                                parse_artifact_digest_binding(
+                                parse_artifact_digest_bindings(
                                     &theorem.statement_wire,
                                     &theorem.statement_sha256,
                                     &claim.id,
@@ -4412,8 +4414,14 @@ fn derive_claim(
                         match parsed {
                             Ok(parsed)
                                 if record.binding_mode == Some(BindingMode::DigestTheorem)
-                                    && parsed.logical_name == binding.artifact.logical_name
-                                    && parsed.sha256 == binding.artifact.sha256
+                                    && parsed
+                                        .iter()
+                                        .filter(|member| {
+                                            member.logical_name == binding.artifact.logical_name
+                                                && member.sha256 == binding.artifact.sha256
+                                        })
+                                        .count()
+                                        == 1
                                     && artifact_binding_shape(binding, record) =>
                             {
                                 linkages.insert(LinkageFacet::ArtifactBound);

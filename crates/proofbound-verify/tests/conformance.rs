@@ -139,6 +139,40 @@ fn binding_statement(claim: &str, logical_name: &str, sha256: &str) -> serde_jso
     serde_json::json!(["lean-expr-cbor/1", root])
 }
 
+fn binding_set_statement(claim: &str, artifacts: &[ArtifactIdentityReceipt]) -> serde_json::Value {
+    let member_type = serde_json::json!([2, "Proofbound.Artifact.DigestBindingMemberV1", []]);
+    let mut members = application(
+        serde_json::json!([2, "List.nil", [[0]]]),
+        member_type.clone(),
+    );
+    for artifact in artifacts.iter().rev() {
+        let mut member = serde_json::json!([2, "Proofbound.Artifact.DigestBindingMemberV1.mk", []]);
+        for argument in [
+            string_literal(&artifact.logical_name),
+            string_literal(&artifact.sha256),
+            serde_json::json!([2, "Synthetic.bytes", []]),
+        ] {
+            member = application(member, argument);
+        }
+        let mut cons = serde_json::json!([2, "List.cons", [[0]]]);
+        for argument in [member_type.clone(), member, members] {
+            cons = application(cons, argument);
+        }
+        members = cons;
+    }
+
+    let mut root = serde_json::json!([2, "Proofbound.Artifact.DigestBindingSetV1", []]);
+    for argument in [
+        string_literal(claim),
+        string_literal("synthetic-artifact/1"),
+        members,
+        serde_json::json!([2, "Synthetic.meaning", []]),
+    ] {
+        root = application(root, argument);
+    }
+    serde_json::json!(["lean-expr-cbor/1", root])
+}
+
 fn graph_hash(graph: &AssuranceGraph) -> String {
     domain_hash(GRAPH_SCHEMA_V1, &canonical_json(graph).unwrap())
 }
@@ -2230,7 +2264,9 @@ fn artifact_bound_release() -> CompiledRelease {
         .cited_evidence
         .remove(&transcription.sha256);
     release.claims[0].primary_linkage = None;
+    release.policies[0].id = BuiltInProfile::ArtifactBound.name().into();
     release.policies[0].components = BTreeSet::from([BuiltInProfile::ArtifactBound]);
+    release.claims[0].policy = BuiltInProfile::ArtifactBound.name().into();
     release.reported_statuses[0].linkage = Some(LinkageFacet::ArtifactBound);
     release
 }
@@ -2415,6 +2451,54 @@ fn artifact_binding_rejects_wrong_claim_path_and_digest_literals() {
             error.issues
         );
     }
+}
+
+#[test]
+fn artifact_binding_set_accepts_only_an_exact_selected_member() {
+    let mut release = artifact_bound_release();
+    let first = release.evidence[1]
+        .record
+        .artifact_binding
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    let second = ArtifactIdentityReceipt {
+        logical_name: "release/aarch64/pbr".into(),
+        sha256: digest("arm64 artifact"),
+        size_bytes: 9,
+    };
+    let statement = binding_set_statement("c", &[first, second.clone()]);
+
+    let artifact_record = &mut release.evidence[1].record;
+    artifact_record.artifact_binding.as_mut().unwrap().artifact = second.clone();
+    artifact_record.provenance.input_artifacts = vec![second.clone()];
+    artifact_record.inventoried_targets = BTreeSet::from([second.logical_name.clone()]);
+    artifact_record.provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&artifact_record.provenance.cache_material()).unwrap(),
+    );
+    rehash_evidence_at(&mut release, 1);
+    replace_binding_theorem_statement(&mut release, statement, true);
+    verify_compiled_release(&release).unwrap();
+
+    let absent = ArtifactIdentityReceipt {
+        logical_name: "release/riscv64/pbr".into(),
+        sha256: digest("riscv artifact"),
+        size_bytes: 10,
+    };
+    let artifact_record = &mut release.evidence[1].record;
+    artifact_record.artifact_binding.as_mut().unwrap().artifact = absent.clone();
+    artifact_record.provenance.input_artifacts = vec![absent.clone()];
+    artifact_record.inventoried_targets = BTreeSet::from([absent.logical_name]);
+    artifact_record.provenance.cache_key = domain_hash(
+        "proofbound-cache-key/1",
+        &canonical_json(&artifact_record.provenance.cache_material()).unwrap(),
+    );
+    rehash_evidence_at(&mut release, 1);
+
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
 }
 
 #[test]

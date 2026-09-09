@@ -299,6 +299,40 @@ fn binding_statement(claim: &ClaimId, artifact: &ArtifactIdentity) -> serde_json
     serde_json::json!([crate::LEAN_STATEMENT_ENCODING_V1, root])
 }
 
+fn binding_set_statement(claim: &ClaimId, artifacts: &[ArtifactIdentity]) -> serde_json::Value {
+    let member_type = serde_json::json!([2, "Proofbound.Artifact.DigestBindingMemberV1", []]);
+    let mut members = lean_app(
+        serde_json::json!([2, "List.nil", [[0]]]),
+        member_type.clone(),
+    );
+    for artifact in artifacts.iter().rev() {
+        let mut member = serde_json::json!([2, "Proofbound.Artifact.DigestBindingMemberV1.mk", []]);
+        for argument in [
+            lean_string(artifact.logical_name.as_str()),
+            lean_string(&format!("sha256:{}", artifact.sha256)),
+            serde_json::json!([2, "Demo.bytes", []]),
+        ] {
+            member = lean_app(member, argument);
+        }
+        let mut cons = serde_json::json!([2, "List.cons", [[0]]]);
+        for argument in [member_type.clone(), member, members] {
+            cons = lean_app(cons, argument);
+        }
+        members = cons;
+    }
+
+    let mut root = serde_json::json!([2, crate::ARTIFACT_DIGEST_BINDING_SET_MARKER_V1, []]);
+    for argument in [
+        lean_string(claim.as_str()),
+        lean_string("example-artifact/1"),
+        members,
+        serde_json::json!([2, "Demo.meaning", []]),
+    ] {
+        root = lean_app(root, argument);
+    }
+    serde_json::json!([crate::LEAN_STATEMENT_ENCODING_V1, root])
+}
+
 fn provenance(label: &str) -> EvidenceProvenance {
     let command = CommandSpec {
         program: "proof-tool".into(),
@@ -1805,6 +1839,44 @@ fn strong_artifact_binding_produces_artifact_bound_linkage() {
     assert_eq!(status.formal, FormalFacet::Proved);
     assert_eq!(status.linkage, Some(LinkageFacet::ArtifactBound));
     assert!(status.policy.admitted);
+}
+
+#[test]
+fn closed_artifact_binding_set_selects_only_an_exact_member() {
+    let first = bound_artifact();
+    let second = named_artifact("release/aarch64/pbr", "arm64 artifact", 9);
+    let members = [first, second.clone()];
+
+    let mut accepted = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+    let mut theorem = theorem_record("artifact-set", crate::EvaluationMode::Kernel);
+    let statement = binding_set_statement(&claim_id(), &members);
+    let detail = theorem.theorem.as_mut().unwrap();
+    detail.statement_sha256 = crate::lean_statement_wire_digest(&statement).unwrap();
+    detail.statement_wire = statement;
+    let theorem_id = theorem.id.clone();
+    add_record(&mut accepted, theorem, NodeKind::Theorem, true);
+    add_artifact_binding(&mut accepted, theorem_id, second, "selected-set-member");
+    let status = derive_claim_status(&accepted);
+    assert_eq!(status.formal, FormalFacet::Proved);
+    assert_eq!(status.linkage, Some(LinkageFacet::ArtifactBound));
+
+    let mut rejected = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+    let mut theorem = theorem_record("artifact-set-miss", crate::EvaluationMode::Kernel);
+    let statement = binding_set_statement(&claim_id(), &members);
+    let detail = theorem.theorem.as_mut().unwrap();
+    detail.statement_sha256 = crate::lean_statement_wire_digest(&statement).unwrap();
+    detail.statement_wire = statement;
+    let theorem_id = theorem.id.clone();
+    add_record(&mut rejected, theorem, NodeKind::Theorem, true);
+    add_artifact_binding(
+        &mut rejected,
+        theorem_id,
+        named_artifact("release/riscv64/pbr", "riscv artifact", 10),
+        "absent-set-member",
+    );
+    let status = derive_claim_status(&rejected);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert_eq!(status.linkage, None);
 }
 
 fn add_artifact_binding(
