@@ -225,6 +225,20 @@ pub(crate) fn parse_artifact_digest_bindings(
     parse_member_list(arguments[2])
 }
 
+pub(crate) fn parse_artifact_digest_binding_set(
+    statement_wire: &Value,
+    expected_statement_sha256: &str,
+    expected_claim: &str,
+) -> Result<Vec<ParsedArtifactDigestBinding>, String> {
+    let statement = array(statement_wire, "$statement")?;
+    let root = required(statement, 1, "$statement")?;
+    let (head, _) = flatten_outer_app(root)?;
+    if !is_exact_const(head, ARTIFACT_DIGEST_BINDING_SET_V1) {
+        return Err("the theorem root is not DigestBindingSetV1".into());
+    }
+    parse_artifact_digest_bindings(statement_wire, expected_statement_sha256, expected_claim)
+}
+
 fn parse_member(
     logical_name: &Value,
     digest: &Value,
@@ -750,11 +764,19 @@ mod tests {
         ]);
         let statement = statement_digest(&wire).unwrap();
         let parsed = parse_artifact_digest_bindings(&wire, &statement, "CLAIM-1").unwrap();
+        assert_eq!(
+            parse_artifact_digest_binding_set(&wire, &statement, "CLAIM-1").unwrap(),
+            parsed
+        );
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].logical_name, "dist/aarch64/tool");
         assert_eq!(parsed[0].sha256, arm);
         assert_eq!(parsed[1].logical_name, "dist/x86_64/tool");
         assert_eq!(parsed[1].sha256, x86);
+
+        let singular = binding("CLAIM-1", "dist/aarch64/tool", &arm);
+        let singular_digest = statement_digest(&singular).unwrap();
+        assert!(parse_artifact_digest_binding_set(&singular, &singular_digest, "CLAIM-1").is_err());
     }
 
     #[test]

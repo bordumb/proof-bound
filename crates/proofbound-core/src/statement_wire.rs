@@ -260,6 +260,23 @@ pub fn parse_artifact_digest_binding(
         .ok_or_else(|| StatementWireError::BindingSet("binding has no member".into()))
 }
 
+/// Parses only the closed-set digest-binding marker at the exact theorem root.
+pub fn parse_artifact_digest_binding_set(
+    statement_wire: &Value,
+    expected_statement_sha256: Sha256Digest,
+    expected_claim: &ClaimId,
+) -> Result<Vec<ParsedArtifactDigestBinding>, StatementWireError> {
+    let statement = array(statement_wire, "$statement")?;
+    let root = required(statement, 1, "$statement")?;
+    let (head, _) = flatten_outer_app(root)?;
+    if !is_exact_const(head, ARTIFACT_DIGEST_BINDING_SET_MARKER_V1) {
+        return Err(StatementWireError::BindingSet(
+            "the theorem root is not DigestBindingSetV1".into(),
+        ));
+    }
+    parse_artifact_digest_bindings(statement_wire, expected_statement_sha256, expected_claim)
+}
+
 /// Parses either the singular digest-binding marker or the closed set marker.
 /// Every returned member comes from direct literal metadata in the exact root.
 pub fn parse_artifact_digest_bindings(
@@ -905,6 +922,11 @@ mod tests {
         let parsed =
             parse_artifact_digest_bindings(&wire, statement, &ClaimId::new("CLAIM-1").unwrap())
                 .unwrap();
+        assert_eq!(
+            parse_artifact_digest_binding_set(&wire, statement, &ClaimId::new("CLAIM-1").unwrap())
+                .unwrap(),
+            parsed
+        );
         assert_eq!(parsed.len(), 2);
         assert_eq!(
             parsed[0].artifact_logical_name.as_str(),
@@ -913,6 +935,17 @@ mod tests {
         assert_eq!(parsed[0].artifact_sha256, arm);
         assert_eq!(parsed[1].artifact_logical_name.as_str(), "dist/x86_64/tool");
         assert_eq!(parsed[1].artifact_sha256, x86);
+
+        let singular = binding_root("CLAIM-1", "dist/aarch64/tool", arm);
+        let singular_digest = lean_statement_wire_digest(&singular).unwrap();
+        assert!(
+            parse_artifact_digest_binding_set(
+                &singular,
+                singular_digest,
+                &ClaimId::new("CLAIM-1").unwrap()
+            )
+            .is_err()
+        );
     }
 
     #[test]

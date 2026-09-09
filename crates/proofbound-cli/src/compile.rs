@@ -411,8 +411,24 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     )?;
     let graph = merged_release_graph(&compiled)?;
     write_canonical(&destination.join("assurance-graph.json"), &graph)?;
+    let contextual_binding_units = bundle
+        .evidence_units
+        .values()
+        .filter(|(_, unit)| {
+            unit.schema == "proofbound-evidence-unit/6"
+                && unit.context.as_deref() == compiled.evidence_context.as_deref()
+        })
+        .map(|(_, unit)| format!("unit:{}", unit.id))
+        .collect::<BTreeSet<_>>();
+    seal_contextual_binding_artifacts(root, &destination, &compiled, &contextual_binding_units)?;
     let sealed_files = release_sealed_files(&destination)?;
-    let payload = compiled_release_value(&compiled, bundle.project.tier, graph, sealed_files)?;
+    let payload = compiled_release_value(
+        &compiled,
+        bundle.project.tier,
+        graph,
+        sealed_files,
+        &contextual_binding_units,
+    )?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&destination.join("compiled-receipt.json"), &payload_bytes)?;
     let payload_schema = payload["schema"]
@@ -420,6 +436,7 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
         .context("PB-RELEASE-0021: compiled receipt omitted its schema")?;
     let payload_sha256 = domain_hash(payload_schema, &payload_bytes);
     let envelope_schema = match payload_schema {
+        "proofbound-compiled-release/6" => "proofbound-release-envelope/6",
         "proofbound-compiled-release/5" => "proofbound-release-envelope/5",
         "proofbound-compiled-release/4" => "proofbound-release-envelope/4",
         _ => "proofbound-release-envelope/3",
@@ -666,7 +683,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     let tcb = tcb_projection(&compiled)?;
     write_canonical(&output.join("tcb-ledger.json"), &tcb)?;
     let sealed_files = release_sealed_files(output)?;
-    let payload = compiled_release_value(&compiled, 0, graph, sealed_files)?;
+    let payload = compiled_release_value(&compiled, 0, graph, sealed_files, &BTreeSet::new())?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&output.join("compiled-receipt.json"), &payload_bytes)?;
     write_canonical(
@@ -4751,7 +4768,7 @@ fn normalize_and_check_records(
         .iter()
         .map(|(id, (_, unit))| (id.as_str(), unit.kind))
         .collect::<BTreeMap<_, _>>();
-    for record in records {
+    for record in records.iter_mut() {
         if record.kind != EvidenceKind::Review {
             let unit_key = record
                 .unit_id
@@ -4781,6 +4798,63 @@ fn normalize_and_check_records(
                 || strip_digest(digest) != theorem.statement_sha256.to_hex())
         {
             record.status = EvidenceStatus::Drifted;
+        }
+    }
+    let records_by_id = records
+        .iter()
+        .map(|record| (record.id.as_str(), record))
+        .collect::<BTreeMap<_, _>>();
+    for (_, unit) in bundle
+        .evidence_units
+        .values()
+        .filter(|(_, unit)| unit.schema == "proofbound-evidence-unit/6")
+    {
+        let expected_unit_id = format!("unit:{}", unit.id);
+        let Some(record) = records
+            .iter()
+            .find(|record| record.unit_id.as_str() == expected_unit_id)
+        else {
+            continue;
+        };
+        let binding = record.artifact_binding.as_ref().with_context(|| {
+            format!(
+                "PB-ADAPTER-0018: contextual artifact unit {} omitted binding detail",
+                unit.id
+            )
+        })?;
+        let theorem_record = records_by_id
+            .get(binding.theorem.as_str())
+            .and_then(|record| record.theorem.as_ref())
+            .with_context(|| {
+                format!(
+                    "PB-ADAPTER-0018: contextual artifact unit {} names absent theorem evidence",
+                    unit.id
+                )
+            })?;
+        let members = proofbound_core::parse_artifact_digest_binding_set(
+            &theorem_record.statement_wire,
+            theorem_record.statement_sha256,
+            &theorem_record.attributed_claim,
+        )
+        .with_context(|| {
+            format!(
+                "PB-ADAPTER-0018: contextual artifact unit {} requires an exact closed binding-set theorem",
+                unit.id
+            )
+        })?;
+        if members
+            .iter()
+            .filter(|member| {
+                member.artifact_logical_name == binding.artifact.logical_name
+                    && member.artifact_sha256 == binding.artifact.sha256
+            })
+            .count()
+            != 1
+        {
+            bail!(
+                "PB-ADAPTER-0018: contextual artifact unit {} selected an artifact absent from its theorem set",
+                unit.id
+            );
         }
     }
     Ok(())
@@ -5640,6 +5714,72 @@ fn release_sealed_files(root: &Path) -> Result<Vec<serde_json::Value>> {
     Ok(files)
 }
 
+fn seal_contextual_binding_artifacts(
+    root: &Path,
+    destination: &Path,
+    compiled: &CompiledProject,
+    contextual_binding_units: &BTreeSet<String>,
+) -> Result<()> {
+    let mut selected = BTreeMap::<String, ArtifactIdentity>::new();
+    for evidence in &compiled.evidence {
+        if !contextual_binding_units.contains(evidence.unit_id.as_str()) {
+            continue;
+        }
+        let binding = evidence.artifact_binding.as_ref().with_context(|| {
+            format!(
+                "PB-CTX-0004: contextual unit {} omitted artifact binding detail",
+                evidence.unit_id
+            )
+        })?;
+        let logical_name = binding.artifact.logical_name.as_str().to_owned();
+        validate_cache_relative_path(&logical_name).map_err(|_| {
+            anyhow!("PB-RELEASE-0022: contextual artifact has unsafe logical name {logical_name:?}")
+        })?;
+        if let Some(existing) = selected.insert(logical_name.clone(), binding.artifact.clone())
+            && existing != binding.artifact
+        {
+            bail!(
+                "PB-RELEASE-0022: contextual artifact {logical_name:?} has conflicting identities"
+            );
+        }
+    }
+
+    let canonical_root = root
+        .canonicalize()
+        .context("PB-RELEASE-0022: project root cannot be resolved")?;
+    for (logical_name, expected) in selected {
+        let source = canonical_root.join(&logical_name);
+        reject_cache_symlink_components(&canonical_root, &source)
+            .map_err(|error| anyhow!("PB-RELEASE-0022: contextual artifact is unsafe: {error}"))?;
+        let metadata = fs::symlink_metadata(&source).with_context(|| {
+            format!("PB-RELEASE-0022: contextual artifact is missing: {logical_name}")
+        })?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            bail!("PB-RELEASE-0022: contextual artifact is not a regular file: {logical_name}");
+        }
+        let bytes = fs::read(&source)?;
+        let actual_digest = parse_digest(&sha256_bytes(&bytes))?;
+        if bytes.len() as u64 != expected.size_bytes || actual_digest != expected.sha256 {
+            bail!(
+                "PB-RELEASE-0022: contextual artifact bytes disagree with checked identity: {logical_name}"
+            );
+        }
+        let target = destination.join(&logical_name);
+        if fs::symlink_metadata(&target).is_ok() {
+            bail!(
+                "PB-RELEASE-0022: contextual artifact collides with release file: {logical_name}"
+            );
+        }
+        write_bytes(&target, &bytes)?;
+        fs::set_permissions(&target, metadata.permissions()).with_context(|| {
+            format!(
+                "PB-RELEASE-0022: contextual artifact permissions could not be preserved: {logical_name}"
+            )
+        })?;
+    }
+    Ok(())
+}
+
 fn tcb_projection(compiled: &CompiledProject) -> Result<serde_json::Value> {
     let included_evidence = release_evidence_ids(compiled);
     let mut components = BTreeMap::<(String, String), String>::new();
@@ -5744,6 +5884,7 @@ fn compiled_release_value(
     project_tier: u8,
     graph: serde_json::Value,
     sealed_files: Vec<serde_json::Value>,
+    contextual_binding_units: &BTreeSet<String>,
 ) -> Result<serde_json::Value> {
     let mut release_closure_by_internal_id = BTreeMap::new();
     let mut closure_values = BTreeMap::new();
@@ -5802,6 +5943,7 @@ fn compiled_release_value(
                 &release_closure_by_internal_id,
                 &evidence_ids,
                 compiled.evidence_context.as_deref(),
+                contextual_binding_units.contains(evidence.unit_id.as_str()),
             )?;
             let record_schema = record["schema"]
                 .as_str()
@@ -5973,11 +6115,21 @@ fn compiled_release_value(
         .statuses
         .iter()
         .any(|status| !status.artifact_observations.is_empty());
-    if compiled.evidence_context.is_some() && !has_artifact_observations {
-        bail!("PB-CTX-0004: a contextual release contains no admitted exact observations");
+    let has_contextual_artifact_bindings = compiled.evidence.iter().any(|evidence| {
+        included_evidence.contains(&evidence.id)
+            && contextual_binding_units.contains(evidence.unit_id.as_str())
+            && evidence.artifact_binding.is_some()
+    });
+    if compiled.evidence_context.is_some()
+        && !has_artifact_observations
+        && !has_contextual_artifact_bindings
+    {
+        bail!("PB-CTX-0004: a contextual release contains no admitted contextual evidence");
     }
     let mut payload = serde_json::json!({
-        "schema": if compiled.evidence_context.is_some() {
+        "schema": if has_contextual_artifact_bindings {
+            "proofbound-compiled-release/6"
+        } else if compiled.evidence_context.is_some() {
             "proofbound-compiled-release/5"
         } else if has_artifact_observations {
             "proofbound-compiled-release/4"
@@ -6026,6 +6178,7 @@ fn release_evidence_record(
     closure_ids: &BTreeMap<String, String>,
     evidence_ids: &BTreeMap<String, String>,
     evidence_context: Option<&str>,
+    contextual_binding: bool,
 ) -> Result<serde_json::Value> {
     let input_artifacts = artifact_records(&evidence.provenance.input_artifacts)?;
     let generated_artifacts = artifact_records(&evidence.provenance.generated_artifacts)?;
@@ -6144,9 +6297,15 @@ fn release_evidence_record(
             }))
         })
         .transpose()?;
-    let observation_context = artifact_observation
-        .as_ref()
-        .and(evidence_context)
+    if contextual_binding && artifact_binding.is_none() {
+        bail!(
+            "PB-CTX-0004: evidence {} is registered as a contextual binding but has no binding detail",
+            evidence.id
+        );
+    }
+    let portable_context = (artifact_observation.is_some() || contextual_binding)
+        .then_some(evidence_context)
+        .flatten()
         .map(str::to_owned);
     let trusted_transcription = evidence.trusted_transcription.as_ref().map(|item| {
         serde_json::json!({
@@ -6279,7 +6438,13 @@ fn release_evidence_record(
         })
     });
     let mut record = serde_json::json!({
-        "schema": if artifact_observation.is_some() { "proofbound-evidence/4" } else { EVIDENCE_DOMAIN },
+        "schema": if contextual_binding {
+            "proofbound-evidence/5"
+        } else if artifact_observation.is_some() {
+            "proofbound-evidence/4"
+        } else {
+            EVIDENCE_DOMAIN
+        },
         "unit_id": evidence.unit_id,
         "node_id": evidence.node_id,
         "kind": evidence.kind,
@@ -6290,7 +6455,7 @@ fn release_evidence_record(
         "theorem": theorem,
         "artifact_binding": artifact_binding,
         "artifact_observation": artifact_observation,
-        "evidence_context": observation_context,
+        "evidence_context": portable_context,
         "trusted_transcription": trusted_transcription,
         "source_refinement": source_refinement,
         "bounded_check": bounded_check,
@@ -6704,10 +6869,201 @@ mod tests {
         let mut compiled = empty_context_compiled(Some(&context));
         compiled.evidence.push(record);
         validate_release_evidence_context(&bundle, &compiled).unwrap();
+        let portable_theorem = format!("sha256:{}", "11".repeat(32));
+        let released = release_evidence_record(
+            &compiled.evidence[0],
+            &format!("sha256:{}", "22".repeat(32)),
+            &BTreeMap::new(),
+            &BTreeMap::from([("theorem:closed-set".to_owned(), portable_theorem)]),
+            Some(&context),
+            true,
+        )
+        .unwrap();
+        assert_eq!(released["schema"], "proofbound-evidence/5");
+        assert_eq!(released["evidence_context"], context);
 
         compiled.evidence[0].artifact_binding = None;
         let error = validate_release_evidence_context(&bundle, &compiled).unwrap_err();
         assert!(error.to_string().contains("PB-CTX-0004"));
+    }
+
+    #[test]
+    fn contextual_binding_artifact_is_recomputed_and_sealed_into_release() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let logical_name = "artifacts/aarch64/pbr";
+        let bytes = b"contextual pbr bytes";
+        fs::create_dir_all(root.join("artifacts/aarch64")).unwrap();
+        fs::write(root.join(logical_name), bytes).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            fs::set_permissions(root.join(logical_name), fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let destination = root.join("portable-release");
+        fs::create_dir(&destination).unwrap();
+
+        let mut record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["selected-member"])).unwrap();
+        record.unit_id = UnitId::new("unit:release-pbr-aarch64").unwrap();
+        record.artifact_binding = Some(ArtifactBindingEvidence {
+            theorem: EvidenceId::new("theorem:closed-set").unwrap(),
+            artifact: ArtifactIdentity {
+                logical_name: ArtifactLogicalName::new(logical_name).unwrap(),
+                sha256: Sha256Digest::of_bytes(bytes),
+                size_bytes: bytes.len() as u64,
+            },
+        });
+        let mut compiled = empty_context_compiled(Some("release-linux-aarch64"));
+        compiled.evidence.push(record);
+        let units = BTreeSet::from(["unit:release-pbr-aarch64".to_owned()]);
+        seal_contextual_binding_artifacts(&root, &destination, &compiled, &units).unwrap();
+        assert_eq!(fs::read(destination.join(logical_name)).unwrap(), bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let released_mode = fs::metadata(destination.join(logical_name))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(released_mode, 0o755);
+        }
+
+        fs::remove_file(destination.join(logical_name)).unwrap();
+        compiled.evidence[0]
+            .artifact_binding
+            .as_mut()
+            .unwrap()
+            .artifact
+            .sha256 = Sha256Digest::of_bytes(b"substituted");
+        let error =
+            seal_contextual_binding_artifacts(&root, &destination, &compiled, &units).unwrap_err();
+        assert!(error.to_string().contains("PB-RELEASE-0022"));
+    }
+
+    #[test]
+    fn contextual_binding_compilation_requires_the_exact_set_root() {
+        let artifact = ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new("artifacts/aarch64/pbr").unwrap(),
+            sha256: Sha256Digest::of_bytes(b"aarch64 pbr"),
+            size_bytes: 11,
+        };
+        let string = |value: &str| json!([7, [1, value]]);
+        let app = |function: serde_json::Value, argument: serde_json::Value| {
+            json!([3, function, argument])
+        };
+        let member_type = json!([2, "Proofbound.Artifact.DigestBindingMemberV1", []]);
+        let mut member = json!([2, "Proofbound.Artifact.DigestBindingMemberV1.mk", []]);
+        for argument in [
+            string(artifact.logical_name.as_str()),
+            string(&format!("sha256:{}", artifact.sha256)),
+            json!([2, "Demo.aarch64Bytes", []]),
+        ] {
+            member = app(member, argument);
+        }
+        let nil = app(json!([2, "List.nil", [[0]]]), member_type.clone());
+        let mut members = json!([2, "List.cons", [[0]]]);
+        for argument in [member_type, member, nil] {
+            members = app(members, argument);
+        }
+        let mut set_root = json!([2, "Proofbound.Artifact.DigestBindingSetV1", []]);
+        for argument in [
+            string("CLAIM-ONE"),
+            string("runtime-executable/1"),
+            members,
+            json!([2, "Demo.meaning", []]),
+        ] {
+            set_root = app(set_root, argument);
+        }
+        let set_wire = json!([proofbound_core::LEAN_STATEMENT_ENCODING_V1, set_root]);
+
+        let mut theorem_record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["Demo.closedSet"])).unwrap();
+        theorem_record.id = EvidenceId::new("theorem:closed-set").unwrap();
+        theorem_record.node_id = NodeId::new("evidence:theorem:closed-set").unwrap();
+        theorem_record.unit_id = UnitId::new("unit:closed-set").unwrap();
+        theorem_record.kind = EvidenceKind::Theorem;
+        theorem_record.evaluation_mode = Some(proofbound_core::EvaluationMode::Kernel);
+        theorem_record.theorem = Some(proofbound_core::TheoremEvidence {
+            declaration: "Demo.closedSet".into(),
+            statement_encoding: proofbound_core::LEAN_STATEMENT_ENCODING_V1.into(),
+            statement_sha256: proofbound_core::lean_statement_wire_digest(&set_wire).unwrap(),
+            statement_wire: set_wire,
+            attributed_claim: ClaimId::new("CLAIM-ONE").unwrap(),
+            environment: proofbound_core::EnvironmentId::new("lean:demo").unwrap(),
+            axiom_audit_passed: true,
+            contains_sorry_ax: false,
+            foundational_axioms: BTreeSet::new(),
+            project_axioms: BTreeSet::new(),
+        });
+
+        let mut binding_record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["selected-member"])).unwrap();
+        binding_record.id = EvidenceId::new("artifact-soundness:release-pbr").unwrap();
+        binding_record.node_id = NodeId::new("evidence:artifact-soundness:release-pbr").unwrap();
+        binding_record.unit_id = UnitId::new("unit:release-pbr").unwrap();
+        binding_record.kind = EvidenceKind::ArtifactSoundness;
+        binding_record.evaluation_mode = Some(proofbound_core::EvaluationMode::Kernel);
+        binding_record.binding_mode = Some(proofbound_core::BindingMode::DigestTheorem);
+        binding_record.artifact_binding = Some(ArtifactBindingEvidence {
+            theorem: theorem_record.id.clone(),
+            artifact: artifact.clone(),
+        });
+        binding_record.provenance.input_artifacts = vec![artifact.clone()];
+
+        let mut bundle = cache_test_bundle(Path::new("."));
+        let theorem_unit = theorem_unit("closed-set", "Demo.closedSet");
+        let binding_unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/6",
+            "id": "release-pbr",
+            "context": "release-linux-aarch64",
+            "adapter": "canonical-artifact",
+            "kind": "artifact-soundness",
+            "claims": ["CLAIM-ONE"],
+            "tier": 3,
+            "evaluation_mode": "kernel",
+            "binding_mode": "digest-theorem",
+            "theorem": "Demo.closedSet",
+            "operation": {"type": "artifact-check", "checker": "checker.py"},
+            "inputs": ["artifacts/aarch64/pbr", "checker.py"],
+            "outputs": [],
+            "environment_allowlist": [],
+            "resource_budget": {"time_seconds":1,"disk_bytes":1,"memory_bytes":1}
+        }))
+        .unwrap();
+        bundle.evidence_units.insert(
+            theorem_unit.id.clone(),
+            (PathBuf::from("theorem.toml"), theorem_unit),
+        );
+        bundle.evidence_units.insert(
+            binding_unit.id.clone(),
+            (PathBuf::from("binding.toml"), binding_unit),
+        );
+
+        let mut records = vec![theorem_record, binding_record];
+        normalize_and_check_records(&bundle, &mut records).unwrap();
+
+        let theorem = records[0].theorem.as_mut().unwrap();
+        let mut singular = json!([2, "Proofbound.Artifact.DigestBindingV1", []]);
+        for argument in [
+            string("CLAIM-ONE"),
+            string("runtime-executable/1"),
+            string(artifact.logical_name.as_str()),
+            string(&format!("sha256:{}", artifact.sha256)),
+            json!([2, "Demo.aarch64Bytes", []]),
+            json!([2, "Demo.meaning", []]),
+        ] {
+            singular = app(singular, argument);
+        }
+        theorem.statement_wire = json!([proofbound_core::LEAN_STATEMENT_ENCODING_V1, singular]);
+        theorem.statement_sha256 =
+            proofbound_core::lean_statement_wire_digest(&theorem.statement_wire).unwrap();
+        let error = normalize_and_check_records(&bundle, &mut records).unwrap_err();
+        assert!(error.to_string().contains("closed binding-set theorem"));
     }
 
     #[test]
@@ -8389,6 +8745,7 @@ description = {description:?}
             &BTreeMap::from([(closure.clone(), closure.clone())]),
             &BTreeMap::new(),
             None,
+            false,
         )
         .unwrap();
         assert!(
@@ -8647,6 +9004,7 @@ description = {description:?}
             &BTreeMap::from([(closure.clone(), closure.clone())]),
             &BTreeMap::new(),
             None,
+            false,
         )
         .unwrap();
         assert_eq!(
@@ -8940,6 +9298,7 @@ description = {description:?}
             &BTreeMap::from([(internal_toolchain, portable_toolchain.clone())]),
             &BTreeMap::from([("test:release-build".to_owned(), portable_dependency.clone())]),
             Some("release-linux-x86-64"),
+            false,
         )
         .unwrap();
         assert_eq!(released["schema"], "proofbound-evidence/4");

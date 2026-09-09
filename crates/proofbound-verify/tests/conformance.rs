@@ -2271,6 +2271,33 @@ fn artifact_bound_release() -> CompiledRelease {
     release
 }
 
+fn contextual_artifact_bound_release() -> CompiledRelease {
+    let mut release = artifact_bound_release();
+    let selected = release.evidence[1]
+        .record
+        .artifact_binding
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    let second = ArtifactIdentityReceipt {
+        logical_name: "release/x86_64/pbr".into(),
+        sha256: digest("x86 artifact"),
+        size_bytes: 12,
+    };
+    replace_binding_theorem_statement(
+        &mut release,
+        binding_set_statement("c", &[selected, second]),
+        true,
+    );
+    release.schema = COMPILED_RELEASE_SCHEMA_V6.into();
+    release.evidence_context = Some("release-linux-aarch64".into());
+    release.evidence[1].record.schema = EVIDENCE_SCHEMA_V5.into();
+    release.evidence[1].record.evidence_context = release.evidence_context.clone();
+    rehash_evidence_at(&mut release, 1);
+    release
+}
+
 fn transcribed_release() -> CompiledRelease {
     let mut release = base_release();
     release.project_tier = Tier::Bounded;
@@ -2335,8 +2362,9 @@ fn transcribed_release() -> CompiledRelease {
 
 fn rehash_evidence_at(release: &mut CompiledRelease, index: usize) {
     let old = release.evidence[index].sha256.clone();
+    let domain = release.evidence[index].record.schema.clone();
     let replacement = domain_hash(
-        EVIDENCE_SCHEMA_V3,
+        &domain,
         &canonical_json(&release.evidence[index].record).unwrap(),
     );
     release.evidence[index].sha256.clone_from(&replacement);
@@ -2499,6 +2527,72 @@ fn artifact_binding_set_accepts_only_an_exact_selected_member() {
 
     let error = verify_compiled_release(&release).unwrap_err();
     assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+}
+
+#[test]
+fn contextual_artifact_binding_v6_is_set_rooted_context_bound_and_byte_checked() {
+    let release = contextual_artifact_bound_release();
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.schema, "proofbound-verification-report/3");
+    assert_eq!(report.verdict, "record-consistent");
+    assert!(report.publication_blocked);
+    assert_eq!(
+        report.evidence_context.as_deref(),
+        Some("release-linux-aarch64")
+    );
+
+    let mut omitted = release.clone();
+    omitted.evidence[1].record.evidence_context = None;
+    rehash_evidence_at(&mut omitted, 1);
+    let error = verify_compiled_release(&omitted).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbCtx0008));
+
+    let mut singular = release.clone();
+    let artifact = singular.evidence[1]
+        .record
+        .artifact_binding
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    replace_binding_theorem_statement(
+        &mut singular,
+        binding_statement("c", &artifact.logical_name, &artifact.sha256),
+        true,
+    );
+    let error = verify_compiled_release(&singular).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut sealed = release;
+    let artifact = sealed.evidence[1]
+        .record
+        .artifact_binding
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    let artifact_bytes = b"artifact bytes";
+    assert_eq!(artifact.sha256, raw_sha256(artifact_bytes));
+    assert_eq!(artifact.size_bytes, artifact_bytes.len() as u64);
+    sealed.sealed_files.push(SealedFile {
+        path: artifact.logical_name.clone(),
+        sha256: artifact.sha256,
+        size_bytes: artifact.size_bytes,
+    });
+    sealed
+        .sealed_files
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(
+        directory.path().join(&artifact.logical_name),
+        artifact_bytes,
+    )
+    .unwrap();
+    let sealed = write_tcb_ledger_at(directory.path(), &sealed, &tcb_ledger_value(&sealed));
+    write_payload_at(directory.path(), &sealed);
+    let report = verify_release_dir(directory.path()).unwrap();
+    assert_eq!(report.verdict, "bytes-observed");
+    assert!(!report.publication_blocked);
 }
 
 #[test]
@@ -3269,6 +3363,7 @@ fn write_payload_at(directory: &Path, release: &CompiledRelease) {
     let payload = canonical_json(release).unwrap();
     fs::write(directory.join("compiled-receipt.json"), &payload).unwrap();
     let envelope_schema = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V6 => RELEASE_ENVELOPE_SCHEMA_V6,
         COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
         COMPILED_RELEASE_SCHEMA_V4 => RELEASE_ENVELOPE_SCHEMA_V4,
         _ => RELEASE_ENVELOPE_SCHEMA_V3,
