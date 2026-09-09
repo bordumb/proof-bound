@@ -23,3 +23,8 @@ release, and independent-verifier boundaries. Every registered mutation is
 loaded from the frozen JSON inventory and must produce its exact `PB-CTX-*`
 diagnostic; unknown corpus entries fail the tests until an explicit falsifier
 is added.
+
+`contextual-artifact-binding-attacks.json` preregisters the closed theorem-set
+and reviewed-context boundary for ADR 0022. It is a falsifier contract until
+the Lean adapter, core compiler, release projection, and independent verifier
+execute all ten cases with their exact registered diagnostics.

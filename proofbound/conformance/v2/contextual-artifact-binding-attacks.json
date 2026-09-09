@@ -1,0 +1,55 @@
+{
+  "schema": "proofbound-contextual-artifact-binding-attacks/1",
+  "cases": [
+    {
+      "id": "empty-binding-set",
+      "mutation": "replace the theorem member list with List.nil",
+      "expected_code": "PB-LEAN-0013"
+    },
+    {
+      "id": "duplicate-binding-member",
+      "mutation": "repeat one logical artifact name or digest in the theorem member list",
+      "expected_code": "PB-LEAN-0013"
+    },
+    {
+      "id": "noncanonical-binding-order",
+      "mutation": "reorder theorem members away from strict logical-name order",
+      "expected_code": "PB-LEAN-0013"
+    },
+    {
+      "id": "computed-member-identity",
+      "mutation": "replace a direct member name or digest literal with a computed expression",
+      "expected_code": "PB-LEAN-0013"
+    },
+    {
+      "id": "context-kind-substitution",
+      "mutation": "register contextual artifact soundness under any schema or evidence kind other than the versioned pair",
+      "expected_code": "PB-CTX-0001"
+    },
+    {
+      "id": "inactive-binding-smuggling",
+      "mutation": "include an artifact binding owned by a context other than the selected context",
+      "expected_code": "PB-CTX-0004"
+    },
+    {
+      "id": "member-omission",
+      "mutation": "check an artifact identity absent from the admitted theorem member set",
+      "expected_code": "PB_CORE_INVALID_EVIDENCE"
+    },
+    {
+      "id": "member-substitution",
+      "mutation": "change the selected artifact logical name or digest while retaining the theorem",
+      "expected_code": "PB_CORE_INVALID_EVIDENCE"
+    },
+    {
+      "id": "receipt-context-substitution",
+      "mutation": "change or omit the context on a portable contextual artifact-binding record",
+      "expected_code": "PB-CTX-0008"
+    },
+    {
+      "id": "observation-promotion",
+      "mutation": "replace contextual artifact soundness with an exact empirical observation while reporting ARTIFACT_BOUND",
+      "expected_code": "PBV_STATUS_MISMATCH"
+    }
+  ]
+}
