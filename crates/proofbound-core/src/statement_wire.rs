@@ -6,6 +6,7 @@
 //! and recognizes the artifact-binding marker only at the exact expression
 //! root.
 
+use std::collections::BTreeSet;
 use std::str::FromStr;
 
 use serde_json::Value;
@@ -18,6 +19,14 @@ pub const LEAN_STATEMENT_ENCODING_V1: &str = "lean-expr-cbor/1";
 
 /// The only elaborated theorem head that can confer digest binding.
 pub const ARTIFACT_DIGEST_BINDING_MARKER_V1: &str = "Proofbound.Artifact.DigestBindingV1";
+/// The exact elaborated theorem head for a closed digest-binding set.
+pub const ARTIFACT_DIGEST_BINDING_SET_MARKER_V1: &str = "Proofbound.Artifact.DigestBindingSetV1";
+
+const ARTIFACT_DIGEST_BINDING_MEMBER_V1: &str = "Proofbound.Artifact.DigestBindingMemberV1";
+const ARTIFACT_DIGEST_BINDING_MEMBER_CTOR_V1: &str = "Proofbound.Artifact.DigestBindingMemberV1.mk";
+const LIST_CONS: &str = "List.cons";
+const LIST_NIL: &str = "List.nil";
+const MAX_BINDING_MEMBERS: usize = 256;
 
 const HASH_DOMAIN_WITH_NUL: &[u8] = b"proofbound:lean-expr-cbor/1\0";
 const MAX_DEPTH: usize = 256;
@@ -86,6 +95,8 @@ pub enum StatementWireError {
     BindingLogicalName(String),
     #[error("artifact binding digest must be canonical sha256: lowercase hex")]
     BindingDigest,
+    #[error("artifact binding set is malformed: {0}")]
+    BindingSet(String),
 }
 
 #[derive(Default)]
@@ -237,13 +248,51 @@ pub fn parse_artifact_digest_binding(
     expected_statement_sha256: Sha256Digest,
     expected_claim: &ClaimId,
 ) -> Result<ParsedArtifactDigestBinding, StatementWireError> {
+    let statement = array(statement_wire, "$statement")?;
+    let root = required(statement, 1, "$statement")?;
+    let (head, _) = flatten_outer_app(root)?;
+    if !is_exact_const(head, ARTIFACT_DIGEST_BINDING_MARKER_V1) {
+        return Err(StatementWireError::BindingRoot);
+    }
+    parse_artifact_digest_bindings(statement_wire, expected_statement_sha256, expected_claim)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| StatementWireError::BindingSet("binding has no member".into()))
+}
+
+/// Parses only the closed-set digest-binding marker at the exact theorem root.
+pub fn parse_artifact_digest_binding_set(
+    statement_wire: &Value,
+    expected_statement_sha256: Sha256Digest,
+    expected_claim: &ClaimId,
+) -> Result<Vec<ParsedArtifactDigestBinding>, StatementWireError> {
+    let statement = array(statement_wire, "$statement")?;
+    let root = required(statement, 1, "$statement")?;
+    let (head, _) = flatten_outer_app(root)?;
+    if !is_exact_const(head, ARTIFACT_DIGEST_BINDING_SET_MARKER_V1) {
+        return Err(StatementWireError::BindingSet(
+            "the theorem root is not DigestBindingSetV1".into(),
+        ));
+    }
+    parse_artifact_digest_bindings(statement_wire, expected_statement_sha256, expected_claim)
+}
+
+/// Parses either the singular digest-binding marker or the closed set marker.
+/// Every returned member comes from direct literal metadata in the exact root.
+pub fn parse_artifact_digest_bindings(
+    statement_wire: &Value,
+    expected_statement_sha256: Sha256Digest,
+    expected_claim: &ClaimId,
+) -> Result<Vec<ParsedArtifactDigestBinding>, StatementWireError> {
     if lean_statement_wire_digest(statement_wire)? != expected_statement_sha256 {
         return Err(StatementWireError::DigestMismatch);
     }
     let statement = array(statement_wire, "$statement")?;
     let root = required(statement, 1, "$statement")?;
     let (head, arguments) = flatten_outer_app(root)?;
-    if !is_exact_const(head, ARTIFACT_DIGEST_BINDING_MARKER_V1) {
+    let singular = is_exact_const(head, ARTIFACT_DIGEST_BINDING_MARKER_V1);
+    let set = is_exact_const(head, ARTIFACT_DIGEST_BINDING_SET_MARKER_V1);
+    if !singular && !set {
         return Err(StatementWireError::BindingRoot);
     }
     let marker_occurrences = count_marker_occurrences(root)?;
@@ -252,8 +301,13 @@ pub fn parse_artifact_digest_binding(
             actual: marker_occurrences,
         });
     }
-    if arguments.len() != 6 {
+    if singular && arguments.len() != 6 {
         return Err(StatementWireError::BindingArity);
+    }
+    if set && arguments.len() != 4 {
+        return Err(StatementWireError::BindingSet(
+            "DigestBindingSetV1 requires exactly four arguments".into(),
+        ));
     }
 
     let claim = direct_string_literal(arguments[0], 1)?;
@@ -270,23 +324,107 @@ pub fn parse_artifact_digest_binding(
     {
         return Err(StatementWireError::BindingSchema);
     }
+    if singular {
+        return Ok(vec![parse_binding_member(
+            arguments[2],
+            arguments[3],
+            artifact_schema,
+        )?]);
+    }
+    parse_binding_member_list(arguments[2], artifact_schema)
+}
+
+fn parse_binding_member(
+    logical_name: &Value,
+    digest: &Value,
+    artifact_schema: &str,
+) -> Result<ParsedArtifactDigestBinding, StatementWireError> {
     let artifact_logical_name =
-        ArtifactLogicalName::new(direct_string_literal(arguments[2], 3)?)
+        ArtifactLogicalName::new(direct_string_literal(logical_name, 3)?)
             .map_err(|error| StatementWireError::BindingLogicalName(error.to_string()))?;
-    let digest_text = direct_string_literal(arguments[3], 4)?;
+    let digest_text = direct_string_literal(digest, 4)?;
     let artifact_sha256 = digest_text
         .strip_prefix("sha256:")
         .ok_or(StatementWireError::BindingDigest)
         .and_then(|hex| {
             Sha256Digest::from_str(hex).map_err(|_| StatementWireError::BindingDigest)
         })?;
-
     Ok(ParsedArtifactDigestBinding {
         mode: BindingMode::DigestTheorem,
         artifact_schema: artifact_schema.to_owned(),
         artifact_logical_name,
         artifact_sha256,
     })
+}
+
+fn parse_binding_member_list(
+    mut value: &Value,
+    artifact_schema: &str,
+) -> Result<Vec<ParsedArtifactDigestBinding>, StatementWireError> {
+    let mut members = Vec::new();
+    loop {
+        let (head, arguments) = flatten_outer_app(value)?;
+        if is_exact_const_with_zero_level(head, LIST_NIL) {
+            if arguments.len() != 1
+                || !is_exact_const(arguments[0], ARTIFACT_DIGEST_BINDING_MEMBER_V1)
+            {
+                return Err(StatementWireError::BindingSet(
+                    "List.nil has the wrong member type".into(),
+                ));
+            }
+            break;
+        }
+        if !is_exact_const_with_zero_level(head, LIST_CONS)
+            || arguments.len() != 3
+            || !is_exact_const(arguments[0], ARTIFACT_DIGEST_BINDING_MEMBER_V1)
+        {
+            return Err(StatementWireError::BindingSet(
+                "members must be a direct List.cons/List.nil spine".into(),
+            ));
+        }
+        let (member_head, member_arguments) = flatten_outer_app(arguments[1])?;
+        if !is_exact_const(member_head, ARTIFACT_DIGEST_BINDING_MEMBER_CTOR_V1)
+            || member_arguments.len() != 3
+        {
+            return Err(StatementWireError::BindingSet(
+                "member must be an exact DigestBindingMemberV1.mk application".into(),
+            ));
+        }
+        members.push(parse_binding_member(
+            member_arguments[0],
+            member_arguments[1],
+            artifact_schema,
+        )?);
+        if members.len() > MAX_BINDING_MEMBERS {
+            return Err(StatementWireError::BindingSet(format!(
+                "member count exceeds {MAX_BINDING_MEMBERS}"
+            )));
+        }
+        value = arguments[2];
+    }
+    if members.is_empty() {
+        return Err(StatementWireError::BindingSet(
+            "member list must be nonempty".into(),
+        ));
+    }
+    if !members
+        .windows(2)
+        .all(|pair| pair[0].artifact_logical_name.as_str() < pair[1].artifact_logical_name.as_str())
+    {
+        return Err(StatementWireError::BindingSet(
+            "members must be strictly ordered by logical name".into(),
+        ));
+    }
+    let unique_digests = members
+        .iter()
+        .map(|member| member.artifact_sha256)
+        .collect::<BTreeSet<_>>();
+    if unique_digests.len() != members.len() {
+        return Err(StatementWireError::BindingSet(
+            "member digests must be unique".into(),
+        ));
+    }
+    Ok(members)
 }
 
 fn flatten_outer_app(root: &Value) -> Result<(&Value, Vec<&Value>), StatementWireError> {
@@ -318,14 +456,25 @@ fn is_exact_const(value: &Value, expected_name: &str) -> bool {
             .is_some_and(Vec::is_empty)
 }
 
+fn is_exact_const_with_zero_level(value: &Value, expected_name: &str) -> bool {
+    let Some(values) = value.as_array() else {
+        return false;
+    };
+    values.len() == 3
+        && values.first().and_then(Value::as_u64) == Some(2)
+        && values.get(1).and_then(Value::as_str) == Some(expected_name)
+        && values.get(2) == Some(&serde_json::json!([[0]]))
+}
+
 fn count_marker_occurrences(value: &Value) -> Result<usize, StatementWireError> {
     let values = array(value, "$statement[1]")?;
     let tag = bounded_number(values.first(), "$statement[1][0]")?;
     match tag {
         0 | 1 | 7 => Ok(0),
-        2 => Ok(usize::from(
-            values.get(1).and_then(Value::as_str) == Some(ARTIFACT_DIGEST_BINDING_MARKER_V1),
-        )),
+        2 => Ok(usize::from(matches!(
+            values.get(1).and_then(Value::as_str),
+            Some(ARTIFACT_DIGEST_BINDING_MARKER_V1 | ARTIFACT_DIGEST_BINDING_SET_MARKER_V1)
+        ))),
         3 => Ok(
             count_marker_occurrences(required(values, 1, "$statement[1]")?)?.saturating_add(
                 count_marker_occurrences(required(values, 2, "$statement[1]")?)?,
@@ -706,6 +855,44 @@ mod tests {
         json!([LEAN_STATEMENT_ENCODING_V1, root])
     }
 
+    fn binding_member(logical_name: &str, digest: Sha256Digest, bytes: &str) -> Value {
+        let mut member = json!([2, ARTIFACT_DIGEST_BINDING_MEMBER_CTOR_V1, []]);
+        for argument in [
+            string(logical_name),
+            string(&format!("sha256:{digest}")),
+            json!([2, bytes, []]),
+        ] {
+            member = app(member, argument);
+        }
+        member
+    }
+
+    fn binding_set_root(members: Vec<(&str, Sha256Digest, &str)>) -> Value {
+        let member_type = json!([2, ARTIFACT_DIGEST_BINDING_MEMBER_V1, []]);
+        let mut list = app(json!([2, LIST_NIL, [[0]]]), member_type.clone());
+        for (logical_name, digest, bytes) in members.into_iter().rev() {
+            let mut cons = json!([2, LIST_CONS, [[0]]]);
+            for argument in [
+                member_type.clone(),
+                binding_member(logical_name, digest, bytes),
+                list,
+            ] {
+                cons = app(cons, argument);
+            }
+            list = cons;
+        }
+        let mut root = json!([2, ARTIFACT_DIGEST_BINDING_SET_MARKER_V1, []]);
+        for argument in [
+            string("CLAIM-1"),
+            string("example-schema/1"),
+            list,
+            json!([2, "Demo.meaning", []]),
+        ] {
+            root = app(root, argument);
+        }
+        json!([LEAN_STATEMENT_ENCODING_V1, root])
+    }
+
     #[test]
     fn exact_root_yields_audited_binding_fields() {
         let artifact = Sha256Digest::of_bytes("artifact");
@@ -721,6 +908,67 @@ mod tests {
             "generated/report.json"
         );
         assert_eq!(parsed.artifact_sha256, artifact);
+    }
+
+    #[test]
+    fn exact_set_root_yields_every_strictly_ordered_member() {
+        let arm = Sha256Digest::of_bytes("arm artifact");
+        let x86 = Sha256Digest::of_bytes("x86 artifact");
+        let wire = binding_set_root(vec![
+            ("dist/aarch64/tool", arm, "Demo.armBytes"),
+            ("dist/x86_64/tool", x86, "Demo.x86Bytes"),
+        ]);
+        let statement = lean_statement_wire_digest(&wire).unwrap();
+        let parsed =
+            parse_artifact_digest_bindings(&wire, statement, &ClaimId::new("CLAIM-1").unwrap())
+                .unwrap();
+        assert_eq!(
+            parse_artifact_digest_binding_set(&wire, statement, &ClaimId::new("CLAIM-1").unwrap())
+                .unwrap(),
+            parsed
+        );
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(
+            parsed[0].artifact_logical_name.as_str(),
+            "dist/aarch64/tool"
+        );
+        assert_eq!(parsed[0].artifact_sha256, arm);
+        assert_eq!(parsed[1].artifact_logical_name.as_str(), "dist/x86_64/tool");
+        assert_eq!(parsed[1].artifact_sha256, x86);
+
+        let singular = binding_root("CLAIM-1", "dist/aarch64/tool", arm);
+        let singular_digest = lean_statement_wire_digest(&singular).unwrap();
+        assert!(
+            parse_artifact_digest_binding_set(
+                &singular,
+                singular_digest,
+                &ClaimId::new("CLAIM-1").unwrap()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn empty_duplicate_and_reordered_binding_sets_fail_closed() {
+        let first = Sha256Digest::of_bytes("first");
+        let second = Sha256Digest::of_bytes("second");
+        for wire in [
+            binding_set_root(vec![]),
+            binding_set_root(vec![
+                ("dist/a", first, "Demo.first"),
+                ("dist/b", first, "Demo.second"),
+            ]),
+            binding_set_root(vec![
+                ("dist/b", second, "Demo.second"),
+                ("dist/a", first, "Demo.first"),
+            ]),
+        ] {
+            let statement = lean_statement_wire_digest(&wire).unwrap();
+            assert!(matches!(
+                parse_artifact_digest_bindings(&wire, statement, &ClaimId::new("CLAIM-1").unwrap()),
+                Err(StatementWireError::BindingSet(_))
+            ));
+        }
     }
 
     #[test]

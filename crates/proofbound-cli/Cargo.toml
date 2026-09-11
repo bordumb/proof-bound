@@ -18,10 +18,12 @@ proofbound-evidence = { path = "../proofbound-evidence" }
 proofbound-manifest = { path = "../proofbound-manifest" }
 serde.workspace = true
 serde_json.workspace = true
+semver.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 toml.workspace = true
 walkdir.workspace = true
 
 [dev-dependencies]
+proofbound-adapter-node = { path = "../proofbound-adapter-node" }
 proofbound-adapter-test = { path = "../proofbound-adapter-test" }

@@ -1,0 +1,64 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "run": "q1-derivation-traces",
+  "date": "2026-09-03",
+  "implementation": "git:5dc1142f3b727204d4d7b9f053ca9a6b8b0fbb99",
+  "inputs": {
+    "preregistration_path": "docs/experiments/0005-assurance-ir-extraction/q1-completion-preregistration.json",
+    "preregistration_sha256": "sha256:0815675e11a73cb0a6e3b76179b9e5d39152135b1f1bbf4a7113f6982862ca50",
+    "capture_index_path": "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json",
+    "capture_index_sha256": "sha256:54ff0bddf5251b1889e608bed86591600157335b0921f0c99b7584f4fae1c998"
+  },
+  "traces": [
+    {
+      "case": "Q1-VERTICAL-PYTHON",
+      "receipt_sha256": "sha256:a7f09e3674d3b324900309cc05369bcb5ed51b2ab43817130c91ac315f662188",
+      "trace_bundle_sha256": "sha256:9003c40138fe08117c90da377e1d29aac72004ed778dc5e12670c3a3a7ba6c68",
+      "claims": 2,
+      "admitted": 2,
+      "blocked": 0
+    },
+    {
+      "case": "Q1-VERTICAL-TYPESCRIPT",
+      "receipt_sha256": "sha256:181243a0347df7fab9c779776d8adb281d679bf06c87d79c139c1165f2ffd104",
+      "trace_bundle_sha256": "sha256:43449a624389963392d196c739e7058459a2b5c01ea6d91afe69366c0df1aba0",
+      "claims": 2,
+      "admitted": 2,
+      "blocked": 0
+    },
+    {
+      "case": "Q1-VERTICAL-RUST",
+      "receipt_sha256": "sha256:3a474a30db3c66fb187a02a6ce95dbc2660430fc80efb02004f9acb1b7fbebcb",
+      "trace_bundle_sha256": "sha256:7293b9dd752c94256aeb0b2756606a732eeed6c86d960dba300f75957563a768",
+      "claims": 19,
+      "admitted": 19,
+      "blocked": 0
+    }
+  ],
+  "validation": {
+    "rust_python_canonical_bytes_equal": true,
+    "claims_traced": 23,
+    "registered_attacks": 6,
+    "rust_registered_attacks_rejected": 6,
+    "python_registered_attacks_rejected": 6,
+    "expected_attack_code": "IR-DERIVATION-TRACE-MISMATCH",
+    "reported_status_used_as_input": false,
+    "rust_package_tests": 20,
+    "python_checker_tests": 20
+  },
+  "outcome": {
+    "q1_field_006": "forward-and-reverse-complete",
+    "q1_field_016": "forward-and-reverse-complete",
+    "q1_pass": false,
+    "assurance_ir_1_frozen": false,
+    "remaining_partial_fields": [
+      "Q1-FIELD-009",
+      "Q1-FIELD-012",
+      "Q1-FIELD-014"
+    ]
+  },
+  "interpretation": "The two independent implementations derive byte-identical claim and publication traces directly from typed claim, evidence, policy, and project inputs. Altering a reported policy decision does not alter the derived trace, and a trace authored from that reported decision is rejected. This closes the missing admission-explanation and publication-decision representation gaps, but does not establish artifact-role closure, lossless explicit sampling for the two legacy receipts, or transitive cache completeness.",
+  "next_step": "Close the registration-to-observation artifact role join and execute the preregistered transitive cache invalidation matrix without treating legacy sampling receipts as explicit contracts."
+}

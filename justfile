@@ -9,10 +9,13 @@ fmt:
     cargo fmt --all -- --check
 
 hooks:
-    uvx --from pre-commit==4.5.1 pre-commit install
+    uvx --from pre-commit==4.5.1 pre-commit install --hook-type pre-commit --hook-type pre-push
 
 fast-checks:
     bash tools/ci/pre-commit.sh
+
+pre-push:
+    bash tools/ci/pre-push.sh
 
 set-version version:
     python3 tools/ci/version.py --set "{{version}}"

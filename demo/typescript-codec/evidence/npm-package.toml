@@ -1,0 +1,25 @@
+schema = "proofbound-evidence-unit/4"
+id = "npm-package"
+adapter = "node-test"
+kind = "example-test"
+claims = ["TS-PACKAGE-001"]
+tier = 0
+expected_inventory = ["proofbound-typescript-codec-0.1.0.tgz"]
+inputs = ["README.md", "package-lock.json", "package.json", "src/base64url.ts", "src/reject-padding.test.ts", "src/roundtrip.test.ts"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "npm-package"
+
+[distribution]
+schema = "proofbound-distribution-reproduction/1"
+format = "npm-package"
+artifact_name = "proofbound-typescript-codec-0.1.0.tgz"
+artifact_sha256 = "sha256:6315de8611c4f8f2133ddf8fca9b4577128b8665b3d9b1af11db85d36c717446"
+source_date_epoch = 0
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 2147483648
+memory_bytes = 2147483648

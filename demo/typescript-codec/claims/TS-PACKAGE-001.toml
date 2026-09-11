@@ -1,0 +1,18 @@
+schema = "proofbound-claim/1"
+id = "TS-PACKAGE-001"
+title = "Deterministically reproducible npm package"
+statement = "The registered npm tarball is reproducible twice from reviewed source bytes without lifecycle scripts."
+public_language = "The package archive and its exact member inventory reproduce byte-for-byte; this is not a behavioral proof."
+subject = "npm:proofbound-typescript-codec"
+profile = "ledger"
+tier = 0
+primary_linkage = "model-only"
+evidence = ["example-test:npm-package"]
+assumptions = ["TS-RUNTIME-001"]
+premises = []
+open_obligations = []
+out_of_scope = [
+  "Package reproduction does not establish the behavior of the packaged code.",
+  "No compiled JavaScript output or bundler pipeline is admitted by this specification.",
+]
+source_roots = ["package.json", "src/base64url.ts", "src/reject-padding.test.ts", "src/roundtrip.test.ts"]

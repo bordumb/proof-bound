@@ -1,0 +1,14 @@
+schema = "proofbound-mutation-registry/2"
+subject = "python:proofbound-python-inventory::inventory_service.reservations.reserve"
+
+[mutation]
+id = "accept-over-cap-mutant"
+guard = "Removing the remaining-capacity rejection must be detected by the exact registered pytest witness."
+target_path = "src/inventory_service/reservations.py"
+target_preimage_sha256 = "sha256:73445e0625b511fa929ee9b56118cb3184f372e5e3306e159d030ccf1c272227"
+mutant_path = "mutants/reservations.py"
+mutant_sha256 = "sha256:7b08171dc80f2e1ff2e581d4a385c9f2b083b71d88ce256611bbc7d9a62c86db"
+witness = "tests/test_reservations.py::test_rejects_request_beyond_remaining_capacity"
+witness_path = "tests/test_reservations.py"
+witness_sha256 = "sha256:1620fe9d52072f2753265a7ccabdc6d2ff7ba2a4fc7b3c48b214021f52a7f869"
+affected_claims = ["PY-RESERVATION-001"]

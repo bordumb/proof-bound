@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/observation-inputs.schema.json",
+  "title": "Proofbound external exact-observation byte inputs",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "observations"],
+  "properties": {
+    "schema": { "const": "proofbound-observation-inputs/1" },
+    "observations": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim_id", "subject_role", "platform", "artifact_path", "procedure_path"],
+        "properties": {
+          "claim_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "subject_role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+          "platform": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["operating_system", "architecture"],
+            "properties": {
+              "operating_system": { "enum": ["linux", "macos", "windows"] },
+              "architecture": { "enum": ["x86_64", "aarch64"] }
+            }
+          },
+          "artifact_path": { "type": "string", "minLength": 1 },
+          "procedure_path": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

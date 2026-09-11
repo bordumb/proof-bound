@@ -13,7 +13,7 @@ tier = 2
 primary_linkage = "model-only"
 evidence = [
   "theorem:canonical-decode",
-  "property-test:rust-kernel-tests",
+  "example-test:rust-kernel-tests",
 ]
 assumptions = []
 open_obligations = []

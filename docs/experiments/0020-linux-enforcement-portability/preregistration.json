@@ -1,0 +1,37 @@
+{
+  "schema": "proofbound-research-portable-enforcement-preregistration/1",
+  "experiment": "EXP-0020",
+  "programme_experiment": "EXP-LANG-013",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:2dd8fcd1cb5c6eb76438e00dfb13af20eeb760fc",
+  "frozen_contract": {
+    "path": "docs/experiments/0018-os-enforced-effects/corpus/contract.json",
+    "sha256": "sha256:589244f93383788fcc61587ec665ddc9e38ebf96ce59f82da2fce9e7510d967d"
+  },
+  "platform_candidate": {
+    "os": "linux",
+    "architectures": ["aarch64", "x86_64"],
+    "mechanisms": ["landlock", "no-new-privileges", "seccomp-bpf"],
+    "minimum_landlock_abi": 4,
+    "network_syscalls": ["socket", "socketpair", "connect", "bind", "listen", "accept", "accept4"],
+    "unsupported_behavior": "record-unanswered-never-fallback"
+  },
+  "inventory": {
+    "positive_slots": 30,
+    "authority_slots": 21,
+    "policy_attacks": 16
+  },
+  "ceilings": {
+    "max_rust_lines": 1400,
+    "max_python_lines": 1400,
+    "max_report_bytes": 196608
+  },
+  "decision": {
+    "pass": "Q1-Q5 pass on a supported Linux host",
+    "revise": "compilation is exact and fail-closed but live enforcement or a bounded criterion fails",
+    "unanswered": "no supported Linux execution environment is available",
+    "stop": "execution falls back or undeclared authority affects reusable evidence"
+  }
+}

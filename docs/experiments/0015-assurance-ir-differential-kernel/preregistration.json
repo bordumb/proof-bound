@@ -1,0 +1,95 @@
+{
+  "schema": "proofbound-research-assurance-ir-preregistration/1",
+  "experiment": "EXP-0015",
+  "programme_experiment": "EXP-LANG-010",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:3a94ed968ada9a4a73542aa4366dc97ed2d3bb75",
+  "frozen_sources": [
+    {"path": "docs/research/proofbound-language/assurance-ir-v1.md", "sha256": "sha256:647f5bf4f07b178772942d778de5203d8ed8143685b394f0a92ee20d693babea", "size_bytes": 28574},
+    {"path": "docs/experiments/0009-generated-evidence-algebra/results/2026-09-03-generated-evidence-algebra.json", "sha256": "sha256:58a0e918e2f00e6b01c9d3e05078bb2fa4ad6b4fd1407d6eba536e6fe04dcf48", "size_bytes": 6018},
+    {"path": "docs/experiments/0010-invalidation-precision/results/execution.json", "sha256": "sha256:9d3f3dd4091aac0ccb00beb9e6e98a37d675731ea1e4eb1eab65395e38eaa141", "size_bytes": 152678},
+    {"path": "docs/experiments/0012-effect-checked-replay/results/execution.json", "sha256": "sha256:93c5df3762c3416c11bcd151da63aef3f69bd4ab277ab4b5d623e495aa20b484", "size_bytes": 6935},
+    {"path": "docs/experiments/0013-claim-oriented-notification-precision/results/execution.json", "sha256": "sha256:75cfc4de19ea73cca88923d552054b50acf4d5f2aaa8eb531b4cacbcf92e62a1", "size_bytes": 4486},
+    {"path": "docs/experiments/0014-specification-falsifiers/results/execution.json", "sha256": "sha256:9986bfb87196b96899cda5bfb61406f8d710af99929abea99884abfb2af4ff5b", "size_bytes": 4934}
+  ],
+  "candidate": {
+    "program_schema": "proofbound-research-assurance-program/2",
+    "report_schema": "proofbound-research-assurance-kernel-report/2",
+    "semantic_identity_domain": "proofbound-research-assurance-program/2",
+    "dependency_identity_domain": "proofbound-research-dependency-projection/2",
+    "invalidation_identity_domain": "proofbound-research-invalidation-set/2",
+    "derivation_identity_domain": "proofbound-research-derivation-trace/2"
+  },
+  "questions": [
+    {"id": "Q1", "pass": "six templates and 500 generated valid programmes produce byte-identical complete Rust and Python reports with all constructors covered"},
+    {"id": "Q2", "pass": "every registered cross-component omission, substitution, alias, order, and identity attack rejects with its exact code in both kernels"},
+    {"id": "Q3", "pass": "all family coercions and decision upgrades reject while valid families remain at their registered maximum facets"},
+    {"id": "Q4", "pass": "500 valid and 500 single-mutation adversarial generated programmes agree exactly across both kernels in ten repetitions"},
+    {"id": "Q5", "pass": "both backend-neutral kernels and reports remain within every frozen line, constructor, code, dependency, memory, and byte ceiling"}
+  ],
+  "templates": [
+    "sampled-property",
+    "bounded-check",
+    "theorem-with-assumption",
+    "mutation-witness",
+    "trusted-transcription",
+    "artifact-bound-reproduction"
+  ],
+  "generation": {
+    "algorithm": "proofbound-exp-0015-generator/1",
+    "seed": 151510,
+    "valid_programs": 500,
+    "adversarial_programs": 500,
+    "mutation_cardinality": 1,
+    "repetitions": 10,
+    "required_constructor_coverage": "all",
+    "required_error_coverage": "all-registered"
+  },
+  "attacks": [
+    {"id": "EXP-0015-A001", "mutation": "replace programme schema", "expected": "IR2-SCHEMA"},
+    {"id": "EXP-0015-A002", "mutation": "encode noncanonical programme bytes", "expected": "IR2-NONCANONICAL"},
+    {"id": "EXP-0015-A003", "mutation": "duplicate a typed identity", "expected": "IR2-DUPLICATE"},
+    {"id": "EXP-0015-A004", "mutation": "alias dependency and artifact identities", "expected": "IR2-ALIAS"},
+    {"id": "EXP-0015-A005", "mutation": "omit a referenced semantic dependency", "expected": "IR2-DEPENDENCY-MISSING"},
+    {"id": "EXP-0015-A006", "mutation": "substitute a same-role dependency", "expected": "IR2-DEPENDENCY-BINDING"},
+    {"id": "EXP-0015-A007", "mutation": "omit a transitive execution dependency", "expected": "IR2-DEPENDENCY-INCOMPLETE"},
+    {"id": "EXP-0015-A008", "mutation": "forge the invalidation identity", "expected": "IR2-INVALIDATION"},
+    {"id": "EXP-0015-A009", "mutation": "retain cache eligibility after an opaque effect", "expected": "IR2-CACHE-INELIGIBLE"},
+    {"id": "EXP-0015-A010", "mutation": "omit an effect declaration", "expected": "IR2-EFFECT-MISSING"},
+    {"id": "EXP-0015-A011", "mutation": "omit an effect disposition", "expected": "IR2-EFFECT-DISPOSITION"},
+    {"id": "EXP-0015-A012", "mutation": "forge external enforcement identity", "expected": "IR2-EFFECT-ENFORCEMENT"},
+    {"id": "EXP-0015-A013", "mutation": "replace mediated execution with opaque execution", "expected": "IR2-EFFECT-OPAQUE"},
+    {"id": "EXP-0015-A014", "mutation": "omit a required specification", "expected": "IR2-SPECIFICATION-MISSING"},
+    {"id": "EXP-0015-A015", "mutation": "substitute the adequacy identity", "expected": "IR2-SPECIFICATION-BINDING"},
+    {"id": "EXP-0015-A016", "mutation": "report an unkilled required mutant", "expected": "IR2-SPECIFICATION-INADEQUATE"},
+    {"id": "EXP-0015-A017", "mutation": "substitute a bound artifact role", "expected": "IR2-ARTIFACT-ROLE"},
+    {"id": "EXP-0015-A018", "mutation": "omit generated-to-bound correspondence", "expected": "IR2-ARTIFACT-BINDING"},
+    {"id": "EXP-0015-A019", "mutation": "omit a consumed uncertainty", "expected": "IR2-UNCERTAINTY-MISSING"},
+    {"id": "EXP-0015-A020", "mutation": "coerce unavailable telemetry into an assumption", "expected": "IR2-UNCERTAINTY-KIND"},
+    {"id": "EXP-0015-A021", "mutation": "omit an open assumption from the decision", "expected": "IR2-UNCERTAINTY-CONSEQUENCE"},
+    {"id": "EXP-0015-A022", "mutation": "substitute a derivation input", "expected": "IR2-DERIVATION-DEPENDENCY"},
+    {"id": "EXP-0015-A023", "mutation": "replace the derivation root", "expected": "IR2-DERIVATION-ROOT"},
+    {"id": "EXP-0015-A024", "mutation": "forge the derivation identity", "expected": "IR2-DERIVATION-IDENTITY"},
+    {"id": "EXP-0015-A025", "mutation": "upgrade sampled or bounded evidence to proved", "expected": "IR2-FAMILY-COERCION"},
+    {"id": "EXP-0015-A026", "mutation": "upgrade transcription to refined", "expected": "IR2-FAMILY-COERCION"},
+    {"id": "EXP-0015-A027", "mutation": "upgrade a theorem without correspondence to artifact-bound", "expected": "IR2-DECISION-UPGRADE"},
+    {"id": "EXP-0015-A028", "mutation": "replace derived decision with a reported stronger status", "expected": "IR2-DECISION-MISMATCH"}
+  ],
+  "complexity": {
+    "max_rust_kernel_lines": 1800,
+    "max_python_kernel_lines": 1800,
+    "max_top_level_and_variant_constructors": 24,
+    "max_validation_codes": 32,
+    "max_report_bytes": 16384,
+    "max_corpus_bytes": 67108864,
+    "forbidden_direct_dependencies": ["adapter crates", "proofbound-cli", "proofbound-core", "proofbound-verify"],
+    "forbidden_common_names": ["pytest", "vitest", "kani", "lean", "verus", "aeneas", "npm", "cargo"]
+  },
+  "decision": {
+    "pass": "Q1-Q5 pass over the complete frozen finite corpus without a backend-named common rule",
+    "revise": "one bounded falsifier identifies a versioned semantic correction and the current /2 candidate remains unfrozen",
+    "stop": "the kernel requires backend delegation, reported statuses, ambiguous joins, or exceeds a frozen complexity ceiling"
+  }
+}

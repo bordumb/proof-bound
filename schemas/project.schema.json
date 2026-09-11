@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "project", "tier", "source", "claim_manifests"],
   "properties": {
-    "schema": { "const": "proofbound-project/1" },
+    "schema": { "enum": ["proofbound-project/1", "proofbound-project/2"] },
     "project": { "$ref": "#/$defs/name" },
     "tier": { "type": "integer", "minimum": 0, "maximum": 3 },
     "source": {
@@ -33,6 +33,8 @@
     "claim_manifests": { "$ref": "#/$defs/paths" },
     "assumption_manifests": { "$ref": "#/$defs/paths" },
     "evidence_units": { "$ref": "#/$defs/paths" },
+    "evidence_contexts": { "$ref": "#/$defs/contextNames" },
+    "required_release_contexts": { "$ref": "#/$defs/contextNames" },
     "translation_units": { "$ref": "#/$defs/paths" },
     "model_check_units": { "$ref": "#/$defs/paths" },
     "policy_manifests": { "$ref": "#/$defs/paths" },
@@ -48,10 +50,17 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-project/1" } }, "required": ["schema"] },
+      "then": { "not": { "anyOf": [{ "required": ["evidence_contexts"] }, { "required": ["required_release_contexts"] }] } }
+    }
+  ],
   "$defs": {
     "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+    "contextName": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+    "contextNames": { "type": "array", "items": { "$ref": "#/$defs/contextName" }, "uniqueItems": true, "maxItems": 256 },
     "path": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
     "paths": { "type": "array", "items": { "$ref": "#/$defs/path" }, "uniqueItems": true, "maxItems": 10000 }
   }
 }
-

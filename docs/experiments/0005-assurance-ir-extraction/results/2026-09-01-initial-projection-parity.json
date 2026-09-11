@@ -1,0 +1,71 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0005",
+  "run": "initial-projection-parity",
+  "executed_at": "2026-09-01",
+  "proofbound_commit": "git:757f42096b896d3bdb41b896a46bfad3dcdc2ca4",
+  "corpus": {
+    "path": "docs/experiments/0005-assurance-ir-extraction/corpus/cases.json",
+    "sha256": "sha256:370c45f5a7a5a492c7c12218ee53be782cd6e8610a70297bd94488801dba5f32",
+    "positive_cases": 20
+  },
+  "implementations": {
+    "producer": {
+      "language": "Rust",
+      "path": "crates/proofbound-ir-prototype/src/lib.rs",
+      "sha256": "sha256:b24850e0b69e57323b2de82e711f3b5ac3e3bc8c34932da84e8e4fd8c6fe4356",
+      "shared_with_checker": false
+    },
+    "checker": {
+      "language": "Python",
+      "path": "python/proofbound/assurance_ir_checker.py",
+      "sha256": "sha256:e20306f5fca4a3a3e4c7a0736a7c5186eee50b3d2aa0a642b9b2ec92851cd0cd",
+      "imports_producer_types": false,
+      "shared_with_producer": false
+    }
+  },
+  "environment": {
+    "os": "Darwin 27.0.0 arm64",
+    "architecture": "arm64",
+    "rustc": "1.94.0 (4a4ef493e 2026-03-02)",
+    "python": "3.12.11",
+    "network_required": false,
+    "evidence_backends_executed": false
+  },
+  "projection": {
+    "schema": "proofbound-assurance-ir-projection/1",
+    "canonical_bytes": 19022,
+    "raw_sha256": "sha256:e1dee75cc27b4e22e018461f15f03b07da62a047304c93fba24b716e3f307475",
+    "domain_sha256": "sha256:357cc0d521f46e9f360d06c378d32e0c2b1acd1de72ab38b5d8686e6fcfdd558"
+  },
+  "metrics": {
+    "positive_cases_executed": 20,
+    "positive_cases_agreed": 20,
+    "producer_checker_disagreements": 0,
+    "canonical_domain_vectors_executed": 15,
+    "canonical_domain_vectors_agreed": 15,
+    "preregistered_adversarial_cases_executed": 0,
+    "preregistered_adversarial_cases_remaining": 20,
+    "projection_loss_assertion": "not-yet-measured",
+    "status_derivation_parity_assertion": "not-yet-measured"
+  },
+  "checks": [
+    "Rust producer independently verifies every frozen source identity",
+    "Python checker independently reconstructs every registration and status projection",
+    "Rust and Python agree on the canonical projection bytes and domain identity",
+    "Both implementations agree with all preregistered canonical hash vectors",
+    "Source drift and noncanonical producer output fail closed in focused tests"
+  ],
+  "limitations": [
+    "This is a projection-boundary prototype, not the complete AssuranceProgram model.",
+    "The preregistered adversarial transformations have not yet been materialized or executed.",
+    "The projection retains expected current status; it does not yet rederive the full evidence algebra independently.",
+    "No evidence backend was executed, so this run does not regenerate observations.",
+    "Q1 through Q5 remain unanswered."
+  ],
+  "referenced_artifacts": {
+    "adversarial_corpus_sha256": "sha256:7781010dfbf0da56d5375a3e25ddc009fef4150af9b9b2514c61533176ab3b5a",
+    "canonical_vectors_sha256": "sha256:99ba336f3da82baff8e48c9e4d4116d2d3a878e1e1d6b52f603f3d0c6f225a23",
+    "field_inventory_sha256": "sha256:b47b151ea98020131dc340aca412d437efc3fba9ad3b8605d8dec8affa4f8847"
+  }
+}

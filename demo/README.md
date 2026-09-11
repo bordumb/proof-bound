@@ -1,6 +1,6 @@
 # Proofbound demonstrations
 
-The three demos show different ways to bind public language to evidence while
+These reference verticals show different ways to bind public language to evidence while
 keeping the remaining trust boundary visible. None of them treats a passing
 test, a bounded check, or a theorem over a handwritten model as proof about
 shipping code by itself.
@@ -74,3 +74,22 @@ the committed transcription, and that same fresh candidate re-encodes to the
 source byte-for-byte. The result is `TRANSCRIBED`, never `PROVED`,
 `ARTIFACT_BOUND`, or `REFINED`; the driver remains visible as two distinct TCB
 roles.
+
+## Python inventory service
+
+[`python-inventory-service/`](python-inventory-service/) is the pure-Python
+Specification 0002 vertical. It combines exact pytest nodes, a seeded
+Hypothesis property, strict mypy analysis, a singleton mutation witness, an
+independent checker, and two-shadow wheel reproduction. Its board remains
+`TESTED · MODEL_ONLY`; Python's runtime and analyzer boundaries remain visible
+as assumptions rather than being promoted into proof claims.
+
+## TypeScript codec
+
+[`typescript-codec/`](typescript-codec/) is the TypeScript-only Specification
+0003 vertical. Proofbound runs exact Vitest nodes and strict `tsc`, catches one
+registered mutant, and reproduces the registered npm tarball twice with
+lifecycle scripts disabled and every package member bound back to reviewed
+source bytes. The behavioral and package-reproduction claims remain
+`TESTED · MODEL_ONLY`; neither is presented as a theorem or shipping-code
+refinement.

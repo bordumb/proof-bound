@@ -1,0 +1,114 @@
+{
+  "schema": "proofbound-research-layered-sampling-result/1",
+  "experiment": "EXP-0008",
+  "run": "three-framework-layered-projection",
+  "date": "2026-09-02",
+  "status": "passed",
+  "implementation": "git:67e80a7d4924019379ecbe7b06e83ffbd87259ff",
+  "corpus": [
+    {
+      "framework": "fast-check",
+      "path": "docs/experiments/0008-layered-sampling-model/corpus/fast-check.json",
+      "sha256": "sha256:3483ec0fa54f87e73f2c34ae3040a5f93c025fd4c824420a0489a0c21c7f5097",
+      "size_bytes": 2199,
+      "intent_identity": "sha256:dadd3d4ceb050fa17aedaefd8f081133b1f3eed7fb86526ee65ebedbb54e204d",
+      "plan_identity": "sha256:5eddf1b54efdde441e3f3844a06a40298f72590ae60b51074cd5e189e813c4f4"
+    },
+    {
+      "framework": "hypothesis",
+      "path": "docs/experiments/0008-layered-sampling-model/corpus/hypothesis.json",
+      "sha256": "sha256:30716ba1e329c7f57749f3880b58aa71abe9d698e5705b88702b2e17f35579c3",
+      "size_bytes": 2203,
+      "intent_identity": "sha256:43f1b442e55c73dcf06256462187246b738750e2b37c359e25c725b84863b532",
+      "plan_identity": "sha256:22d7957d0e7c0c3f8c49998167731d5c27f75e858cf8500a89360a76ea8044e5"
+    },
+    {
+      "framework": "proptest",
+      "path": "docs/experiments/0008-layered-sampling-model/corpus/proptest.json",
+      "sha256": "sha256:746f6a50c413291f09be2bba38ae5f7203d037d145000f2fa254e0215ac10908",
+      "size_bytes": 2444,
+      "intent_identity": "sha256:6ac5d1f38b2beb8db347d7ff9e0b0f73d4de938a91c4ad7744fb416b9428a0d1",
+      "plan_identity": "sha256:bad223f9c224b76a476744b7bf08e8ee6551802d3463d6391b4034618e9c524b"
+    }
+  ],
+  "projection": {
+    "common_intent_fields": [
+      "ceiling",
+      "generator",
+      "persistence",
+      "seed",
+      "successful_cases",
+      "targets"
+    ],
+    "backend_plan_variants": [
+      "fast-check",
+      "hypothesis",
+      "proptest"
+    ],
+    "fact_authorities": [
+      "derived",
+      "observed",
+      "unavailable"
+    ],
+    "common_validator_framework_branches": 0,
+    "admission_framework_branches": 0,
+    "assurance_ceiling": "empirical-sample"
+  },
+  "authority_findings": {
+    "hypothesis": {
+      "attempted": "observed",
+      "completed": "observed",
+      "skipped": "observed",
+      "shrinks": "observed"
+    },
+    "fast-check": {
+      "attempted": "observed",
+      "completed": "observed",
+      "skipped": "observed",
+      "shrinks": "observed"
+    },
+    "proptest": {
+      "attempted": "unavailable",
+      "completed": "derived:runner-success-contract(intent.successful-cases,result.passed)",
+      "skipped": "unavailable",
+      "shrinks": "unavailable"
+    }
+  },
+  "admission_rule": {
+    "id": "empirical-sample-pass",
+    "required_facts": [
+      "completed"
+    ],
+    "unused_diagnostics": [
+      "attempted",
+      "shrinks",
+      "skipped"
+    ]
+  },
+  "attack_execution": [
+    {"id": "EXP-0008-A001", "expected": "sampling-layer-violation", "rust": "sampling-layer-violation", "python": "sampling-layer-violation"},
+    {"id": "EXP-0008-A002", "expected": "sampling-plan-invalid", "rust": "sampling-plan-invalid", "python": "sampling-plan-invalid"},
+    {"id": "EXP-0008-A003", "expected": "sampling-plan-identity-mismatch", "rust": "sampling-plan-identity-mismatch", "python": "sampling-plan-identity-mismatch"},
+    {"id": "EXP-0008-A004", "expected": "sampling-authority-mismatch", "rust": "sampling-authority-mismatch", "python": "sampling-authority-mismatch"},
+    {"id": "EXP-0008-A005", "expected": "sampling-authority-mismatch", "rust": "sampling-authority-mismatch", "python": "sampling-authority-mismatch"},
+    {"id": "EXP-0008-A006", "expected": "sampling-derivation-incomplete", "rust": "sampling-derivation-incomplete", "python": "sampling-derivation-incomplete"},
+    {"id": "EXP-0008-A007", "expected": "sampling-admission-blocked", "rust": "sampling-admission-blocked", "python": "sampling-admission-blocked"},
+    {"id": "EXP-0008-A008", "expected": "sampling-rule-overreach", "rust": "sampling-rule-overreach", "python": "sampling-rule-overreach"},
+    {"id": "EXP-0008-A009", "expected": "no-admission-consequence", "rust": "no-admission-consequence", "python": "no-admission-consequence"},
+    {"id": "EXP-0008-A010", "expected": "sampling-inventory-mismatch", "rust": "sampling-inventory-mismatch", "python": "sampling-inventory-mismatch"},
+    {"id": "EXP-0008-A011", "expected": "sampling-schema-mismatch", "rust": "sampling-schema-mismatch", "python": "sampling-schema-mismatch"},
+    {"id": "EXP-0008-A012", "expected": "sampling-schema-mismatch", "rust": "sampling-schema-mismatch", "python": "sampling-schema-mismatch"}
+  ],
+  "decisions": {
+    "q1": "pass: all three projections retain the common generator closure, target inventory, fixed seed, successful-case budget, persistence posture, and empirical ceiling; backend controls are rejected from intent",
+    "q2": "pass: closed plans retain framework-specific execution controls and every plan mutation changes or invalidates the plan identity without changing intent",
+    "q3": "pass: facts retain observed, derived, or unavailable authority; proptest completes admission through one closed derivation without inventing counters",
+    "q4": "pass: unavailable completed budget blocks empirical admission, while removing unused shrink telemetry creates no alert or admission change",
+    "q5": "pass: EXP-0006 and legacy Rust schemas are rejected rather than reinterpreted as layered records"
+  },
+  "design_consequence": {
+    "adopt_for_next_research": "treat common evidence meaning, backend execution plan, fact authority, and admission consequences as separate typed layers",
+    "notification_policy": "surface unavailable information only when a registered rule consumes it, and name that rule and fact",
+    "production_status": "research-only; no production Proofbound wire or admission policy changed"
+  }
+}

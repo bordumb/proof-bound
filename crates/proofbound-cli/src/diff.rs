@@ -322,11 +322,7 @@ fn compare_manifest_path(
             path,
             regressions,
         ),
-        Some(
-            "proofbound-evidence-unit/1"
-            | "proofbound-evidence-unit/2"
-            | "proofbound-evidence-unit/3",
-        ) => compare_evidence_manifests(
+        Some(schema) if is_evidence_unit_schema(schema) => compare_evidence_manifests(
             parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
             parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
             path,
@@ -375,6 +371,18 @@ fn compare_manifest_path(
         ),
         _ => Ok(()),
     }
+}
+
+fn is_evidence_unit_schema(schema: &str) -> bool {
+    matches!(
+        schema,
+        "proofbound-evidence-unit/1"
+            | "proofbound-evidence-unit/2"
+            | "proofbound-evidence-unit/3"
+            | "proofbound-evidence-unit/4"
+            | "proofbound-evidence-unit/5"
+            | "proofbound-evidence-unit/6"
+    )
 }
 
 fn is_translation_schema(schema: &str) -> bool {
@@ -675,12 +683,19 @@ fn compare_assumption_manifests(
             format!("assumption {} newly affects claim {claim}", new.id),
         )?;
     }
-    if old.status != new.status || old.statement != new.statement || old.category != new.category {
+    if old.status != new.status
+        || old.statement != new.statement
+        || old.category != new.category
+        || old.formal_axioms != new.formal_axioms
+    {
         add_for_claims(
             regressions,
             &affected,
             RegressionKind::NewAssumption,
-            format!("assumption {} meaning, category, or status changed", new.id),
+            format!(
+                "assumption {} meaning, category, status, or formal axiom registration changed",
+                new.id
+            ),
         )?;
     }
     Ok(())
@@ -1546,6 +1561,17 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn every_released_evidence_unit_schema_reaches_regression_analysis() {
+        for version in 1..=6 {
+            assert!(is_evidence_unit_schema(&format!(
+                "proofbound-evidence-unit/{version}"
+            )));
+        }
+        assert!(!is_evidence_unit_schema("proofbound-evidence-unit/7"));
+        assert!(!is_evidence_unit_schema("proofbound-evidence/6"));
+    }
 
     fn claim() -> ClaimManifest {
         serde_json::from_value(json!({

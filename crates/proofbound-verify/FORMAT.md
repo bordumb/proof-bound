@@ -1,4 +1,4 @@
-# Proofbound compiled release receipt v3
+# Proofbound compiled release receipts v3 through v6
 
 This document is the handoff contract between a release producer and the
 standalone `proofbound-verify` binary. The authoritative field types are the
@@ -42,8 +42,14 @@ The domains are fixed:
 | Value | Domain |
 |---|---|
 | compiled payload | `proofbound-compiled-release/3` |
+| compiled payload with exact observations | `proofbound-compiled-release/4` |
+| compiled payload with context-bound exact observations | `proofbound-compiled-release/5` |
+| compiled payload with contextual artifact bindings | `proofbound-compiled-release/6` |
 | graph | `proofbound-graph/1` |
 | evidence record | `proofbound-evidence/3` |
+| evidence record with exact observation | `proofbound-evidence/4` |
+| evidence record with contextual artifact binding | `proofbound-evidence/5` |
+| exact observation relation | `proofbound-exact-artifact-observation/1` |
 | source-closure record | `proofbound-source-closure/1` |
 | evidence cache material | `proofbound-cache-key/1` |
 | registered mutation identity | `proofbound-mutation/2` |
@@ -53,11 +59,23 @@ the exact file bytes, still rendered as `sha256:<64 lowercase hex>`.
 
 ## Compiled payload
 
-The payload schema is `proofbound-compiled-release/3` and contains exactly:
+The v3 payload schema is `proofbound-compiled-release/3`. Version 4 is selected
+exactly when at least one `proofbound-evidence/4` record carries a
+`proofbound-exact-artifact-observation/1` detail without an evidence context.
+Version 5 is selected for a contextual release containing exact observations
+but no contextual artifact binding. It binds the same canonical
+`evidence_context` into the compiled payload and every exact-observation
+evidence record. Version 6 is selected exactly when a contextual release has at
+least one `proofbound-evidence/5` artifact-binding record; it may also retain
+contextual `proofbound-evidence/4` observation records. Base releases cannot
+contain either contextual record. The envelope version equals the compiled
+payload version, and unsupported or incoherent combinations fail closed. All
+versions contain exactly:
 
 | Field | Meaning |
 |---|---|
 | `project`, `project_revision` | non-empty release identity |
+| `evidence_context` | v5/v6 reviewed context active for this release |
 | `project_tier` | integer `0`, `1`, `2`, or `3` |
 | `tree_state` | `clean` for a portable release |
 | `graph`, `graph_sha256` | complete typed graph and its domain hash |
@@ -136,20 +154,25 @@ the required empty-array case), exact exhaustive cardinality, independently
 inventoried checks, and mutation identities. Detail blocks or mode qualifiers
 on the wrong kind are invalid.
 
-An `artifact-bound` policy admits a binding only when all of the following
-hold: the referenced theorem is admitted under the policy's theorem-evaluation
-mode; the verifier independently reproduces `statement_sha256` from the full
-canonical statement wire; that elaborated statement has the exact outer head
-`Proofbound.Artifact.DigestBindingV1` with exactly six arguments and direct
-string literals for claim ID, artifact schema, logical name, and digest; the
-literal claim ID is the current claim; the literal logical name and digest
-equal `artifact_binding.artifact`; and that complete artifact identity,
-including `size_bytes`, equals exactly one provenance input. A forged size
-therefore fails closed. A checker-authored boolean cannot confer
-`ARTIFACT_BOUND`. Wrappers,
-aliases, nested markers, nonliteral identity fields, and mismatched statement
-hashes fail closed. Composing `native-evaluated` narrows the artifact binding
-to native mode as well.
+An `artifact-bound` policy admits a binding only when the referenced theorem is
+admitted under the policy's theorem-evaluation mode and the verifier reproduces
+`statement_sha256` from the full canonical statement wire. An unconditional
+record requires the exact outer head `Proofbound.Artifact.DigestBindingV1` with
+six arguments and direct string literals for claim ID, artifact schema, logical
+name, and digest. A contextual `proofbound-evidence/5` record instead requires
+the exact outer head `Proofbound.Artifact.DigestBindingSetV1` with four
+arguments. Its third argument is a nonempty direct `List.cons`/`List.nil` spine
+of at most 256 exact `DigestBindingMemberV1.mk` applications. Member names are
+strictly ordered and unique; member digests are unique; names and digests are
+direct canonical string literals. The record and release carry the same
+canonical context, and the selected artifact name and digest equal exactly one
+set member. In both routes the complete artifact identity, including
+`size_bytes`, equals exactly one provenance input. A forged size, singular-root
+downgrade, inactive context, omitted or substituted member, wrapper, alias,
+nested marker, nonliteral identity, or mismatched statement hash fails closed.
+A checker-authored Boolean or empirical observation cannot confer
+`ARTIFACT_BOUND`. Composing `native-evaluated` narrows the artifact binding to
+native mode as well.
 
 `TheoremReceipt` requires `statement_wire` in addition to its
 encoding and digest. The v2 `ArtifactBindingReceipt` is exactly
@@ -271,14 +294,34 @@ empty.
 ## CLI and trust boundary
 
 ```text
-proofbound-verify --release <directory> [--json]
+proofbound-verify --release <directory> [--observation-inputs <file>] [--json]
 ```
 
-Exit `0` means receipt-consistent and policy-admitted. Exit `3` means the
+An observation-input manifest uses schema `proofbound-observation-inputs/1`.
+Each entry names a claim, logical subject role, closed platform, artifact path,
+and procedure path. Relative paths are resolved from the manifest's directory.
+The verifier rejects symlinks and hashes both byte streams itself. An exact
+identity is also byte-observed when its logical name, digest, and size match a
+validated `sealed_files` entry.
+
+For v3, exit `0` means receipt-consistent and policy-admitted. For v4 through
+v6,
+`record-consistent` means the relation was independently reconstructed but at
+least one byte stream was unavailable, so publication remains blocked;
+`bytes-observed` means every artifact and procedure identity was recomputed.
+Version 5 additionally requires one canonical `evidence_context` on the
+release and every exact-observation evidence record. The verifier rejects
+context omission or mismatch and retains the context in verification report
+version 3. Version 6 applies the same context equality to each contextual
+artifact-binding record and requires every selected bound artifact identity to
+match recomputed sealed bytes. Context selection can activate a theorem-derived
+`ARTIFACT_BOUND` linkage only through that exact schema-6 route; contextual
+observations never change a claim facet.
+Exit `3` means the
 receipt is internally consistent but at least one claim is blocked by policy.
 Exit `2` means malformed, tampered, structurally invalid, or inconsistent with
 the reported statuses.
 
-The result is only **receipt-consistent**. It checks the relationships and
-recorded identities independently; it does not assert that an external prover,
-solver, compiler, or test runner executed honestly.
+No verdict asserts that an external prover, solver, compiler, or test runner
+executed honestly. `bytes-observed` attests only that the verifier received the
+exact byte identities named by the independently reconstructed relation.

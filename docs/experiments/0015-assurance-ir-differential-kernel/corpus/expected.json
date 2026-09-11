@@ -1,0 +1,26 @@
+{
+  "schema": "proofbound-research-assurance-expected/2",
+  "profile_count": 6,
+  "attack_count": 28,
+  "valid_programs": 500,
+  "adversarial_programs": 500,
+  "repetitions": 10,
+  "family_count": 6,
+  "dependency_role_count": 6,
+  "effect_capability_count": 8,
+  "effect_boundary_count": 4,
+  "artifact_role_count": 5,
+  "uncertainty_kind_count": 6,
+  "specification_role_count": 5,
+  "derivation_rule_count": 4,
+  "object_constructor_count": 16,
+  "validation_code_count": 30,
+  "limits": {
+    "max_rust_kernel_lines": 1800,
+    "max_python_kernel_lines": 1800,
+    "max_top_level_and_variant_constructors": 24,
+    "max_validation_codes": 32,
+    "max_report_bytes": 16384,
+    "max_corpus_bytes": 67108864
+  }
+}

@@ -1,16 +1,22 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 use super::*;
 use crate::{
     ASSUMPTION_SCHEMA_V1, AdapterStrength, ArtifactBindingEvidence, ArtifactIdentity,
-    ArtifactLogicalName, AssumptionStatus, BindingMode, BoundedCheckEvidence, BuiltInProfile,
-    CacheOrigin, CommandSpec, EnvironmentId, EnvironmentVariable, EnvironmentVariableName,
-    EvidenceProvenance, ExecutionKind, ExecutionRun, ExhaustiveCheckEvidence, ExpectedFailure,
-    GRAPH_SCHEMA_V1, GraphEdge, GraphNode, IndependenceMode, MutationWitnessEvidence,
-    NativePremiseRule, POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage, Sha256Digest,
-    SourceRefinementEvidence, TRUSTED_TRANSCRIPTION_SCHEMA_V1, TheoremEvidence, ToolIdentity,
-    TranscriptionRole, TranscriptionTcbRole, TreeState, TrustedTranscriptionEvidence, UnitId,
-    transcription_role_identity,
+    ArtifactLogicalName, ArtifactObservationPlatform, ArtifactObservationRole, AssumptionStatus,
+    BindingMode, BoundedCheckEvidence, BuiltInProfile, CacheOrigin, ClosureIdentity, CommandSpec,
+    EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EnvironmentId, EnvironmentVariable,
+    EnvironmentVariableName, EvidenceProvenance, ExactArtifactObservationEvidence, ExecutionKind,
+    ExecutionRun, ExhaustiveCheckEvidence, ExpectedFailure, GRAPH_SCHEMA_V1, GraphEdge, GraphNode,
+    IndependenceMode, MutationWitnessEvidence, NativePremiseRule, ObservationArchitecture,
+    ObservationOperatingSystem, POLICY_SCHEMA_V1, PolicyId, ResourceBudget, ResourceUsage,
+    Sha256Digest, SourceRefinementEvidence, StaticCheckEvidence, TRUSTED_TRANSCRIPTION_SCHEMA_V1,
+    TheoremEvidence, ToolIdentity, TranscriptionRole, TranscriptionTcbRole, TreeState,
+    TrustedTranscriptionEvidence, UnitId, transcription_role_identity,
 };
 
 fn claim_id() -> ClaimId {
@@ -202,6 +208,78 @@ fn attach_mutation_witness(
     record.mutation_witness = Some(witness);
 }
 
+fn node_mutation_record() -> EvidenceRecord {
+    let mut record = basic_record(
+        "node-mutation",
+        EvidenceKind::MutationWitness,
+        "tests:node-mutation",
+    );
+    let check_id = "src/guard.test.ts::guard > rejects invalid input";
+    attach_mutation_witness(&mut record, "node-mutation", check_id, None);
+    record.provenance.input_artifacts.extend([
+        named_artifact("package-lock.json", "node-lock", 128),
+        named_artifact("package.json", "node-package", 64),
+    ]);
+    let args = vec![
+        "run".into(),
+        "src/guard.test.ts".into(),
+        "--reporter=json".into(),
+        "--testNamePattern".into(),
+        "^guard rejects invalid input$".into(),
+    ];
+    record.provenance.commands = vec![
+        CommandSpec {
+            program: "node_modules/.bin/vitest".into(),
+            args: args.clone(),
+            environment_allowlist: Vec::new(),
+        },
+        CommandSpec {
+            program: "node_modules/.bin/vitest".into(),
+            args,
+            environment_allowlist: Vec::new(),
+        },
+    ];
+    record.provenance.runs[1].exit_code = Some(1);
+    let claims = record.claims.clone();
+    let witness = record.mutation_witness.as_mut().unwrap();
+    witness.subject = "npm:fixture::guard".into();
+    witness.expected_failure.allowed_exit_codes = BTreeSet::from([1]);
+    witness.mutation_sha256 = witness.derived_mutation_sha256(&claims).unwrap();
+    record
+}
+
+fn python_mutation_record() -> EvidenceRecord {
+    let mut record = basic_record(
+        "python-mutation",
+        EvidenceKind::MutationWitness,
+        "tests:python-mutation",
+    );
+    let check_id = "tests/test_guard.py::test_guard";
+    attach_mutation_witness(&mut record, "python-mutation", check_id, None);
+    let command = |root: &str| CommandSpec {
+        program: "python3".into(),
+        args: vec![
+            "-m".into(),
+            "pytest".into(),
+            "-p".into(),
+            "no:cacheprovider".into(),
+            "--rootdir".into(),
+            root.into(),
+            "-q".into(),
+            format!("{root}/{check_id}"),
+        ],
+        environment_allowlist: Vec::new(),
+    };
+    record.provenance.commands = vec![command("$BASELINE"), command("$MUTANT")];
+    record.provenance.runs[1].exit_code = Some(1);
+    let claims = record.claims.clone();
+    let witness = record.mutation_witness.as_mut().unwrap();
+    witness.subject = "python:fixture::guard.check".into();
+    witness.expected_failure.allowed_exit_codes = BTreeSet::from([1]);
+    witness.mutation_sha256 = witness.derived_mutation_sha256(&claims).unwrap();
+    record
+}
+
 fn lean_string(value: &str) -> serde_json::Value {
     serde_json::json!([7, [1, value]])
 }
@@ -218,6 +296,40 @@ fn binding_statement(claim: &ClaimId, artifact: &ArtifactIdentity) -> serde_json
         lean_string(artifact.logical_name.as_str()),
         lean_string(&format!("sha256:{}", artifact.sha256)),
         serde_json::json!([2, "Demo.bytes", []]),
+        serde_json::json!([2, "Demo.meaning", []]),
+    ] {
+        root = lean_app(root, argument);
+    }
+    serde_json::json!([crate::LEAN_STATEMENT_ENCODING_V1, root])
+}
+
+fn binding_set_statement(claim: &ClaimId, artifacts: &[ArtifactIdentity]) -> serde_json::Value {
+    let member_type = serde_json::json!([2, "Proofbound.Artifact.DigestBindingMemberV1", []]);
+    let mut members = lean_app(
+        serde_json::json!([2, "List.nil", [[0]]]),
+        member_type.clone(),
+    );
+    for artifact in artifacts.iter().rev() {
+        let mut member = serde_json::json!([2, "Proofbound.Artifact.DigestBindingMemberV1.mk", []]);
+        for argument in [
+            lean_string(artifact.logical_name.as_str()),
+            lean_string(&format!("sha256:{}", artifact.sha256)),
+            serde_json::json!([2, "Demo.bytes", []]),
+        ] {
+            member = lean_app(member, argument);
+        }
+        let mut cons = serde_json::json!([2, "List.cons", [[0]]]);
+        for argument in [member_type.clone(), member, members] {
+            cons = lean_app(cons, argument);
+        }
+        members = cons;
+    }
+
+    let mut root = serde_json::json!([2, crate::ARTIFACT_DIGEST_BINDING_SET_MARKER_V1, []]);
+    for argument in [
+        lean_string(claim.as_str()),
+        lean_string("example-artifact/1"),
+        members,
         serde_json::json!([2, "Demo.meaning", []]),
     ] {
         root = lean_app(root, argument);
@@ -273,6 +385,7 @@ fn provenance(label: &str) -> EvidenceProvenance {
         resource_usage: ResourceUsage::default(),
         cache_origin: CacheOrigin::Executed,
         prior_receipt_sha256: None,
+        python_plugins: Vec::new(),
     }
 }
 
@@ -349,11 +462,15 @@ fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
         binding_mode: None,
         theorem: None,
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: None,
         source_refinement: None,
         bounded_check: None,
         exhaustive_check: None,
         mutation_witness: None,
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         independence: None,
         inventoried_targets: BTreeSet::from([format!("{id}::registered")]),
         assumptions: BTreeSet::new(),
@@ -411,6 +528,36 @@ fn example_record(id: &str) -> EvidenceRecord {
         .inventoried_targets
         .insert("tests::registered".into());
     record
+}
+
+fn attach_artifact_observation(record: &mut EvidenceRecord, dependency: EvidenceId) {
+    record.schema = crate::EVIDENCE_SCHEMA_V4.into();
+    let artifact = named_artifact("release/runtime.tar.zst", "runtime-release", 4096);
+    let procedure = named_artifact("tools/ci/native-linux.sh", "native-procedure", 512);
+    let toolchain_closure = ClosureIdentity {
+        kind: crate::ClosureKind::Toolchain,
+        sha256: digest("release-toolchain"),
+    };
+    record
+        .provenance
+        .input_artifacts
+        .extend([artifact.clone(), procedure.clone()]);
+    record
+        .provenance
+        .additional_closures
+        .push(toolchain_closure.clone());
+    record.artifact_observation = Some(ExactArtifactObservationEvidence {
+        schema: EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1.into(),
+        subject_role: ArtifactObservationRole::new("runtime-release").unwrap(),
+        artifact,
+        platform: ArtifactObservationPlatform {
+            operating_system: ObservationOperatingSystem::Linux,
+            architecture: ObservationArchitecture::X86_64,
+        },
+        procedure,
+        toolchain_closure,
+        dependencies: BTreeSet::from([dependency]),
+    });
 }
 
 fn theorem_record(id: &str, mode: crate::EvaluationMode) -> EvidenceRecord {
@@ -566,6 +713,142 @@ fn empirical_bounded_and_theorem_precedence_is_exact_and_retains_weaker_evidence
             .iter()
             .any(|item| item.kind == EvidenceKind::ExampleTest)
     );
+}
+
+#[test]
+fn exact_artifact_observation_is_typed_without_upgrading_linkage() {
+    let mut input = base_input(Tier::Ledger, ledger_policy());
+    let dependency = example_record("release-build");
+    let dependency_id = dependency.id.clone();
+    let dependency_node = dependency.node_id.clone();
+    add_record(&mut input, dependency, NodeKind::TestSuite, true);
+
+    let mut observation = example_record("native-execution");
+    attach_artifact_observation(&mut observation, dependency_id);
+    let observation_node = observation.node_id.clone();
+    add_record(&mut input, observation, NodeKind::TestSuite, true);
+    input.graph.edges.push(checked_graph_edge(
+        &input,
+        &observation_node,
+        &dependency_node,
+        EdgeKind::DependsOn,
+    ));
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Tested);
+    assert_eq!(status.linkage, Some(LinkageFacet::ModelOnly));
+    assert!(status.policy.admitted);
+    assert_eq!(status.artifact_observations.len(), 1);
+    let relation = &status.artifact_observations[0];
+    assert_eq!(relation.subject_role.as_str(), "runtime-release");
+    assert_eq!(relation.semantic_kind, EvidenceKind::ExampleTest);
+    assert_eq!(relation.artifact.sha256, digest("runtime-release"));
+    assert!(
+        status
+            .evidence
+            .iter()
+            .find(|item| item.id == relation.evidence)
+            .unwrap()
+            .roles
+            .contains(&EvidenceRole::ArtifactObservation)
+    );
+}
+
+#[test]
+fn exact_artifact_observation_requires_a_valid_typed_dependency_edge() {
+    let mut input = base_input(Tier::Ledger, ledger_policy());
+    let dependency = example_record("release-build");
+    let dependency_id = dependency.id.clone();
+    add_record(&mut input, dependency, NodeKind::TestSuite, true);
+    let mut observation = example_record("native-execution");
+    attach_artifact_observation(&mut observation, dependency_id);
+    add_record(&mut input, observation, NodeKind::TestSuite, true);
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(
+        status
+            .errors
+            .iter()
+            .any(|error| error.code == ErrorCode::PbObs0009)
+    );
+    assert!(status.artifact_observations.is_empty());
+}
+
+#[test]
+fn exact_artifact_observation_shape_attacks_have_stable_producer_codes() {
+    let dependency = EvidenceId::new("release-build").unwrap();
+    let record = || {
+        let mut record = example_record("native-execution");
+        attach_artifact_observation(&mut record, dependency.clone());
+        record
+    };
+    let codes = |record: &EvidenceRecord| {
+        record
+            .validate(&claim_id())
+            .unwrap_err()
+            .errors
+            .into_iter()
+            .map(|error| error.code)
+            .collect::<BTreeSet<_>>()
+    };
+
+    let mut attack = record();
+    let artifact = attack
+        .artifact_observation
+        .as_ref()
+        .unwrap()
+        .artifact
+        .clone();
+    attack
+        .provenance
+        .input_artifacts
+        .retain(|candidate| candidate.logical_name != artifact.logical_name);
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0001));
+
+    let mut attack = record();
+    attack
+        .artifact_observation
+        .as_mut()
+        .unwrap()
+        .artifact
+        .sha256 = digest("substitution");
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0002));
+
+    let mut attack = record();
+    let procedure = attack
+        .artifact_observation
+        .as_ref()
+        .unwrap()
+        .procedure
+        .clone();
+    attack
+        .provenance
+        .input_artifacts
+        .retain(|candidate| candidate.logical_name != procedure.logical_name);
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0006));
+
+    let mut attack = record();
+    attack
+        .artifact_observation
+        .as_mut()
+        .unwrap()
+        .procedure
+        .sha256 = digest("substitution");
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0007));
+
+    let mut attack = record();
+    attack.provenance.additional_closures.clear();
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0008));
+
+    let mut attack = record();
+    attack
+        .artifact_observation
+        .as_mut()
+        .unwrap()
+        .dependencies
+        .clear();
+    assert!(codes(&attack).contains(&ErrorCode::PbObs0009));
 }
 
 #[test]
@@ -827,6 +1110,89 @@ fn multi_command_provenance_rejects_index_drift_truncation_and_incomplete_passes
 }
 
 #[test]
+fn distribution_reproduction_requires_two_exact_registered_candidates() {
+    let mut valid = example_record("wheel");
+    let artifact_sha256 = digest("wheel-bytes");
+    valid.inventoried_targets = BTreeSet::from(["dist/package.whl".into()]);
+    valid.provenance.generated_artifacts = vec![
+        ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new("distribution/wheel/candidate-1").unwrap(),
+            sha256: artifact_sha256,
+            size_bytes: 64,
+        },
+        ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new("distribution/wheel/candidate-2").unwrap(),
+            sha256: artifact_sha256,
+            size_bytes: 64,
+        },
+    ];
+    valid.distribution_reproduction = Some(crate::DistributionReproductionEvidence {
+        schema: crate::DISTRIBUTION_REPRODUCTION_SCHEMA_V1.into(),
+        format: "wheel".into(),
+        run_digests: vec![artifact_sha256, artifact_sha256],
+        registered_digest: artifact_sha256,
+        source_date_epoch: 315_532_800,
+        build_backend_name: "hatchling".into(),
+        build_backend_version: "1.27.0".into(),
+        npm_integrity: None,
+        member_inventory: vec!["package/__init__.py".into(), "package/py.typed".into()],
+    });
+    assert!(valid.validate(&claim_id()).is_ok());
+
+    let mut drifted = valid.clone();
+    drifted
+        .distribution_reproduction
+        .as_mut()
+        .unwrap()
+        .run_digests[1] = digest("drifted");
+    assert!(drifted.validate(&claim_id()).is_err());
+
+    let mut extra = valid;
+    extra.provenance.generated_artifacts.push(ArtifactIdentity {
+        logical_name: ArtifactLogicalName::new("distribution/wheel/candidate-3").unwrap(),
+        sha256: digest("wheel-bytes"),
+        size_bytes: 64,
+    });
+    assert!(extra.validate(&claim_id()).is_err());
+
+    let mut npm = example_record("npm-package");
+    let npm_digest = digest("npm-package-bytes");
+    npm.inventoried_targets = BTreeSet::from(["fixture-1.0.0.tgz".into()]);
+    npm.provenance.generated_artifacts = vec![
+        ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new("distribution/npm-package/candidate-1").unwrap(),
+            sha256: npm_digest,
+            size_bytes: 64,
+        },
+        ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new("distribution/npm-package/candidate-2").unwrap(),
+            sha256: npm_digest,
+            size_bytes: 64,
+        },
+    ];
+    npm.distribution_reproduction = Some(crate::DistributionReproductionEvidence {
+        schema: crate::DISTRIBUTION_REPRODUCTION_SCHEMA_V1.into(),
+        format: "npm-package".into(),
+        run_digests: vec![npm_digest, npm_digest],
+        registered_digest: npm_digest,
+        source_date_epoch: 0,
+        build_backend_name: "npm".into(),
+        build_backend_version: "10.9.0".into(),
+        npm_integrity: Some("sha512-Zml4dHVyZQ==".into()),
+        member_inventory: vec!["package.json".into(), "src/index.ts".into()],
+    });
+    assert!(npm.validate(&claim_id()).is_ok());
+
+    let mut missing_integrity = npm;
+    missing_integrity
+        .distribution_reproduction
+        .as_mut()
+        .unwrap()
+        .npm_integrity = None;
+    assert!(missing_integrity.validate(&claim_id()).is_err());
+}
+
+#[test]
 fn bounded_check_requires_public_finite_domain_language() {
     let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
     add_record(
@@ -980,7 +1346,6 @@ fn source_refinement_premise_is_assumed_until_scoped_policy_admitted_discharge()
     let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::SourceRefined));
     let proof = theorem_record("refinement-proof", crate::EvaluationMode::Kernel);
     let proof_id = proof.id.clone();
-    let proof_node = proof.node_id.clone();
     add_record(&mut input, proof, NodeKind::Theorem, true);
 
     let premise_id = PremiseId::new("PREMISE-VALID").unwrap();
@@ -999,20 +1364,22 @@ fn source_refinement_premise_is_assumed_until_scoped_policy_admitted_discharge()
         generated_axioms_clean: true,
         adapter_strength: AdapterStrength::DecisionAdequate,
     });
+    let refinement_id = refinement.id.clone();
+    let refinement_node = refinement.node_id.clone();
     add_record(&mut input, refinement, NodeKind::TranslationUnit, true);
     input.graph.nodes.push(GraphNode {
         id: premise_node.clone(),
         kind: NodeKind::Premise,
         proof_environment: None,
     });
-    let edge = checked_graph_edge(&input, &proof_node, &premise_node, EdgeKind::Assumes);
+    let edge = checked_graph_edge(&input, &refinement_node, &premise_node, EdgeKind::Assumes);
     input.graph.edges.push(edge);
     input.premises.push(PremiseRecord {
         id: premise_id,
         node_id: premise_node.clone(),
         statement: "The decoded carrier is valid.".into(),
         category: AssumptionCategory::RepresentationPremise,
-        theorem_evidence: Some(proof_id),
+        theorem_evidence: Some(refinement_id),
         scope: FlowScope::AllRegisteredInputs,
         discharge: None,
     });
@@ -1022,6 +1389,25 @@ fn source_refinement_premise_is_assumed_until_scoped_policy_admitted_discharge()
     assert_eq!(assumed.linkage, Some(LinkageFacet::Refined));
     assert_eq!(assumed.assumption.standing, AssumptionStanding::Assumed);
     assert!(assumed.policy.admitted);
+
+    input.graph.edges.retain(|edge| {
+        !(edge.from() == &refinement_node
+            && edge.to() == &premise_node
+            && edge.kind() == EdgeKind::Assumes)
+    });
+    let detached = derive_claim_status(&input);
+    assert!(!detached.policy.admitted);
+    assert!(detached.errors.iter().any(|error| {
+        error
+            .message
+            .contains("detached from its registered evidence owner")
+    }));
+    input.graph.edges.push(checked_graph_edge(
+        &input,
+        &refinement_node,
+        &premise_node,
+        EdgeKind::Assumes,
+    ));
 
     let discharge = theorem_record("decoder-proof", crate::EvaluationMode::Kernel);
     let discharge_id = discharge.id.clone();
@@ -1459,6 +1845,110 @@ fn strong_artifact_binding_produces_artifact_bound_linkage() {
     assert!(status.policy.admitted);
 }
 
+#[test]
+fn closed_artifact_binding_set_selects_only_an_exact_member() {
+    let first = bound_artifact();
+    let second = named_artifact("release/aarch64/pbr", "arm64 artifact", 9);
+    let members = [first, second.clone()];
+
+    let mut accepted = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+    let mut theorem = theorem_record("artifact-set", crate::EvaluationMode::Kernel);
+    let statement = binding_set_statement(&claim_id(), &members);
+    let detail = theorem.theorem.as_mut().unwrap();
+    detail.statement_sha256 = crate::lean_statement_wire_digest(&statement).unwrap();
+    detail.statement_wire = statement;
+    let theorem_id = theorem.id.clone();
+    add_record(&mut accepted, theorem, NodeKind::Theorem, true);
+    add_artifact_binding(&mut accepted, theorem_id, second, "selected-set-member");
+    let status = derive_claim_status(&accepted);
+    assert_eq!(status.formal, FormalFacet::Proved);
+    assert_eq!(status.linkage, Some(LinkageFacet::ArtifactBound));
+
+    let mut rejected = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+    let mut theorem = theorem_record("artifact-set-miss", crate::EvaluationMode::Kernel);
+    let statement = binding_set_statement(&claim_id(), &members);
+    let detail = theorem.theorem.as_mut().unwrap();
+    detail.statement_sha256 = crate::lean_statement_wire_digest(&statement).unwrap();
+    detail.statement_wire = statement;
+    let theorem_id = theorem.id.clone();
+    add_record(&mut rejected, theorem, NodeKind::Theorem, true);
+    add_artifact_binding(
+        &mut rejected,
+        theorem_id,
+        named_artifact("release/riscv64/pbr", "riscv artifact", 10),
+        "absent-set-member",
+    );
+    let status = derive_claim_status(&rejected);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert_eq!(status.linkage, None);
+}
+
+#[test]
+fn frozen_contextual_binding_member_attacks_reject_with_registered_code() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+    let corpus: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(
+        corpus["schema"],
+        "proofbound-contextual-artifact-binding-attacks/1"
+    );
+    let cases = corpus["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 10);
+    let mut seen = BTreeSet::new();
+    let mut executed = BTreeSet::new();
+
+    for case in cases {
+        let id = case["id"].as_str().unwrap();
+        assert!(seen.insert(id), "duplicate case {id}");
+        assert!(!case["mutation"].as_str().unwrap().trim().is_empty());
+        let first = bound_artifact();
+        let second = named_artifact("release/aarch64/pbr", "arm64 artifact", 9);
+        let selected = match id {
+            "member-omission" => named_artifact("release/riscv64/pbr", "riscv artifact", 10),
+            "member-substitution" => ArtifactIdentity {
+                logical_name: second.logical_name.clone(),
+                sha256: digest("substituted arm64 artifact"),
+                size_bytes: second.size_bytes,
+            },
+            "empty-binding-set"
+            | "duplicate-binding-member"
+            | "noncanonical-binding-order"
+            | "computed-member-identity"
+            | "context-kind-substitution"
+            | "inactive-binding-smuggling"
+            | "receipt-context-substitution"
+            | "observation-promotion" => continue,
+            unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+        };
+        executed.insert(id);
+
+        let mut input = base_input(Tier::Bound, builtin(BuiltInProfile::ArtifactBound));
+        let mut theorem = theorem_record("artifact-set-attack", crate::EvaluationMode::Kernel);
+        let statement = binding_set_statement(&claim_id(), &[first, second]);
+        let detail = theorem.theorem.as_mut().unwrap();
+        detail.statement_sha256 = crate::lean_statement_wire_digest(&statement).unwrap();
+        detail.statement_wire = statement;
+        let theorem_id = theorem.id.clone();
+        add_record(&mut input, theorem, NodeKind::Theorem, true);
+        add_artifact_binding(&mut input, theorem_id, selected, id);
+        let status = derive_claim_status(&input);
+        let actual = status
+            .errors
+            .iter()
+            .map(|error| error.code.to_string())
+            .collect::<BTreeSet<_>>();
+        assert!(
+            actual.contains(case["expected_code"].as_str().unwrap()),
+            "{id} expected {}, received {actual:?}",
+            case["expected_code"].as_str().unwrap()
+        );
+    }
+    assert_eq!(
+        executed,
+        BTreeSet::from(["member-omission", "member-substitution"])
+    );
+}
+
 fn add_artifact_binding(
     input: &mut ClaimEvaluationInput,
     theorem: EvidenceId,
@@ -1855,6 +2345,43 @@ fn mutation_witness_replay_is_exact_and_fail_closed() {
 }
 
 #[test]
+fn node_mutation_witness_requires_exact_vitest_abi_and_package_inputs() {
+    let valid = node_mutation_record();
+    assert!(valid.validate(&claim_id()).is_ok());
+
+    let mut wrong_pattern = valid.clone();
+    wrong_pattern.provenance.commands[1].args[4] = ".*".into();
+    assert!(wrong_pattern.validate(&claim_id()).is_err());
+
+    let mut wrong_exit = valid.clone();
+    wrong_exit.provenance.runs[1].exit_code = Some(101);
+    assert!(wrong_exit.validate(&claim_id()).is_err());
+
+    let mut missing_lock = valid;
+    missing_lock
+        .provenance
+        .input_artifacts
+        .retain(|artifact| artifact.logical_name.as_str() != "package-lock.json");
+    assert!(missing_lock.validate(&claim_id()).is_err());
+}
+
+#[test]
+fn python_mutation_witness_requires_exact_pytest_shadow_abi() {
+    let valid = python_mutation_record();
+    assert!(valid.validate(&claim_id()).is_ok());
+
+    let mut replayed_baseline = valid.clone();
+    replayed_baseline.provenance.commands[1] = replayed_baseline.provenance.commands[0].clone();
+    assert!(replayed_baseline.validate(&claim_id()).is_err());
+
+    let mut injected_argument = valid;
+    injected_argument.provenance.commands[1]
+        .args
+        .insert(7, "--maxfail=1".into());
+    assert!(injected_argument.validate(&claim_id()).is_err());
+}
+
+#[test]
 fn expected_nonzero_exit_is_never_available_to_other_evidence_kinds() {
     let mut ordinary = example_record("ordinary-nonzero");
     ordinary.provenance.runs[0].exit_code = Some(101);
@@ -2108,6 +2635,29 @@ fn build_core_corpus_case(case: &CorpusCase) -> ClaimEvaluationInput {
         }
         let (mut record, node_kind) = match raw.kind.as_str() {
             "example-test" => (example_record(&raw.id), NodeKind::TestSuite),
+            "static-check" => {
+                let mut record = basic_record(
+                    &raw.id,
+                    EvidenceKind::StaticCheck,
+                    &format!("test:{}", raw.id),
+                );
+                let target = format!("python/{}.py", raw.id);
+                let configuration = named_artifact("mypy.ini", "mypy-configuration", 16);
+                record.inventoried_targets = BTreeSet::from([target.clone()]);
+                record
+                    .provenance
+                    .input_artifacts
+                    .push(configuration.clone());
+                record.static_check = Some(StaticCheckEvidence {
+                    schema: crate::STATIC_CHECK_SCHEMA_V1.into(),
+                    tool: "mypy".into(),
+                    tool_version: "1.18.2".into(),
+                    configuration_sha256: configuration.sha256,
+                    targets: BTreeSet::from([target]),
+                    diagnostics: 0,
+                });
+                (record, NodeKind::TestSuite)
+            }
             "bounded-check" => (bounded_record(&raw.id), NodeKind::ModelCheckUnit),
             "exhaustive-check" => (exhaustive_record(&raw.id), NodeKind::ModelCheckUnit),
             "independent-check" => {

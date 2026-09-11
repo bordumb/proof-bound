@@ -1359,6 +1359,7 @@ fn should_exclude(relative: &Path) -> bool {
             || name == ".lake"
             || name == ".proofbound"
             || name == ".venv"
+            || name == "node_modules"
             || name == "__pycache__"
             || name == ".pytest_cache"
             || name == ".mypy_cache"

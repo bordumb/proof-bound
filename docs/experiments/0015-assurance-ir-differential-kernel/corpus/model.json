@@ -1,0 +1,29 @@
+{
+  "schema": "proofbound-research-assurance-model/2",
+  "program_schema": "proofbound-research-assurance-program/2",
+  "report_schema": "proofbound-research-assurance-kernel-report/2",
+  "families": [
+    {"id": "artifact-binding", "formal": "proved", "linkage": "artifact-bound", "required_artifact_roles": ["bound", "generated", "reproduced", "sealed", "source"], "requires_specification": true},
+    {"id": "bounded-check", "formal": "tested", "linkage": "model-only", "required_artifact_roles": ["generated", "source"], "requires_specification": true},
+    {"id": "mutation-witness", "formal": "tested", "linkage": "model-only", "required_artifact_roles": ["bound", "generated", "source"], "requires_specification": true},
+    {"id": "sampled-property", "formal": "tested", "linkage": "model-only", "required_artifact_roles": ["source"], "requires_specification": true},
+    {"id": "theorem", "formal": "proved", "linkage": "model-only", "required_artifact_roles": ["source"], "requires_specification": true},
+    {"id": "trusted-transcription", "formal": "open", "linkage": "transcribed", "required_artifact_roles": ["generated", "reproduced", "source"], "requires_specification": true}
+  ],
+  "dependency_roles": ["absence", "environment", "execution-input", "external-contract", "semantic-source", "tool"],
+  "effect_capabilities": ["clock", "environment", "execute", "network", "random", "read", "secret", "write"],
+  "effect_boundaries": ["externally-enforced", "mediated", "opaque", "statically-denied"],
+  "artifact_roles": ["bound", "generated", "reproduced", "sealed", "source"],
+  "uncertainties": [
+    {"kind": "assumption", "consequence": "marks-assumed"},
+    {"kind": "conflicting-evidence", "consequence": "blocks-admission"},
+    {"kind": "exclusion", "consequence": "blocks-admission"},
+    {"kind": "open-obligation", "consequence": "blocks-admission"},
+    {"kind": "stale-evidence", "consequence": "blocks-admission"},
+    {"kind": "unavailable-telemetry", "consequence": "informational"}
+  ],
+  "specification_roles": ["canonicality", "consumption", "malformed-rejection", "round-trip", "termination"],
+  "derivation_rules": ["admission-decided", "evidence-valid", "family-facet", "uncertainty-evaluated"],
+  "object_constructors": ["artifact", "attack", "claim", "corpus", "decision", "dependency", "derivation", "effect", "evidence", "generated-case", "invalidation", "kernel-report", "programme", "specification", "step", "uncertainty"],
+  "validation_codes": ["IR2-ALIAS", "IR2-ARTIFACT-BINDING", "IR2-ARTIFACT-ROLE", "IR2-CACHE-INELIGIBLE", "IR2-DECISION-MISMATCH", "IR2-DECISION-UPGRADE", "IR2-DEPENDENCY-BINDING", "IR2-DEPENDENCY-INCOMPLETE", "IR2-DEPENDENCY-MISSING", "IR2-DERIVATION-DEPENDENCY", "IR2-DERIVATION-IDENTITY", "IR2-DERIVATION-ROOT", "IR2-DUPLICATE", "IR2-EFFECT-DISPOSITION", "IR2-EFFECT-ENFORCEMENT", "IR2-EFFECT-MISSING", "IR2-EFFECT-OPAQUE", "IR2-FAMILY-COERCION", "IR2-IDENTIFIER", "IR2-INVALIDATION", "IR2-NONCANONICAL", "IR2-ORDER", "IR2-REFERENCE", "IR2-SCHEMA", "IR2-SPECIFICATION-BINDING", "IR2-SPECIFICATION-INADEQUATE", "IR2-SPECIFICATION-MISSING", "IR2-UNCERTAINTY-CONSEQUENCE", "IR2-UNCERTAINTY-KIND", "IR2-UNCERTAINTY-MISSING"]
+}

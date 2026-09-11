@@ -1,0 +1,77 @@
+{
+  "schema": "proofbound-research-explicit-sampling-preregistration/1",
+  "experiment": "EXP-0006",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-02",
+  "subject": "git:a1ecfd1c27d3652fde3576eebe3b52cc36d8d68f",
+  "frameworks": [
+    {
+      "id": "hypothesis",
+      "version": "6.112.0",
+      "property_unit": "unit:reservation-property",
+      "record_sha256": "sha256:62dc583c96abc12870462cbfce68bc785252a53b22ef7ea9c7e8df51b3c96bfe",
+      "registered_seed": 4025493768,
+      "current_typed_observation": true
+    },
+    {
+      "id": "fast-check",
+      "version": "4.3.0",
+      "property_unit": "unit:bounded-roundtrip",
+      "record_sha256": "sha256:ab14aab1cbc0921da04d4fbec96629063be986a752d2b06d251ad59bc268d692",
+      "source_seed": 424242,
+      "source_num_runs": 100,
+      "current_typed_observation": false
+    }
+  ],
+  "routes": [
+    {
+      "id": "ordinary-runner-instrumentation",
+      "constraint": "The selected application test function remains byte-identical.",
+      "success": "Documented public framework and runner APIs expose every registered and observed contract field without source parsing or app-authored success metadata."
+    },
+    {
+      "id": "adapter-owned-property-driver",
+      "constraint": "Application code exports only a bounded generator/predicate entrypoint; the adapter owns framework execution, parameters, result capture, and normalization.",
+      "success": "The driver emits a closed report that the adapter checks against registration, artifacts, inventory, and process provenance."
+    }
+  ],
+  "required_contract_fields": [
+    "framework identity and version",
+    "seed encoding and value",
+    "requested successful-case budget",
+    "generator entrypoint and exact closure identity",
+    "exact target inventory",
+    "replay phase policy",
+    "persistence/database policy",
+    "shrinking policy"
+  ],
+  "required_observation_fields": [
+    "contract identity",
+    "actual seed",
+    "completed cases",
+    "skipped cases",
+    "shrink count",
+    "exact target inventory",
+    "passed or typed counterexample result"
+  ],
+  "attacks": [
+    {"id": "EXP-0006-A001", "mutation": "replace the registered seed and retain the old report", "expected": "sampling-contract-mismatch"},
+    {"id": "EXP-0006-A002", "mutation": "replace the requested case budget with the same completed count", "expected": "sampling-contract-mismatch"},
+    {"id": "EXP-0006-A003", "mutation": "replace the generator entrypoint while retaining its outer label", "expected": "generator-identity-mismatch"},
+    {"id": "EXP-0006-A004", "mutation": "change one generator-closure byte and refresh only the outer contract identity", "expected": "generator-identity-mismatch"},
+    {"id": "EXP-0006-A005", "mutation": "substitute one target with a same-count target", "expected": "sampling-inventory-mismatch"},
+    {"id": "EXP-0006-A006", "mutation": "omit or duplicate one structured report field", "expected": "sampling-report-invalid"},
+    {"id": "EXP-0006-A007", "mutation": "let source-local settings override the registered seed or budget", "expected": "sampling-contract-mismatch"},
+    {"id": "EXP-0006-A008", "mutation": "reinterpret a legacy contract digest as explicit sampling", "expected": "sampling-schema-mismatch"},
+    {"id": "EXP-0006-A009", "mutation": "change persistence from disabled to ambient writable database", "expected": "sampling-contract-mismatch"},
+    {"id": "EXP-0006-A010", "mutation": "change framework version while retaining framework name", "expected": "sampling-tool-mismatch"}
+  ],
+  "decision": {
+    "q1": "Both frameworks preserve every required contract field and project to one backend-neutral constructor.",
+    "q2": "Every required observation is independently tied to registration and exact process/artifact provenance; all attacks fail with their registered class.",
+    "q3": "Select the least intrusive route that passes Q1 and Q2 without inferred fields. If only the driver ABI passes, record instrumentation as failed rather than averaging the routes.",
+    "q4": "Legacy and explicit records remain distinct versioned constructors and all migration attacks fail.",
+    "unblock_exp_0005_q1_field_012": "Q1, Q2, and Q4 pass in independent Rust and Python implementations."
+  }
+}

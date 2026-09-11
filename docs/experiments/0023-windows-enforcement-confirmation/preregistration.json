@@ -1,0 +1,49 @@
+{
+  "schema": "proofbound-research-windows-confirmation-preregistration/1",
+  "experiment": "EXP-0023",
+  "programme_experiment": "EXP-LANG-016",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:d2b4828f07d61d8aa6a7f7b15c4fde9be721b5f1",
+  "frozen_inputs": {
+    "effect_contract": {
+      "path": "docs/experiments/0018-os-enforced-effects/corpus/contract.json",
+      "sha256": "sha256:589244f93383788fcc61587ec665ddc9e38ebf96ce59f82da2fce9e7510d967d"
+    },
+    "windows_policy": {
+      "path": "docs/experiments/0021-windows-enforcement-portability/preregistration.json",
+      "sha256": "sha256:c9b4296b4700fdfbb433b324c449883b0ceedef42399962daad19bf965f0b9a9"
+    }
+  },
+  "platform": {
+    "os": "windows",
+    "minimum_release": "Windows 11",
+    "architecture": "aarch64",
+    "github_runner": "windows-11-arm",
+    "mechanisms": [
+      "appcontainer",
+      "restricted-token",
+      "job-object",
+      "explicit-path-acl"
+    ],
+    "network_capabilities": [],
+    "unsupported_behavior": "zero-workload-receipts-never-fallback"
+  },
+  "inventory": {
+    "positive_slots": 30,
+    "authority_slots": 21,
+    "policy_attacks": 18
+  },
+  "ceilings": {
+    "max_native_launcher_lines": 1800,
+    "max_python_runner_lines": 1400,
+    "max_report_bytes": 196608
+  },
+  "decision": {
+    "pass": "supported native Windows 11 execution and Q1-Q5 pass",
+    "revise": "the mechanism is supported but a frozen enforcement criterion fails",
+    "unanswered": "the exact mechanism is unavailable and zero workload receipts are emitted",
+    "stop": "execution falls back or denied authority produces reusable evidence"
+  }
+}

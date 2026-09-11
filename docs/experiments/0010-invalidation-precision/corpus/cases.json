@@ -1,0 +1,60 @@
+{
+  "schema": "proofbound-research-invalidation-corpus/1",
+  "experiment": "EXP-0010",
+  "programme_experiment": "EXP-LANG-003",
+  "revision": 1,
+  "status": "frozen-before-implementation",
+  "subject": "git:74fada0ddb077f11b97b99fa10b73dce651c5329",
+  "preregistration": "git:26f460f1070d84f345f7aa66b1c5eba4be6fd968",
+  "controlled_units": [
+    {"id":"accept-over-cap-mutant","route":"python-mutation","manifest":"demo/python-inventory-service/evidence/reservation-mutant.toml","manifest_sha256":"sha256:8bb7d57013389fcc51200f3118a486bee90273274df8cff78c7e4885f07e9b16","claims":["PY-RESERVATION-001"]},
+    {"id":"accept-respects-cap","route":"lean-theorem","manifest":"demo/allowance/proofbound/evidence/accept-respects-cap.toml","manifest_sha256":"sha256:87cde39f91b6fe1a5c4113525de19e4758a1321ed8ca43e5af13c90689ddd660","claims":["DEMO-TRANSFER-003"]},
+    {"id":"bounded-roundtrip","route":"typescript-vitest","manifest":"demo/typescript-codec/evidence/bounded-roundtrip.toml","manifest_sha256":"sha256:ab6fbaffa27f04a2b32d88d8721260eb8fb799fca4354759fa0e31af691aba1b","claims":["TS-CODEC-001"]},
+    {"id":"npm-package","route":"typescript-npm-package","manifest":"demo/typescript-codec/evidence/npm-package.toml","manifest_sha256":"sha256:37f93c53ec4cf5767ed4902f5baebbde74ec1ca4c9bbb47d50f901f4aeefba21","claims":["TS-PACKAGE-001"]},
+    {"id":"reject-padding","route":"typescript-vitest","manifest":"demo/typescript-codec/evidence/reject-padding.toml","manifest_sha256":"sha256:91bdb2cba6d0cea7f24da1bbcc51bb8b2aca9593e200209e56ee298245320530","claims":["TS-CODEC-001"]},
+    {"id":"reject-padding-mutant","route":"typescript-mutation","manifest":"demo/typescript-codec/evidence/reject-padding-mutant.toml","manifest_sha256":"sha256:28c5132825e20bb5b64dd910511156bf8549bc0194d02d5e416ac576463ab393","claims":["TS-CODEC-001"]},
+    {"id":"remove-cap-guard","route":"rust-mutation","manifest":"demo/allowance/proofbound/evidence/remove-cap-guard.toml","manifest_sha256":"sha256:a95df7d8c9f481143589fdeafe8a50ce8c660cab27742d6386f0d5909c17796c","claims":["DEMO-TRANSFER-003","DEMO-TRANSFER-005"]},
+    {"id":"reservation-example","route":"python-pytest","manifest":"demo/python-inventory-service/evidence/reservation-example.toml","manifest_sha256":"sha256:4be02140847d6112c49b44ba3733747cfa4040a75f322b1750994faa998cfdef","claims":["PY-RESERVATION-001"]},
+    {"id":"reservation-property","route":"python-hypothesis","manifest":"demo/python-inventory-service/evidence/reservation-property.toml","manifest_sha256":"sha256:c3d5b220067293b37d696e853f9e3c69574aa97e38e69275d72815c0683afa79","claims":["PY-RESERVATION-001"]},
+    {"id":"reservation-types","route":"python-mypy","manifest":"demo/python-inventory-service/evidence/reservation-types.toml","manifest_sha256":"sha256:1a5d986120e396c07c5179c29fefd2646ec1513eb8619c720e478ece4d69da6d","claims":["PY-RESERVATION-001"]},
+    {"id":"reservation-vectors","route":"independent-check","manifest":"demo/python-inventory-service/evidence/reservation-vectors.toml","manifest_sha256":"sha256:a13951d314ee7bb8373542f124a0ed5781e2dc14cec9d3ee3a144884bf471f15","claims":["PY-RESERVATION-001"]},
+    {"id":"rust-kernel-tests","route":"rust-cargo-test","manifest":"demo/allowance/proofbound/evidence/rust-kernel-tests.toml","manifest_sha256":"sha256:029f2ab714cc4fb73f5434b34cd1d90726cd18a9b9430d4df8edadeba9068bc5","claims":["DEMO-TRANSFER-001","DEMO-TRANSFER-002","DEMO-TRANSFER-003","DEMO-TRANSFER-004","DEMO-TRANSFER-005","DEMO-TRANSFER-006"]},
+    {"id":"strict-types","route":"typescript-tsc","manifest":"demo/typescript-codec/evidence/strict-types.toml","manifest_sha256":"sha256:f8f037b9081b2cffc42394385dcd8f03689f5cb973568d4d7b64c37d017865b7","claims":["TS-CODEC-001"]},
+    {"id":"transfer-bounds","route":"kani-bounded-check","manifest":"demo/allowance/proofbound/evidence/transfer-bounds.toml","manifest_sha256":"sha256:c6495bf7b731ffd7b2f84a9a8b63b8a4d50bf7bb3cdcc38f20aea389b2a9076b","claims":["DEMO-TRANSFER-001","DEMO-TRANSFER-002","DEMO-TRANSFER-003","DEMO-TRANSFER-004"]},
+    {"id":"wheel-reproduction","route":"python-wheel","manifest":"demo/python-inventory-service/evidence/wheel-reproduction.toml","manifest_sha256":"sha256:bf52fbb71644040d886c62797f72024170c472a4e16248f67fedabbaebb4fa09","claims":["PY-WHEEL-001"]}
+  ],
+  "external_holdouts": [
+    {
+      "id": "external-click-existing-tests",
+      "corpus_id": "CORPUS-EXT-PY-001",
+      "upstream_subject": "git:36baa15ff831b939a22bc527cd76ce653ef6f66d",
+      "route": "python-pytest",
+      "project_manifest_sha256": "sha256:e8166a5340e5a29dc65d6854f3b61589e7c8c3badd02612a7c7d5f33cc6238d5",
+      "unit_manifest_sha256": "sha256:abd872c37fe3258ea3aba41295d364fab2272ff9a8bc8d614f25f5e64b29fe3d",
+      "semantic_closure": "sha256:697f43a5f7de6158f8328b4db41cc38a3588d8d0451aae54c48d3ffbd9d9e212",
+      "semantic_closure_file_sha256": "sha256:ce12778693173b4a3b63afc66418a78c6d9131b9be4cbb8bfcfb9563ebf23eac",
+      "semantic_members": 83,
+      "claims": ["PROJECT-CLAIM-001"]
+    },
+    {
+      "id": "external-vitest-action-existing-tests",
+      "corpus_id": "CORPUS-EXT-TS-001",
+      "upstream_subject": "git:c4bbc33a89b7ace0e63d35f1f7d4bcee31155a73",
+      "route": "typescript-vitest",
+      "project_manifest_sha256": "sha256:0f30c9d6ded340f565f255a3dda9e93323549a9cb009e65f7dae1709be819eee",
+      "unit_manifest_sha256": "sha256:3525bbc6a7c2e01f8ceba6d403ad254a585b4907fdb2bb10281595e61249aa6f",
+      "semantic_closure": "sha256:fd78ebe1d210ec3661074553951f7347995465c2469dbb7b4c988161af621120",
+      "semantic_closure_file_sha256": "sha256:6f43d8b39a7b918f9da71693e59482b3d5eaeb1a6b1b1ac3b20504d3059ef874",
+      "semantic_members": 66,
+      "claims": ["PROJECT-CLAIM-001"]
+    }
+  ],
+  "auxiliary_fixtures": [
+    {
+      "id": "fixture-cargo-mode",
+      "route": "rust-cargo-test",
+      "root": "docs/experiments/0010-invalidation-precision/corpus/fixtures/mode-project",
+      "purpose": "prove that an executable-mode change with identical file bytes can alter a Cargo build"
+    }
+  ]
+}

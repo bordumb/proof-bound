@@ -113,6 +113,7 @@ pub enum EvidenceKind {
     PropertyTest,
     ExampleTest,
     MutationWitness,
+    StaticCheck,
     Review,
     Assumption,
     Open,
@@ -130,6 +131,7 @@ impl EvidenceKind {
             Self::PropertyTest
             | Self::ExampleTest
             | Self::MutationWitness
+            | Self::StaticCheck
             | Self::Review
             | Self::Assumption
             | Self::Open => Tier::Ledger,
@@ -146,6 +148,7 @@ impl EvidenceKind {
                 | Self::PropertyTest
                 | Self::ExampleTest
                 | Self::MutationWitness
+                | Self::StaticCheck
         )
     }
 }

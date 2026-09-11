@@ -2,19 +2,20 @@ use std::{
     collections::BTreeSet,
     fs,
     path::{Component, Path, PathBuf},
+    process::Command,
 };
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
-    AdapterKind, AssumptionCategory, BindingMode, EvidenceKind, ImportMappingMode,
-    MAX_ADAPTER_INVENTORY_ITEM_CHARS, MAX_ADAPTER_INVENTORY_ITEMS, MAX_TRANSLATION_CLAIMS,
-    MAX_TRANSLATION_EXTERNAL_BRIDGES, MAX_TRANSLATION_INVOCATIONS, MAX_TRANSLATION_MAPPED_OUTPUTS,
-    MAX_TRANSLATION_PATH_BYTES, MAX_TRANSLATION_SOURCE_ROOTS, MAX_TRANSLATION_SYMBOLS,
-    MAX_TRANSLATION_TEMPLATE_AXIOMS, MAX_TRANSLATION_WARNINGS, OperationKind, ProjectBundle,
-    TRANSLATION_RESERVED_PATH_COMPONENTS, TranslationOutputKind, TranslationPipeline,
-    canonical_adapter_inventory,
+    AdapterKind, AssumptionCategory, AssumptionStatus, BindingMode, EvidenceKind,
+    FlowScopeManifest, ImportMappingMode, MAX_ADAPTER_INVENTORY_ITEM_CHARS,
+    MAX_ADAPTER_INVENTORY_ITEMS, MAX_TRANSLATION_CLAIMS, MAX_TRANSLATION_EXTERNAL_BRIDGES,
+    MAX_TRANSLATION_INVOCATIONS, MAX_TRANSLATION_MAPPED_OUTPUTS, MAX_TRANSLATION_PATH_BYTES,
+    MAX_TRANSLATION_SOURCE_ROOTS, MAX_TRANSLATION_SYMBOLS, MAX_TRANSLATION_TEMPLATE_AXIOMS,
+    MAX_TRANSLATION_WARNINGS, OperationKind, ProjectBundle, TRANSLATION_RESERVED_PATH_COMPONENTS,
+    TranslationOutputKind, TranslationPipeline, canonical_adapter_inventory,
 };
 
 const BUILTIN_PROFILES: &[&str] = &[
@@ -79,6 +80,8 @@ pub enum SemanticError {
     StatementEncoding { claim: String, encoding: String },
     #[error("evidence unit {unit}: {message}")]
     EvidenceQualifier { unit: String, message: String },
+    #[error("{code}: {message}")]
+    EvidenceContext { code: &'static str, message: String },
     #[error("translation unit {unit}: {message}")]
     Translation { unit: String, message: String },
     #[error("custom policy {policy} weakens built-in profile {base}: {message}")]
@@ -100,10 +103,13 @@ pub enum SemanticError {
 }
 
 pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
-    if bundle.project.schema != "proofbound-project/1" {
+    if !matches!(
+        bundle.project.schema.as_str(),
+        "proofbound-project/1" | "proofbound-project/2"
+    ) {
         return Err(SemanticError::Schema {
             path: bundle.root.join("proofbound.toml"),
-            expected: "proofbound-project/1",
+            expected: "proofbound-project/1 or proofbound-project/2",
             actual: bundle.project.schema.clone(),
         });
     }
@@ -111,6 +117,7 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
         return Err(SemanticError::InvalidTier(bundle.project.tier));
     }
     validate_project_paths(bundle)?;
+    validate_evidence_context_registration(bundle)?;
 
     let mut global_ids = BTreeSet::new();
     for (id, (path, claim)) in &bundle.claims {
@@ -190,6 +197,19 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
                 second: path.clone(),
             });
         }
+        let unique_formal_axioms = assumption.formal_axioms.iter().collect::<BTreeSet<_>>();
+        if assumption.formal_axioms.len() > 1024
+            || unique_formal_axioms.len() != assumption.formal_axioms.len()
+            || assumption
+                .formal_axioms
+                .iter()
+                .any(|name| !valid_lean_axiom_name(name))
+        {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: "formal_axioms must contain at most 1024 unique fully qualified Lean declaration names of at most 512 characters".to_owned(),
+            });
+        }
         for claim_id in &assumption.affected_claims {
             let Some((_, claim)) = bundle.claims.get(claim_id) else {
                 return Err(SemanticError::MissingReference {
@@ -246,6 +266,8 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
         }
     }
 
+    validate_premise_discharges(bundle)?;
+
     validate_evidence(bundle)?;
     validate_mutation_replays(bundle)?;
     validate_translations(bundle)?;
@@ -256,10 +278,145 @@ pub fn validate_bundle(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     Ok(())
 }
 
+fn validate_premise_discharges(bundle: &ProjectBundle) -> Result<(), SemanticError> {
+    for (id, (_, premise)) in &bundle.assumptions {
+        if let Some(scope) = &premise.premise_scope {
+            validate_flow_scope(id, "premise", scope)?;
+            if premise.category != AssumptionCategory::RepresentationPremise
+                || premise
+                    .affected_claims
+                    .iter()
+                    .any(|claim_id| !bundle.claims[claim_id].1.premises.contains(id))
+            {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: id.clone(),
+                    message: "premise_scope is valid only for a representation-premise registered as a premise by every affected claim"
+                        .to_owned(),
+                });
+            }
+        }
+        let Some(discharge) = &premise.discharge else {
+            if premise.status == AssumptionStatus::Discharged {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: id.clone(),
+                    message: "status is discharged without a first-class premise discharge"
+                        .to_owned(),
+                });
+            }
+            continue;
+        };
+
+        if premise.category != AssumptionCategory::RepresentationPremise {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: "only a representation-premise may declare a premise discharge".to_owned(),
+            });
+        }
+        if premise.status != AssumptionStatus::Discharged {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: "a declared premise discharge requires status = \"discharged\"".to_owned(),
+            });
+        }
+        validate_flow_scope(id, "premise discharge", &discharge.scope)?;
+        if !flow_scope_covers(
+            &discharge.scope,
+            premise
+                .premise_scope
+                .as_ref()
+                .unwrap_or(&FlowScopeManifest::AllRegisteredInputs),
+        ) {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: "premise discharge scope does not cover the declared premise_scope"
+                    .to_owned(),
+            });
+        }
+
+        let Some((_, theorem)) = bundle.evidence_units.get(&discharge.theorem) else {
+            return Err(SemanticError::MissingReference {
+                owner: id.clone(),
+                kind: "discharge theorem evidence",
+                id: discharge.theorem.clone(),
+            });
+        };
+        if theorem.kind != EvidenceKind::Theorem {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: format!(
+                    "premise discharge {} is not theorem evidence",
+                    discharge.theorem
+                ),
+            });
+        }
+        if theorem.premises.contains(id) {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: id.clone(),
+                message: format!(
+                    "discharge theorem {} circularly depends on the premise it discharges",
+                    discharge.theorem
+                ),
+            });
+        }
+
+        let theorem_reference = format!("theorem:{}", discharge.theorem);
+        for claim_id in &premise.affected_claims {
+            let (_, claim) = &bundle.claims[claim_id];
+            if !claim.premises.contains(id) {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: id.clone(),
+                    message: format!(
+                        "discharged premise is not registered as a premise of affected claim {claim_id}"
+                    ),
+                });
+            }
+            if !theorem.claims.contains(claim_id) || !claim.evidence.contains(&theorem_reference) {
+                return Err(SemanticError::InverseMissing {
+                    owner: discharge.theorem.clone(),
+                    target: claim_id.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_flow_scope(
+    id: &str,
+    label: &str,
+    scope: &FlowScopeManifest,
+) -> Result<(), SemanticError> {
+    if let FlowScopeManifest::Flows { flows } = scope
+        && (flows.is_empty()
+            || flows.len() > 4_096
+            || flows.iter().any(|flow| flow.is_empty() || flow.len() > 512))
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: id.to_owned(),
+            message: format!(
+                "a flow-scoped {label} requires 1..=4096 non-empty flow IDs of at most 512 characters"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn flow_scope_covers(discharge: &FlowScopeManifest, premise: &FlowScopeManifest) -> bool {
+    match (discharge, premise) {
+        (FlowScopeManifest::AllRegisteredInputs, _) => true,
+        (
+            FlowScopeManifest::Flows { flows: discharge },
+            FlowScopeManifest::Flows { flows: premise },
+        ) => discharge.is_superset(premise),
+        (FlowScopeManifest::Flows { .. }, FlowScopeManifest::AllRegisteredInputs) => false,
+    }
+}
+
 fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     let mut known_refs = BTreeSet::new();
     for (id, (path, unit)) in &bundle.evidence_units {
         validate_evidence_schema(path, unit)?;
+        validate_context_unit(bundle, id, path, unit)?;
         local_id(id, path)?;
         if unit.tier > bundle.project.tier {
             return Err(SemanticError::TierExceeded {
@@ -314,6 +471,9 @@ fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
         if let Some(path_value) = &unit.operation.checker {
             relative_path(id, path_value)?;
         }
+        if let Some(path_value) = &unit.operation.configuration {
+            relative_path(id, path_value)?;
+        }
         if let Some(transcription) = &unit.transcription {
             for path_value in [
                 &transcription.source,
@@ -364,6 +524,102 @@ fn validate_evidence(bundle: &ProjectBundle) -> Result<(), SemanticError> {
     Ok(())
 }
 
+fn valid_context_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.as_bytes()[0].is_ascii_lowercase()
+        && value.split('-').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+}
+
+fn validate_evidence_context_registration(bundle: &ProjectBundle) -> Result<(), SemanticError> {
+    let contexts = &bundle.project.evidence_contexts;
+    let release_contexts = &bundle.project.required_release_contexts;
+    if bundle.project.schema == "proofbound-project/1"
+        && (!contexts.is_empty() || !release_contexts.is_empty())
+    {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0002",
+            message: "project schema version 1 cannot register evidence contexts".to_owned(),
+        });
+    }
+    if !contexts.windows(2).all(|pair| pair[0] < pair[1])
+        || contexts.iter().any(|context| !valid_context_name(context))
+        || !release_contexts.windows(2).all(|pair| pair[0] < pair[1])
+        || release_contexts
+            .iter()
+            .any(|context| !contexts.contains(context))
+    {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0002",
+            message: "evidence contexts must be canonical strict sets and every required release context must be registered".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_context_unit(
+    bundle: &ProjectBundle,
+    id: &str,
+    path: &Path,
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    let Some(context) = unit.context.as_ref() else {
+        return Ok(());
+    };
+    let exact_observation = unit.schema == "proofbound-evidence-unit/5"
+        && unit.artifact_observation.is_some()
+        && unit.adapter == AdapterKind::RustTest
+        && unit.kind == EvidenceKind::ExampleTest
+        && unit.operation.kind == OperationKind::CargoTest;
+    let artifact_binding = unit.schema == "proofbound-evidence-unit/6"
+        && unit.artifact_observation.is_none()
+        && unit.adapter == AdapterKind::CanonicalArtifact
+        && unit.kind == EvidenceKind::ArtifactSoundness
+        && unit.operation.kind == OperationKind::ArtifactCheck
+        && unit.binding_mode == Some(BindingMode::DigestTheorem)
+        && unit.theorem.is_some();
+    if (!exact_observation && !artifact_binding)
+        || !bundle.project.evidence_contexts.contains(context)
+    {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0001",
+            message: format!(
+                "evidence unit {id} is not one registered contextual exact observation or artifact binding"
+            ),
+        });
+    }
+    let relative = path
+        .strip_prefix(&bundle.root)
+        .map_err(|_| SemanticError::EvidenceContext {
+            code: "PB-CTX-0003",
+            message: format!(
+                "context evidence manifest is outside the project: {}",
+                path.display()
+            ),
+        })?;
+    let tracked = Command::new("git")
+        .args(["ls-files", "--error-unmatch", "--"])
+        .arg(relative)
+        .current_dir(&bundle.root)
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !tracked {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0003",
+            message: format!(
+                "context evidence manifest is not tracked in the reviewed tree: {}",
+                relative.display()
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn validate_evidence_schema(
     path: &Path,
     unit: &crate::EvidenceUnitManifest,
@@ -372,6 +628,8 @@ fn validate_evidence_schema(
         "proofbound-evidence-unit/1"
             if unit.transcription.is_none()
                 && unit.mutation.is_none()
+                && unit.distribution.is_none()
+                && unit.artifact_observation.is_none()
                 && unit.adapter != AdapterKind::TrustedTranscription
                 && unit.kind != EvidenceKind::TrustedTranscription
                 && unit.kind != EvidenceKind::MutationWitness
@@ -382,6 +640,7 @@ fn validate_evidence_schema(
         "proofbound-evidence-unit/2"
             if unit.transcription.is_some()
                 && unit.mutation.is_none()
+                && unit.artifact_observation.is_none()
                 && unit.adapter == AdapterKind::TrustedTranscription
                 && unit.kind == EvidenceKind::TrustedTranscription
                 && unit.operation.kind == OperationKind::Transcription =>
@@ -391,24 +650,75 @@ fn validate_evidence_schema(
         "proofbound-evidence-unit/3"
             if unit.transcription.is_none()
                 && unit.mutation.is_some()
-                && unit.adapter == AdapterKind::RustTest
+                && unit.artifact_observation.is_none()
                 && unit.kind == EvidenceKind::MutationWitness
+                && matches!(
+                    (unit.adapter, unit.operation.kind),
+                    (AdapterKind::RustTest, OperationKind::CargoTest)
+                        | (AdapterKind::PythonTest, OperationKind::Pytest)
+                        | (AdapterKind::NodeTest, OperationKind::Vitest)
+                ) =>
+        {
+            Ok(())
+        }
+        "proofbound-evidence-unit/4"
+            if unit.transcription.is_none()
+                && unit.mutation.is_none()
+                && unit.property.is_none()
+                && unit.distribution.is_some()
+                && unit.artifact_observation.is_none()
+                && unit.kind == EvidenceKind::ExampleTest
+                && matches!(
+                    (unit.adapter, unit.operation.kind),
+                    (AdapterKind::PythonTest, OperationKind::PythonDistribution)
+                        | (AdapterKind::NodeTest, OperationKind::NpmPackage)
+                ) =>
+        {
+            Ok(())
+        }
+        "proofbound-evidence-unit/5"
+            if unit.transcription.is_none()
+                && unit.mutation.is_none()
+                && unit.distribution.is_none()
+                && unit.artifact_observation.is_some()
+                && unit.adapter == AdapterKind::RustTest
+                && unit.kind == EvidenceKind::ExampleTest
                 && unit.operation.kind == OperationKind::CargoTest =>
+        {
+            Ok(())
+        }
+        "proofbound-evidence-unit/6"
+            if unit.context.is_some()
+                && unit.transcription.is_none()
+                && unit.mutation.is_none()
+                && unit.property.is_none()
+                && unit.distribution.is_none()
+                && unit.artifact_observation.is_none()
+                && unit.adapter == AdapterKind::CanonicalArtifact
+                && unit.kind == EvidenceKind::ArtifactSoundness
+                && unit.operation.kind == OperationKind::ArtifactCheck
+                && unit.evaluation_mode.is_some()
+                && unit.binding_mode == Some(BindingMode::DigestTheorem)
+                && unit.theorem.is_some()
+                && unit.refinement_theorem.is_none()
+                && unit.bounded_domain.is_none() =>
         {
             Ok(())
         }
         "proofbound-evidence-unit/1"
         | "proofbound-evidence-unit/2"
-        | "proofbound-evidence-unit/3" => {
-            Err(SemanticError::EvidenceQualifier {
-                unit: unit.id.clone(),
-                message: "evidence-unit/1 excludes trusted transcription and mutation replay; evidence-unit/2 is reserved for typed trusted transcription; evidence-unit/3 is reserved for typed singleton mutation replay"
+        | "proofbound-evidence-unit/3"
+        | "proofbound-evidence-unit/4"
+        | "proofbound-evidence-unit/5"
+        | "proofbound-evidence-unit/6" => Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message:
+                "each versioned evidence-unit schema admits only its closed typed qualifier family"
                     .to_owned(),
-            })
-        }
+        }),
         _ => Err(SemanticError::Schema {
             path: path.to_owned(),
-            expected: "proofbound-evidence-unit/1, proofbound-evidence-unit/2, or proofbound-evidence-unit/3",
+            expected: "proofbound-evidence-unit/1 through proofbound-evidence-unit/6",
             actual: unit.schema.clone(),
         }),
     }
@@ -426,6 +736,7 @@ fn evidence_references(kind: EvidenceKind, id: &str) -> Vec<String> {
         EvidenceKind::PropertyTest => &["property-test"],
         EvidenceKind::ExampleTest => &["test", "example-test"],
         EvidenceKind::MutationWitness => &["mutation", "mutation-witness"],
+        EvidenceKind::StaticCheck => &["static-check"],
         EvidenceKind::Review => &["review"],
         EvidenceKind::Assumption => &["assumption"],
         EvidenceKind::Open => &["open"],
@@ -448,6 +759,7 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
     }
     validate_executable_route(unit)?;
     validate_registered_evidence_inventory(unit)?;
+    validate_python_plugins(unit)?;
     match unit.kind {
         EvidenceKind::Theorem | EvidenceKind::ArtifactSoundness
             if unit.evaluation_mode.is_none() =>
@@ -529,7 +841,127 @@ fn validate_unit_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), Se
             message: "only mutation-witness evidence may declare [mutation]".to_owned(),
         });
     }
+    validate_python_property_qualifiers(unit)?;
+    validate_static_check_qualifiers(unit)?;
+    validate_distribution_qualifiers(unit)?;
+    validate_artifact_observation_qualifiers(unit)?;
+    validate_node_qualifiers(unit)?;
     Ok(())
+}
+
+fn validate_artifact_observation_qualifiers(
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    let Some(observation) = &unit.artifact_observation else {
+        if unit.schema == "proofbound-evidence-unit/5" {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: unit.id.clone(),
+                message: "evidence-unit/5 requires [artifact_observation]".to_owned(),
+            });
+        }
+        return Ok(());
+    };
+    let role_valid = !observation.subject_role.is_empty()
+        && observation.subject_role.len() <= 128
+        && observation.subject_role.as_bytes()[0].is_ascii_lowercase()
+        && observation.subject_role.split('-').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        });
+    let mut selectors = vec![
+        observation.artifact.as_str(),
+        observation.procedure.as_str(),
+    ];
+    selectors.extend(observation.toolchain_inputs.iter().map(String::as_str));
+    let selectors_unique =
+        selectors.iter().copied().collect::<BTreeSet<_>>().len() == selectors.len();
+    let dependencies_unique = observation
+        .dependencies
+        .iter()
+        .collect::<BTreeSet<_>>()
+        .len()
+        == observation.dependencies.len();
+    if unit.schema != "proofbound-evidence-unit/5"
+        || unit.adapter != AdapterKind::RustTest
+        || unit.kind != EvidenceKind::ExampleTest
+        || unit.operation.kind != OperationKind::CargoTest
+        || !role_valid
+        || observation.toolchain_inputs.is_empty()
+        || observation.toolchain_inputs.len() > 256
+        || observation.dependencies.is_empty()
+        || observation.dependencies.len() > 4096
+        || !selectors_unique
+        || !dependencies_unique
+        || selectors
+            .iter()
+            .any(|selector| !unit.inputs.iter().any(|input| input == selector))
+        || observation.dependencies.iter().any(|dependency| {
+            dependency.is_empty()
+                || dependency.len() > 255
+                || !dependency.as_bytes()[0].is_ascii_alphanumeric()
+                || !dependency
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_.:/-".contains(&byte))
+        })
+        || unit.evaluation_mode.is_some()
+        || unit.binding_mode.is_some()
+        || unit.theorem.is_some()
+        || unit.refinement_theorem.is_some()
+        || unit.bounded_domain.is_some()
+        || unit.transcription.is_some()
+        || unit.mutation.is_some()
+        || unit.property.is_some()
+        || unit.distribution.is_some()
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "evidence-unit/5 must register one closed Rust exact-artifact observation with distinct input selectors, a nonempty toolchain closure, and typed dependencies".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_python_plugins(unit: &crate::EvidenceUnitManifest) -> Result<(), SemanticError> {
+    if unit.operation.plugins.is_empty() {
+        return Ok(());
+    }
+    if unit.adapter != AdapterKind::PythonTest
+        || unit.operation.kind != OperationKind::Pytest
+        || unit.operation.plugins.len() > 32
+        || !unit
+            .operation
+            .plugins
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+        || unit
+            .operation
+            .plugins
+            .iter()
+            .any(|plugin| !valid_python_module(plugin))
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message:
+                "pytest plugins must be a strict lexical set of at most 32 Python module names"
+                    .to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn valid_python_module(value: &str) -> bool {
+    value.split('.').enumerate().all(|(index, segment)| {
+        !segment.is_empty()
+            && segment.bytes().enumerate().all(|(position, byte)| {
+                if index == 0 && position == 0 {
+                    byte.is_ascii_lowercase() || byte == b'_'
+                } else {
+                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                }
+            })
+    })
 }
 
 fn validate_executable_route(unit: &crate::EvidenceUnitManifest) -> Result<(), SemanticError> {
@@ -555,10 +987,30 @@ fn validate_executable_route(unit: &crate::EvidenceUnitManifest) -> Result<(), S
         ) | (
             AdapterKind::PythonTest,
             OperationKind::Pytest,
-            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest
+            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest | EvidenceKind::MutationWitness
         ) | (
             AdapterKind::PythonTest,
             OperationKind::Generator,
+            EvidenceKind::ExampleTest
+        ) | (
+            AdapterKind::PythonTest,
+            OperationKind::Mypy,
+            EvidenceKind::StaticCheck
+        ) | (
+            AdapterKind::PythonTest,
+            OperationKind::PythonDistribution,
+            EvidenceKind::ExampleTest
+        ) | (
+            AdapterKind::NodeTest,
+            OperationKind::Vitest,
+            EvidenceKind::ExampleTest | EvidenceKind::PropertyTest | EvidenceKind::MutationWitness
+        ) | (
+            AdapterKind::NodeTest,
+            OperationKind::Tsc,
+            EvidenceKind::StaticCheck
+        ) | (
+            AdapterKind::NodeTest,
+            OperationKind::NpmPackage,
             EvidenceKind::ExampleTest
         ) | (
             AdapterKind::CanonicalArtifact,
@@ -583,6 +1035,298 @@ fn validate_executable_route(unit: &crate::EvidenceUnitManifest) -> Result<(), S
                 .to_owned(),
         })
     }
+}
+
+fn validate_python_property_qualifiers(
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    let Some(property) = &unit.property else {
+        return Ok(());
+    };
+    let valid = unit.schema == "proofbound-evidence-unit/1"
+        && unit.kind == EvidenceKind::PropertyTest
+        && unit.adapter == AdapterKind::PythonTest
+        && unit.operation.kind == OperationKind::Pytest
+        && matches!(
+            property.framework,
+            crate::PythonPropertyFramework::Hypothesis
+        )
+        && unit
+            .operation
+            .plugins
+            .iter()
+            .any(|name| name == "_hypothesis_pytestplugin");
+    if valid {
+        Ok(())
+    } else {
+        Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "[property] requires property-test evidence, the python-test/pytest route, and an explicitly registered matching plugin"
+                .to_owned(),
+        })
+    }
+}
+
+fn validate_static_check_qualifiers(
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    if matches!(
+        unit.operation.kind,
+        OperationKind::Pyright
+            | OperationKind::Ty
+            | OperationKind::Pyrefly
+            | OperationKind::Ruff
+            | OperationKind::Tsgo
+    ) {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message:
+                "reserved analyzer operation is unsupported until its typed route is specified"
+                    .to_owned(),
+        });
+    }
+    if unit.kind != EvidenceKind::StaticCheck {
+        return Ok(());
+    }
+    let Some(configuration) = unit.operation.configuration.as_deref() else {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "static-check requires operation.configuration".to_owned(),
+        });
+    };
+    relative_path(&unit.id, configuration)?;
+    let route_inventory_valid = match (unit.adapter, unit.operation.kind) {
+        (AdapterKind::PythonTest, OperationKind::Mypy) => {
+            !unit.operation.targets.is_empty()
+                && unit.operation.targets.len() <= 4096
+                && unit
+                    .operation
+                    .targets
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1])
+                && unit.expected_inventory == unit.operation.targets
+        }
+        (AdapterKind::NodeTest, OperationKind::Tsc) => unit.operation.targets.is_empty(),
+        _ => false,
+    };
+    if !unit.inputs.iter().any(|path| path == configuration)
+        || !route_inventory_valid
+        || !unit.outputs.is_empty()
+        || !unit.operation.paths.is_empty()
+        || unit.operation.manifest.is_some()
+        || unit.operation.inventory.is_some()
+        || unit.operation.checker.is_some()
+        || !unit.operation.plugins.is_empty()
+        || !unit.operation.arguments.is_empty()
+        || unit.property.is_some()
+        || unit.distribution.is_some()
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "static-check requires an input-pinned configuration and an exact strict target inventory with no untyped operation fields"
+                .to_owned(),
+        });
+    }
+    if unit.adapter == AdapterKind::PythonTest {
+        for target in &unit.operation.targets {
+            relative_path(&unit.id, target)?;
+            let target_path = Path::new(target);
+            if target_path
+                .extension()
+                .is_some_and(|extension| extension != "py")
+            {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: unit.id.clone(),
+                    message: format!(
+                        "static-check target {target} must be a Python file or package directory"
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_distribution_qualifiers(
+    unit: &crate::EvidenceUnitManifest,
+) -> Result<(), SemanticError> {
+    let Some(distribution) = &unit.distribution else {
+        if matches!(
+            unit.operation.kind,
+            OperationKind::PythonDistribution | OperationKind::NpmPackage
+        ) {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: unit.id.clone(),
+                message: "python-distribution requires [distribution]".to_owned(),
+            });
+        }
+        return Ok(());
+    };
+    let artifact_name = &distribution.artifact_name;
+    let expected_extension = match distribution.format {
+        crate::DistributionFormat::Wheel => ".whl",
+        crate::DistributionFormat::Sdist => ".tar.gz",
+        crate::DistributionFormat::NpmPackage => ".tgz",
+    };
+    let valid_name = !artifact_name.is_empty()
+        && artifact_name.len() <= 255
+        && artifact_name.is_ascii()
+        && artifact_name.bytes().all(|byte| byte.is_ascii_graphic())
+        && !artifact_name.contains(['/', '\\'])
+        && artifact_name.ends_with(expected_extension);
+    let route_valid = match (unit.adapter, unit.operation.kind, distribution.format) {
+        (
+            AdapterKind::PythonTest,
+            OperationKind::PythonDistribution,
+            crate::DistributionFormat::Wheel | crate::DistributionFormat::Sdist,
+        ) => {
+            unit.expected_inventory == [format!("dist/{artifact_name}")]
+                && unit.inputs.iter().any(|path| path == "pyproject.toml")
+        }
+        (
+            AdapterKind::NodeTest,
+            OperationKind::NpmPackage,
+            crate::DistributionFormat::NpmPackage,
+        ) => {
+            unit.expected_inventory == [artifact_name.as_str()]
+                && unit.inputs.iter().any(|path| path == "package.json")
+                && unit.inputs.iter().any(|path| path == "package-lock.json")
+                && distribution.source_date_epoch == 0
+        }
+        _ => false,
+    };
+    if unit.schema != "proofbound-evidence-unit/4"
+        || unit.kind != EvidenceKind::ExampleTest
+        || !route_valid
+        || !valid_name
+        || unit.evaluation_mode.is_some()
+        || unit.binding_mode.is_some()
+        || unit.theorem.is_some()
+        || unit.refinement_theorem.is_some()
+        || unit.bounded_domain.is_some()
+        || !unit.premises.is_empty()
+        || !unit.assumptions.is_empty()
+        || !unit.outputs.is_empty()
+        || unit.operation.package.is_some()
+        || !unit.operation.targets.is_empty()
+        || !unit.operation.paths.is_empty()
+        || unit.operation.manifest.is_some()
+        || unit.operation.inventory.is_some()
+        || unit.operation.checker.is_some()
+        || unit.operation.configuration.is_some()
+        || !unit.operation.plugins.is_empty()
+        || !unit.operation.arguments.is_empty()
+        || unit.property.is_some()
+        || unit.mutation.is_some()
+        || unit.transcription.is_some()
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "evidence-unit/4 must be one closed typed distribution reproduction with exact empty outputs and inventory"
+                .to_owned(),
+        });
+    }
+    digest_sha256(&distribution.artifact_sha256, Path::new("distribution"))
+}
+
+fn validate_node_qualifiers(unit: &crate::EvidenceUnitManifest) -> Result<(), SemanticError> {
+    if unit.adapter != AdapterKind::NodeTest {
+        return Ok(());
+    }
+    for required in ["package.json", "package-lock.json"] {
+        if !unit.inputs.iter().any(|path| path == required) {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: unit.id.clone(),
+                message: format!("every Node unit must byte-pin {required}"),
+            });
+        }
+    }
+    if !unit.outputs.is_empty()
+        || unit.operation.package.is_some()
+        || !unit.operation.targets.is_empty()
+        || !unit.operation.paths.is_empty()
+        || unit.operation.manifest.is_some()
+        || unit.operation.inventory.is_some()
+        || unit.operation.checker.is_some()
+        || !unit.operation.plugins.is_empty()
+        || !unit.operation.arguments.is_empty()
+        || unit.property.is_some()
+        || unit.transcription.is_some()
+    {
+        return Err(SemanticError::EvidenceQualifier {
+            unit: unit.id.clone(),
+            message: "Node units admit only typed vitest, tsc, npm-package, distribution, and mutation fields"
+                .to_owned(),
+        });
+    }
+    match unit.operation.kind {
+        OperationKind::Vitest => {
+            if let Some(configuration) = unit.operation.configuration.as_deref() {
+                relative_path(&unit.id, configuration)?;
+                if !unit.inputs.iter().any(|path| path == configuration) {
+                    return Err(SemanticError::EvidenceQualifier {
+                        unit: unit.id.clone(),
+                        message: "vitest configuration must be byte-pinned in inputs".to_owned(),
+                    });
+                }
+            }
+            if unit.kind != EvidenceKind::MutationWitness
+                && unit
+                    .expected_inventory
+                    .iter()
+                    .any(|node| !valid_vitest_node(node))
+            {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: unit.id.clone(),
+                    message: "vitest inventory entries must use the bounded FILE::NAME grammar"
+                        .to_owned(),
+                });
+            }
+        }
+        OperationKind::Tsc => {
+            let Some(configuration) = unit.operation.configuration.as_deref() else {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: unit.id.clone(),
+                    message: "tsc requires operation.configuration".to_owned(),
+                });
+            };
+            relative_path(&unit.id, configuration)?;
+            if !unit.inputs.iter().any(|path| path == configuration) {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: unit.id.clone(),
+                    message: "tsc configuration must be byte-pinned in inputs".to_owned(),
+                });
+            }
+        }
+        OperationKind::NpmPackage => {
+            if unit.operation.configuration.is_some() {
+                return Err(SemanticError::EvidenceQualifier {
+                    unit: unit.id.clone(),
+                    message: "npm-package does not accept operation.configuration".to_owned(),
+                });
+            }
+        }
+        OperationKind::Tsgo => {
+            return Err(SemanticError::EvidenceQualifier {
+                unit: unit.id.clone(),
+                message: "tsgo is reserved until its typed native-compiler route is specified"
+                    .to_owned(),
+            });
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn valid_vitest_node(value: &str) -> bool {
+    let Some((path, name)) = value.split_once("::") else {
+        return false;
+    };
+    translation_path("vitest", path).is_ok()
+        && !name.is_empty()
+        && name.len() <= 1024
+        && !name.starts_with('-')
+        && name.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
 }
 
 fn validate_registered_evidence_inventory(
@@ -765,9 +1509,32 @@ fn validate_mutation_replays(bundle: &ProjectBundle) -> Result<(), SemanticError
             message,
         };
 
+        let route_fields_invalid = match unit.adapter {
+            AdapterKind::RustTest => {
+                unit.operation.package.as_deref().is_none_or(str::is_empty)
+                    || unit.operation.manifest.as_deref().is_none_or(str::is_empty)
+                    || !unit.operation.plugins.is_empty()
+            }
+            AdapterKind::PythonTest => {
+                unit.operation.package.is_some()
+                    || unit.operation.manifest.is_some()
+                    || !unit.operation.plugins.is_empty()
+            }
+            AdapterKind::NodeTest => {
+                unit.operation.package.is_some()
+                    || unit.operation.manifest.is_some()
+                    || !unit.operation.plugins.is_empty()
+            }
+            _ => true,
+        };
+
         if unit.schema != "proofbound-evidence-unit/3"
-            || unit.adapter != AdapterKind::RustTest
-            || unit.operation.kind != OperationKind::CargoTest
+            || !matches!(
+                (unit.adapter, unit.operation.kind),
+                (AdapterKind::RustTest, OperationKind::CargoTest)
+                    | (AdapterKind::PythonTest, OperationKind::Pytest)
+                    | (AdapterKind::NodeTest, OperationKind::Vitest)
+            )
             || unit.kind != EvidenceKind::MutationWitness
             || unit.evaluation_mode.is_some()
             || unit.binding_mode.is_some()
@@ -778,16 +1545,18 @@ fn validate_mutation_replays(bundle: &ProjectBundle) -> Result<(), SemanticError
             || !unit.outputs.is_empty()
             || unit.bounded_domain.is_some()
             || unit.transcription.is_some()
-            || unit.operation.package.as_deref().is_none_or(str::is_empty)
-            || unit.operation.manifest.as_deref().is_none_or(str::is_empty)
+            || route_fields_invalid
             || !unit.operation.targets.is_empty()
             || !unit.operation.paths.is_empty()
             || unit.operation.inventory.is_some()
             || unit.operation.checker.is_some()
+            || unit.operation.configuration.is_some()
             || !unit.operation.arguments.is_empty()
+            || unit.property.is_some()
+            || unit.distribution.is_some()
         {
             return Err(fail(
-                "evidence-unit/3 admits only the typed Rust mutation replay route, exact registration inputs, claims, inventory, environment, and budget"
+                "evidence-unit/3 admits only a typed Rust, Python, or Node mutation replay route, exact registration inputs, claims, inventory, environment, and budget"
                     .to_owned(),
             ));
         }
@@ -852,9 +1621,33 @@ fn validate_mutation_replays(bundle: &ProjectBundle) -> Result<(), SemanticError
                     .to_owned(),
             ));
         }
-        if mutation.witness.chars().count() > 1024 || !valid_rust_path(&mutation.witness) {
+        let witness_valid = match unit.adapter {
+            AdapterKind::RustTest => valid_rust_path(&mutation.witness),
+            AdapterKind::PythonTest => valid_pytest_node(&mutation.witness),
+            AdapterKind::NodeTest => {
+                valid_vitest_node(&mutation.witness)
+                    && mutation
+                        .witness
+                        .split_once("::")
+                        .is_some_and(|(path, _)| path == mutation.witness_path)
+            }
+            _ => false,
+        };
+        if mutation.witness.chars().count() > 1024 || !witness_valid {
             return Err(fail(
-                "mutation witness must be one exact bounded Rust test identity".to_owned(),
+                "mutation witness must be one exact bounded test identity for its adapter"
+                    .to_owned(),
+            ));
+        }
+        if unit.adapter == AdapterKind::PythonTest && !valid_python_subject(&registry.subject) {
+            return Err(fail(
+                "Python mutation subject must use the python:distribution[::module.qualname] grammar"
+                    .to_owned(),
+            ));
+        }
+        if unit.adapter == AdapterKind::NodeTest && !valid_npm_subject(&registry.subject) {
+            return Err(fail(
+                "Node mutation subject must use the npm:package[::export.path] grammar".to_owned(),
             ));
         }
 
@@ -876,6 +1669,9 @@ fn validate_mutation_replays(bundle: &ProjectBundle) -> Result<(), SemanticError
             .into_iter()
             .map(str::to_owned)
             .collect::<Vec<_>>();
+        if unit.adapter == AdapterKind::NodeTest {
+            expected_inputs.extend(["package-lock.json".to_owned(), "package.json".to_owned()]);
+        }
         expected_inputs.sort();
         if unit.inputs != expected_inputs {
             return Err(fail(
@@ -1689,6 +2485,69 @@ fn valid_rust_path(value: &str) -> bool {
     value.split("::").all(valid_rust_identifier)
 }
 
+fn valid_pytest_node(value: &str) -> bool {
+    let Some((path, suffix)) = value.split_once("::") else {
+        return false;
+    };
+    path.ends_with(".py")
+        && translation_path("pytest", path).is_ok()
+        && !suffix.is_empty()
+        && suffix.chars().count() <= 2048
+        && suffix.split("::").all(|segment| {
+            !segment.is_empty()
+                && segment.chars().count() <= 1024
+                && !segment.starts_with('-')
+                && !segment.chars().any(char::is_control)
+        })
+}
+
+fn valid_python_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("python:") else {
+        return false;
+    };
+    let (distribution, symbol) = value
+        .split_once("::")
+        .map_or((value, None), |(name, symbol)| (name, Some(symbol)));
+    let distribution_valid = distribution.split('-').enumerate().all(|(index, segment)| {
+        !segment.is_empty()
+            && segment
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+            && (index != 0
+                || segment
+                    .bytes()
+                    .next()
+                    .is_some_and(|byte| byte.is_ascii_lowercase()))
+    });
+    distribution_valid && symbol.is_none_or(|symbol| symbol.split('.').all(valid_rust_identifier))
+}
+
+fn valid_npm_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("npm:") else {
+        return false;
+    };
+    let (package, export) = value
+        .split_once("::")
+        .map_or((value, None), |(package, export)| (package, Some(export)));
+    let package_valid = !package.is_empty()
+        && package
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        && package.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+        });
+    package_valid && export.is_none_or(|export| export.split('.').all(valid_javascript_identifier))
+}
+
+fn valid_javascript_identifier(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$'))
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+}
+
 fn valid_translation_report_name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 1024
@@ -1707,6 +2566,19 @@ fn valid_lean_module(value: &str) -> bool {
                 .bytes()
                 .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
     })
+}
+
+fn valid_lean_axiom_name(value: &str) -> bool {
+    value.len() <= 512
+        && value.contains('.')
+        && value.split('.').all(|part| {
+            part.bytes()
+                .next()
+                .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+                && part
+                    .bytes()
+                    .all(|byte| byte == b'_' || byte == b'\'' || byte.is_ascii_alphanumeric())
+        })
 }
 
 fn valid_cargo_package(value: &str) -> bool {
@@ -2251,10 +3123,57 @@ fn weak(policy: &str, base: &str, message: &str) -> SemanticError {
 mod tests {
     use super::*;
 
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ContextAttackCorpus {
+        schema: String,
+        cases: Vec<ContextAttackCase>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ContextAttackCase {
+        id: String,
+        mutation: String,
+        expected_code: String,
+    }
+
     fn repository_bundle() -> crate::ProjectBundle {
         let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let root = crate_dir.parent().and_then(|path| path.parent()).unwrap();
         crate::ProjectBundle::load(root).unwrap()
+    }
+
+    fn contextual_artifact_unit(context: &str) -> crate::EvidenceUnitManifest {
+        serde_json::from_value(serde_json::json!({
+            "schema": "proofbound-evidence-unit/6",
+            "id": "release-pbr-aarch64",
+            "context": context,
+            "adapter": "canonical-artifact",
+            "kind": "artifact-soundness",
+            "claims": ["DEMO-MANIFEST-006"],
+            "tier": 3,
+            "operation": {
+                "type": "artifact-check",
+                "checker": "tools/check_artifact.py",
+                "arguments": ["release/aarch64/pbr"]
+            },
+            "evaluation_mode": "kernel",
+            "binding_mode": "digest-theorem",
+            "theorem": "Demo.Release.pbrArtifacts",
+            "premises": [],
+            "assumptions": [],
+            "expected_inventory": ["release-pbr-aarch64"],
+            "inputs": ["release/aarch64/pbr", "tools/check_artifact.py"],
+            "outputs": [],
+            "environment_allowlist": ["PATH"],
+            "resource_budget": {
+                "time_seconds": 60,
+                "disk_bytes": 1048576,
+                "memory_bytes": 1048576
+            }
+        }))
+        .unwrap()
     }
 
     fn review() -> crate::ReviewManifest {
@@ -2285,6 +3204,183 @@ mod tests {
             (bundle.root.join("proofbound/reviews/test.toml"), review),
         );
         bundle
+    }
+
+    fn bundle_with_premise_discharge() -> crate::ProjectBundle {
+        let mut bundle = repository_bundle();
+        let claim_id = "PB-SELF-MANIFEST-001";
+        let premise_id = "PB-TEST-PREMISE-001";
+        let theorem_id = "premise-discharge";
+
+        let claim = &mut bundle.claims.get_mut(claim_id).unwrap().1;
+        claim.premises.push(premise_id.to_owned());
+        claim.evidence.push(format!("theorem:{theorem_id}"));
+
+        let premise = serde_json::from_value(serde_json::json!({
+            "schema": "proofbound-assumption/1",
+            "id": premise_id,
+            "statement": "The registered carrier length is representable.",
+            "category": "representation-premise",
+            "owner": "Proofbound test suite",
+            "rationale": "Exercises first-class premise discharge validation.",
+            "scope": "The registered claim inputs.",
+            "affected_claims": [claim_id],
+            "review_evidence": [],
+            "discharge_plan": "Discharge with the registered kernel theorem.",
+            "status": "discharged",
+            "premise_scope": {"kind": "all-registered-inputs"},
+            "discharge": {
+                "theorem": theorem_id,
+                "scope": {"kind": "all-registered-inputs"}
+            }
+        }))
+        .unwrap();
+        bundle.assumptions.insert(
+            premise_id.to_owned(),
+            (bundle.root.join("assumptions/test-premise.toml"), premise),
+        );
+
+        let mut theorem = bundle.evidence_units["manifest-workspace"].1.clone();
+        theorem.id = theorem_id.to_owned();
+        theorem.kind = EvidenceKind::Theorem;
+        theorem.claims = vec![claim_id.to_owned()];
+        theorem.premises.clear();
+        bundle.evidence_units.insert(
+            theorem_id.to_owned(),
+            (
+                bundle.root.join("proofbound/evidence/discharge.toml"),
+                theorem,
+            ),
+        );
+        bundle
+    }
+
+    #[test]
+    fn premise_discharge_requires_exact_lifecycle_and_theorem_ownership() {
+        let bundle = bundle_with_premise_discharge();
+        assert!(validate_premise_discharges(&bundle).is_ok());
+
+        let mut missing_record = bundle_with_premise_discharge();
+        missing_record
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1
+            .discharge = None;
+        let error = validate_premise_discharges(&missing_record)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("without a first-class premise discharge"));
+
+        let mut active = bundle_with_premise_discharge();
+        active
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1
+            .status = AssumptionStatus::Active;
+        let error = validate_premise_discharges(&active)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("requires status = \"discharged\""));
+    }
+
+    #[test]
+    fn premise_discharge_rejects_missing_non_theorem_and_circular_evidence() {
+        let mut missing = bundle_with_premise_discharge();
+        missing.evidence_units.remove("premise-discharge");
+        let error = validate_premise_discharges(&missing)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("missing discharge theorem evidence"));
+
+        let mut non_theorem = bundle_with_premise_discharge();
+        non_theorem
+            .evidence_units
+            .get_mut("premise-discharge")
+            .unwrap()
+            .1
+            .kind = EvidenceKind::ExampleTest;
+        let error = validate_premise_discharges(&non_theorem)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("is not theorem evidence"));
+
+        let mut circular = bundle_with_premise_discharge();
+        circular
+            .evidence_units
+            .get_mut("premise-discharge")
+            .unwrap()
+            .1
+            .premises
+            .push("PB-TEST-PREMISE-001".to_owned());
+        let error = validate_premise_discharges(&circular)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("circularly depends"));
+    }
+
+    #[test]
+    fn premise_discharge_rejects_empty_flow_scope_and_missing_inverse_claim_link() {
+        let mut empty_scope = bundle_with_premise_discharge();
+        empty_scope
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1
+            .discharge
+            .as_mut()
+            .unwrap()
+            .scope = FlowScopeManifest::Flows {
+            flows: BTreeSet::new(),
+        };
+        let error = validate_premise_discharges(&empty_scope)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("requires 1..=4096"));
+
+        let mut detached = bundle_with_premise_discharge();
+        detached
+            .claims
+            .get_mut("PB-SELF-MANIFEST-001")
+            .unwrap()
+            .1
+            .evidence
+            .retain(|item| item != "theorem:premise-discharge");
+        assert!(matches!(
+            validate_premise_discharges(&detached),
+            Err(SemanticError::InverseMissing { .. })
+        ));
+    }
+
+    #[test]
+    fn premise_discharge_scope_must_cover_the_typed_premise_scope() {
+        let mut covered = bundle_with_premise_discharge();
+        let premise = &mut covered
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1;
+        premise.premise_scope = Some(FlowScopeManifest::Flows {
+            flows: BTreeSet::from(["input-a".to_owned()]),
+        });
+        premise.discharge.as_mut().unwrap().scope = FlowScopeManifest::Flows {
+            flows: BTreeSet::from(["input-a".to_owned(), "input-b".to_owned()]),
+        };
+        assert!(validate_premise_discharges(&covered).is_ok());
+
+        let premise = &mut covered
+            .assumptions
+            .get_mut("PB-TEST-PREMISE-001")
+            .unwrap()
+            .1;
+        premise.discharge.as_mut().unwrap().scope = FlowScopeManifest::Flows {
+            flows: BTreeSet::from(["input-b".to_owned()]),
+        };
+        let error = validate_premise_discharges(&covered)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("does not cover the declared premise_scope"));
     }
 
     #[test]
@@ -2538,6 +3634,11 @@ mod tests {
                 EvidenceKind::ExampleTest,
             ),
             (
+                AdapterKind::PythonTest,
+                OperationKind::Mypy,
+                EvidenceKind::StaticCheck,
+            ),
+            (
                 AdapterKind::CanonicalArtifact,
                 OperationKind::ArtifactCheck,
                 EvidenceKind::ArtifactSoundness,
@@ -2593,6 +3694,11 @@ mod tests {
                 AdapterKind::PythonTest,
                 OperationKind::Generator,
                 EvidenceKind::PropertyTest,
+            ),
+            (
+                AdapterKind::PythonTest,
+                OperationKind::Pyright,
+                EvidenceKind::StaticCheck,
             ),
             (
                 AdapterKind::CanonicalArtifact,
@@ -2667,6 +3773,7 @@ mod tests {
         let unit = crate::EvidenceUnitManifest {
             schema: "proofbound-evidence-unit/1".into(),
             id: "x".into(),
+            context: None,
             adapter: AdapterKind::IndependentCheck,
             kind: EvidenceKind::TrustedTranscription,
             claims: vec!["TEST-X-001".into()],
@@ -2679,6 +3786,8 @@ mod tests {
                 manifest: None,
                 inventory: None,
                 checker: None,
+                configuration: None,
+                plugins: vec![],
                 arguments: vec![],
             },
             evaluation_mode: None,
@@ -2694,6 +3803,9 @@ mod tests {
             bounded_domain: None,
             transcription: None,
             mutation: None,
+            property: None,
+            distribution: None,
+            artifact_observation: None,
             resource_budget: crate::ResourceBudget {
                 time_seconds: 1,
                 disk_bytes: 1,
@@ -2701,6 +3813,244 @@ mod tests {
             },
         };
         assert!(validate_unit_qualifiers(&unit).is_err());
+    }
+
+    #[test]
+    fn exact_artifact_observation_v5_is_closed_and_input_bound() {
+        let bundle = repository_bundle();
+        let mut unit = bundle.evidence_units["manifest-workspace"].1.clone();
+        unit.schema = "proofbound-evidence-unit/5".to_owned();
+        unit.artifact_observation = Some(crate::ExactArtifactObservationConfig {
+            schema: crate::ExactArtifactObservationSchema::Version1,
+            subject_role: "runtime-release".to_owned(),
+            artifact: "crates/proofbound-manifest/src/model.rs".to_owned(),
+            procedure: "crates/proofbound-manifest/src/load.rs".to_owned(),
+            operating_system: crate::ObservationOperatingSystem::Linux,
+            architecture: crate::ObservationArchitecture::X86_64,
+            toolchain_inputs: vec!["schemas/project.schema.json".to_owned()],
+            dependencies: vec!["test:release-build".to_owned()],
+        });
+        validate_unit_qualifiers(&unit).unwrap();
+        validate_evidence_schema(Path::new("observation.toml"), &unit).unwrap();
+
+        let mut missing_input = unit.clone();
+        missing_input.inputs.pop();
+        assert!(validate_unit_qualifiers(&missing_input).is_err());
+
+        let mut aliased_role = unit.clone();
+        aliased_role
+            .artifact_observation
+            .as_mut()
+            .unwrap()
+            .procedure = "crates/proofbound-manifest/src/model.rs".to_owned();
+        assert!(validate_unit_qualifiers(&aliased_role).is_err());
+
+        let mut legacy = unit;
+        legacy.schema = "proofbound-evidence-unit/1".to_owned();
+        assert!(validate_unit_qualifiers(&legacy).is_err());
+    }
+
+    #[test]
+    fn reviewed_evidence_context_registration_is_closed_and_tracked() {
+        let mut bundle = repository_bundle();
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+        bundle.project.required_release_contexts = bundle.project.evidence_contexts.clone();
+        validate_evidence_context_registration(&bundle).unwrap();
+
+        let (path, mut unit) = bundle.evidence_units["manifest-workspace"].clone();
+        unit.schema = "proofbound-evidence-unit/5".to_owned();
+        unit.context = Some("release-linux-x86-64".to_owned());
+        unit.artifact_observation = Some(crate::ExactArtifactObservationConfig {
+            schema: crate::ExactArtifactObservationSchema::Version1,
+            subject_role: "runtime-release".to_owned(),
+            artifact: "crates/proofbound-manifest/src/model.rs".to_owned(),
+            procedure: "crates/proofbound-manifest/src/load.rs".to_owned(),
+            operating_system: crate::ObservationOperatingSystem::Linux,
+            architecture: crate::ObservationArchitecture::X86_64,
+            toolchain_inputs: vec!["schemas/project.schema.json".to_owned()],
+            dependencies: vec!["test:release-build".to_owned()],
+        });
+        validate_context_unit(&bundle, &unit.id, &path, &unit).unwrap();
+
+        let mut unknown = unit.clone();
+        unknown.context = Some("release-linux-aarch64".to_owned());
+        assert!(matches!(
+            validate_context_unit(&bundle, &unknown.id, &path, &unknown),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0001",
+                ..
+            })
+        ));
+
+        let mut malformed = bundle.project.clone();
+        malformed.evidence_contexts = vec!["Release-Linux".to_owned()];
+        bundle.project = malformed;
+        assert!(matches!(
+            validate_evidence_context_registration(&bundle),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0002",
+                ..
+            })
+        ));
+
+        bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+        bundle.project.required_release_contexts = bundle.project.evidence_contexts.clone();
+        let untracked = bundle.root.join("untracked-context.toml");
+        assert!(matches!(
+            validate_context_unit(&bundle, &unit.id, &untracked, &unit),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0003",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn contextual_artifact_soundness_v6_is_a_closed_tracked_route() {
+        let mut bundle = repository_bundle();
+        let context = "release-linux-aarch64";
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec![context.to_owned()];
+        bundle.project.required_release_contexts = vec![context.to_owned()];
+        let path = bundle.evidence_units["manifest-workspace"].0.clone();
+        let unit = contextual_artifact_unit(context);
+        validate_evidence_schema(&path, &unit).unwrap();
+        validate_unit_qualifiers(&unit).unwrap();
+        validate_context_unit(&bundle, &unit.id, &path, &unit).unwrap();
+
+        let mut unconditional = unit.clone();
+        unconditional.context = None;
+        assert!(validate_evidence_schema(&path, &unconditional).is_err());
+
+        let mut observation_smuggling = unit.clone();
+        observation_smuggling.artifact_observation = Some(crate::ExactArtifactObservationConfig {
+            schema: crate::ExactArtifactObservationSchema::Version1,
+            subject_role: "runtime-release".to_owned(),
+            artifact: "release/aarch64/pbr".to_owned(),
+            procedure: "tools/check_artifact.py".to_owned(),
+            operating_system: crate::ObservationOperatingSystem::Linux,
+            architecture: crate::ObservationArchitecture::Aarch64,
+            toolchain_inputs: vec!["schemas/project.schema.json".to_owned()],
+            dependencies: vec!["theorem:closed-set".to_owned()],
+        });
+        assert!(validate_evidence_schema(&path, &observation_smuggling).is_err());
+    }
+
+    #[test]
+    fn frozen_contextual_binding_manifest_attack_rejects_with_registered_code() {
+        let corpus_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+        let corpus: ContextAttackCorpus =
+            serde_json::from_slice(&fs::read(corpus_path).unwrap()).unwrap();
+        assert_eq!(
+            corpus.schema,
+            "proofbound-contextual-artifact-binding-attacks/1"
+        );
+        assert_eq!(corpus.cases.len(), 10);
+        let mut seen = BTreeSet::new();
+        let mut executed = false;
+
+        for case in corpus.cases {
+            assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+            assert!(!case.mutation.trim().is_empty());
+            match case.id.as_str() {
+                "context-kind-substitution" => {
+                    executed = true;
+                    let mut bundle = repository_bundle();
+                    let context = "release-linux-aarch64";
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec![context.to_owned()];
+                    bundle.project.required_release_contexts = vec![context.to_owned()];
+                    let path = bundle.evidence_units["manifest-workspace"].0.clone();
+                    let unit = contextual_artifact_unit(context);
+
+                    let mut wrong_schema = unit.clone();
+                    wrong_schema.schema = "proofbound-evidence-unit/5".to_owned();
+                    let mut wrong_kind = unit;
+                    wrong_kind.kind = EvidenceKind::ExampleTest;
+                    for mutation in [&wrong_schema, &wrong_kind] {
+                        let error = validate_context_unit(&bundle, &mutation.id, &path, mutation)
+                            .unwrap_err();
+                        assert!(
+                            error.to_string().starts_with(&case.expected_code),
+                            "{} expected {}, received {}",
+                            case.id,
+                            case.expected_code,
+                            error
+                        );
+                    }
+                }
+                "empty-binding-set"
+                | "duplicate-binding-member"
+                | "noncanonical-binding-order"
+                | "computed-member-identity"
+                | "inactive-binding-smuggling"
+                | "member-omission"
+                | "member-substitution"
+                | "receipt-context-substitution"
+                | "observation-promotion" => {}
+                unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+            }
+        }
+        assert!(executed, "context-kind-substitution was not executed");
+    }
+
+    #[test]
+    fn frozen_evidence_context_manifest_attacks_reject_with_registered_codes() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/evidence-context-attacks.json");
+        let corpus: ContextAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(corpus.schema, "proofbound-evidence-context-attacks/1");
+        assert_eq!(corpus.cases.len(), 8);
+        let mut seen = BTreeSet::new();
+
+        for case in corpus.cases {
+            assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+            assert!(!case.mutation.trim().is_empty());
+            let error = match case.id.as_str() {
+                "malformed-context" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["Release-Linux".to_owned()];
+                    validate_evidence_context_registration(&bundle).unwrap_err()
+                }
+                "unreviewed-manifest" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+                    let (_, mut unit) = bundle.evidence_units["manifest-workspace"].clone();
+                    unit.schema = "proofbound-evidence-unit/5".to_owned();
+                    unit.context = Some("release-linux-x86-64".to_owned());
+                    unit.artifact_observation = Some(crate::ExactArtifactObservationConfig {
+                        schema: crate::ExactArtifactObservationSchema::Version1,
+                        subject_role: "runtime-release".to_owned(),
+                        artifact: "crates/proofbound-manifest/src/model.rs".to_owned(),
+                        procedure: "crates/proofbound-manifest/src/load.rs".to_owned(),
+                        operating_system: crate::ObservationOperatingSystem::Linux,
+                        architecture: crate::ObservationArchitecture::X86_64,
+                        toolchain_inputs: vec!["schemas/project.schema.json".to_owned()],
+                        dependencies: vec!["test:release-build".to_owned()],
+                    });
+                    let untracked = bundle.root.join("untracked-context.toml");
+                    validate_context_unit(&bundle, &unit.id, &untracked, &unit).unwrap_err()
+                }
+                "unknown-context"
+                | "inactive-evidence-smuggling"
+                | "partial-context-check"
+                | "required-context-omission"
+                | "context-replay"
+                | "receipt-context-substitution" => continue,
+                unknown => panic!("unimplemented frozen context attack {unknown}"),
+            };
+            assert!(
+                error.to_string().starts_with(&case.expected_code),
+                "{} expected {}, received {}",
+                case.id,
+                case.expected_code,
+                error
+            );
+        }
     }
 
     #[test]
@@ -2733,6 +4083,45 @@ mod tests {
         let mut missing_path = registered.clone();
         missing_path.environment_allowlist.clear();
         assert!(validate_unit_qualifiers(&missing_path).is_err());
+    }
+
+    #[test]
+    fn distribution_v4_rejects_assurance_qualifiers() {
+        let registered: crate::EvidenceUnitManifest = serde_json::from_value(serde_json::json!({
+            "schema": "proofbound-evidence-unit/4",
+            "id": "wheel-reproduction",
+            "adapter": "python-test",
+            "kind": "example-test",
+            "claims": ["PY-WHEEL-001"],
+            "tier": 0,
+            "expected_inventory": ["dist/example-1.0.0-py3-none-any.whl"],
+            "inputs": ["pyproject.toml"],
+            "outputs": [],
+            "environment_allowlist": ["PATH"],
+            "operation": {"type": "python-distribution"},
+            "distribution": {
+                "schema": "proofbound-distribution-reproduction/1",
+                "format": "wheel",
+                "artifact_name": "example-1.0.0-py3-none-any.whl",
+                "artifact_sha256": format!("sha256:{}", "0".repeat(64)),
+                "source_date_epoch": 315532800
+            },
+            "resource_budget": {
+                "time_seconds": 60,
+                "disk_bytes": 1048576,
+                "memory_bytes": 1048576
+            }
+        }))
+        .unwrap();
+        validate_unit_qualifiers(&registered).unwrap();
+
+        let mut assumed = registered.clone();
+        assumed.assumptions.push("PY-RUNTIME-001".to_owned());
+        assert!(validate_unit_qualifiers(&assumed).is_err());
+
+        let mut relabeled = registered;
+        relabeled.binding_mode = Some(BindingMode::DigestTheorem);
+        assert!(validate_unit_qualifiers(&relabeled).is_err());
     }
 
     #[test]
@@ -2828,6 +4217,21 @@ mod tests {
             .map(|wrapper: LinkageWrapper| wrapper.value)
             .unwrap();
         assert_eq!(value, crate::PrimaryLinkage::ArtifactBound);
+    }
+
+    #[test]
+    fn formal_axiom_names_are_fully_qualified_and_bounded() {
+        assert!(valid_lean_axiom_name(
+            "ProofboundRuntime.ReleaseArtifacts.toolchainWitness"
+        ));
+        assert!(valid_lean_axiom_name("Module.Name.with_prime'"));
+        assert!(!valid_lean_axiom_name("unqualified"));
+        assert!(!valid_lean_axiom_name("docs/spec.md#axiom"));
+        assert!(!valid_lean_axiom_name("Module..axiom"));
+        assert!(!valid_lean_axiom_name(&format!(
+            "Module.{}",
+            "x".repeat(506)
+        )));
     }
 
     #[test]
@@ -3265,7 +4669,9 @@ mod tests {
         assert!(revision_resolver.contains("refs/remotes/origin/$default_branch"));
         assert!(revision_resolver.contains("refs/heads/$default_branch"));
         assert!(revision_resolver.contains("event_before"));
-        assert!(!revision_resolver.contains("${head}^"));
+        assert!(revision_resolver.contains("git rev-parse --verify \"${head}^2\""));
+        assert!(revision_resolver.contains("first_parent="));
+        assert!(revision_resolver.contains("$base\" != \"$first_parent"));
         assert!(pre_commit.contains("bash tools/ci/pre-commit.sh"));
         assert!(fast_checks.contains("python3 tools/ci/version.py --check"));
         assert!(fast_checks.contains("python3 tools/ci/changelog.py --staged"));

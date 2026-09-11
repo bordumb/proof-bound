@@ -10,14 +10,17 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::{SecondsFormat, Utc};
 use proofbound_core::{
     AdapterStrength, ArtifactBindingEvidence, ArtifactIdentity, ArtifactLogicalName,
-    AssumptionCategory, AssumptionId, AssumptionRecord, AssumptionStatus, AssuranceGraph,
-    BoundedCheckEvidence, BoundedDomain, BuiltInProfile, CacheOrigin, ClaimDefinition,
-    ClaimEvaluationInput, ClaimId, ClosureIdentity, CommandSpec, EdgeKind, EnvironmentVariable,
+    ArtifactObservationPlatform, ArtifactObservationRole, AssumptionCategory, AssumptionId,
+    AssumptionRecord, AssumptionStatus, AssuranceGraph, BoundedCheckEvidence, BoundedDomain,
+    BuiltInProfile, CacheOrigin, ClaimDefinition, ClaimEvaluationInput, ClaimId, ClosureIdentity,
+    CommandSpec, DistributionReproductionEvidence, EdgeKind, EnvironmentVariable,
     EnvironmentVariableName, EvidenceId, EvidenceKind, EvidenceProvenance, EvidenceRecord,
-    EvidenceStatus, ExecutionKind, ExecutionRun, ExpectedFailure, FlowScope, GraphEdge, GraphNode,
-    IndependenceMode, LinkageFacet, MutationWitnessEvidence, NativePremiseRule, NodeId, NodeKind,
-    ObligationId, OpenObligation, OutOfScope, PolicyDefinition, PolicyId, PremiseId, PremiseRecord,
-    ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence,
+    EvidenceStatus, ExactArtifactObservationEvidence, ExecutionKind, ExecutionRun, ExpectedFailure,
+    FlowScope, GraphEdge, GraphNode, IndependenceMode, LinkageFacet, MutationWitnessEvidence,
+    NativePremiseRule, NodeId, NodeKind, ObligationId, ObservationArchitecture,
+    ObservationOperatingSystem, OpenObligation, OutOfScope, PolicyDefinition, PolicyId,
+    PremiseDischarge, PremiseId, PremiseRecord, PythonPluginEvidence, PythonPropertyEvidence,
+    ResourceBudget, ResourceUsage, Sha256Digest, SourceRefinementEvidence, StaticCheckEvidence,
     TRANSCRIPTION_DRIVER_ABI_V1, Tier, ToolIdentity, TranscriptionRole, TranscriptionTcbRole,
     TreeState, TrustedTranscriptionEvidence, UnitId, derive_claim_status,
     transcription_role_identity,
@@ -29,15 +32,16 @@ use proofbound_evidence::{
 use proofbound_manifest::{
     AdapterDiagnostic, AdapterKind, AdapterResponse,
     AssumptionCategory as ManifestAssumptionCategory, AssumptionStatus as ManifestAssumptionStatus,
-    ClaimManifest, EvidenceKind as ManifestEvidenceKind, EvidenceUnitManifest, ManifestLimits,
-    ModelCheckUnitManifest, MutationRegistry, OperationKind, PolicyManifest, PrimaryLinkage,
-    ProjectBundle, TranslationUnitManifest, load_toml,
+    ClaimManifest, EvidenceKind as ManifestEvidenceKind, EvidenceUnitManifest, FlowScopeManifest,
+    ManifestLimits, ModelCheckUnitManifest, MutationRegistry, OperationKind, PolicyManifest,
+    PremiseDischargeManifest, PrimaryLinkage, ProjectBundle, TranslationUnitManifest, load_toml,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{adapter, closures, model::CompiledProject, model::UnitRun, safe_component};
 
-const COMPILED_SCHEMA: &str = "proofbound-compiled-project/3";
+const COMPILED_SCHEMA_V3: &str = "proofbound-compiled-project/3";
+const COMPILED_SCHEMA_V4: &str = "proofbound-compiled-project/4";
 const CLAIM_INPUT_DOMAIN: &str = "proofbound-claim-input/3";
 const EVIDENCE_DOMAIN: &str = "proofbound-evidence/3";
 const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
@@ -47,6 +51,7 @@ const MAX_CARGO_METADATA_OUTPUT: usize = 64 << 20;
 pub struct CheckOptions {
     pub claim: Option<String>,
     pub profile: Option<String>,
+    pub evidence_context: Option<String>,
     pub fresh: bool,
     pub reproduce_unit: Option<String>,
 }
@@ -73,12 +78,13 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
         ProjectBundle::load(root).context("PB-MANIFEST-0001: manifest validation failed")?;
     let identity = git_identity(root).context("PB-PROVENANCE-0001: git identity unavailable")?;
     let tier = Tier::try_from(bundle.project.tier).map_err(anyhow::Error::msg)?;
+    let evidence_context = effective_evidence_context(&bundle, options)?;
     let selected = select_claims(&bundle, options)?;
     let state_root = root.join(".proofbound");
     create_sealed_directories(&state_root)?;
     let store = ContentAddressedStore::new(state_root.join("evidence"));
 
-    let selected_units = select_units(&bundle, &selected, options)?;
+    let selected_units = select_units(&bundle, &selected, options, evidence_context.as_deref())?;
     let mut required_closure_claims = selected.iter().cloned().collect::<BTreeSet<_>>();
     for unit_id in &selected_units {
         required_closure_claims.extend(bundle.evidence_units[unit_id].1.claims.iter().cloned());
@@ -234,7 +240,14 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
     let mut statuses = Vec::new();
     let mut identities = BTreeMap::new();
     for claim_id in selected {
-        let input = compile_claim(&bundle, &claim_id, tier, &records, &closure_by_claim)?;
+        let input = compile_claim(
+            &bundle,
+            &claim_id,
+            tier,
+            &records,
+            &closure_by_claim,
+            evidence_context.as_deref(),
+        )?;
         let status = derive_claim_status(&input);
         let input_bytes = canonical_json(&input)?;
         let input_identity = domain_hash(CLAIM_INPUT_DOMAIN, &input_bytes);
@@ -253,9 +266,15 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
     runs.sort_by(|left, right| left.unit_id.cmp(&right.unit_id));
 
     let compiled = CompiledProject {
-        schema: COMPILED_SCHEMA.into(),
+        schema: if evidence_context.is_some() {
+            COMPILED_SCHEMA_V4
+        } else {
+            COMPILED_SCHEMA_V3
+        }
+        .into(),
         project: bundle.project.project,
         project_revision: identity.revision,
+        evidence_context,
         tree_state: identity.tree_state,
         reviewed_tree_sha256,
         generated_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
@@ -282,7 +301,12 @@ pub fn load_compiled(root: &Path) -> Result<CompiledProject> {
         bail!("PB-RECEIPT-0001: compiled result crosses an unsafe boundary");
     }
     let compiled: CompiledProject = serde_json::from_slice(&fs::read(&path)?)?;
-    if compiled.schema != COMPILED_SCHEMA {
+    if !matches!(
+        compiled.schema.as_str(),
+        COMPILED_SCHEMA_V3 | COMPILED_SCHEMA_V4
+    ) || (compiled.schema == COMPILED_SCHEMA_V3 && compiled.evidence_context.is_some())
+        || (compiled.schema == COMPILED_SCHEMA_V4 && compiled.evidence_context.is_none())
+    {
         bail!("PB-RECEIPT-0002: unsupported compiled-project schema");
     }
     validate_reviewed_tree_snapshot(root, &compiled.reviewed_tree_sha256)?;
@@ -339,6 +363,7 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     if compiled.inputs.len() != bundle.claims.len() {
         bail!("PB-RELEASE-0006: a release requires a full-project check, not a filtered check");
     }
+    validate_release_evidence_context(&bundle, &compiled)?;
     let destination = output
         .map(Path::to_owned)
         .unwrap_or_else(|| root.join(".proofbound/release"));
@@ -347,7 +372,7 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     }
     fs::create_dir_all(destination.join("schemas"))?;
     fs::create_dir_all(destination.join("bin"))?;
-    copy_release_schemas(&root.join("schemas"), &destination.join("schemas"))?;
+    write_release_schemas(&destination.join("schemas"))?;
     copy_release_binaries(&destination)?;
     let assumptions = compiled
         .inputs
@@ -386,20 +411,122 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     )?;
     let graph = merged_release_graph(&compiled)?;
     write_canonical(&destination.join("assurance-graph.json"), &graph)?;
+    let contextual_binding_units = bundle
+        .evidence_units
+        .values()
+        .filter(|(_, unit)| {
+            unit.schema == "proofbound-evidence-unit/6"
+                && unit.context.as_deref() == compiled.evidence_context.as_deref()
+        })
+        .map(|(_, unit)| format!("unit:{}", unit.id))
+        .collect::<BTreeSet<_>>();
+    seal_contextual_binding_artifacts(root, &destination, &compiled, &contextual_binding_units)?;
     let sealed_files = release_sealed_files(&destination)?;
-    let payload = compiled_release_value(&compiled, bundle.project.tier, graph, sealed_files)?;
+    let payload = compiled_release_value(
+        &compiled,
+        bundle.project.tier,
+        graph,
+        sealed_files,
+        &contextual_binding_units,
+    )?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&destination.join("compiled-receipt.json"), &payload_bytes)?;
-    let payload_sha256 = domain_hash("proofbound-compiled-release/3", &payload_bytes);
+    let payload_schema = payload["schema"]
+        .as_str()
+        .context("PB-RELEASE-0021: compiled receipt omitted its schema")?;
+    let payload_sha256 = domain_hash(payload_schema, &payload_bytes);
+    let envelope_schema = match payload_schema {
+        "proofbound-compiled-release/6" => "proofbound-release-envelope/6",
+        "proofbound-compiled-release/5" => "proofbound-release-envelope/5",
+        "proofbound-compiled-release/4" => "proofbound-release-envelope/4",
+        _ => "proofbound-release-envelope/3",
+    };
     write_canonical(
         &destination.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/3",
+            "schema": envelope_schema,
             "payload": "compiled-receipt.json",
             "payload_sha256": payload_sha256,
         }),
     )?;
     Ok(destination)
+}
+
+fn validate_release_evidence_context(
+    bundle: &ProjectBundle,
+    compiled: &CompiledProject,
+) -> Result<()> {
+    for (_, unit) in bundle
+        .evidence_units
+        .values()
+        .filter(|(_, unit)| unit.context.is_some())
+    {
+        let unit_id = format!("unit:{}", unit.id);
+        if compiled
+            .evidence
+            .iter()
+            .any(|record| record.unit_id.as_str() == unit_id)
+            && unit.context.as_deref() != compiled.evidence_context.as_deref()
+        {
+            bail!(
+                "PB-CTX-0004: compiled state contains evidence unit {} from an inactive context",
+                unit.id
+            );
+        }
+    }
+    match compiled.evidence_context.as_ref() {
+        Some(context) if !bundle.project.evidence_contexts.contains(context) => {
+            bail!("PB-CTX-0007: compiled evidence context is not registered by this project");
+        }
+        Some(context)
+            if !bundle.project.required_release_contexts.is_empty()
+                && !bundle.project.required_release_contexts.contains(context) =>
+        {
+            bail!("PB-CTX-0007: compiled evidence context is not admitted for release");
+        }
+        None if !bundle.project.required_release_contexts.is_empty() => {
+            bail!("PB-CTX-0006: this project requires one reviewed evidence context for release");
+        }
+        Some(context) => {
+            for (_, unit) in bundle
+                .evidence_units
+                .values()
+                .filter(|(_, unit)| unit.context.as_deref() == Some(context.as_str()))
+            {
+                let expected_unit_id = format!("unit:{}", unit.id);
+                if !matches!(
+                    unit.schema.as_str(),
+                    "proofbound-evidence-unit/5" | "proofbound-evidence-unit/6"
+                ) {
+                    bail!(
+                        "PB-CTX-0004: selected context evidence unit {} has an unsupported schema",
+                        unit.id
+                    );
+                }
+                if !compiled.evidence.iter().any(|record| {
+                    record.unit_id.as_str() == expected_unit_id
+                        && match unit.schema.as_str() {
+                            "proofbound-evidence-unit/5" => {
+                                record.kind == EvidenceKind::ExampleTest
+                                    && record.artifact_observation.is_some()
+                            }
+                            "proofbound-evidence-unit/6" => {
+                                record.kind == EvidenceKind::ArtifactSoundness
+                                    && record.artifact_binding.is_some()
+                            }
+                            _ => false,
+                        }
+                }) {
+                    bail!(
+                        "PB-CTX-0004: selected context evidence unit {} has no required typed detail",
+                        unit.id
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Construct a deterministic, proof-free release through the same graph and
@@ -429,11 +556,15 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         binding_mode: None,
         theorem: None,
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: None,
         source_refinement: None,
         bounded_check: None,
         exhaustive_check: None,
         mutation_witness: None,
+        python_property: None,
+        static_check: None,
+        distribution_reproduction: None,
         independence: None,
         inventoried_targets: BTreeSet::new(),
         assumptions: BTreeSet::new(),
@@ -477,6 +608,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
             resource_usage: ResourceUsage::default(),
             cache_origin: CacheOrigin::Executed,
             prior_receipt_sha256: None,
+            python_plugins: Vec::new(),
         },
     };
     let closure = ClosureRecord {
@@ -533,9 +665,10 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         bail!("PB-RELEASE-0019: internal release-smoke claim is inadmissible");
     }
     let compiled = CompiledProject {
-        schema: COMPILED_SCHEMA.into(),
+        schema: COMPILED_SCHEMA_V3.into(),
         project: "proofbound-release-smoke".into(),
         project_revision: "proofbound-release-smoke-v1".into(),
+        evidence_context: None,
         tree_state: "clean".into(),
         reviewed_tree_sha256: sha256_bytes(b"proofbound-release-smoke-v1"),
         generated_at: "1970-01-01T00:00:00.000Z".into(),
@@ -550,7 +683,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     let tcb = tcb_projection(&compiled)?;
     write_canonical(&output.join("tcb-ledger.json"), &tcb)?;
     let sealed_files = release_sealed_files(output)?;
-    let payload = compiled_release_value(&compiled, 0, graph, sealed_files)?;
+    let payload = compiled_release_value(&compiled, 0, graph, sealed_files, &BTreeSet::new())?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&output.join("compiled-receipt.json"), &payload_bytes)?;
     write_canonical(
@@ -564,23 +697,105 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     Ok(output.to_owned())
 }
 
-fn copy_release_schemas(source: &Path, destination: &Path) -> Result<()> {
-    let mut entries = fs::read_dir(source)?.collect::<std::io::Result<Vec<_>>>()?;
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-    for entry in &entries {
-        let file_type = entry.file_type()?;
-        if file_type.is_symlink() {
-            bail!("PB-RELEASE-0005: symlink in schema boundary");
-        }
-        if !file_type.is_file() {
-            bail!(
-                "PB-RELEASE-0005: non-file entry in schema boundary: {}",
-                entry.path().display()
-            );
-        }
-    }
-    for entry in entries {
-        fs::copy(entry.path(), destination.join(entry.file_name()))?;
+fn write_release_schemas(destination: &Path) -> Result<()> {
+    const SCHEMAS: &[(&str, &[u8])] = &[
+        ("README.md", include_bytes!("../../../schemas/README.md")),
+        (
+            "adapter-observation.schema.json",
+            include_bytes!("../../../schemas/adapter-observation.schema.json"),
+        ),
+        (
+            "adapter-protocol.schema.json",
+            include_bytes!("../../../schemas/adapter-protocol.schema.json"),
+        ),
+        (
+            "assumption.schema.json",
+            include_bytes!("../../../schemas/assumption.schema.json"),
+        ),
+        (
+            "checker-result.schema.json",
+            include_bytes!("../../../schemas/checker-result.schema.json"),
+        ),
+        (
+            "claim.schema.json",
+            include_bytes!("../../../schemas/claim.schema.json"),
+        ),
+        (
+            "closure.schema.json",
+            include_bytes!("../../../schemas/closure.schema.json"),
+        ),
+        (
+            "demo-registry.schema.json",
+            include_bytes!("../../../schemas/demo-registry.schema.json"),
+        ),
+        (
+            "error.schema.json",
+            include_bytes!("../../../schemas/error.schema.json"),
+        ),
+        (
+            "evidence-unit.schema.json",
+            include_bytes!("../../../schemas/evidence-unit.schema.json"),
+        ),
+        (
+            "evidence.schema.json",
+            include_bytes!("../../../schemas/evidence.schema.json"),
+        ),
+        (
+            "graph.schema.json",
+            include_bytes!("../../../schemas/graph.schema.json"),
+        ),
+        (
+            "lean-expr-v1.cddl",
+            include_bytes!("../../../schemas/lean-expr-v1.cddl"),
+        ),
+        (
+            "model-check-unit.schema.json",
+            include_bytes!("../../../schemas/model-check-unit.schema.json"),
+        ),
+        (
+            "mutation-registry.schema.json",
+            include_bytes!("../../../schemas/mutation-registry.schema.json"),
+        ),
+        (
+            "observation-inputs.schema.json",
+            include_bytes!("../../../schemas/observation-inputs.schema.json"),
+        ),
+        (
+            "policy.schema.json",
+            include_bytes!("../../../schemas/policy.schema.json"),
+        ),
+        (
+            "project.schema.json",
+            include_bytes!("../../../schemas/project.schema.json"),
+        ),
+        (
+            "receipt.schema.json",
+            include_bytes!("../../../schemas/receipt.schema.json"),
+        ),
+        (
+            "report.schema.json",
+            include_bytes!("../../../schemas/report.schema.json"),
+        ),
+        (
+            "review.schema.json",
+            include_bytes!("../../../schemas/review.schema.json"),
+        ),
+        (
+            "tcb.schema.json",
+            include_bytes!("../../../schemas/tcb.schema.json"),
+        ),
+        (
+            "translation-toolchain-lock.schema.json",
+            include_bytes!("../../../schemas/translation-toolchain-lock.schema.json"),
+        ),
+        (
+            "translation-unit.schema.json",
+            include_bytes!("../../../schemas/translation-unit.schema.json"),
+        ),
+    ];
+
+    for (name, bytes) in SCHEMAS {
+        write_bytes(&destination.join(name), bytes)?;
     }
     Ok(())
 }
@@ -874,6 +1089,7 @@ fn excluded_update_path(path: &Path) -> bool {
                     | ".lake"
                     | ".proofbound"
                     | ".venv"
+                    | "node_modules"
                     | "__pycache__"
                     | ".pytest_cache"
                     | ".mypy_cache"
@@ -1423,10 +1639,48 @@ fn select_claims(bundle: &ProjectBundle, options: &CheckOptions) -> Result<Vec<S
     Ok(claims)
 }
 
+fn effective_evidence_context(
+    bundle: &ProjectBundle,
+    options: &CheckOptions,
+) -> Result<Option<String>> {
+    let requested = if let Some(unit_id) = &options.reproduce_unit {
+        let (_, unit) = bundle
+            .evidence_units
+            .get(unit_id)
+            .with_context(|| format!("PB-UNIT-0001: unknown evidence unit {unit_id}"))?;
+        if options.evidence_context.is_some() && options.evidence_context != unit.context {
+            bail!("PB-CTX-0007: reproduction context differs from the unit registration");
+        }
+        unit.context
+            .clone()
+            .or_else(|| options.evidence_context.clone())
+    } else {
+        options.evidence_context.clone()
+    };
+    let Some(context) = requested else {
+        return Ok(None);
+    };
+    if options.claim.is_some() || options.profile.is_some() {
+        bail!("PB-CTX-0005: an evidence context requires a full-project check");
+    }
+    if !bundle.project.evidence_contexts.contains(&context) {
+        bail!("PB-CTX-0001: unknown evidence context {context}");
+    }
+    if !bundle
+        .evidence_units
+        .values()
+        .any(|(_, unit)| unit.context.as_deref() == Some(context.as_str()))
+    {
+        bail!("PB-CTX-0001: evidence context {context} owns no registered units");
+    }
+    Ok(Some(context))
+}
+
 fn select_units(
     bundle: &ProjectBundle,
     claims: &[String],
     options: &CheckOptions,
+    evidence_context: Option<&str>,
 ) -> Result<Vec<String>> {
     if let Some(unit) = &options.reproduce_unit {
         if !bundle.evidence_units.contains_key(unit) {
@@ -1438,7 +1692,13 @@ fn select_units(
     let mut units = bundle
         .evidence_units
         .iter()
-        .filter(|(_, (_, unit))| unit.claims.iter().any(|claim| selected.contains(claim)))
+        .filter(|(_, (_, unit))| {
+            unit.claims.iter().any(|claim| selected.contains(claim))
+                && unit
+                    .context
+                    .as_deref()
+                    .is_none_or(|context| Some(context) == evidence_context)
+        })
         .map(|(id, _)| id.clone())
         .collect::<Vec<_>>();
     units.sort();
@@ -1741,7 +2001,13 @@ fn reusable_cached_record(
         }
         None => None,
     };
-    if record.schema != EVIDENCE_DOMAIN
+    let expected_observation = core_exact_artifact_observation(unit, &record.provenance).ok()?;
+    let expected_schema = if expected_observation.is_some() {
+        proofbound_core::EVIDENCE_SCHEMA_V4
+    } else {
+        EVIDENCE_DOMAIN
+    };
+    if record.schema != expected_schema
         || record.id != expected_id
         || record.node_id != expected_node
         || record.unit_id != expected_unit
@@ -1753,6 +2019,11 @@ fn reusable_cached_record(
         || record.evaluation_mode != expected_evaluation
         || record.binding_mode != expected_binding
         || record.bounded_check.as_ref() != expected_bounded_check.as_ref()
+        || registered_exact_artifact_observation_matches(
+            expected_observation.as_ref(),
+            record.artifact_observation.as_ref(),
+        )
+        .is_err()
         || trusted_transcription_record_matches_unit(unit, &record).is_err()
         || mutation_record_matches_registration(
             context.root,
@@ -1955,7 +2226,7 @@ fn bind_record_to_execution(
     // composite of every executable used by this adapter kind (for example,
     // cargo + rustc or cargo + cargo-kani), while the adapter identity is the
     // exact binary that spoke the protocol.
-    let execution_identities = adapter::cache_identities(root, unit.adapter)?;
+    let execution_identities = adapter::cache_identities(root, unit)?;
     let adapter_key = format!("adapter:{}", unit.adapter.executable());
     record.provenance.adapter.identity_sha256 = parse_digest(
         execution_identities
@@ -1977,6 +2248,12 @@ fn bind_record_to_execution(
     };
     record.provenance.semantic_source_closure = parse_digest(semantic_closure)?;
     record.provenance.additional_closures = additional_closures.to_vec();
+    record.artifact_observation = core_exact_artifact_observation(unit, &record.provenance)?;
+    record.schema = if record.artifact_observation.is_some() {
+        proofbound_core::EVIDENCE_SCHEMA_V4.into()
+    } else {
+        EVIDENCE_DOMAIN.into()
+    };
     trusted_transcription_record_matches_unit(unit, record)?;
 
     for claim in &expected_claims {
@@ -2060,12 +2337,15 @@ fn registered_mutation(
         );
     }
     let input_paths = unit.inputs.iter().cloned().collect::<BTreeSet<_>>();
-    let expected_inputs = BTreeSet::from([
+    let mut expected_inputs = BTreeSet::from([
         config.registry.clone(),
         mutation.target_path.clone(),
         mutation.mutant_path.clone(),
         mutation.witness_path.clone(),
     ]);
+    if unit.adapter == AdapterKind::NodeTest {
+        expected_inputs.extend(["package-lock.json".to_owned(), "package.json".to_owned()]);
+    }
     if input_paths.len() != unit.inputs.len() || input_paths != expected_inputs {
         bail!(
             "PB-MUTATION-0003: mutation unit {} must register exactly its registry, target, mutant, and witness inputs",
@@ -2189,7 +2469,11 @@ fn mutation_record_matches_registration(
         baseline_run_index: witness.baseline_run_index,
         expected_failure: ExpectedFailure {
             run_index: witness.expected_failure.run_index,
-            allowed_exit_codes: BTreeSet::from([101]),
+            allowed_exit_codes: BTreeSet::from([if unit.adapter == AdapterKind::NodeTest {
+                1
+            } else {
+                101
+            }]),
         },
         proof_term_theorem: None,
     };
@@ -2238,6 +2522,59 @@ struct AdapterObservation {
     trusted_transcription: Option<TrustedTranscriptionObservation>,
     #[serde(default)]
     mutation_replay: Option<MutationReplayObservation>,
+    #[serde(default)]
+    python_plugins: Vec<PythonPluginObservation>,
+    #[serde(default)]
+    python_property: Option<PythonPropertyObservation>,
+    #[serde(default)]
+    static_check: Option<StaticCheckObservation>,
+    #[serde(default)]
+    distribution_reproduction: Option<DistributionReproductionObservation>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PythonPluginObservation {
+    module: String,
+    distribution: String,
+    version: String,
+    origin_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PythonPropertyObservation {
+    schema: String,
+    framework: String,
+    seed: u64,
+    framework_version: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StaticCheckObservation {
+    schema: String,
+    tool: String,
+    tool_version: String,
+    configuration_sha256: String,
+    targets: Vec<String>,
+    diagnostics: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DistributionReproductionObservation {
+    schema: String,
+    format: String,
+    run_digests: Vec<String>,
+    registered_digest: String,
+    source_date_epoch: u64,
+    build_backend_name: String,
+    build_backend_version: String,
+    #[serde(default)]
+    npm_integrity: Option<String>,
+    #[serde(default)]
+    member_inventory: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2486,6 +2823,156 @@ fn observation_to_record(
     };
     let mutation_witness =
         mutation_witness_from_observation(root, bundle, unit, kind, &claims, &observation)?;
+    let observed_plugin_modules = observation
+        .python_plugins
+        .iter()
+        .map(|plugin| plugin.module.as_str())
+        .collect::<Vec<_>>();
+    if observed_plugin_modules
+        != unit
+            .operation
+            .plugins
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+    {
+        bail!("PB-ADAPTER-0027: Python plugin observation does not match registered plugins");
+    }
+    let python_plugins = observation
+        .python_plugins
+        .iter()
+        .map(|plugin| {
+            Ok(PythonPluginEvidence {
+                module: plugin.module.clone(),
+                distribution: plugin.distribution.clone(),
+                version: plugin.version.clone(),
+                origin_sha256: parse_digest(&plugin.origin_sha256)?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let python_property = match (&unit.property, &observation.python_property) {
+        (Some(registered), Some(observed))
+            if kind == EvidenceKind::PropertyTest
+                && observed.schema == "proofbound-python-property/1"
+                && observed.framework
+                    == serde_json::to_value(registered.framework)?
+                        .as_str()
+                        .expect("framework serializes as text")
+                && observed.seed == registered.seed
+                && python_plugins.iter().any(|plugin| {
+                    plugin.module == "_hypothesis_pytestplugin"
+                        && plugin.distribution == "hypothesis"
+                        && plugin.version == observed.framework_version
+                }) =>
+        {
+            Some(PythonPropertyEvidence {
+                schema: observed.schema.clone(),
+                framework: observed.framework.clone(),
+                seed: observed.seed,
+                framework_version: observed.framework_version.clone(),
+            })
+        }
+        (None, None) => None,
+        _ => bail!("PB-ADAPTER-0028: Python property observation does not match its registration"),
+    };
+    let static_check = match (kind, &observation.static_check) {
+        (EvidenceKind::StaticCheck, Some(observed)) => {
+            let configuration = unit
+                .operation
+                .configuration
+                .as_deref()
+                .context("PB-ADAPTER-0029: static-check registration omitted configuration")?;
+            let matching_configuration = observation.input_artifacts.iter().filter(|artifact| {
+                artifact.logical_name == configuration
+                    && artifact.sha256 == observed.configuration_sha256
+            });
+            if observed.schema != "proofbound-static-check/1"
+                || observed.diagnostics != 0
+                || observed.targets
+                    != if unit.adapter == AdapterKind::NodeTest {
+                        unit.expected_inventory.as_slice()
+                    } else {
+                        unit.operation.targets.as_slice()
+                    }
+                || matching_configuration.count() != 1
+            {
+                bail!("PB-ADAPTER-0029: static-check observation disagrees with registration");
+            }
+            Some(StaticCheckEvidence {
+                schema: observed.schema.clone(),
+                tool: observed.tool.clone(),
+                tool_version: observed.tool_version.clone(),
+                configuration_sha256: parse_digest(&observed.configuration_sha256)?,
+                targets: observed.targets.iter().cloned().collect(),
+                diagnostics: observed.diagnostics,
+            })
+        }
+        (EvidenceKind::StaticCheck, None) => {
+            bail!("PB-ADAPTER-0029: static-check observation omitted its typed record")
+        }
+        (_, Some(_)) => bail!("PB-ADAPTER-0029: static-check record appears on another kind"),
+        (_, None) => None,
+    };
+    let distribution_reproduction = match (
+        unit.distribution.as_ref(),
+        observation.distribution_reproduction.as_ref(),
+    ) {
+        (Some(registered), Some(observed))
+            if kind == EvidenceKind::ExampleTest
+                && observed.schema == "proofbound-distribution-reproduction/1"
+                && observed.format
+                    == serde_json::to_value(registered.format)?
+                        .as_str()
+                        .expect("format serializes as text")
+                && observed.registered_digest == registered.artifact_sha256
+                && observed.source_date_epoch == registered.source_date_epoch =>
+        {
+            let npm_fields_valid = if observed.format == "npm-package" {
+                observed
+                    .npm_integrity
+                    .as_deref()
+                    .is_some_and(|value| value.starts_with("sha512-") && value.len() <= 512)
+                    && !observed.member_inventory.is_empty()
+                    && observed.source_date_epoch == 0
+                    && observed.build_backend_name == "npm"
+            } else {
+                observed.npm_integrity.is_none()
+            };
+            if observed.run_digests.len() != 2
+                || observation.generated_artifacts.len() != 2
+                || !npm_fields_valid
+                || observed
+                    .run_digests
+                    .iter()
+                    .enumerate()
+                    .any(|(index, digest)| {
+                        digest != &registered.artifact_sha256
+                            || observation.generated_artifacts[index].sha256 != *digest
+                    })
+            {
+                bail!("PB-ADAPTER-0030: distribution candidates do not match registered bytes");
+            }
+            Some(DistributionReproductionEvidence {
+                schema: observed.schema.clone(),
+                format: observed.format.clone(),
+                run_digests: observed
+                    .run_digests
+                    .iter()
+                    .map(|digest| parse_digest(digest))
+                    .collect::<Result<_>>()?,
+                registered_digest: parse_digest(&observed.registered_digest)?,
+                source_date_epoch: observed.source_date_epoch,
+                build_backend_name: observed.build_backend_name.clone(),
+                build_backend_version: observed.build_backend_version.clone(),
+                npm_integrity: observed.npm_integrity.clone(),
+                member_inventory: observed.member_inventory.clone(),
+            })
+        }
+        (None, None) => None,
+        _ => bail!(
+            "PB-ADAPTER-0030: distribution reproduction observation does not match registration"
+        ),
+    };
     let commands = observation
         .commands
         .iter()
@@ -2556,6 +3043,7 @@ fn observation_to_record(
         },
         cache_origin: CacheOrigin::Executed,
         prior_receipt_sha256: None,
+        python_plugins,
     };
     Ok(EvidenceRecord {
         schema: EVIDENCE_DOMAIN.into(),
@@ -2578,11 +3066,15 @@ fn observation_to_record(
         }),
         theorem: None,
         artifact_binding,
+        artifact_observation: None,
         trusted_transcription,
         source_refinement,
         bounded_check,
         exhaustive_check: None,
         mutation_witness,
+        python_property,
+        static_check,
+        distribution_reproduction,
         independence: (kind == EvidenceKind::IndependentCheck)
             .then_some(IndependenceMode::Independent),
         inventoried_targets: observation.inventory.into_iter().collect(),
@@ -2591,6 +3083,122 @@ fn observation_to_record(
         open_obligation: None,
         provenance,
     })
+}
+
+fn core_exact_artifact_observation(
+    unit: &EvidenceUnitManifest,
+    provenance: &EvidenceProvenance,
+) -> Result<Option<ExactArtifactObservationEvidence>> {
+    let Some(config) = &unit.artifact_observation else {
+        return Ok(None);
+    };
+    let select = |logical_name: &str| -> Result<ArtifactIdentity> {
+        let mut matches = provenance
+            .input_artifacts
+            .iter()
+            .filter(|artifact| artifact.logical_name.as_str() == logical_name);
+        let artifact = matches.next().with_context(|| {
+            format!("PB-OBS-0001: registered input {logical_name:?} was not observed")
+        })?;
+        if matches.next().is_some() {
+            bail!("PB-OBS-0003: registered input role {logical_name:?} is ambiguous");
+        }
+        Ok(artifact.clone())
+    };
+    let artifact = select(&config.artifact)?;
+    let procedure =
+        select(&config.procedure).context("PB-OBS-0006: observation procedure was not observed")?;
+    for logical_name in &config.toolchain_inputs {
+        select(logical_name).with_context(|| {
+            format!("PB-OBS-0008: toolchain input {logical_name:?} was not observed")
+        })?;
+    }
+    let mut toolchain_closures = provenance
+        .additional_closures
+        .iter()
+        .filter(|closure| closure.kind == proofbound_core::ClosureKind::Toolchain);
+    let toolchain_closure = toolchain_closures
+        .next()
+        .context("PB-OBS-0008: project has no registered toolchain closure")?
+        .clone();
+    if toolchain_closures.next().is_some() {
+        bail!("PB-OBS-0008: project has more than one ambiguous toolchain closure");
+    }
+    let operating_system = match config.operating_system {
+        proofbound_manifest::ObservationOperatingSystem::Linux => ObservationOperatingSystem::Linux,
+        proofbound_manifest::ObservationOperatingSystem::Macos => ObservationOperatingSystem::Macos,
+        proofbound_manifest::ObservationOperatingSystem::Windows => {
+            ObservationOperatingSystem::Windows
+        }
+    };
+    let architecture = match config.architecture {
+        proofbound_manifest::ObservationArchitecture::X86_64 => ObservationArchitecture::X86_64,
+        proofbound_manifest::ObservationArchitecture::Aarch64 => ObservationArchitecture::Aarch64,
+    };
+    Ok(Some(ExactArtifactObservationEvidence {
+        schema: proofbound_core::EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1.into(),
+        subject_role: ArtifactObservationRole::new(config.subject_role.clone())?,
+        artifact,
+        platform: ArtifactObservationPlatform {
+            operating_system,
+            architecture,
+        },
+        procedure,
+        toolchain_closure,
+        dependencies: config
+            .dependencies
+            .iter()
+            .map(|dependency| EvidenceId::new(dependency.clone()))
+            .collect::<Result<_, _>>()?,
+    }))
+}
+
+fn registered_exact_artifact_observation_matches(
+    expected: Option<&ExactArtifactObservationEvidence>,
+    actual: Option<&ExactArtifactObservationEvidence>,
+) -> Result<()> {
+    let Some(expected) = expected else {
+        if actual.is_some() {
+            bail!("PB-OBS-0003: unregistered exact artifact observation role");
+        }
+        return Ok(());
+    };
+    let Some(actual) = actual else {
+        bail!("PB-OBS-0001: registered exact artifact observation is missing");
+    };
+    if actual.artifact.logical_name.as_str().is_empty() {
+        bail!("PB-OBS-0001: registered observed artifact identity is missing");
+    }
+    if actual.artifact != expected.artifact {
+        bail!("PB-OBS-0002: observed artifact identity differs from registration");
+    }
+    if actual.subject_role != expected.subject_role {
+        bail!("PB-OBS-0003: exact artifact observation role differs from registration");
+    }
+    if actual.platform.architecture != expected.platform.architecture {
+        bail!("PB-OBS-0004: exact artifact observation architecture differs from registration");
+    }
+    if actual.platform.operating_system != expected.platform.operating_system {
+        bail!("PB-OBS-0005: exact artifact observation platform differs from registration");
+    }
+    if actual.procedure.logical_name.as_str().is_empty()
+        || actual.procedure.logical_name == actual.artifact.logical_name
+    {
+        bail!("PB-OBS-0006: registered observation procedure identity is missing");
+    }
+    if actual.procedure != expected.procedure {
+        bail!("PB-OBS-0007: observation procedure identity differs from registration");
+    }
+    if actual.toolchain_closure != expected.toolchain_closure {
+        bail!("PB-OBS-0008: exact artifact observation toolchain differs from registration");
+    }
+    if actual.dependencies != expected.dependencies {
+        bail!("PB-OBS-0009: exact artifact observation dependencies differ from registration");
+    }
+    if actual.schema != expected.schema {
+        bail!("PB-OBS-0012: exact artifact observation schema identity differs");
+    }
+    Ok(())
 }
 
 fn core_artifact(value: ArtifactObservation) -> Result<ArtifactIdentity> {
@@ -2629,6 +3237,7 @@ fn mutation_witness_from_observation(
     let observed_mutant = core_artifact_ref(&observed.mutant_artifact)?;
     let observed_target_postimage = core_artifact_ref(&observed.target_postimage)?;
     let observed_witness = core_artifact_ref(&observed.witness_source)?;
+    let expected_exit = mutation_expected_exit(unit.adapter)?;
     if observation.outcome != ObservationOutcome::Passed
         || observed.schema != "proofbound-mutation-replay-observation/1"
         || observed.mutation_id != registered.mutation_id
@@ -2639,26 +3248,32 @@ fn mutation_witness_from_observation(
         || observed_mutant != registered.mutant_artifact
         || observed_target_postimage != registered.target_postimage
         || observed_witness != registered.witness_source
-        || observed.expected_failure.allowed_exit_codes != [101]
+        || observed.expected_failure.allowed_exit_codes != [expected_exit]
         || observed.baseline_run_index >= observed.expected_failure.run_index
     {
         bail!(
             "PB-MUTATION-0006: mutation observation disagrees with its sealed registry or exact expected-failure contract"
         );
     }
-    let expected_inputs = [
-        &registered.registry,
-        &registered.target_preimage,
-        &registered.mutant_artifact,
-        &registered.witness_source,
+    let mut expected_inputs = vec![
+        registered.registry.clone(),
+        registered.target_preimage.clone(),
+        registered.mutant_artifact.clone(),
+        registered.witness_source.clone(),
     ];
+    if unit.adapter == AdapterKind::NodeTest {
+        expected_inputs.extend([
+            registered_file_artifact(root, bundle, "package-lock.json")?,
+            registered_file_artifact(root, bundle, "package.json")?,
+        ]);
+    }
     if observation.input_artifacts.len() != expected_inputs.len()
         || expected_inputs.iter().any(|expected| {
             observation
                 .input_artifacts
                 .iter()
                 .filter_map(|artifact| core_artifact_ref(artifact).ok())
-                .filter(|artifact| artifact == *expected)
+                .filter(|artifact| artifact == expected)
                 .count()
                 != 1
         })
@@ -2685,21 +3300,21 @@ fn mutation_witness_from_observation(
         .commands
         .get(observed.expected_failure.run_index)
         .context("PB-MUTATION-0008: mutation failure command index is out of bounds")?;
-    let selector = registered
-        .check_id
-        .split_once("::")
-        .map_or(registered.check_id.as_str(), |(_, selector)| selector);
+    let command_shape_valid = mutation_command_shape_valid(
+        unit.adapter,
+        baseline_command,
+        mutant_command,
+        &registered.check_id,
+    );
     if baseline.exit_code != Some(0)
-        || mutant.exit_code != Some(101)
+        || mutant.exit_code != Some(expected_exit)
         || observation
             .runs
             .iter()
             .filter(|run| run.exit_code != Some(0))
             .count()
             != 1
-        || baseline_command.program == mutant_command.program
-        || baseline_command.args != [selector, "--exact"]
-        || mutant_command.args != [selector, "--exact"]
+        || !command_shape_valid
         || baseline_command.environment_allowlist != mutant_command.environment_allowlist
     {
         bail!(
@@ -2722,12 +3337,73 @@ fn mutation_witness_from_observation(
         baseline_run_index: observed.baseline_run_index,
         expected_failure: ExpectedFailure {
             run_index: observed.expected_failure.run_index,
-            allowed_exit_codes: BTreeSet::from([101]),
+            allowed_exit_codes: BTreeSet::from([expected_exit]),
         },
         proof_term_theorem: None,
     };
     witness.mutation_sha256 = witness.derived_mutation_sha256(claims)?;
     Ok(Some(witness))
+}
+
+fn mutation_expected_exit(adapter: AdapterKind) -> Result<i32> {
+    match adapter {
+        AdapterKind::RustTest => Ok(101),
+        AdapterKind::PythonTest | AdapterKind::NodeTest => Ok(1),
+        _ => bail!("PB-MUTATION-0006: unsupported mutation adapter"),
+    }
+}
+
+fn mutation_command_shape_valid(
+    adapter: AdapterKind,
+    baseline: &CommandObservation,
+    mutant: &CommandObservation,
+    check_id: &str,
+) -> bool {
+    match adapter {
+        AdapterKind::NodeTest => {
+            baseline.program == mutant.program
+                && baseline.args == mutant.args
+                && baseline.args.len() >= 5
+                && baseline.args.first().map(String::as_str) == Some("run")
+                && baseline.args.get(1).map(String::as_str)
+                    == check_id.split_once("::").map(|(file, _)| file)
+                && baseline
+                    .args
+                    .iter()
+                    .any(|argument| argument == "--reporter=json")
+                && baseline
+                    .args
+                    .iter()
+                    .any(|argument| argument == "--testNamePattern")
+        }
+        AdapterKind::PythonTest => {
+            let expected_args = |root: &str| {
+                vec![
+                    "-m".to_owned(),
+                    "pytest".to_owned(),
+                    "-p".to_owned(),
+                    "no:cacheprovider".to_owned(),
+                    "--rootdir".to_owned(),
+                    root.to_owned(),
+                    "-q".to_owned(),
+                    format!("{root}/{check_id}"),
+                ]
+            };
+            baseline.program == "python3"
+                && mutant.program == "python3"
+                && baseline.args == expected_args("$BASELINE")
+                && mutant.args == expected_args("$MUTANT")
+        }
+        AdapterKind::RustTest => {
+            let selector = check_id
+                .split_once("::")
+                .map_or(check_id, |(_, selector)| selector);
+            baseline.program != mutant.program
+                && baseline.args == [selector, "--exact"]
+                && mutant.args == [selector, "--exact"]
+        }
+        _ => false,
+    }
 }
 
 fn trusted_transcription_from_observation(
@@ -3053,17 +3729,7 @@ fn adapter_unit(
         if declaration.rsplit_once('.').map(|(module, _)| module) != Some(surface) {
             continue;
         }
-        let mut project_axioms = BTreeMap::new();
-        for assumption_id in &claim.assumptions {
-            if let Some((_, assumption)) = bundle.assumptions.get(assumption_id)
-                && let Some(citation) = &assumption.source_citation
-            {
-                let name = citation.split_whitespace().next().unwrap_or_default();
-                if name.starts_with(surface) && name.contains('.') {
-                    project_axioms.insert(name.to_owned(), assumption_id.clone());
-                }
-            }
-        }
+        let project_axioms = registered_project_axioms(bundle, claim, surface)?;
         inventory.insert(
             claim_id.clone(),
             serde_json::json!({
@@ -3087,17 +3753,53 @@ fn adapter_unit(
     }))
 }
 
+fn registered_project_axioms(
+    bundle: &ProjectBundle,
+    claim: &ClaimManifest,
+    theorem_surface: &str,
+) -> Result<BTreeMap<String, String>> {
+    let mut project_axioms = BTreeMap::new();
+    for assumption_id in &claim.assumptions {
+        let Some((_, assumption)) = bundle.assumptions.get(assumption_id) else {
+            continue;
+        };
+        let mut names = assumption
+            .formal_axioms
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        if let Some(citation) = &assumption.source_citation {
+            let legacy_name = citation.split_whitespace().next().unwrap_or_default();
+            if legacy_name.starts_with(theorem_surface) && legacy_name.contains('.') {
+                names.push(legacy_name);
+            }
+        }
+        for name in names {
+            if let Some(previous) = project_axioms.insert(name.to_owned(), assumption_id.clone())
+                && previous != *assumption_id
+            {
+                bail!(
+                    "PB-LEAN-0004: formal axiom {name} is registered by both {previous} and {assumption_id} for claim {}",
+                    claim.id
+                );
+            }
+        }
+    }
+    Ok(project_axioms)
+}
+
 fn compile_claim(
     bundle: &ProjectBundle,
     claim_id: &str,
     tier: Tier,
     all_records: &[EvidenceRecord],
     closures: &BTreeMap<String, ClosureRecord>,
+    evidence_context: Option<&str>,
 ) -> Result<ClaimEvaluationInput> {
     let (_, manifest) = &bundle.claims[claim_id];
     let claim_id_typed = ClaimId::new(claim_id)?;
     let policy = resolve_policy(bundle, manifest)?;
-    let cited = cited_evidence_ids(manifest)?;
+    let cited = contextual_cited_evidence_ids(bundle, manifest, evidence_context)?;
     let assumption_ids = manifest
         .assumptions
         .iter()
@@ -3175,8 +3877,12 @@ fn compile_claim(
                 statement: item.statement.clone(),
                 category: assumption_category(item.category),
                 theorem_evidence,
-                scope: FlowScope::AllRegisteredInputs,
-                discharge: None,
+                scope: item
+                    .premise_scope
+                    .as_ref()
+                    .map(flow_scope)
+                    .unwrap_or(FlowScope::AllRegisteredInputs),
+                discharge: item.discharge.as_ref().map(premise_discharge).transpose()?,
             });
         } else {
             assumptions.push(assumption_record(item)?);
@@ -3207,10 +3913,24 @@ fn compile_claim(
     })
 }
 
-fn cited_evidence_ids(manifest: &ClaimManifest) -> Result<BTreeSet<EvidenceId>> {
-    let mut cited = manifest
-        .evidence
-        .iter()
+fn contextual_cited_evidence_ids(
+    bundle: &ProjectBundle,
+    manifest: &ClaimManifest,
+    evidence_context: Option<&str>,
+) -> Result<BTreeSet<EvidenceId>> {
+    let active_references = manifest.evidence.iter().filter(|reference| {
+        let normalized = normalize_evidence_reference(reference);
+        bundle
+            .evidence_units
+            .iter()
+            .find(|(id, (_, unit))| canonical_reference(unit.kind, id) == normalized)
+            .is_none_or(|(_, (_, unit))| {
+                unit.context
+                    .as_deref()
+                    .is_none_or(|context| Some(context) == evidence_context)
+            })
+    });
+    let mut cited = active_references
         .map(|reference| EvidenceId::new(normalize_evidence_reference(reference)))
         .collect::<Result<BTreeSet<_>, _>>()?;
     // A registered premise carries reviewed representation/runtime meaning even
@@ -3219,6 +3939,19 @@ fn cited_evidence_ids(manifest: &ClaimManifest) -> Result<BTreeSet<EvidenceId>> 
     // part of the claim's explicit evidence closure. Otherwise a portable
     // release contains globally targeted review evidence that neither the graph
     // nor the claim cites, which the independent verifier correctly rejects.
+    for premise in &manifest.premises {
+        cited.insert(EvidenceId::new(format!("review:{premise}"))?);
+    }
+    Ok(cited)
+}
+
+#[cfg(test)]
+fn cited_evidence_ids(manifest: &ClaimManifest) -> Result<BTreeSet<EvidenceId>> {
+    let mut cited = manifest
+        .evidence
+        .iter()
+        .map(|reference| EvidenceId::new(normalize_evidence_reference(reference)))
+        .collect::<Result<BTreeSet<_>, _>>()?;
     for premise in &manifest.premises {
         cited.insert(EvidenceId::new(format!("review:{premise}"))?);
     }
@@ -3301,6 +4034,21 @@ fn graph_for_claim(
                 evidence_edge_kind(record.kind),
             ));
         }
+        if let Some(observation) = &record.artifact_observation {
+            for dependency in &observation.dependencies {
+                let dependency_record = evidence.iter().find(|item| &item.id == dependency).with_context(|| {
+                    format!(
+                        "PB-OBS-0009: observation '{}' dependency '{}' is absent from the claim closure",
+                        record.id, dependency
+                    )
+                })?;
+                edge_specs.push((
+                    record.node_id.clone(),
+                    dependency_record.node_id.clone(),
+                    EdgeKind::DependsOn,
+                ));
+            }
+        }
     }
     for assumption in assumptions {
         insert_node(
@@ -3349,6 +4097,17 @@ fn graph_for_claim(
                 record.node_id.clone(),
                 premise.node_id.clone(),
                 EdgeKind::Assumes,
+            ));
+        }
+        if let Some(record) = premise.discharge.as_ref().and_then(|discharge| {
+            evidence
+                .iter()
+                .find(|record| record.id == discharge.theorem_evidence)
+        }) {
+            edge_specs.push((
+                premise.node_id.clone(),
+                record.node_id.clone(),
+                EdgeKind::DischargedBy,
             ));
         }
     }
@@ -3400,7 +4159,8 @@ fn evidence_node_kind(kind: EvidenceKind) -> NodeKind {
         EvidenceKind::IndependentCheck
         | EvidenceKind::PropertyTest
         | EvidenceKind::ExampleTest
-        | EvidenceKind::MutationWitness => NodeKind::TestSuite,
+        | EvidenceKind::MutationWitness
+        | EvidenceKind::StaticCheck => NodeKind::TestSuite,
         EvidenceKind::Review => NodeKind::Review,
         EvidenceKind::Assumption => NodeKind::Assumption,
         EvidenceKind::Open => NodeKind::Claim,
@@ -3415,9 +4175,10 @@ fn evidence_edge_kind(kind: EvidenceKind) -> EdgeKind {
         EvidenceKind::SourceRefinement => EdgeKind::Refines,
         EvidenceKind::BoundedCheck | EvidenceKind::ExhaustiveCheck => EdgeKind::CoversBoundedDomain,
         EvidenceKind::IndependentCheck => EdgeKind::CrossChecks,
-        EvidenceKind::PropertyTest | EvidenceKind::ExampleTest | EvidenceKind::MutationWitness => {
-            EdgeKind::Checks
-        }
+        EvidenceKind::PropertyTest
+        | EvidenceKind::ExampleTest
+        | EvidenceKind::MutationWitness
+        | EvidenceKind::StaticCheck => EdgeKind::Checks,
         EvidenceKind::Review => EdgeKind::ReviewedBy,
         EvidenceKind::Assumption | EvidenceKind::Open => EdgeKind::Assumes,
     }
@@ -3693,6 +4454,25 @@ fn assumption_record(item: &proofbound_manifest::AssumptionManifest) -> Result<A
     })
 }
 
+fn premise_discharge(item: &PremiseDischargeManifest) -> Result<PremiseDischarge> {
+    Ok(PremiseDischarge {
+        theorem_evidence: EvidenceId::new(canonical_reference(
+            ManifestEvidenceKind::Theorem,
+            &item.theorem,
+        ))?,
+        scope: flow_scope(&item.scope),
+    })
+}
+
+fn flow_scope(item: &FlowScopeManifest) -> FlowScope {
+    match item {
+        FlowScopeManifest::AllRegisteredInputs => FlowScope::AllRegisteredInputs,
+        FlowScopeManifest::Flows { flows } => FlowScope::Flows {
+            flows: flows.clone(),
+        },
+    }
+}
+
 fn synthesize_review_records(
     root: &Path,
     bundle: &ProjectBundle,
@@ -3747,11 +4527,15 @@ fn synthesize_review_records(
             binding_mode: None,
             theorem: None,
             artifact_binding: None,
+            artifact_observation: None,
             trusted_transcription: None,
             source_refinement: None,
             bounded_check: None,
             exhaustive_check: None,
             mutation_witness: None,
+            python_property: None,
+            static_check: None,
+            distribution_reproduction: None,
             independence: None,
             inventoried_targets: item.review_evidence.iter().cloned().collect(),
             assumptions: BTreeSet::new(),
@@ -3795,6 +4579,7 @@ fn synthesize_review_records(
                 resource_usage: ResourceUsage::default(),
                 cache_origin: CacheOrigin::Executed,
                 prior_receipt_sha256: None,
+                python_plugins: Vec::new(),
             },
         });
     }
@@ -4008,7 +4793,7 @@ fn normalize_and_check_records(
         .iter()
         .map(|(id, (_, unit))| (id.as_str(), unit.kind))
         .collect::<BTreeMap<_, _>>();
-    for record in records {
+    for record in records.iter_mut() {
         if record.kind != EvidenceKind::Review {
             let unit_key = record
                 .unit_id
@@ -4040,6 +4825,63 @@ fn normalize_and_check_records(
             record.status = EvidenceStatus::Drifted;
         }
     }
+    let records_by_id = records
+        .iter()
+        .map(|record| (record.id.as_str(), record))
+        .collect::<BTreeMap<_, _>>();
+    for (_, unit) in bundle
+        .evidence_units
+        .values()
+        .filter(|(_, unit)| unit.schema == "proofbound-evidence-unit/6")
+    {
+        let expected_unit_id = format!("unit:{}", unit.id);
+        let Some(record) = records
+            .iter()
+            .find(|record| record.unit_id.as_str() == expected_unit_id)
+        else {
+            continue;
+        };
+        let binding = record.artifact_binding.as_ref().with_context(|| {
+            format!(
+                "PB-ADAPTER-0018: contextual artifact unit {} omitted binding detail",
+                unit.id
+            )
+        })?;
+        let theorem_record = records_by_id
+            .get(binding.theorem.as_str())
+            .and_then(|record| record.theorem.as_ref())
+            .with_context(|| {
+                format!(
+                    "PB-ADAPTER-0018: contextual artifact unit {} names absent theorem evidence",
+                    unit.id
+                )
+            })?;
+        let members = proofbound_core::parse_artifact_digest_binding_set(
+            &theorem_record.statement_wire,
+            theorem_record.statement_sha256,
+            &theorem_record.attributed_claim,
+        )
+        .with_context(|| {
+            format!(
+                "PB-ADAPTER-0018: contextual artifact unit {} requires an exact closed binding-set theorem",
+                unit.id
+            )
+        })?;
+        if members
+            .iter()
+            .filter(|member| {
+                member.artifact_logical_name == binding.artifact.logical_name
+                    && member.artifact_sha256 == binding.artifact.sha256
+            })
+            .count()
+            != 1
+        {
+            bail!(
+                "PB-ADAPTER-0018: contextual artifact unit {} selected an artifact absent from its theorem set",
+                unit.id
+            );
+        }
+    }
     Ok(())
 }
 
@@ -4067,7 +4909,7 @@ fn cache_key(
             std::env::var_os(name).map(|value| sha256_bytes(value.to_string_lossy().as_bytes())),
         );
     }
-    let tool_identities = adapter::cache_identities(root, unit.adapter)?;
+    let tool_identities = adapter::cache_identities(root, unit)?;
     cache_key_identity(
         unit,
         closures,
@@ -4143,7 +4985,32 @@ fn cache_input_identities(
                 .iter()
                 .map(|bridge| bridge.file.clone()),
         );
-        roots.extend(translation.import_mapping.source_roots.iter().cloned());
+        let source_root_patterns = translation
+            .import_mapping
+            .source_roots
+            .iter()
+            .map(|source_root| format!("{source_root}/**"))
+            .collect::<Vec<_>>();
+        let source_root_closure = proofbound_evidence::build_closure(
+            root,
+            proofbound_evidence::ClosureKind::Semantic,
+            &source_root_patterns,
+            None,
+            "build-tool-transitive/1",
+            closures::limits(bundle),
+        )
+        .with_context(|| {
+            format!(
+                "PB-CACHE-0001: could not close translation import roots for unit {}",
+                unit.id
+            )
+        })?;
+        roots.extend(
+            source_root_closure
+                .members
+                .into_iter()
+                .map(|member| member.path),
+        );
         roots.extend(
             translation
                 .invocations
@@ -4669,6 +5536,7 @@ fn canonical_reference(kind: ManifestEvidenceKind, id: &str) -> String {
         ManifestEvidenceKind::PropertyTest => "property-test",
         ManifestEvidenceKind::ExampleTest => "example-test",
         ManifestEvidenceKind::MutationWitness => "mutation-witness",
+        ManifestEvidenceKind::StaticCheck => "static-check",
         ManifestEvidenceKind::Review => "review",
         ManifestEvidenceKind::Assumption => "assumption",
         ManifestEvidenceKind::Open => "open",
@@ -4871,6 +5739,72 @@ fn release_sealed_files(root: &Path) -> Result<Vec<serde_json::Value>> {
     Ok(files)
 }
 
+fn seal_contextual_binding_artifacts(
+    root: &Path,
+    destination: &Path,
+    compiled: &CompiledProject,
+    contextual_binding_units: &BTreeSet<String>,
+) -> Result<()> {
+    let mut selected = BTreeMap::<String, ArtifactIdentity>::new();
+    for evidence in &compiled.evidence {
+        if !contextual_binding_units.contains(evidence.unit_id.as_str()) {
+            continue;
+        }
+        let binding = evidence.artifact_binding.as_ref().with_context(|| {
+            format!(
+                "PB-CTX-0004: contextual unit {} omitted artifact binding detail",
+                evidence.unit_id
+            )
+        })?;
+        let logical_name = binding.artifact.logical_name.as_str().to_owned();
+        validate_cache_relative_path(&logical_name).map_err(|_| {
+            anyhow!("PB-RELEASE-0022: contextual artifact has unsafe logical name {logical_name:?}")
+        })?;
+        if let Some(existing) = selected.insert(logical_name.clone(), binding.artifact.clone())
+            && existing != binding.artifact
+        {
+            bail!(
+                "PB-RELEASE-0022: contextual artifact {logical_name:?} has conflicting identities"
+            );
+        }
+    }
+
+    let canonical_root = root
+        .canonicalize()
+        .context("PB-RELEASE-0022: project root cannot be resolved")?;
+    for (logical_name, expected) in selected {
+        let source = canonical_root.join(&logical_name);
+        reject_cache_symlink_components(&canonical_root, &source)
+            .map_err(|error| anyhow!("PB-RELEASE-0022: contextual artifact is unsafe: {error}"))?;
+        let metadata = fs::symlink_metadata(&source).with_context(|| {
+            format!("PB-RELEASE-0022: contextual artifact is missing: {logical_name}")
+        })?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            bail!("PB-RELEASE-0022: contextual artifact is not a regular file: {logical_name}");
+        }
+        let bytes = fs::read(&source)?;
+        let actual_digest = parse_digest(&sha256_bytes(&bytes))?;
+        if bytes.len() as u64 != expected.size_bytes || actual_digest != expected.sha256 {
+            bail!(
+                "PB-RELEASE-0022: contextual artifact bytes disagree with checked identity: {logical_name}"
+            );
+        }
+        let target = destination.join(&logical_name);
+        if fs::symlink_metadata(&target).is_ok() {
+            bail!(
+                "PB-RELEASE-0022: contextual artifact collides with release file: {logical_name}"
+            );
+        }
+        write_bytes(&target, &bytes)?;
+        fs::set_permissions(&target, metadata.permissions()).with_context(|| {
+            format!(
+                "PB-RELEASE-0022: contextual artifact permissions could not be preserved: {logical_name}"
+            )
+        })?;
+    }
+    Ok(())
+}
+
 fn tcb_projection(compiled: &CompiledProject) -> Result<serde_json::Value> {
     let included_evidence = release_evidence_ids(compiled);
     let mut components = BTreeMap::<(String, String), String>::new();
@@ -4975,6 +5909,7 @@ fn compiled_release_value(
     project_tier: u8,
     graph: serde_json::Value,
     sealed_files: Vec<serde_json::Value>,
+    contextual_binding_units: &BTreeSet<String>,
 ) -> Result<serde_json::Value> {
     let mut release_closure_by_internal_id = BTreeMap::new();
     let mut closure_values = BTreeMap::new();
@@ -5009,8 +5944,9 @@ fn compiled_release_value(
             if !included_evidence.contains(&evidence.id) {
                 continue;
             }
-            let is_dependent =
-                evidence.artifact_binding.is_some() || evidence.source_refinement.is_some();
+            let is_dependent = evidence.artifact_binding.is_some()
+                || evidence.source_refinement.is_some()
+                || evidence.artifact_observation.is_some();
             if is_dependent != dependent {
                 continue;
             }
@@ -5031,8 +5967,13 @@ fn compiled_release_value(
                 closure,
                 &release_closure_by_internal_id,
                 &evidence_ids,
+                compiled.evidence_context.as_deref(),
+                contextual_binding_units.contains(evidence.unit_id.as_str()),
             )?;
-            let sha = domain_hash(EVIDENCE_DOMAIN, &canonical_json(&record)?);
+            let record_schema = record["schema"]
+                .as_str()
+                .context("PB-RELEASE-0001: evidence record schema is missing")?;
+            let sha = domain_hash(record_schema, &canonical_json(&record)?);
             evidence_ids.insert(evidence.id.to_string(), sha.clone());
             evidence_values.push(serde_json::json!({"sha256": sha, "record": record}));
         }
@@ -5132,8 +6073,48 @@ fn compiled_release_value(
     let statuses = compiled
         .statuses
         .iter()
-        .map(|status| {
-            serde_json::json!({
+        .map(|status| -> Result<serde_json::Value> {
+            let artifact_observations = status
+                .artifact_observations
+                .iter()
+                .map(|relation| {
+                    let evidence = evidence_ids
+                        .get(relation.evidence.as_str())
+                        .with_context(|| format!("PB-OBS-0009: observation evidence {} is missing", relation.evidence))?;
+                    let dependencies = relation
+                        .dependencies
+                        .iter()
+                        .map(|dependency| {
+                            evidence_ids.get(dependency.as_str()).cloned().with_context(|| {
+                                format!("PB-OBS-0009: observation dependency {dependency} is missing")
+                            })
+                        })
+                        .collect::<Result<BTreeSet<_>>>()?;
+                    let material = serde_json::json!({
+                        "evidence": evidence,
+                        "semantic_kind": relation.semantic_kind,
+                        "subject_role": relation.subject_role,
+                        "artifact": release_artifact_identity(&relation.artifact),
+                        "platform": relation.platform,
+                        "procedure": release_artifact_identity(&relation.procedure),
+                        "toolchain_closure": {
+                            "kind": relation.toolchain_closure.kind,
+                            "sha256": release_closure_by_internal_id.get(&format!("sha256:{}", relation.toolchain_closure.sha256))
+                                .context("PB-OBS-0008: observation toolchain closure is missing from release")?,
+                        },
+                        "dependencies": dependencies,
+                    });
+                    let identity = domain_hash(
+                        proofbound_core::EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1,
+                        &canonical_json(&material)?,
+                    );
+                    let mut value = material;
+                    value.as_object_mut().expect("relation material is an object")
+                        .insert("identity".to_owned(), serde_json::json!(identity));
+                    Ok::<_, anyhow::Error>(value)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let mut value = serde_json::json!({
                 "claim_id": status.claim_id,
                 "public_statement": status.public_statement,
                 "formal": status.formal,
@@ -5144,13 +6125,45 @@ fn compiled_release_value(
                 "undischarged_premises": status.assumption.undischarged_premises.iter()
                     .map(|item| item.id.to_string()).collect::<BTreeSet<_>>(),
                 "policy_admitted": status.policy.admitted,
-            })
+                "artifact_observations": artifact_observations,
+            });
+            if artifact_observations.is_empty() {
+                value
+                    .as_object_mut()
+                    .expect("reported status is an object")
+                    .remove("artifact_observations");
+            }
+            Ok(value)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
+    let has_artifact_observations = compiled
+        .statuses
+        .iter()
+        .any(|status| !status.artifact_observations.is_empty());
+    let has_contextual_artifact_bindings = compiled.evidence.iter().any(|evidence| {
+        included_evidence.contains(&evidence.id)
+            && contextual_binding_units.contains(evidence.unit_id.as_str())
+            && evidence.artifact_binding.is_some()
+    });
+    if compiled.evidence_context.is_some()
+        && !has_artifact_observations
+        && !has_contextual_artifact_bindings
+    {
+        bail!("PB-CTX-0004: a contextual release contains no admitted contextual evidence");
+    }
     let mut payload = serde_json::json!({
-        "schema": "proofbound-compiled-release/3",
+        "schema": if has_contextual_artifact_bindings {
+            "proofbound-compiled-release/6"
+        } else if compiled.evidence_context.is_some() {
+            "proofbound-compiled-release/5"
+        } else if has_artifact_observations {
+            "proofbound-compiled-release/4"
+        } else {
+            "proofbound-compiled-release/3"
+        },
         "project": compiled.project,
         "project_revision": compiled.project_revision,
+        "evidence_context": compiled.evidence_context,
         "project_tier": project_tier,
         "tree_state": compiled.tree_state,
         "graph": graph,
@@ -5189,6 +6202,8 @@ fn release_evidence_record(
     closure: &str,
     closure_ids: &BTreeMap<String, String>,
     evidence_ids: &BTreeMap<String, String>,
+    evidence_context: Option<&str>,
+    contextual_binding: bool,
 ) -> Result<serde_json::Value> {
     let input_artifacts = artifact_records(&evidence.provenance.input_artifacts)?;
     let generated_artifacts = artifact_records(&evidence.provenance.generated_artifacts)?;
@@ -5283,6 +6298,40 @@ fn release_evidence_record(
             }))
         })
         .transpose()?;
+    let artifact_observation = evidence
+        .artifact_observation
+        .as_ref()
+        .map(|item| {
+            let toolchain_internal = format!("sha256:{}", item.toolchain_closure.sha256);
+            Ok::<serde_json::Value, anyhow::Error>(serde_json::json!({
+                "schema": item.schema,
+                "subject_role": item.subject_role,
+                "artifact": release_artifact_identity(&item.artifact),
+                "platform": item.platform,
+                "procedure": release_artifact_identity(&item.procedure),
+                "toolchain_closure": {
+                    "kind": item.toolchain_closure.kind,
+                    "sha256": closure_ids.get(&toolchain_internal)
+                        .context("PB-OBS-0008: observation toolchain closure is missing from release")?,
+                },
+                "dependencies": item.dependencies.iter().map(|dependency| {
+                    evidence_ids.get(dependency.as_str()).cloned().with_context(|| {
+                        format!("PB-OBS-0009: observation dependency {dependency} is missing from release")
+                    })
+                }).collect::<Result<BTreeSet<_>>>()?,
+            }))
+        })
+        .transpose()?;
+    if contextual_binding && artifact_binding.is_none() {
+        bail!(
+            "PB-CTX-0004: evidence {} is registered as a contextual binding but has no binding detail",
+            evidence.id
+        );
+    }
+    let portable_context = (artifact_observation.is_some() || contextual_binding)
+        .then_some(evidence_context)
+        .flatten()
+        .map(str::to_owned);
     let trusted_transcription = evidence.trusted_transcription.as_ref().map(|item| {
         serde_json::json!({
             "schema": item.schema,
@@ -5362,6 +6411,50 @@ fn release_evidence_record(
             "proof_term_witness": item.proof_term_theorem.is_some(),
         })
     });
+    let python_property = evidence.python_property.as_ref().map(|item| {
+        serde_json::json!({
+            "schema": item.schema,
+            "framework": item.framework,
+            "seed": item.seed,
+            "framework_version": item.framework_version,
+        })
+    });
+    let static_check = evidence.static_check.as_ref().map(|item| {
+        serde_json::json!({
+            "schema": item.schema,
+            "tool": item.tool,
+            "tool_version": item.tool_version,
+            "configuration_sha256": format!("sha256:{}", item.configuration_sha256),
+            "targets": item.targets,
+            "diagnostics": item.diagnostics,
+        })
+    });
+    let distribution_reproduction = evidence.distribution_reproduction.as_ref().map(|item| {
+        serde_json::json!({
+            "schema": item.schema,
+            "format": item.format,
+            "run_digests": item.run_digests.iter().map(|digest| format!("sha256:{digest}")).collect::<Vec<_>>(),
+            "registered_digest": format!("sha256:{}", item.registered_digest),
+            "source_date_epoch": item.source_date_epoch,
+            "build_backend_name": item.build_backend_name,
+            "build_backend_version": item.build_backend_version,
+            "npm_integrity": item.npm_integrity,
+            "member_inventory": item.member_inventory,
+        })
+    });
+    let python_plugins = evidence
+        .provenance
+        .python_plugins
+        .iter()
+        .map(|plugin| {
+            serde_json::json!({
+                "module": plugin.module,
+                "distribution": plugin.distribution,
+                "version": plugin.version,
+                "origin_sha256": format!("sha256:{}", plugin.origin_sha256),
+            })
+        })
+        .collect::<Vec<_>>();
     let open_obligation = evidence.open_obligation.as_ref().map(|item| {
         serde_json::json!({
             "id": item.id,
@@ -5370,7 +6463,13 @@ fn release_evidence_record(
         })
     });
     let mut record = serde_json::json!({
-        "schema": EVIDENCE_DOMAIN,
+        "schema": if contextual_binding {
+            "proofbound-evidence/5"
+        } else if artifact_observation.is_some() {
+            "proofbound-evidence/4"
+        } else {
+            EVIDENCE_DOMAIN
+        },
         "unit_id": evidence.unit_id,
         "node_id": evidence.node_id,
         "kind": evidence.kind,
@@ -5380,11 +6479,16 @@ fn release_evidence_record(
         "binding_mode": evidence.binding_mode,
         "theorem": theorem,
         "artifact_binding": artifact_binding,
+        "artifact_observation": artifact_observation,
+        "evidence_context": portable_context,
         "trusted_transcription": trusted_transcription,
         "source_refinement": source_refinement,
         "bounded_check": bounded_check,
         "exhaustive_check": exhaustive_check,
         "mutation_witness": mutation_witness,
+        "python_property": python_property,
+        "static_check": static_check,
+        "distribution_reproduction": distribution_reproduction,
         "independence": evidence.independence,
         "inventoried_targets": evidence.inventoried_targets,
         "assumptions": evidence.assumptions,
@@ -5420,11 +6524,13 @@ fn release_evidence_record(
                 "disk_bytes": evidence.provenance.resource_usage.peak_disk_bytes,
                 "memory_bytes": evidence.provenance.resource_usage.peak_memory_bytes,
             },
+            "python_plugins": python_plugins,
         },
     });
     omit_null_object_fields(&mut record);
     if let Some(provenance) = record.get_mut("provenance") {
         omit_empty_array_field(provenance, "additional_closures");
+        omit_empty_array_field(provenance, "python_plugins");
     }
     Ok(record)
 }
@@ -5540,6 +6646,48 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ContextAttackCorpus {
+        schema: String,
+        cases: Vec<ContextAttackCase>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ContextAttackCase {
+        id: String,
+        mutation: String,
+        expected_code: String,
+    }
+
+    fn repository_bundle() -> ProjectBundle {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        ProjectBundle::load(&root).unwrap()
+    }
+
+    fn empty_context_compiled(evidence_context: Option<&str>) -> CompiledProject {
+        CompiledProject {
+            schema: if evidence_context.is_some() {
+                COMPILED_SCHEMA_V4.to_owned()
+            } else {
+                COMPILED_SCHEMA_V3.to_owned()
+            },
+            project: "context-fixture".to_owned(),
+            project_revision: "fixture-revision".to_owned(),
+            evidence_context: evidence_context.map(str::to_owned),
+            tree_state: "clean".to_owned(),
+            reviewed_tree_sha256: sha256_bytes(b"fixture"),
+            generated_at: "1970-01-01T00:00:00.000Z".to_owned(),
+            inputs: Vec::new(),
+            statuses: Vec::new(),
+            evidence: Vec::new(),
+            closures: Vec::new(),
+            unit_runs: Vec::new(),
+            claim_input_identities: BTreeMap::new(),
+        }
+    }
+
     fn policy_manifest(overrides: serde_json::Value) -> PolicyManifest {
         let mut value = json!({
             "schema": "proofbound-policy/1",
@@ -5572,6 +6720,655 @@ mod tests {
     }
 
     #[test]
+    fn explicit_formal_axiom_can_be_shared_across_theorem_modules() {
+        let mut bundle = cache_test_bundle(Path::new("."));
+        let assumption = |id: &str, formal_axioms: Vec<&str>, source_citation: &str| {
+            serde_json::from_value(json!({
+                "schema": "proofbound-assumption/1",
+                "id": id,
+                "statement": "The registered toolchain preserves the source theorem.",
+                "category": "compiler-tcb",
+                "owner": "test",
+                "rationale": "The compiler remains trusted.",
+                "scope": "The exact release artifact.",
+                "affected_claims": ["CLAIM-ONE"],
+                "review_evidence": ["review.md"],
+                "discharge_plan": "Verify the compiler.",
+                "source_citation": source_citation,
+                "formal_axioms": formal_axioms,
+                "status": "active"
+            }))
+            .unwrap()
+        };
+        bundle.assumptions.insert(
+            "AX-SHARED".to_owned(),
+            (
+                PathBuf::from("assumptions/AX-SHARED.toml"),
+                assumption(
+                    "AX-SHARED",
+                    vec!["Shared.Toolchain.witness"],
+                    "docs/toolchain.md#boundary",
+                ),
+            ),
+        );
+        let claim: ClaimManifest = serde_json::from_value(json!({
+            "schema": "proofbound-claim/1",
+            "id": "CLAIM-ONE",
+            "title": "Shared axiom",
+            "statement": "The theorem uses one shared toolchain boundary.",
+            "public_language": null,
+            "formal_declaration": "ClaimOne.Release.bound",
+            "statement_encoding": "lean-expr-cbor/1",
+            "statement_sha256": format!("sha256:{}", "00".repeat(32)),
+            "foundational_axioms": [],
+            "subject": "crate::subject",
+            "subject_closure": null,
+            "profile": "kernel-with-assumptions",
+            "tier": 3,
+            "primary_linkage": "artifact-bound",
+            "evidence": [],
+            "assumptions": ["AX-SHARED"],
+            "premises": [],
+            "open_obligations": [],
+            "out_of_scope": [],
+            "bounded_domain": null,
+            "source_roots": []
+        }))
+        .unwrap();
+
+        assert_eq!(
+            registered_project_axioms(&bundle, &claim, "ClaimOne.Release").unwrap(),
+            BTreeMap::from([(
+                "Shared.Toolchain.witness".to_owned(),
+                "AX-SHARED".to_owned()
+            )])
+        );
+
+        bundle.assumptions.insert(
+            "AX-AMBIGUOUS".to_owned(),
+            (
+                PathBuf::from("assumptions/AX-AMBIGUOUS.toml"),
+                assumption(
+                    "AX-AMBIGUOUS",
+                    vec!["Shared.Toolchain.witness"],
+                    "docs/other.md#boundary",
+                ),
+            ),
+        );
+        let mut ambiguous = claim;
+        ambiguous.assumptions.push("AX-AMBIGUOUS".to_owned());
+        let error = registered_project_axioms(&bundle, &ambiguous, "ClaimOne.Release")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("PB-LEAN-0004"));
+        assert!(error.contains("AX-SHARED"));
+        assert!(error.contains("AX-AMBIGUOUS"));
+    }
+
+    #[test]
+    fn evidence_context_activation_is_exact_and_not_a_partial_check() {
+        let mut bundle = repository_bundle();
+        let context = "release-linux-x86-64".to_owned();
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec![context.clone()];
+        bundle.project.required_release_contexts = vec![context.clone()];
+        let (claim_id, reference) = {
+            let (_, unit) = bundle.evidence_units.get_mut("manifest-workspace").unwrap();
+            unit.context = Some(context.clone());
+            (
+                unit.claims[0].clone(),
+                EvidenceId::new(canonical_reference(unit.kind, &unit.id)).unwrap(),
+            )
+        };
+
+        let options = CheckOptions {
+            evidence_context: Some(context.clone()),
+            ..CheckOptions::default()
+        };
+        assert_eq!(
+            effective_evidence_context(&bundle, &options).unwrap(),
+            Some(context.clone())
+        );
+        let claims = select_claims(&bundle, &options).unwrap();
+        let base_units = select_units(&bundle, &claims, &CheckOptions::default(), None).unwrap();
+        assert!(!base_units.contains(&"manifest-workspace".to_owned()));
+        let context_units = select_units(&bundle, &claims, &options, Some(&context)).unwrap();
+        assert!(context_units.contains(&"manifest-workspace".to_owned()));
+
+        let claim = &bundle.claims[&claim_id].1;
+        assert!(
+            !contextual_cited_evidence_ids(&bundle, claim, None)
+                .unwrap()
+                .contains(&reference)
+        );
+        assert!(
+            contextual_cited_evidence_ids(&bundle, claim, Some(&context))
+                .unwrap()
+                .contains(&reference)
+        );
+
+        let partial = CheckOptions {
+            claim: Some(claim_id),
+            evidence_context: Some(context),
+            ..CheckOptions::default()
+        };
+        assert!(
+            effective_evidence_context(&bundle, &partial)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0005")
+        );
+    }
+
+    #[test]
+    fn required_release_contexts_reject_omission_replay_and_missing_observations() {
+        let mut bundle = repository_bundle();
+        let context = "release-linux-x86-64".to_owned();
+        let inactive_context = "release-linux-aarch64".to_owned();
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec![inactive_context.clone(), context.clone()];
+        bundle.project.required_release_contexts = bundle.project.evidence_contexts.clone();
+        bundle
+            .evidence_units
+            .get_mut("manifest-workspace")
+            .unwrap()
+            .1
+            .schema = "proofbound-evidence-unit/5".to_owned();
+        bundle
+            .evidence_units
+            .get_mut("manifest-workspace")
+            .unwrap()
+            .1
+            .context = Some(context.clone());
+
+        let mut compiled = CompiledProject {
+            schema: COMPILED_SCHEMA_V3.to_owned(),
+            project: "context-fixture".to_owned(),
+            project_revision: "fixture-revision".to_owned(),
+            evidence_context: None,
+            tree_state: "clean".to_owned(),
+            reviewed_tree_sha256: sha256_bytes(b"fixture"),
+            generated_at: "1970-01-01T00:00:00.000Z".to_owned(),
+            inputs: Vec::new(),
+            statuses: Vec::new(),
+            evidence: Vec::new(),
+            closures: Vec::new(),
+            unit_runs: Vec::new(),
+            claim_input_identities: BTreeMap::new(),
+        };
+        assert!(
+            validate_release_evidence_context(&bundle, &compiled)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0006")
+        );
+
+        let (inactive_path, mut inactive_unit) =
+            bundle.evidence_units["manifest-workspace"].clone();
+        inactive_unit.id = "inactive-context".to_owned();
+        inactive_unit.context = Some(inactive_context);
+        bundle.evidence_units.insert(
+            inactive_unit.id.clone(),
+            (inactive_path, inactive_unit.clone()),
+        );
+        let mut smuggled_record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["inactive"])).unwrap();
+        smuggled_record.unit_id = UnitId::new("unit:inactive-context").unwrap();
+        compiled.evidence.push(smuggled_record);
+        compiled.schema = COMPILED_SCHEMA_V4.to_owned();
+        compiled.evidence_context = Some(context.clone());
+        assert!(
+            validate_release_evidence_context(&bundle, &compiled)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0004")
+        );
+        compiled.evidence.clear();
+        compiled.schema = COMPILED_SCHEMA_V3.to_owned();
+        compiled.evidence_context = None;
+
+        let mut replayed = compiled.clone();
+        replayed.schema = COMPILED_SCHEMA_V4.to_owned();
+        replayed.evidence_context = Some("release-linux-riscv64".to_owned());
+        assert!(
+            validate_release_evidence_context(&bundle, &replayed)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0007")
+        );
+
+        let mut missing = compiled;
+        missing.schema = COMPILED_SCHEMA_V4.to_owned();
+        missing.evidence_context = Some(context);
+        assert!(
+            validate_release_evidence_context(&bundle, &missing)
+                .unwrap_err()
+                .to_string()
+                .contains("PB-CTX-0004")
+        );
+    }
+
+    #[test]
+    fn required_contextual_artifact_binding_needs_its_exact_typed_detail() {
+        let mut bundle = repository_bundle();
+        let context = "release-linux-aarch64".to_owned();
+        bundle.project.schema = "proofbound-project/2".to_owned();
+        bundle.project.evidence_contexts = vec![context.clone()];
+        bundle.project.required_release_contexts = vec![context.clone()];
+        let unit = &mut bundle
+            .evidence_units
+            .get_mut("manifest-workspace")
+            .unwrap()
+            .1;
+        unit.schema = "proofbound-evidence-unit/6".to_owned();
+        unit.context = Some(context.clone());
+
+        let mut record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["selected-member"])).unwrap();
+        record.unit_id = UnitId::new("unit:manifest-workspace").unwrap();
+        record.kind = EvidenceKind::ArtifactSoundness;
+        record.evaluation_mode = Some(proofbound_core::EvaluationMode::Kernel);
+        record.binding_mode = Some(proofbound_core::BindingMode::DigestTheorem);
+        record.artifact_binding = Some(ArtifactBindingEvidence {
+            theorem: EvidenceId::new("theorem:closed-set").unwrap(),
+            artifact: ArtifactIdentity {
+                logical_name: ArtifactLogicalName::new("release/aarch64/pbr").unwrap(),
+                sha256: Sha256Digest::of_bytes(b"aarch64 pbr"),
+                size_bytes: 4096,
+            },
+        });
+        let mut compiled = empty_context_compiled(Some(&context));
+        compiled.evidence.push(record);
+        validate_release_evidence_context(&bundle, &compiled).unwrap();
+        let portable_theorem = format!("sha256:{}", "11".repeat(32));
+        let released = release_evidence_record(
+            &compiled.evidence[0],
+            &format!("sha256:{}", "22".repeat(32)),
+            &BTreeMap::new(),
+            &BTreeMap::from([("theorem:closed-set".to_owned(), portable_theorem)]),
+            Some(&context),
+            true,
+        )
+        .unwrap();
+        assert_eq!(released["schema"], "proofbound-evidence/5");
+        assert_eq!(released["evidence_context"], context);
+
+        compiled.evidence[0].artifact_binding = None;
+        let error = validate_release_evidence_context(&bundle, &compiled).unwrap_err();
+        assert!(error.to_string().contains("PB-CTX-0004"));
+    }
+
+    #[test]
+    fn contextual_binding_artifact_is_recomputed_and_sealed_into_release() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let logical_name = "artifacts/aarch64/pbr";
+        let bytes = b"contextual pbr bytes";
+        fs::create_dir_all(root.join("artifacts/aarch64")).unwrap();
+        fs::write(root.join(logical_name), bytes).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            fs::set_permissions(root.join(logical_name), fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let destination = root.join("portable-release");
+        fs::create_dir(&destination).unwrap();
+
+        let mut record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["selected-member"])).unwrap();
+        record.unit_id = UnitId::new("unit:release-pbr-aarch64").unwrap();
+        record.artifact_binding = Some(ArtifactBindingEvidence {
+            theorem: EvidenceId::new("theorem:closed-set").unwrap(),
+            artifact: ArtifactIdentity {
+                logical_name: ArtifactLogicalName::new(logical_name).unwrap(),
+                sha256: Sha256Digest::of_bytes(bytes),
+                size_bytes: bytes.len() as u64,
+            },
+        });
+        let mut compiled = empty_context_compiled(Some("release-linux-aarch64"));
+        compiled.evidence.push(record);
+        let units = BTreeSet::from(["unit:release-pbr-aarch64".to_owned()]);
+        seal_contextual_binding_artifacts(&root, &destination, &compiled, &units).unwrap();
+        assert_eq!(fs::read(destination.join(logical_name)).unwrap(), bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let released_mode = fs::metadata(destination.join(logical_name))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(released_mode, 0o755);
+        }
+
+        fs::remove_file(destination.join(logical_name)).unwrap();
+        compiled.evidence[0]
+            .artifact_binding
+            .as_mut()
+            .unwrap()
+            .artifact
+            .sha256 = Sha256Digest::of_bytes(b"substituted");
+        let error =
+            seal_contextual_binding_artifacts(&root, &destination, &compiled, &units).unwrap_err();
+        assert!(error.to_string().contains("PB-RELEASE-0022"));
+    }
+
+    #[test]
+    fn contextual_binding_compilation_requires_the_exact_set_root() {
+        let artifact = ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new("artifacts/aarch64/pbr").unwrap(),
+            sha256: Sha256Digest::of_bytes(b"aarch64 pbr"),
+            size_bytes: 11,
+        };
+        let string = |value: &str| json!([7, [1, value]]);
+        let app = |function: serde_json::Value, argument: serde_json::Value| {
+            json!([3, function, argument])
+        };
+        let member_type = json!([2, "Proofbound.Artifact.DigestBindingMemberV1", []]);
+        let mut member = json!([2, "Proofbound.Artifact.DigestBindingMemberV1.mk", []]);
+        for argument in [
+            string(artifact.logical_name.as_str()),
+            string(&format!("sha256:{}", artifact.sha256)),
+            json!([2, "Demo.aarch64Bytes", []]),
+        ] {
+            member = app(member, argument);
+        }
+        let nil = app(json!([2, "List.nil", [[0]]]), member_type.clone());
+        let mut members = json!([2, "List.cons", [[0]]]);
+        for argument in [member_type, member, nil] {
+            members = app(members, argument);
+        }
+        let mut set_root = json!([2, "Proofbound.Artifact.DigestBindingSetV1", []]);
+        for argument in [
+            string("CLAIM-ONE"),
+            string("runtime-executable/1"),
+            members,
+            json!([2, "Demo.meaning", []]),
+        ] {
+            set_root = app(set_root, argument);
+        }
+        let set_wire = json!([proofbound_core::LEAN_STATEMENT_ENCODING_V1, set_root]);
+
+        let mut theorem_record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["Demo.closedSet"])).unwrap();
+        theorem_record.id = EvidenceId::new("theorem:closed-set").unwrap();
+        theorem_record.node_id = NodeId::new("evidence:theorem:closed-set").unwrap();
+        theorem_record.unit_id = UnitId::new("unit:closed-set").unwrap();
+        theorem_record.kind = EvidenceKind::Theorem;
+        theorem_record.evaluation_mode = Some(proofbound_core::EvaluationMode::Kernel);
+        theorem_record.theorem = Some(proofbound_core::TheoremEvidence {
+            declaration: "Demo.closedSet".into(),
+            statement_encoding: proofbound_core::LEAN_STATEMENT_ENCODING_V1.into(),
+            statement_sha256: proofbound_core::lean_statement_wire_digest(&set_wire).unwrap(),
+            statement_wire: set_wire,
+            attributed_claim: ClaimId::new("CLAIM-ONE").unwrap(),
+            environment: proofbound_core::EnvironmentId::new("lean:demo").unwrap(),
+            axiom_audit_passed: true,
+            contains_sorry_ax: false,
+            foundational_axioms: BTreeSet::new(),
+            project_axioms: BTreeSet::new(),
+        });
+
+        let mut binding_record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["selected-member"])).unwrap();
+        binding_record.id = EvidenceId::new("artifact-soundness:release-pbr").unwrap();
+        binding_record.node_id = NodeId::new("evidence:artifact-soundness:release-pbr").unwrap();
+        binding_record.unit_id = UnitId::new("unit:release-pbr").unwrap();
+        binding_record.kind = EvidenceKind::ArtifactSoundness;
+        binding_record.evaluation_mode = Some(proofbound_core::EvaluationMode::Kernel);
+        binding_record.binding_mode = Some(proofbound_core::BindingMode::DigestTheorem);
+        binding_record.artifact_binding = Some(ArtifactBindingEvidence {
+            theorem: theorem_record.id.clone(),
+            artifact: artifact.clone(),
+        });
+        binding_record.provenance.input_artifacts = vec![artifact.clone()];
+
+        let mut bundle = cache_test_bundle(Path::new("."));
+        let theorem_unit = theorem_unit("closed-set", "Demo.closedSet");
+        let binding_unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/6",
+            "id": "release-pbr",
+            "context": "release-linux-aarch64",
+            "adapter": "canonical-artifact",
+            "kind": "artifact-soundness",
+            "claims": ["CLAIM-ONE"],
+            "tier": 3,
+            "evaluation_mode": "kernel",
+            "binding_mode": "digest-theorem",
+            "theorem": "Demo.closedSet",
+            "operation": {"type": "artifact-check", "checker": "checker.py"},
+            "inputs": ["artifacts/aarch64/pbr", "checker.py"],
+            "outputs": [],
+            "environment_allowlist": [],
+            "resource_budget": {"time_seconds":1,"disk_bytes":1,"memory_bytes":1}
+        }))
+        .unwrap();
+        bundle.evidence_units.insert(
+            theorem_unit.id.clone(),
+            (PathBuf::from("theorem.toml"), theorem_unit),
+        );
+        bundle.evidence_units.insert(
+            binding_unit.id.clone(),
+            (PathBuf::from("binding.toml"), binding_unit),
+        );
+
+        let mut records = vec![theorem_record, binding_record];
+        normalize_and_check_records(&bundle, &mut records).unwrap();
+
+        let theorem = records[0].theorem.as_mut().unwrap();
+        let mut singular = json!([2, "Proofbound.Artifact.DigestBindingV1", []]);
+        for argument in [
+            string("CLAIM-ONE"),
+            string("runtime-executable/1"),
+            string(artifact.logical_name.as_str()),
+            string(&format!("sha256:{}", artifact.sha256)),
+            json!([2, "Demo.aarch64Bytes", []]),
+            json!([2, "Demo.meaning", []]),
+        ] {
+            singular = app(singular, argument);
+        }
+        theorem.statement_wire = json!([proofbound_core::LEAN_STATEMENT_ENCODING_V1, singular]);
+        theorem.statement_sha256 =
+            proofbound_core::lean_statement_wire_digest(&theorem.statement_wire).unwrap();
+        let error = normalize_and_check_records(&bundle, &mut records).unwrap_err();
+        assert!(error.to_string().contains("closed binding-set theorem"));
+    }
+
+    #[test]
+    fn frozen_evidence_context_compiler_attacks_reject_with_registered_codes() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/evidence-context-attacks.json");
+        let corpus: ContextAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(corpus.schema, "proofbound-evidence-context-attacks/1");
+        assert_eq!(corpus.cases.len(), 8);
+        let mut seen = BTreeSet::new();
+
+        for case in corpus.cases {
+            assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+            assert!(!case.mutation.trim().is_empty());
+            let error = match case.id.as_str() {
+                "unknown-context" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+                    effective_evidence_context(
+                        &bundle,
+                        &CheckOptions {
+                            evidence_context: Some("release-linux-riscv64".to_owned()),
+                            ..CheckOptions::default()
+                        },
+                    )
+                    .unwrap_err()
+                }
+                "inactive-evidence-smuggling" => {
+                    let mut bundle = repository_bundle();
+                    let active = "release-linux-x86-64".to_owned();
+                    let inactive = "release-linux-aarch64".to_owned();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec![inactive.clone(), active.clone()];
+                    bundle.project.required_release_contexts =
+                        bundle.project.evidence_contexts.clone();
+                    bundle
+                        .evidence_units
+                        .get_mut("manifest-workspace")
+                        .unwrap()
+                        .1
+                        .schema = "proofbound-evidence-unit/5".to_owned();
+                    bundle
+                        .evidence_units
+                        .get_mut("manifest-workspace")
+                        .unwrap()
+                        .1
+                        .context = Some(active.clone());
+                    let (path, mut unit) = bundle.evidence_units["manifest-workspace"].clone();
+                    unit.id = "inactive-context".to_owned();
+                    unit.context = Some(inactive);
+                    bundle.evidence_units.insert(unit.id.clone(), (path, unit));
+                    let mut compiled = empty_context_compiled(Some(&active));
+                    let mut record: EvidenceRecord =
+                        serde_json::from_value(direct_example_record_value(vec![
+                            "inactive-context",
+                        ]))
+                        .unwrap();
+                    record.unit_id = UnitId::new("unit:inactive-context").unwrap();
+                    compiled.evidence.push(record);
+                    validate_release_evidence_context(&bundle, &compiled).unwrap_err()
+                }
+                "partial-context-check" => {
+                    let mut bundle = repository_bundle();
+                    let context = "release-linux-x86-64".to_owned();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec![context.clone()];
+                    effective_evidence_context(
+                        &bundle,
+                        &CheckOptions {
+                            claim: Some(bundle.claims.keys().next().unwrap().clone()),
+                            evidence_context: Some(context),
+                            ..CheckOptions::default()
+                        },
+                    )
+                    .unwrap_err()
+                }
+                "required-context-omission" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+                    bundle.project.required_release_contexts =
+                        bundle.project.evidence_contexts.clone();
+                    validate_release_evidence_context(&bundle, &empty_context_compiled(None))
+                        .unwrap_err()
+                }
+                "context-replay" => {
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+                    validate_release_evidence_context(
+                        &bundle,
+                        &empty_context_compiled(Some("release-linux-riscv64")),
+                    )
+                    .unwrap_err()
+                }
+                "malformed-context" | "unreviewed-manifest" | "receipt-context-substitution" => {
+                    continue;
+                }
+                unknown => panic!("unimplemented frozen context attack {unknown}"),
+            };
+            let actual = error.to_string();
+            assert!(
+                actual.starts_with(&case.expected_code),
+                "{} expected {}, received {}",
+                case.id,
+                case.expected_code,
+                actual
+            );
+        }
+    }
+
+    #[test]
+    fn frozen_contextual_binding_compiler_attack_rejects_with_registered_code() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../proofbound/conformance/v2/contextual-artifact-binding-attacks.json");
+        let corpus: ContextAttackCorpus = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(
+            corpus.schema,
+            "proofbound-contextual-artifact-binding-attacks/1"
+        );
+        assert_eq!(corpus.cases.len(), 10);
+        let mut seen = BTreeSet::new();
+        let mut executed = false;
+
+        for case in corpus.cases {
+            assert!(seen.insert(case.id.clone()), "duplicate case {}", case.id);
+            assert!(!case.mutation.trim().is_empty());
+            match case.id.as_str() {
+                "inactive-binding-smuggling" => {
+                    executed = true;
+                    let active = "release-linux-x86-64".to_owned();
+                    let inactive = "release-linux-aarch64".to_owned();
+                    let mut bundle = repository_bundle();
+                    bundle.project.schema = "proofbound-project/2".to_owned();
+                    bundle.project.evidence_contexts = vec![inactive.clone(), active.clone()];
+                    bundle.project.required_release_contexts =
+                        bundle.project.evidence_contexts.clone();
+                    let (inactive_path, inactive_unit) = {
+                        let (path, active_unit) =
+                            bundle.evidence_units.get_mut("manifest-workspace").unwrap();
+                        active_unit.schema = "proofbound-evidence-unit/6".to_owned();
+                        active_unit.context = Some(active.clone());
+                        let mut inactive_unit = active_unit.clone();
+                        inactive_unit.id = "inactive-binding".to_owned();
+                        inactive_unit.context = Some(inactive);
+                        (path.clone(), inactive_unit)
+                    };
+                    bundle
+                        .evidence_units
+                        .insert(inactive_unit.id.clone(), (inactive_path, inactive_unit));
+
+                    let mut record: EvidenceRecord =
+                        serde_json::from_value(direct_example_record_value(vec![
+                            "inactive-binding",
+                        ]))
+                        .unwrap();
+                    record.unit_id = UnitId::new("unit:inactive-binding").unwrap();
+                    record.kind = EvidenceKind::ArtifactSoundness;
+                    record.artifact_binding = Some(ArtifactBindingEvidence {
+                        theorem: EvidenceId::new("theorem:closed-set").unwrap(),
+                        artifact: ArtifactIdentity {
+                            logical_name: ArtifactLogicalName::new("release/aarch64/pbr").unwrap(),
+                            sha256: Sha256Digest::of_bytes(b"aarch64 pbr"),
+                            size_bytes: 11,
+                        },
+                    });
+                    let mut compiled = empty_context_compiled(Some(&active));
+                    compiled.evidence.push(record);
+                    let error = validate_release_evidence_context(&bundle, &compiled).unwrap_err();
+                    assert!(
+                        error.to_string().starts_with(&case.expected_code),
+                        "{} expected {}, received {}",
+                        case.id,
+                        case.expected_code,
+                        error
+                    );
+                }
+                "empty-binding-set"
+                | "duplicate-binding-member"
+                | "noncanonical-binding-order"
+                | "computed-member-identity"
+                | "context-kind-substitution"
+                | "member-omission"
+                | "member-substitution"
+                | "receipt-context-substitution"
+                | "observation-promotion" => {}
+                unknown => panic!("unimplemented frozen contextual binding attack {unknown}"),
+            }
+        }
+        assert!(executed, "inactive-binding-smuggling was not executed");
+    }
+
+    #[test]
     fn premise_reviews_are_derived_into_the_claim_evidence_closure() {
         let manifest: ClaimManifest = serde_json::from_value(json!({
             "schema": "proofbound-claim/1",
@@ -5601,6 +7398,114 @@ mod tests {
         let cited = cited_evidence_ids(&manifest).unwrap();
         assert!(cited.contains(&EvidenceId::new("example-test:registered-test").unwrap()));
         assert!(cited.contains(&EvidenceId::new("review:PREMISE-ONE").unwrap()));
+    }
+
+    #[test]
+    fn scoped_premise_discharge_compiles_to_canonical_core_identity() {
+        let manifest: PremiseDischargeManifest = serde_json::from_value(json!({
+            "theorem": "carrier-bound",
+            "scope": {
+                "kind": "flows",
+                "flows": ["environment", "paths"]
+            }
+        }))
+        .unwrap();
+
+        let compiled = premise_discharge(&manifest).unwrap();
+        assert_eq!(
+            compiled.theorem_evidence,
+            EvidenceId::new("theorem:carrier-bound").unwrap()
+        );
+        assert_eq!(
+            compiled.scope,
+            FlowScope::Flows {
+                flows: BTreeSet::from(["environment".to_owned(), "paths".to_owned()])
+            }
+        );
+    }
+
+    #[test]
+    fn compiled_premise_discharge_graph_is_valid_end_to_end() {
+        let claim_id = ClaimId::new("PB-TEST-DISCHARGE-001").unwrap();
+        let policy = scope_built_in_policy(
+            PolicyDefinition::ledger(PolicyId::new("ledger").unwrap()),
+            claim_id.as_str(),
+        )
+        .unwrap();
+        let claim = ClaimDefinition {
+            schema: "proofbound-claim/1".into(),
+            id: claim_id.clone(),
+            node_id: NodeId::new("claim:PB-TEST-DISCHARGE-001").unwrap(),
+            title: "Premise discharge graph".into(),
+            statement: "The compiler emits both required premise edges.".into(),
+            public_language: None,
+            subject: NodeId::new("subject:premise-discharge").unwrap(),
+            policy: policy.id.clone(),
+            tier: Some(Tier::Bound),
+            cited_evidence: BTreeSet::new(),
+            assumptions: BTreeSet::new(),
+            open_obligations: BTreeSet::new(),
+            out_of_scope: BTreeSet::new(),
+            primary_linkage: Some(LinkageFacet::Refined),
+            registered_inputs: BTreeSet::new(),
+            registered_domain_language: None,
+        };
+
+        let evidence_record = |id: &str, node_id: &str, kind: &str| {
+            let mut value = direct_example_record_value(vec!["registered"]);
+            value["id"] = json!(id);
+            value["node_id"] = json!(node_id);
+            value["unit_id"] = json!(format!("unit:{id}"));
+            value["kind"] = json!(kind);
+            value["claims"] = json!([claim_id.as_str()]);
+            if kind == "theorem" {
+                value["theorem"] = json!({
+                    "declaration": "Example.carrierBound",
+                    "statement_encoding": "lean-expr-cbor/1",
+                    "statement_wire": ["lean-expr-cbor/1", [0]],
+                    "statement_sha256": format!("sha256:{}", "00".repeat(32)),
+                    "attributed_claim": claim_id.as_str(),
+                    "environment": "lean:main",
+                    "axiom_audit_passed": true,
+                    "contains_sorry_ax": false,
+                    "foundational_axioms": [],
+                    "project_axioms": [],
+                });
+            }
+            serde_json::from_value::<EvidenceRecord>(value).unwrap()
+        };
+        let owner = evidence_record(
+            "source-refinement:owner",
+            "translation:owner",
+            "source-refinement",
+        );
+        let discharge =
+            evidence_record("theorem:carrier-bound", "theorem:carrier-bound", "theorem");
+        let premise_node = NodeId::new("premise:PB-TEST-PREMISE-001").unwrap();
+        let premise = PremiseRecord {
+            id: PremiseId::new("PB-TEST-PREMISE-001").unwrap(),
+            node_id: premise_node.clone(),
+            statement: "The carrier length is representable.".into(),
+            category: AssumptionCategory::RepresentationPremise,
+            theorem_evidence: Some(owner.id.clone()),
+            scope: FlowScope::AllRegisteredInputs,
+            discharge: Some(PremiseDischarge {
+                theorem_evidence: discharge.id.clone(),
+                scope: FlowScope::AllRegisteredInputs,
+            }),
+        };
+
+        let graph = graph_for_claim(
+            &claim,
+            &policy,
+            &[owner.clone(), discharge.clone()],
+            &[],
+            &[premise],
+        )
+        .unwrap();
+        assert!(graph.has_edge(&owner.node_id, &premise_node, EdgeKind::Assumes));
+        assert!(graph.has_edge(&premise_node, &discharge.node_id, EdgeKind::DischargedBy));
+        assert!(graph.validate().is_ok());
     }
 
     fn theorem_unit(id: &str, declaration: &str) -> EvidenceUnitManifest {
@@ -6073,6 +7978,18 @@ mod tests {
         fs::write(root.join("lean/Refinement.lean"), b"refinement-v1").unwrap();
         fs::write(root.join("lean/Bridge.lean"), b"bridge-v1").unwrap();
         fs::write(root.join("lean/nested/Resolution.lean"), b"resolution-v1").unwrap();
+        fs::create_dir_all(root.join("lean/.lake/packages/dependency/docs")).unwrap();
+        fs::write(
+            root.join("lean/.lake/packages/dependency/Generated.lean"),
+            b"generated-state",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(
+            "../Generated.lean",
+            root.join("lean/.lake/packages/dependency/docs/README.md"),
+        )
+        .unwrap();
         let unit = cache_test_unit();
         let mut bundle = cache_test_bundle(&root);
         bundle
@@ -6101,6 +8018,10 @@ mod tests {
         ] {
             assert!(first.contains_key(path), "missing {path}");
         }
+        assert!(
+            !first.keys().any(|path| path.contains("/.lake/")),
+            "generated Lean state entered translation cache inputs: {first:?}"
+        );
 
         fs::write(root.join("proofbound/translation.toml"), b"manifest-v2").unwrap();
         let manifest_changed = cache_input_identities(&bundle, &unit).unwrap();
@@ -6132,6 +8053,7 @@ mod tests {
             "member/src",
             "target",
             ".proofbound",
+            "node_modules/.bin",
             "empty-initial/nested",
         ] {
             fs::create_dir_all(root.join(directory)).unwrap();
@@ -6140,6 +8062,11 @@ mod tests {
         fs::write(
             root.join(".proofbound/ignored.rs"),
             b"ephemeral Proofbound state\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("node_modules/.bin/ignored"),
+            b"ephemeral Node installation\n",
         )
         .unwrap();
         fs::write(root.join("registered.txt"), b"unit-owned input\n").unwrap();
@@ -6274,6 +8201,7 @@ description = {description:?}
         }
         assert!(!initial.contains_key("target/ignored.rs"));
         assert!(!initial.contains_key(".proofbound/ignored.rs"));
+        assert!(!initial.contains_key("node_modules/.bin/ignored"));
         let initial_key = key(&initial);
         fs::create_dir_all(root.join("empty-added-later/nested")).unwrap();
         let empty_directory_added = cache_input_identities(&bundle, &unit).unwrap();
@@ -6715,22 +8643,63 @@ description = {description:?}
         assert!(error.contains("contains symlink"));
     }
 
-    #[cfg(unix)]
     #[test]
-    fn release_schema_boundary_rejects_symlinks_before_copying() {
-        use std::os::unix::fs::symlink;
-
+    fn release_schemas_are_emitted_from_build_pinned_bytes() {
         let temporary = tempfile::tempdir().unwrap();
-        let source = temporary.path().join("schemas");
         let destination = temporary.path().join("release-schemas");
-        fs::create_dir_all(&source).unwrap();
         fs::create_dir_all(&destination).unwrap();
-        fs::write(source.join("a.schema.json"), b"{}").unwrap();
-        symlink("a.schema.json", source.join("z.schema.json")).unwrap();
 
-        let error = copy_release_schemas(&source, &destination).unwrap_err();
-        assert!(error.to_string().contains("symlink in schema boundary"));
-        assert_eq!(fs::read_dir(destination).unwrap().count(), 0);
+        write_release_schemas(&destination).unwrap();
+
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas");
+        let inventory = |root: &Path| {
+            let mut entries = fs::read_dir(root)
+                .unwrap()
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    (entry.file_name(), fs::read(entry.path()).unwrap())
+                })
+                .collect::<Vec<_>>();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            entries
+        };
+        assert_eq!(inventory(&destination), inventory(&source));
+    }
+
+    #[test]
+    fn python_mutation_abi_requires_exit_one_and_distinct_exact_shadows() {
+        let command = |root: &str| CommandObservation {
+            program: "python3".to_owned(),
+            args: vec![
+                "-m".to_owned(),
+                "pytest".to_owned(),
+                "-p".to_owned(),
+                "no:cacheprovider".to_owned(),
+                "--rootdir".to_owned(),
+                root.to_owned(),
+                "-q".to_owned(),
+                format!("{root}/tests/test_subject.py::test_guard"),
+            ],
+            environment_allowlist: Vec::new(),
+        };
+        let baseline = command("$BASELINE");
+        let mutant = command("$MUTANT");
+
+        assert_eq!(mutation_expected_exit(AdapterKind::PythonTest).unwrap(), 1);
+        assert!(mutation_command_shape_valid(
+            AdapterKind::PythonTest,
+            &baseline,
+            &mutant,
+            "tests/test_subject.py::test_guard"
+        ));
+
+        let replayed_baseline = command("$BASELINE");
+        assert!(!mutation_command_shape_valid(
+            AdapterKind::PythonTest,
+            &baseline,
+            &replayed_baseline,
+            "tests/test_subject.py::test_guard"
+        ));
     }
 
     #[test]
@@ -6967,6 +8936,8 @@ description = {description:?}
             &closure,
             &BTreeMap::from([(closure.clone(), closure.clone())]),
             &BTreeMap::new(),
+            None,
+            false,
         )
         .unwrap();
         assert!(
@@ -7224,6 +9195,8 @@ description = {description:?}
             &closure,
             &BTreeMap::from([(closure.clone(), closure.clone())]),
             &BTreeMap::new(),
+            None,
+            false,
         )
         .unwrap();
         assert_eq!(
@@ -7396,6 +9369,144 @@ description = {description:?}
                 "cache_origin": "executed"
             }
         })
+    }
+
+    #[test]
+    fn exact_artifact_observation_is_derived_from_registered_input_bytes() {
+        let unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/5",
+            "id": "native-release",
+            "adapter": "rust-test",
+            "kind": "example-test",
+            "claims": ["CLAIM-ONE"],
+            "tier": 0,
+            "operation": {"type": "cargo-test", "package": "subject"},
+            "expected_inventory": ["native_release"],
+            "inputs": ["dist/runtime.tar.zst", "tools/native.sh", "rust-toolchain.toml"],
+            "outputs": [],
+            "environment_allowlist": [],
+            "artifact_observation": {
+                "schema": "proofbound-exact-artifact-observation/1",
+                "subject_role": "runtime-release",
+                "artifact": "dist/runtime.tar.zst",
+                "procedure": "tools/native.sh",
+                "operating_system": "linux",
+                "architecture": "x86_64",
+                "toolchain_inputs": ["rust-toolchain.toml"],
+                "dependencies": ["test:release-build"]
+            },
+            "resource_budget": {"time_seconds": 1, "disk_bytes": 1, "memory_bytes": 1}
+        }))
+        .unwrap();
+        let mut record: EvidenceRecord =
+            serde_json::from_value(direct_example_record_value(vec!["native_release"])).unwrap();
+        let artifact = |logical_name: &str, bytes: &[u8]| ArtifactIdentity {
+            logical_name: ArtifactLogicalName::new(logical_name).unwrap(),
+            sha256: Sha256Digest::of_bytes(bytes),
+            size_bytes: bytes.len() as u64,
+        };
+        record.provenance.input_artifacts = vec![
+            artifact("dist/runtime.tar.zst", b"runtime"),
+            artifact("tools/native.sh", b"procedure"),
+            artifact("rust-toolchain.toml", b"toolchain"),
+        ];
+        record.provenance.additional_closures = vec![ClosureIdentity {
+            kind: proofbound_core::ClosureKind::Toolchain,
+            sha256: Sha256Digest::of_bytes(b"toolchain closure"),
+        }];
+
+        let observation = core_exact_artifact_observation(&unit, &record.provenance)
+            .unwrap()
+            .unwrap();
+        assert_eq!(observation.subject_role.as_str(), "runtime-release");
+        assert_eq!(
+            observation.artifact.sha256,
+            Sha256Digest::of_bytes(b"runtime")
+        );
+        assert_eq!(
+            observation.procedure.sha256,
+            Sha256Digest::of_bytes(b"procedure")
+        );
+        assert_eq!(
+            observation.toolchain_closure.kind,
+            proofbound_core::ClosureKind::Toolchain
+        );
+        assert_eq!(
+            record
+                .provenance
+                .additional_closures
+                .iter()
+                .filter(|closure| closure.kind == proofbound_core::ClosureKind::Toolchain)
+                .count(),
+            1
+        );
+
+        let assert_registration_code =
+            |actual: Option<&ExactArtifactObservationEvidence>, expected_code: &str| {
+                let error =
+                    registered_exact_artifact_observation_matches(Some(&observation), actual)
+                        .unwrap_err()
+                        .to_string();
+                assert!(error.contains(expected_code), "{error}");
+            };
+        assert_registration_code(None, "PB-OBS-0001");
+        let mut attack = observation.clone();
+        attack.artifact.sha256 = Sha256Digest::of_bytes(b"substituted runtime");
+        assert_registration_code(Some(&attack), "PB-OBS-0002");
+        let mut attack = observation.clone();
+        attack.subject_role = ArtifactObservationRole::new("substituted-role").unwrap();
+        assert_registration_code(Some(&attack), "PB-OBS-0003");
+        let mut attack = observation.clone();
+        attack.platform.architecture = ObservationArchitecture::Aarch64;
+        assert_registration_code(Some(&attack), "PB-OBS-0004");
+        let mut attack = observation.clone();
+        attack.platform.operating_system = ObservationOperatingSystem::Macos;
+        assert_registration_code(Some(&attack), "PB-OBS-0005");
+        let mut attack = observation.clone();
+        attack.procedure = attack.artifact.clone();
+        assert_registration_code(Some(&attack), "PB-OBS-0006");
+        let mut attack = observation.clone();
+        attack.procedure.sha256 = Sha256Digest::of_bytes(b"substituted procedure");
+        assert_registration_code(Some(&attack), "PB-OBS-0007");
+        let mut attack = observation.clone();
+        attack.toolchain_closure.sha256 = Sha256Digest::of_bytes(b"substituted toolchain");
+        assert_registration_code(Some(&attack), "PB-OBS-0008");
+        let mut attack = observation.clone();
+        attack.dependencies.clear();
+        assert_registration_code(Some(&attack), "PB-OBS-0009");
+        let mut attack = observation.clone();
+        attack.schema = "proofbound-exact-artifact-observation/unknown".into();
+        assert_registration_code(Some(&attack), "PB-OBS-0012");
+
+        let release_digest =
+            |label: &str| format!("sha256:{}", Sha256Digest::of_bytes(label.as_bytes()));
+        let internal_toolchain = format!("sha256:{}", observation.toolchain_closure.sha256);
+        let portable_toolchain = release_digest("portable toolchain closure");
+        let portable_dependency = release_digest("portable dependency evidence");
+        record.artifact_observation = Some(observation);
+        let released = release_evidence_record(
+            &record,
+            &release_digest("portable semantic closure"),
+            &BTreeMap::from([(internal_toolchain, portable_toolchain.clone())]),
+            &BTreeMap::from([("test:release-build".to_owned(), portable_dependency.clone())]),
+            Some("release-linux-x86-64"),
+            false,
+        )
+        .unwrap();
+        assert_eq!(released["schema"], "proofbound-evidence/4");
+        assert_eq!(released["evidence_context"], "release-linux-x86-64");
+        assert_eq!(
+            released["artifact_observation"]["toolchain_closure"]["sha256"],
+            portable_toolchain
+        );
+        assert_eq!(
+            released["artifact_observation"]["dependencies"],
+            json!([portable_dependency])
+        );
+        assert_eq!(
+            released["artifact_observation"]["artifact"]["logical_name"],
+            "dist/runtime.tar.zst"
+        );
     }
 
     #[test]
@@ -7734,9 +9845,10 @@ description = {description:?}
         fs::write(temporary.path().join("reviewed.txt"), b"reviewed-v1").unwrap();
         let expected = sha256_bytes(&worktree_snapshot(temporary.path()).unwrap());
         let compiled = CompiledProject {
-            schema: COMPILED_SCHEMA.to_owned(),
+            schema: COMPILED_SCHEMA_V3.to_owned(),
             project: "freshness-fixture".to_owned(),
             project_revision: "fixture-revision".to_owned(),
+            evidence_context: None,
             tree_state: "dirty".to_owned(),
             reviewed_tree_sha256: expected,
             generated_at: "1970-01-01T00:00:00.000Z".to_owned(),

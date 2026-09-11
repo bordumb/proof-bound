@@ -1,8 +1,8 @@
 # Specification 0002: Python Ecosystem Support
 
-**Status:** Draft for review
+**Status:** Initial implementation
 
-**Version:** 0.2.0
+**Version:** 0.3.0
 
 **Date:** 2026-09-01
 
@@ -10,10 +10,18 @@
 
 **Process:** Proof-Driven Development (PDD)
 
-**Depends on:** Specification 0001, version 0.11.0 or later
+**Depends on:** Specification 0001, version 0.12.0 or later
 
 ### Revision history
 
+- **0.3.0** — reserves `pyright` instead of admitting a count-only
+  analyzed inventory. Stock `pyright --outputjson` reports the number of
+  analyzed files but not their identities, so it cannot meet §7.4's
+  authoritative-inventory criterion. The shipped static-check vertical is
+  mypy; a stock count-only pyright result is a mandatory rejection case.
+  It also corrects the explicit Hypothesis plugin module to the real pytest
+  entry point `_hypothesis_pytestplugin`, which is required when ambient
+  plugin autoload is disabled.
 - **0.2.0** — analyzer governance: closed admission criteria for new
   `static-check` analyzer operations and the reserved operation
   spellings `ty`, `pyrefly`, and `ruff` (§7.4); offline pyright
@@ -42,7 +50,7 @@ transcription. This specification does three things:
 2. **Closes the known gaps in that baseline**: pytest plugin registration
    (§5.2) and Hypothesis observation (§6).
 3. **Adds four new typed routes**: static type-checking evidence via mypy
-   or pyright (§7), pytest mutation witnesses (§8), reproducible
+   (§7), pytest mutation witnesses (§8), reproducible
    distribution artifacts (§9), and the doctor/init behavior that makes
    them discoverable (§11).
 
@@ -61,9 +69,8 @@ The correct product claim after this specification is implemented:
 
 ## 2. Amendments to Specification 0001
 
-This specification amends Specification 0001 as follows. Adopting it
-requires a Specification 0001 revision entry; until then this document is a
-proposal and none of its wire versions may ship.
+Specification 0001 version 0.12.0 adopts the following amendments from this
+specification.
 
 1. **§5 evidence taxonomy** gains one kind, `static-check` (§7.1 below).
 2. **§9.1 `ledger`** admits `static-check` as empirical evidence.
@@ -168,7 +175,7 @@ The `pytest` operation gains one optional field:
 ```toml
 [operation]
 type = "pytest"
-plugins = ["hypothesis"]
+plugins = ["_hypothesis_pytestplugin"]
 ```
 
 - `plugins` is a strict sorted set of at most 32 module names matching
@@ -207,7 +214,7 @@ environment_allowlist = ["PATH"]
 
 [operation]
 type = "pytest"
-plugins = ["hypothesis"]
+plugins = ["_hypothesis_pytestplugin"]
 
 [property]
 schema = "proofbound-python-property/1"
@@ -218,8 +225,11 @@ seed = 4025493768
 Rules:
 
 - `[property]` is admissible only when `kind = "property-test"`,
-  `operation.type = "pytest"`, and `plugins` contains the framework's
-  plugin module. A `[property]` table anywhere else is invalid.
+  `operation.type = "pytest"`, and `plugins` contains Hypothesis's actual
+  pytest entry-point module, `_hypothesis_pytestplugin`. Registering the
+  import package `hypothesis` is not equivalent: with autoload disabled it
+  does not install the pytest hooks. A `[property]` table anywhere else is
+  invalid.
 - `framework` is the closed vocabulary `hypothesis`. `seed` is a required
   integer in `[0, 2^64)`. The adapter appends the typed argument
   `--hypothesis-seed=SEED`; the manifest cannot add arguments.
@@ -309,40 +319,31 @@ targets = ["python/transfer.py"]
   `diagnostics == 0`, the configuration identity to match the sealed
   input bytes, and `targets` to equal the registered set.
 
-### 7.3 The pyright operation
+### 7.3 Reserved pyright operation
 
-Identical shape with `type = "pyright"`, `configuration` naming the
-project's pyright configuration file, and the exact commands:
+`pyright` is a reserved operation spelling and is not an executable route
+in this version. Stock `pyright --outputjson --project CONFIGURATION`
+reports `summary.filesAnalyzed` as a count, but does not report the exact
+analyzed file identities. A count cannot establish the bidirectional target
+inventory required by §7.4: a same-cardinality substitution would otherwise
+be accepted.
 
-```text
-node_modules-free resolution is not used; pyright is resolved as an
-executable named `pyright` through the allowlisted PATH.
+Implementations MUST reject `type = "pyright"` as an unsupported reserved
+capability. In particular they MUST NOT accept `filesAnalyzed ==
+targets.len()` as a substitute for file identity, scrape human-readable
+verbose output, scan source text, or trust the configured include list as
+the observed inventory. The conformance suite MUST include a stock-shaped
+zero-diagnostic, count-only pyright result and prove that it cannot produce
+evidence.
 
-pyright --version
-pyright --outputjson --project CONFIGURATION
-```
+Pyright may be admitted by a future revision only after it exposes a stable
+machine-readable inventory of exact analyzed files and satisfies every
+criterion in §7.4. That revision must also specify offline provisioning;
+some pyright wrappers retrieve a Node.js runtime on first invocation, which
+is incompatible with adapter execution unless prepared in advance.
 
-- Success requires exit status 0 and a parsed JSON summary with
-  `errorCount == 0` and `warningCount == 0`, and `filesAnalyzed >= 1`.
-  `generalDiagnostics` must be empty. Pyright analyzes the files selected
-  by the registered configuration; the registered `targets` set MUST equal
-  the repository-relative members of the reported analyzed files, compared
-  bidirectionally — a missing or extra analyzed file fails closed.
-- The nested record is `{tool: "pyright", tool_version,
-  configuration_sha256, targets, diagnostics: 0}` with the same engine
-  checks as §7.2.
-- **Offline provisioning.** Common pyright distributions — notably the
-  PyPI wrapper package — download a Node.js runtime on first
-  invocation. Provisioning that runtime is the operator's
-  environment-preparation step, exactly as dependency installation is
-  (§5.1). Every adapter invocation of pyright MUST complete without
-  network access: a pyright execution that attempts retrieval fails the
-  unit closed, and the §11.1 doctor probe MUST succeed without network
-  before any pyright unit is reported runnable.
-
-One unit registers exactly one analyzer. A project MAY register separate
-mypy and pyright units for the same claim; they remain distinct evidence
-records.
+One unit registers exactly one admitted analyzer. In this version that
+analyzer is mypy.
 
 ### 7.4 Admission criteria and reserved analyzers
 
@@ -362,7 +363,8 @@ speed and popularity are not criteria.
 5. validation implementable in the producer and, wherever the evidence
    is portable, independently in the verifier.
 
-The operation spellings `ty`, `pyrefly`, and `ruff` are **reserved** and
+The operation spellings `pyright`, `ty`, `pyrefly`, and `ruff` are
+**reserved** and
 MUST be rejected until a revision of this specification defines their
 routes against these criteria — the Specification 0001 §11.3
 `audited-rewrite` pattern. Rejection is by name, as an unsupported
@@ -442,7 +444,9 @@ Rules:
   MUST include the project's `pyproject.toml`. `outputs` is empty: the
   built artifact is never written to the reviewed tree; nothing in this
   route is committed. `expected_inventory` is exactly
-  `["dist/" + artifact_name]`.
+  `["dist/" + artifact_name]`. The closed unit carries no premises or
+  assumptions; a claim citing the reproduction MAY register its own
+  assumptions independently.
 - The adapter creates **two independent sealed shadows** from the same
   reviewed source and in each runs exactly:
 
@@ -503,15 +507,15 @@ observable matching (0001 §12.2, ADR 0018 pattern):
 - `python3 --version` and the resolved interpreter identity;
 - `python3 -m pytest --version`;
 - `python3 -m mypy --version` when any `mypy` unit is registered;
-- `pyright --version` when any `pyright` unit is registered — this
-  probe MUST succeed without network access (§7.3), and a probe that
-  attempts retrieval reports the unit not runnable;
 - `python3 -m build --version` when any `/4` unit is registered;
 - importability of every distinct registered plugin module.
 
 Each probe reports available/unavailable and which registered units the
 host can therefore run; an unavailable tool never weakens to a warning
 when a registered unit requires it.
+
+Reserved analyzer operations, including `pyright`, are rejected during
+manifest validation and therefore never become runnable doctor probes.
 
 ### 11.2 init
 
@@ -560,9 +564,10 @@ records.
 ### M-PY2: static-check kind and analyzer routes
 
 §7. Acceptance: the taxonomy amendment lands in core, verifier, schemas,
-and corpus (both new corpus cases pass in both engines); a mypy unit and a
-pyright unit each produce `TESTED · MODEL_ONLY` for a demo claim; a
-seeded type error flips the unit to failed and the claim to `INVALID`.
+and corpus (both new corpus cases pass in both engines); a mypy unit
+produces `TESTED · MODEL_ONLY` for a demo claim; a seeded type error flips
+the unit to failed and the claim to `INVALID`; and stock count-only pyright
+JSON is rejected rather than accepted as an exact inventory.
 
 ### M-PY3: pytest mutation witnesses
 
@@ -584,7 +589,8 @@ The demonstration repository of `docs/notes/language-support.md`: a small
 service with exact pytest examples, one Hypothesis property with its
 stated limits, one static-check unit, one explicit external-provider
 assumption, one distribution reproduction, an independent checker, and a
-deliberately failing signal that weakens only its registered claim.
+registered mutation whose exact witness detects the deliberately faulty
+implementation without affecting unrelated claims.
 Acceptance: the full board renders from `init` through `release` with no
 Rust application code, and the release verifies with the standalone
 verifier.

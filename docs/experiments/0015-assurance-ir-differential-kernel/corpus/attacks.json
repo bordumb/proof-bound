@@ -1,0 +1,33 @@
+{
+  "schema": "proofbound-research-assurance-attacks/2",
+  "attacks": [
+    {"id": "EXP-0015-A001", "template": "sampled-property", "action": "replace-schema", "expected": "IR2-SCHEMA"},
+    {"id": "EXP-0015-A002", "template": "sampled-property", "action": "noncanonical-bytes", "expected": "IR2-NONCANONICAL"},
+    {"id": "EXP-0015-A003", "template": "bounded-check", "action": "duplicate-dependency", "expected": "IR2-DUPLICATE"},
+    {"id": "EXP-0015-A004", "template": "bounded-check", "action": "alias-dependency-artifact", "expected": "IR2-ALIAS"},
+    {"id": "EXP-0015-A005", "template": "sampled-property", "action": "remove-dependency", "expected": "IR2-DEPENDENCY-MISSING"},
+    {"id": "EXP-0015-A006", "template": "sampled-property", "action": "substitute-dependency-reference", "expected": "IR2-DEPENDENCY-BINDING"},
+    {"id": "EXP-0015-A007", "template": "bounded-check", "action": "mark-dependency-unobserved", "expected": "IR2-DEPENDENCY-INCOMPLETE"},
+    {"id": "EXP-0015-A008", "template": "bounded-check", "action": "forge-invalidation-identity", "expected": "IR2-INVALIDATION"},
+    {"id": "EXP-0015-A009", "template": "theorem-with-assumption", "action": "enable-opaque-cache", "expected": "IR2-CACHE-INELIGIBLE"},
+    {"id": "EXP-0015-A010", "template": "mutation-witness", "action": "remove-effect", "expected": "IR2-EFFECT-MISSING"},
+    {"id": "EXP-0015-A011", "template": "mutation-witness", "action": "unresolve-effect-disposition", "expected": "IR2-EFFECT-DISPOSITION"},
+    {"id": "EXP-0015-A012", "template": "artifact-bound-reproduction", "action": "forge-external-enforcement", "expected": "IR2-EFFECT-ENFORCEMENT"},
+    {"id": "EXP-0015-A013", "template": "artifact-bound-reproduction", "action": "retain-enforcement-on-opaque", "expected": "IR2-EFFECT-OPAQUE"},
+    {"id": "EXP-0015-A014", "template": "theorem-with-assumption", "action": "remove-specification", "expected": "IR2-SPECIFICATION-MISSING"},
+    {"id": "EXP-0015-A015", "template": "theorem-with-assumption", "action": "forge-adequacy-identity", "expected": "IR2-SPECIFICATION-BINDING"},
+    {"id": "EXP-0015-A016", "template": "theorem-with-assumption", "action": "leave-mutant-alive", "expected": "IR2-SPECIFICATION-INADEQUATE"},
+    {"id": "EXP-0015-A017", "template": "trusted-transcription", "action": "substitute-artifact-role", "expected": "IR2-ARTIFACT-ROLE"},
+    {"id": "EXP-0015-A018", "template": "artifact-bound-reproduction", "action": "remove-artifact-correspondence", "expected": "IR2-ARTIFACT-BINDING"},
+    {"id": "EXP-0015-A019", "template": "mutation-witness", "action": "remove-uncertainty", "expected": "IR2-UNCERTAINTY-MISSING"},
+    {"id": "EXP-0015-A020", "template": "sampled-property", "action": "coerce-telemetry-to-assumption", "expected": "IR2-UNCERTAINTY-KIND"},
+    {"id": "EXP-0015-A021", "template": "theorem-with-assumption", "action": "omit-consumed-uncertainty", "expected": "IR2-UNCERTAINTY-CONSEQUENCE"},
+    {"id": "EXP-0015-A022", "template": "bounded-check", "action": "substitute-derivation-input", "expected": "IR2-DERIVATION-DEPENDENCY"},
+    {"id": "EXP-0015-A023", "template": "bounded-check", "action": "replace-derivation-root", "expected": "IR2-DERIVATION-ROOT"},
+    {"id": "EXP-0015-A024", "template": "bounded-check", "action": "forge-derivation-identity", "expected": "IR2-DERIVATION-IDENTITY"},
+    {"id": "EXP-0015-A025", "template": "sampled-property", "action": "upgrade-formal-facet", "expected": "IR2-FAMILY-COERCION"},
+    {"id": "EXP-0015-A026", "template": "trusted-transcription", "action": "upgrade-transcription-linkage", "expected": "IR2-FAMILY-COERCION"},
+    {"id": "EXP-0015-A027", "template": "theorem-with-assumption", "action": "upgrade-artifact-linkage", "expected": "IR2-DECISION-UPGRADE"},
+    {"id": "EXP-0015-A028", "template": "artifact-bound-reproduction", "action": "replace-derived-decision", "expected": "IR2-DECISION-MISMATCH"}
+  ]
+}

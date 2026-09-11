@@ -1,0 +1,53 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "run": "q1-completion-capture-audit",
+  "date": "2026-09-02",
+  "implementation": "git:2098407a2205d50c3700851782f14a4e5b43671d",
+  "inputs": {
+    "preregistration_path": "docs/experiments/0005-assurance-ir-extraction/q1-completion-preregistration.json",
+    "preregistration_sha256": "sha256:0815675e11a73cb0a6e3b76179b9e5d39152135b1f1bbf4a7113f6982862ca50",
+    "capture_index_path": "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json",
+    "capture_index_sha256": "sha256:54ff0bddf5251b1889e608bed86591600157335b0921f0c99b7584f4fae1c998",
+    "losslessness_matrix_path": "docs/experiments/0005-assurance-ir-extraction/q1-losslessness-matrix-r4.json",
+    "losslessness_matrix_revision": 4,
+    "losslessness_matrix_sha256": "sha256:068b361e99f68f8d08985d0dba6375cf3f652da58d338f81ff30f2a1496944ea"
+  },
+  "capture": {
+    "verticals": 3,
+    "fresh_checks_passed": 3,
+    "unchanged_replays_passed": 3,
+    "portable_releases_created": 3,
+    "standalone_verifier_receipt_consistent": 3,
+    "admitted_claims_selected": 5,
+    "initial_fail_closed_precondition_attempts": 2
+  },
+  "projection_probe": {
+    "case": "Q1-VERTICAL-PYTHON",
+    "method": "append the exact captured Python compiled receipt as an isolated positive-portable-release case to a temporary copy of corpus revision 2, then execute the current Rust producer",
+    "accepted": false,
+    "diagnostic": "unsupported release evidence kind",
+    "source_inspection": [
+      "family_kind has no human-review constructor",
+      "portable family detail is reconstructed from a schema plus placeholder subject/source rather than typed receipt detail",
+      "the root derived-policy helper is fixed to ledger and cannot explain a mixed-policy complete release"
+    ]
+  },
+  "matrix_change": {
+    "reopened_row": "Q1-FIELD-012 typed evidence-family detail",
+    "revision_3_complete": 12,
+    "revision_4_complete": 11,
+    "revision_4_partial": 5
+  },
+  "outcome": {
+    "Q1": "failed: complete cross-language portable captures expose an additional portable family-detail gap; eleven of sixteen rows are complete and five remain partial",
+    "q1_pass": false,
+    "assurance_ir_1_frozen": false,
+    "go_holdout_preregistered": false,
+    "trace_attacks_executed": false,
+    "artifact_attacks_executed": false,
+    "cache_attacks_executed": false
+  },
+  "interpretation": "The vertical capture succeeded as a product exercise but falsified the generality implied by the original-corpus family-detail row. Registration-family typing is not a lossless portable conversion. The next implementation must project every typed portable evidence constructor, including review, before admission traces or invalidation results can close Q1."
+}

@@ -40,6 +40,12 @@ unstated, the experiment is not ready to register.
 
 - **YYYY-MM-DD** — <entry. Corrections are new entries, never edits.>
 
+For a multi-run experiment, replace the inline entries with a link to
+`JOURNAL.md` and preserve the same append-only format there. Use `ARTIFACTS.md`
+as the content-addressed ledger, `corpus/` for bounded corpus descriptions or
+small checked-in fixtures, and `results/YYYY-MM-DD-<run>.json` for immutable
+machine-readable run results. Do not organize the whole experiment by date.
+
 ## Findings
 
 | ID | Observation | Evidence | Disposition |

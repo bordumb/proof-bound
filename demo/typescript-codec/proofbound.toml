@@ -1,0 +1,33 @@
+schema = "proofbound-project/1"
+project = "proofbound-typescript-codec"
+tier = 0
+claim_manifests = ["claims/*.toml"]
+assumption_manifests = ["assumptions/*.toml"]
+evidence_units = ["evidence/*.toml"]
+translation_units = []
+model_check_units = []
+policy_manifests = []
+review_manifests = []
+
+[source]
+semantic = [
+  "README.md",
+  "assumptions/**",
+  "claims/**",
+  "evidence/**",
+  "mutants/**",
+  "mutations/**",
+  "package-lock.json",
+  "package.json",
+  "src/**",
+  "tsconfig.json",
+]
+runner = []
+presentation = []
+
+[toolchains]
+
+[limits]
+max_manifest_bytes = 2097152
+max_files = 100000
+max_total_bytes = 4294967296

@@ -1,0 +1,69 @@
+{
+  "schema": "proofbound-research-windows-initialization-preregistration/1",
+  "experiment": "EXP-0025",
+  "programme_experiment": "EXP-LANG-018",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-04",
+  "subject": "git:2d052a6812a593b6f08d1987277db09eea6463a0",
+  "frozen_contract": {
+    "path": "docs/experiments/0018-os-enforced-effects/corpus/contract.json",
+    "sha256": "sha256:589244f93383788fcc61587ec665ddc9e38ebf96ce59f82da2fce9e7510d967d"
+  },
+  "retained_falsifier": {
+    "path": "docs/experiments/0023-windows-enforcement-confirmation/results/process-smoke.json",
+    "sha256": "sha256:6f06a873a386e8b57a929085be0fa0dae2a010ce04e7bc234993e8c44c73b5d2",
+    "status": "0xc0000142",
+    "name": "STATUS_DLL_INIT_FAILED"
+  },
+  "candidate_change": {
+    "new_role": "windows-initialization-closure",
+    "discovery_receipts_reusable": false,
+    "confirmation_closure_frozen_before_execution": true,
+    "identity": [
+      "requested-path",
+      "resolved-path",
+      "file-id",
+      "sha256",
+      "size-bytes",
+      "architecture",
+      "acl",
+      "profile-and-object-role"
+    ],
+    "broad-directory-execute-authority": "deny"
+  },
+  "platform": {
+    "os": "windows",
+    "minimum_release": "Windows 11",
+    "architecture": "aarch64",
+    "github_runner": "windows-11-arm",
+    "mechanisms": [
+      "appcontainer",
+      "restricted-low-integrity-token",
+      "one-process-no-breakaway-job",
+      "exact-path-acl",
+      "private-window-station-and-desktop"
+    ],
+    "network_capabilities": []
+  },
+  "inventory": {
+    "positive_slots": 30,
+    "authority_slots": 21,
+    "minimum_policy_attacks": 24
+  },
+  "ceilings": {
+    "max_discovery_executions": 30,
+    "max_confirmation_elapsed_ms": 60000,
+    "max_native_boundary_lines": 2200,
+    "max_python_runner_lines": 1600,
+    "max_validator_lines_each": 1800,
+    "max_initialization_artifacts_per_runtime": 512,
+    "max_report_bytes": 524288
+  },
+  "decision": {
+    "pass": "Q1-Q5 pass on native Windows 11 ARM64",
+    "revise": "the exact initialization candidate executes but a bounded criterion fails",
+    "unanswered": "the native mechanism or diagnostic surface is unavailable and zero workload receipts are emitted",
+    "stop": "a boundary is weakened, discovery counts as evidence, authority expands after freeze, denied evidence is reused, or execution falls back"
+  }
+}

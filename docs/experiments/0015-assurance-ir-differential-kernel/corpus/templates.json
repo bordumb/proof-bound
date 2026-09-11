@@ -1,0 +1,83 @@
+{
+  "schema": "proofbound-research-assurance-templates/2",
+  "profiles": [
+    {
+      "id": "artifact-bound-reproduction",
+      "family": "artifact-binding",
+      "dependency_roles": ["absence", "environment", "execution-input", "external-contract", "semantic-source", "tool"],
+      "effects": [
+        {"capability": "execute", "boundary": "externally-enforced", "disposition": "observed"},
+        {"capability": "network", "boundary": "statically-denied", "disposition": "unused"},
+        {"capability": "read", "boundary": "mediated", "disposition": "observed"},
+        {"capability": "write", "boundary": "mediated", "disposition": "observed"}
+      ],
+      "artifact_roles": ["bound", "generated", "reproduced", "sealed", "source"],
+      "uncertainty": {"kind": "conflicting-evidence", "consequence": "blocks-admission"},
+      "cache_eligible": true
+    },
+    {
+      "id": "bounded-check",
+      "family": "bounded-check",
+      "dependency_roles": ["environment", "execution-input", "semantic-source", "tool"],
+      "effects": [
+        {"capability": "execute", "boundary": "mediated", "disposition": "observed"},
+        {"capability": "read", "boundary": "mediated", "disposition": "observed"}
+      ],
+      "artifact_roles": ["generated", "source"],
+      "uncertainty": {"kind": "exclusion", "consequence": "blocks-admission"},
+      "cache_eligible": true
+    },
+    {
+      "id": "mutation-witness",
+      "family": "mutation-witness",
+      "dependency_roles": ["environment", "execution-input", "semantic-source", "tool"],
+      "effects": [
+        {"capability": "execute", "boundary": "mediated", "disposition": "observed"},
+        {"capability": "read", "boundary": "mediated", "disposition": "observed"},
+        {"capability": "write", "boundary": "mediated", "disposition": "observed"}
+      ],
+      "artifact_roles": ["bound", "generated", "source"],
+      "uncertainty": {"kind": "stale-evidence", "consequence": "blocks-admission"},
+      "cache_eligible": true
+    },
+    {
+      "id": "sampled-property",
+      "family": "sampled-property",
+      "dependency_roles": ["environment", "execution-input", "semantic-source", "tool"],
+      "effects": [
+        {"capability": "random", "boundary": "mediated", "disposition": "observed"},
+        {"capability": "read", "boundary": "mediated", "disposition": "observed"}
+      ],
+      "artifact_roles": ["source"],
+      "uncertainty": {"kind": "unavailable-telemetry", "consequence": "informational"},
+      "cache_eligible": true
+    },
+    {
+      "id": "theorem-with-assumption",
+      "family": "theorem",
+      "dependency_roles": ["execution-input", "semantic-source", "tool"],
+      "effects": [
+        {"capability": "clock", "boundary": "statically-denied", "disposition": "unused"},
+        {"capability": "execute", "boundary": "opaque", "disposition": "observed"},
+        {"capability": "secret", "boundary": "statically-denied", "disposition": "unused"}
+      ],
+      "artifact_roles": ["source"],
+      "uncertainty": {"kind": "assumption", "consequence": "marks-assumed"},
+      "cache_eligible": false
+    },
+    {
+      "id": "trusted-transcription",
+      "family": "trusted-transcription",
+      "dependency_roles": ["environment", "execution-input", "semantic-source", "tool"],
+      "effects": [
+        {"capability": "environment", "boundary": "mediated", "disposition": "observed"},
+        {"capability": "execute", "boundary": "mediated", "disposition": "observed"},
+        {"capability": "read", "boundary": "mediated", "disposition": "observed"},
+        {"capability": "write", "boundary": "mediated", "disposition": "observed"}
+      ],
+      "artifact_roles": ["generated", "reproduced", "source"],
+      "uncertainty": {"kind": "open-obligation", "consequence": "blocks-admission"},
+      "cache_eligible": true
+    }
+  ]
+}

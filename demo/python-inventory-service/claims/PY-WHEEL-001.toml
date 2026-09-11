@@ -1,0 +1,18 @@
+schema = "proofbound-claim/1"
+id = "PY-WHEEL-001"
+title = "The registered Python wheel is reproducible"
+statement = "The exact registered wheel bytes reproduce twice from the reviewed Python source under the registered epoch."
+public_language = "The wheel and its exact RECORD inventory reproduce byte-for-byte; this is not a behavioral proof."
+subject = "python:proofbound-python-inventory"
+profile = "ledger"
+tier = 0
+primary_linkage = "model-only"
+evidence = ["example-test:wheel-reproduction"]
+assumptions = ["PY-RUNTIME-001"]
+premises = []
+open_obligations = []
+out_of_scope = [
+  "Distribution reproduction does not establish the behavior of installed code.",
+  "The build backend and Python interpreter remain trusted empirical tooling.",
+]
+source_roots = ["pyproject.toml", "src/inventory_service/__init__.py", "src/inventory_service/reservations.py"]

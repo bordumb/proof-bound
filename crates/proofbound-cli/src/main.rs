@@ -34,6 +34,8 @@ enum Command {
         claim: Option<String>,
         #[arg(long)]
         profile: Option<String>,
+        #[arg(long, value_name = "NAME")]
+        evidence_context: Option<String>,
         #[arg(long)]
         fresh: bool,
         #[arg(long)]
@@ -224,6 +226,7 @@ fn run() -> Result<u8> {
         Command::Check {
             claim,
             profile,
+            evidence_context,
             fresh,
             json,
         } => {
@@ -232,6 +235,7 @@ fn run() -> Result<u8> {
                 &CheckOptions {
                     claim,
                     profile,
+                    evidence_context,
                     fresh,
                     reproduce_unit: None,
                 },

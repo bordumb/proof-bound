@@ -1,0 +1,17 @@
+{
+  "schema": "proofbound-research-foreign-cases/1",
+  "cases": [
+    {"id": "case:decode-empty", "operation": "decode", "input_hex": "", "input_value": null, "expected": {"accepted": false, "value": null, "output_hex": null, "error": "invalid-length", "consumed": 0}},
+    {"id": "case:decode-length-00", "operation": "decode", "input_hex": "00", "input_value": null, "expected": {"accepted": false, "value": null, "output_hex": null, "error": "invalid-length", "consumed": 1}},
+    {"id": "case:decode-length-01", "operation": "decode", "input_hex": "01", "input_value": null, "expected": {"accepted": false, "value": null, "output_hex": null, "error": "invalid-length", "consumed": 1}},
+    {"id": "case:decode-payload", "operation": "decode", "input_hex": "0104", "input_value": null, "expected": {"accepted": false, "value": null, "output_hex": null, "error": "invalid-payload", "consumed": 2}},
+    {"id": "case:decode-prefix", "operation": "decode", "input_hex": "0000", "input_value": null, "expected": {"accepted": false, "value": null, "output_hex": null, "error": "invalid-prefix", "consumed": 2}},
+    {"id": "case:decode-trailing", "operation": "decode", "input_hex": "010000", "input_value": null, "expected": {"accepted": false, "value": null, "output_hex": null, "error": "invalid-length", "consumed": 3}},
+    {"id": "case:decode-value-0", "operation": "decode", "input_hex": "0100", "input_value": null, "expected": {"accepted": true, "value": 0, "output_hex": "0100", "error": null, "consumed": 2}},
+    {"id": "case:decode-value-3", "operation": "decode", "input_hex": "0103", "input_value": null, "expected": {"accepted": true, "value": 3, "output_hex": "0103", "error": null, "consumed": 2}},
+    {"id": "case:encode-value-0", "operation": "encode", "input_hex": null, "input_value": 0, "expected": {"accepted": true, "value": 0, "output_hex": "0100", "error": null, "consumed": 0}},
+    {"id": "case:encode-value-1", "operation": "encode", "input_hex": null, "input_value": 1, "expected": {"accepted": true, "value": 1, "output_hex": "0101", "error": null, "consumed": 0}},
+    {"id": "case:encode-value-2", "operation": "encode", "input_hex": null, "input_value": 2, "expected": {"accepted": true, "value": 2, "output_hex": "0102", "error": null, "consumed": 0}},
+    {"id": "case:encode-value-3", "operation": "encode", "input_hex": null, "input_value": 3, "expected": {"accepted": true, "value": 3, "output_hex": "0103", "error": null, "consumed": 0}}
+  ]
+}

@@ -50,6 +50,7 @@ fn request() -> AdapterRequest {
         evidence_unit: EvidenceUnitManifest {
             schema: "proofbound-evidence-unit/1".to_owned(),
             id: "fixture-theorem".to_owned(),
+            context: None,
             adapter: AdapterKind::Lean,
             kind: EvidenceKind::Theorem,
             claims: vec!["FIXTURE-CLAIM-001".to_owned()],
@@ -65,6 +66,8 @@ fn request() -> AdapterRequest {
                 inventory: None,
                 checker: None,
                 arguments: Vec::new(),
+                plugins: Vec::new(),
+                configuration: None,
             },
             evaluation_mode: Some(EvaluationMode::Kernel),
             binding_mode: None,
@@ -79,6 +82,9 @@ fn request() -> AdapterRequest {
             bounded_domain: None,
             transcription: None,
             mutation: None,
+            property: None,
+            distribution: None,
+            artifact_observation: None,
             resource_budget: ResourceBudget {
                 time_seconds: 10,
                 disk_bytes: 1 << 20,

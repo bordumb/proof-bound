@@ -14,7 +14,7 @@ primary_linkage = "model-only"
 evidence = [
   "theorem:accept-respects-cap",
   "bounded-check:transfer-bounds",
-  "property-test:rust-kernel-tests",
+  "example-test:rust-kernel-tests",
   "mutation-witness:remove-cap-guard",
 ]
 assumptions = ["DEMO-IDENTITY-AX-001"]

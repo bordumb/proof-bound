@@ -1,0 +1,22 @@
+schema = "proofbound-evidence-unit/3"
+id = "accept-over-cap-mutant"
+adapter = "python-test"
+kind = "mutation-witness"
+claims = ["PY-RESERVATION-001"]
+tier = 0
+expected_inventory = ["accept-over-cap-mutant"]
+inputs = ["mutants/reservations.py", "mutations/accept-over-cap.toml", "src/inventory_service/reservations.py", "tests/test_reservations.py"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "pytest"
+
+[mutation]
+schema = "proofbound-mutation-replay/1"
+registry = "mutations/accept-over-cap.toml"
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 536870912

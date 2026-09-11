@@ -240,6 +240,7 @@ fn excluded_state_path(path: &Path) -> bool {
                     | ".proofbound"
                     | ".lake"
                     | ".venv"
+                    | "node_modules"
                     | "target"
                     | "__pycache__"
                     | ".pytest_cache"

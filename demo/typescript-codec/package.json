@@ -1,0 +1,16 @@
+{
+  "name": "proofbound-typescript-codec",
+  "version": "0.1.0",
+  "description": "Reference TypeScript evidence vertical for Proofbound",
+  "type": "module",
+  "files": [
+    "README.md",
+    "src"
+  ],
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "fast-check": "4.3.0",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}

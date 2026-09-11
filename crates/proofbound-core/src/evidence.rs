@@ -23,12 +23,17 @@ pub const EVIDENCE_SCHEMA_V1: &str = "proofbound-evidence/1";
 /// Superseded version-2 evidence schema retained for explicit migration errors.
 pub const EVIDENCE_SCHEMA_V2: &str = "proofbound-evidence/2";
 pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
+pub const EVIDENCE_SCHEMA_V4: &str = "proofbound-evidence/4";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcription/1";
 pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
 pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
 pub const MUTATION_WITNESS_SCHEMA_V2: &str = "proofbound-mutation-witness/2";
+pub const PYTHON_PROPERTY_SCHEMA_V1: &str = "proofbound-python-property/1";
+pub const STATIC_CHECK_SCHEMA_V1: &str = "proofbound-static-check/1";
+pub const DISTRIBUTION_REPRODUCTION_SCHEMA_V1: &str = "proofbound-distribution-reproduction/1";
 pub const MUTATION_IDENTITY_DOMAIN_V2: &str = "proofbound-mutation/2";
+pub const EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1: &str = "proofbound-exact-artifact-observation/1";
 
 fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
@@ -49,6 +54,12 @@ pub enum EvidenceNameError {
     EmptyEnvironmentVariableName,
     #[error("an environment variable name must be at most 256 bytes")]
     EnvironmentVariableNameTooLong,
+    #[error("an artifact observation role must not be empty")]
+    EmptyArtifactObservationRole,
+    #[error("an artifact observation role must be at most 128 bytes")]
+    ArtifactObservationRoleTooLong,
+    #[error("an artifact observation role must use lowercase kebab-case")]
+    InvalidArtifactObservationRole,
     #[error("an environment variable name must start with an ASCII letter or underscore")]
     InvalidEnvironmentVariableNameStart,
     #[error("environment variable name contains an invalid character at byte {0}")]
@@ -120,6 +131,62 @@ impl<'de> Deserialize<'de> for ArtifactLogicalName {
     {
         let value = String::deserialize(deserializer)?;
         Self::new(value).map_err(de::Error::custom)
+    }
+}
+
+/// A stable domain-neutral role for bytes consumed by an empirical procedure.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ArtifactObservationRole(String);
+
+impl ArtifactObservationRole {
+    /// Constructs a lowercase kebab-case role suitable for exact matching.
+    pub fn new(value: impl Into<String>) -> Result<Self, EvidenceNameError> {
+        let value = value.into();
+        if value.is_empty() {
+            return Err(EvidenceNameError::EmptyArtifactObservationRole);
+        }
+        if value.len() > 128 {
+            return Err(EvidenceNameError::ArtifactObservationRoleTooLong);
+        }
+        let valid = value.split('-').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        }) && value.as_bytes()[0].is_ascii_lowercase();
+        if !valid {
+            return Err(EvidenceNameError::InvalidArtifactObservationRole);
+        }
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ArtifactObservationRole {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl Serialize for ArtifactObservationRole {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for ArtifactObservationRole {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(String::deserialize(deserializer)?).map_err(de::Error::custom)
     }
 }
 
@@ -223,6 +290,19 @@ mod evidence_name_tests {
         assert!(ArtifactLogicalName::new("").is_err());
         assert!(ArtifactLogicalName::new("x".repeat(4097)).is_err());
         assert!(serde_json::from_str::<ArtifactLogicalName>("\"\"").is_err());
+    }
+
+    #[test]
+    fn artifact_observation_roles_are_closed_lowercase_identifiers() {
+        let role = ArtifactObservationRole::new("runtime-release").unwrap();
+        assert_eq!(role.as_str(), "runtime-release");
+        assert_eq!(serde_json::to_string(&role).unwrap(), "\"runtime-release\"");
+        for invalid in ["", "Runtime", "runtime_release", "-runtime", "runtime-"] {
+            assert!(
+                ArtifactObservationRole::new(invalid).is_err(),
+                "{invalid:?}"
+            );
+        }
     }
 
     #[test]
@@ -401,6 +481,17 @@ pub struct EvidenceProvenance {
     pub cache_origin: CacheOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prior_receipt_sha256: Option<Sha256Digest>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub python_plugins: Vec<PythonPluginEvidence>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPluginEvidence {
+    pub module: String,
+    pub distribution: String,
+    pub version: String,
+    pub origin_sha256: Sha256Digest,
 }
 
 impl EvidenceProvenance {
@@ -536,6 +627,23 @@ impl EvidenceProvenance {
             ))),
             _ => {}
         }
+        if self.python_plugins.len() > 32
+            || !self
+                .python_plugins
+                .windows(2)
+                .all(|pair| pair[0].module < pair[1].module)
+            || self.python_plugins.iter().any(|plugin| {
+                !valid_python_module(&plugin.module)
+                    || plugin.distribution.trim().is_empty()
+                    || plugin.version.trim().is_empty()
+            })
+        {
+            errors.push(contextual(StructuredError::new(
+                ErrorCode::PbCoreInvalidEvidence,
+                "Python plugin provenance is not a strict bounded module-name inventory",
+                "record each explicitly registered plugin once in module-name order with its distribution and origin identity",
+            )));
+        }
         errors
     }
 
@@ -549,6 +657,16 @@ impl EvidenceProvenance {
                 None => false,
             }
     }
+}
+
+fn valid_python_module(value: &str) -> bool {
+    value.split('.').enumerate().all(|(index, segment)| {
+        !segment.is_empty()
+            && segment.bytes().enumerate().all(|(position, byte)| {
+                (index != 0 || position != 0 || byte.is_ascii_lowercase() || byte == b'_')
+                    && (byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+            })
+    })
 }
 
 fn validate_command<F>(
@@ -628,6 +746,111 @@ pub struct TheoremEvidence {
 pub struct ArtifactBindingEvidence {
     pub theorem: EvidenceId,
     pub artifact: ArtifactIdentity,
+}
+
+/// Closed operating-system vocabulary for portable exact-byte observations.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationOperatingSystem {
+    Linux,
+    Macos,
+    Windows,
+}
+
+/// Closed architecture vocabulary for portable exact-byte observations.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationArchitecture {
+    #[serde(rename = "x86_64")]
+    X86_64,
+    Aarch64,
+}
+
+/// Platform on which exact artifact bytes were observed.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactObservationPlatform {
+    pub operating_system: ObservationOperatingSystem,
+    pub architecture: ObservationArchitecture,
+}
+
+/// Orthogonal empirical relation between a procedure and exact artifact bytes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExactArtifactObservationEvidence {
+    pub schema: String,
+    pub subject_role: ArtifactObservationRole,
+    pub artifact: ArtifactIdentity,
+    pub platform: ArtifactObservationPlatform,
+    pub procedure: ArtifactIdentity,
+    pub toolchain_closure: ClosureIdentity,
+    pub dependencies: BTreeSet<EvidenceId>,
+}
+
+/// Canonical claim-status projection of one validated observation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExactArtifactObservationRelation {
+    pub identity: Sha256Digest,
+    pub evidence: EvidenceId,
+    pub semantic_kind: EvidenceKind,
+    pub subject_role: ArtifactObservationRole,
+    pub artifact: ArtifactIdentity,
+    pub platform: ArtifactObservationPlatform,
+    pub procedure: ArtifactIdentity,
+    pub toolchain_closure: ClosureIdentity,
+    pub dependencies: BTreeSet<EvidenceId>,
+}
+
+#[derive(Serialize)]
+struct ExactArtifactObservationIdentityMaterial<'a> {
+    evidence: &'a EvidenceId,
+    semantic_kind: EvidenceKind,
+    subject_role: &'a ArtifactObservationRole,
+    artifact: &'a ArtifactIdentity,
+    platform: ArtifactObservationPlatform,
+    procedure: &'a ArtifactIdentity,
+    toolchain_closure: &'a ClosureIdentity,
+    dependencies: &'a BTreeSet<EvidenceId>,
+}
+
+impl ExactArtifactObservationRelation {
+    /// Projects a validated evidence detail and recomputes its portable identity.
+    #[must_use]
+    pub fn from_evidence(
+        evidence: &EvidenceId,
+        semantic_kind: EvidenceKind,
+        observation: &ExactArtifactObservationEvidence,
+    ) -> Self {
+        let material = ExactArtifactObservationIdentityMaterial {
+            evidence,
+            semantic_kind,
+            subject_role: &observation.subject_role,
+            artifact: &observation.artifact,
+            platform: observation.platform,
+            procedure: &observation.procedure,
+            toolchain_closure: &observation.toolchain_closure,
+            dependencies: &observation.dependencies,
+        };
+        let canonical = serde_json::to_vec(&material)
+            .expect("exact artifact observation identity material is serializable");
+        let mut framed =
+            Vec::with_capacity(EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1.len() + 1 + canonical.len());
+        framed.extend_from_slice(EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1.as_bytes());
+        framed.push(0);
+        framed.extend_from_slice(&canonical);
+        Self {
+            identity: Sha256Digest::of_bytes(framed),
+            evidence: evidence.clone(),
+            semantic_kind,
+            subject_role: observation.subject_role.clone(),
+            artifact: observation.artifact.clone(),
+            platform: observation.platform,
+            procedure: observation.procedure.clone(),
+            toolchain_closure: observation.toolchain_closure.clone(),
+            dependencies: observation.dependencies.clone(),
+        }
+    }
 }
 
 /// One of the two domain-separated trusted roles in a transcription boundary.
@@ -757,6 +980,42 @@ pub struct BoundedCheckEvidence {
 pub struct ExhaustiveCheckEvidence {
     pub domain: BoundedDomain,
     pub evaluated_members: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPropertyEvidence {
+    pub schema: String,
+    pub framework: String,
+    pub seed: u64,
+    pub framework_version: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticCheckEvidence {
+    pub schema: String,
+    pub tool: String,
+    pub tool_version: String,
+    pub configuration_sha256: Sha256Digest,
+    pub targets: BTreeSet<String>,
+    pub diagnostics: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DistributionReproductionEvidence {
+    pub schema: String,
+    pub format: String,
+    pub run_digests: Vec<Sha256Digest>,
+    pub registered_digest: Sha256Digest,
+    pub source_date_epoch: u64,
+    pub build_backend_name: String,
+    pub build_backend_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npm_integrity: Option<String>,
+    #[serde(default)]
+    pub member_inventory: Vec<String>,
 }
 
 /// Deliberately broken subject and the check that detected it.
@@ -961,6 +1220,8 @@ pub struct EvidenceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_binding: Option<ArtifactBindingEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_observation: Option<ExactArtifactObservationEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_transcription: Option<TrustedTranscriptionEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_refinement: Option<SourceRefinementEvidence>,
@@ -970,6 +1231,12 @@ pub struct EvidenceRecord {
     pub exhaustive_check: Option<ExhaustiveCheckEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mutation_witness: Option<MutationWitnessEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_property: Option<PythonPropertyEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub static_check: Option<StaticCheckEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution_reproduction: Option<DistributionReproductionEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub independence: Option<IndependenceMode>,
     #[serde(default)]
@@ -1001,17 +1268,27 @@ impl EvidenceRecord {
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
         };
+        let observation_error = |code: ErrorCode, message: String, remediation: &'static str| {
+            StructuredError::new(code, message, remediation)
+                .for_claim(claim_id.clone())
+                .for_unit(self.unit_id.clone())
+        };
 
-        if self.schema != EVIDENCE_SCHEMA_V3 {
+        let expected_schema = if self.artifact_observation.is_some() {
+            EVIDENCE_SCHEMA_V4
+        } else {
+            EVIDENCE_SCHEMA_V3
+        };
+        if self.schema != expected_schema {
             errors.push(
                 StructuredError::new(
                     ErrorCode::PbCoreUnsupportedSchema,
                     format!("unsupported evidence schema '{}'", self.schema),
-                    "migrate the evidence record to proofbound-evidence/3",
+                    format!("migrate the evidence record to {expected_schema}"),
                 )
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
-                .identities(EVIDENCE_SCHEMA_V3, &self.schema),
+                .identities(expected_schema, &self.schema),
             );
         }
         if !self.claims.contains(claim_id) {
@@ -1036,6 +1313,105 @@ impl EvidenceRecord {
                 "observed evidence lacks a nonempty bounded exact target inventory".into(),
                 "record 1 through 100000 unique nonblank control-free target identities of at most 4096 characters for every passed observed-process evidence record",
             ));
+        }
+
+        if let Some(observation) = &self.artifact_observation {
+            if observation.schema != EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1 {
+                errors.push(error(
+                    "exact artifact observation uses an unsupported nested schema".into(),
+                    "regenerate proofbound-exact-artifact-observation/1 evidence",
+                ));
+            }
+            if !self.kind.is_empirical() {
+                errors.push(error(
+                    "exact artifact observation decorates a non-empirical evidence kind".into(),
+                    "attach the observation only to a bounded, independent, exhaustive, property, example, mutation, or static check",
+                ));
+            }
+            let input_matches = |artifact: &ArtifactIdentity| {
+                self.provenance
+                    .input_artifacts
+                    .iter()
+                    .filter(|candidate| {
+                        *candidate == artifact && candidate.logical_name == artifact.logical_name
+                    })
+                    .count()
+            };
+            let logical_name_matches = |artifact: &ArtifactIdentity| {
+                self.provenance
+                    .input_artifacts
+                    .iter()
+                    .filter(|candidate| candidate.logical_name == artifact.logical_name)
+                    .count()
+            };
+            let artifact_role_matches = logical_name_matches(&observation.artifact);
+            if artifact_role_matches == 0 {
+                errors.push(observation_error(
+                    ErrorCode::PbObs0001,
+                    "observed artifact role is absent from registered inputs".into(),
+                    "register the observed artifact as an exact input role",
+                ));
+            } else if input_matches(&observation.artifact) != 1 || artifact_role_matches != 1 {
+                let code = if artifact_role_matches > 1 {
+                    ErrorCode::PbObs0003
+                } else {
+                    ErrorCode::PbObs0002
+                };
+                errors.push(observation_error(
+                    code,
+                    "observed artifact does not match exactly one registered input role and identity".into(),
+                    "bind the observed logical role to exactly one complete input artifact identity",
+                ));
+            }
+            let procedure_role_matches = logical_name_matches(&observation.procedure);
+            if procedure_role_matches == 0 {
+                errors.push(observation_error(
+                    ErrorCode::PbObs0006,
+                    "observation procedure role is absent from registered inputs".into(),
+                    "register the observation procedure as an exact input role",
+                ));
+            } else if input_matches(&observation.procedure) != 1 || procedure_role_matches != 1 {
+                let code = if procedure_role_matches > 1 {
+                    ErrorCode::PbObs0003
+                } else {
+                    ErrorCode::PbObs0007
+                };
+                errors.push(observation_error(
+                    code,
+                    "observation procedure does not match exactly one registered input role and identity".into(),
+                    "bind the procedure logical role to exactly one complete input artifact identity",
+                ));
+            }
+            if observation.artifact.logical_name == observation.procedure.logical_name {
+                errors.push(observation_error(
+                    ErrorCode::PbObs0003,
+                    "observed artifact and observation procedure alias one logical role".into(),
+                    "register distinct artifact and procedure roles",
+                ));
+            }
+            if observation.toolchain_closure.kind != ClosureKind::Toolchain
+                || self
+                    .provenance
+                    .additional_closures
+                    .iter()
+                    .filter(|closure| *closure == &observation.toolchain_closure)
+                    .count()
+                    != 1
+            {
+                errors.push(observation_error(
+                    ErrorCode::PbObs0008,
+                    "exact artifact observation lacks one matching toolchain closure".into(),
+                    "bind exactly one toolchain closure from the evidence provenance",
+                ));
+            }
+            if observation.dependencies.is_empty() || observation.dependencies.contains(&self.id) {
+                errors.push(observation_error(
+                    ErrorCode::PbObs0009,
+                    "exact artifact observation has an empty or self-referential dependency set"
+                        .into(),
+                    "register the complete nonempty acyclic evidence dependency set",
+                ));
+            }
         }
 
         match self.kind {
@@ -1322,13 +1698,74 @@ impl EvidenceRecord {
                     ));
                 }
             }
-            EvidenceKind::PropertyTest | EvidenceKind::ExampleTest => {
+            EvidenceKind::PropertyTest => {
                 if self.inventoried_targets.is_empty() {
                     errors.push(error(
                         "test evidence has no inventoried target".into(),
                         "record every collected test target and fail if collection skips one",
                     ));
                 }
+                if let Some(property) = &self.python_property {
+                    let seed_argument = format!("--hypothesis-seed={}", property.seed);
+                    let plugin = self
+                        .provenance
+                        .python_plugins
+                        .iter()
+                        .find(|plugin| plugin.module == "_hypothesis_pytestplugin");
+                    if property.schema != PYTHON_PROPERTY_SCHEMA_V1
+                        || property.framework != "hypothesis"
+                        || property.framework_version.trim().is_empty()
+                        || plugin.is_none_or(|plugin| {
+                            plugin.distribution != "hypothesis"
+                                || plugin.version != property.framework_version
+                        })
+                        || !self.provenance.commands.iter().any(|command| {
+                            command.args.iter().any(|argument| argument == &seed_argument)
+                        })
+                    {
+                        errors.push(error(
+                            "Python property evidence does not bind its registered framework, plugin version, and seed"
+                                .into(),
+                            "derive proofbound-python-property/1 from the typed property registration and exact pytest command",
+                        ));
+                    }
+                }
+            }
+            EvidenceKind::ExampleTest => {
+                if self.inventoried_targets.is_empty() {
+                    errors.push(error(
+                        "test evidence has no inventoried target".into(),
+                        "record every collected test target and fail if collection skips one",
+                    ));
+                }
+                if let Some(distribution) = &self.distribution_reproduction
+                    && !distribution_reproduction_valid(self, distribution)
+                {
+                    errors.push(error(
+                        "distribution reproduction does not bind two deterministic candidates to the registered artifact"
+                            .into(),
+                        "record both independently built candidates, their exact registered digest, and the build backend identity",
+                    ));
+                }
+            }
+            EvidenceKind::StaticCheck => match &self.static_check {
+                Some(check)
+                    if check.schema == STATIC_CHECK_SCHEMA_V1
+                        && matches!(check.tool.as_str(), "mypy" | "tsc")
+                        && !check.tool_version.trim().is_empty()
+                        && check.diagnostics == 0
+                        && !check.targets.is_empty()
+                        && check.targets == self.inventoried_targets
+                        && self
+                            .provenance
+                            .input_artifacts
+                            .iter()
+                            .any(|artifact| artifact.sha256 == check.configuration_sha256) => {}
+                _ => errors.push(error(
+                    "static-check evidence lacks an exact zero-diagnostic analyzer record and byte-pinned configuration"
+                        .into(),
+                    "record proofbound-static-check/1 with the registered targets and exact configuration identity",
+                )),
             }
             EvidenceKind::MutationWitness => {
                 match &self.mutation_witness {
@@ -1460,6 +1897,7 @@ impl EvidenceRecord {
             }
             EvidenceKind::PropertyTest
             | EvidenceKind::ExampleTest
+            | EvidenceKind::StaticCheck
             | EvidenceKind::Review
             | EvidenceKind::Assumption => {
                 self.theorem.is_none()
@@ -1475,7 +1913,27 @@ impl EvidenceRecord {
                     && self.binding_mode.is_none()
             }
         };
-        if !detail_allowed {
+        let ecosystem_details_allowed = match self.kind {
+            EvidenceKind::PropertyTest => {
+                self.static_check.is_none() && self.distribution_reproduction.is_none()
+            }
+            EvidenceKind::ExampleTest => {
+                self.python_property.is_none() && self.static_check.is_none()
+            }
+            EvidenceKind::StaticCheck => {
+                self.python_property.is_none()
+                    && self.static_check.is_some()
+                    && self.distribution_reproduction.is_none()
+                    && self.provenance.python_plugins.is_empty()
+            }
+            _ => {
+                self.python_property.is_none()
+                    && self.static_check.is_none()
+                    && self.distribution_reproduction.is_none()
+                    && self.provenance.python_plugins.is_empty()
+            }
+        };
+        if !detail_allowed || !ecosystem_details_allowed {
             errors.push(error(
                 format!(
                     "evidence '{}' contains qualifier or detail blocks belonging to another evidence kind",
@@ -1502,8 +1960,73 @@ impl EvidenceRecord {
     }
 }
 
+fn distribution_reproduction_valid(
+    record: &EvidenceRecord,
+    distribution: &DistributionReproductionEvidence,
+) -> bool {
+    if distribution.schema != DISTRIBUTION_REPRODUCTION_SCHEMA_V1
+        || !matches!(
+            distribution.format.as_str(),
+            "wheel" | "sdist" | "npm-package"
+        )
+        || distribution.run_digests.len() != 2
+        || distribution.run_digests[0] != distribution.run_digests[1]
+        || distribution
+            .run_digests
+            .iter()
+            .any(|digest| digest != &distribution.registered_digest)
+        || distribution.build_backend_name.trim().is_empty()
+        || distribution.build_backend_version.trim().is_empty()
+        || (distribution.format != "sdist" && distribution.member_inventory.is_empty())
+        || !distribution
+            .member_inventory
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+        || if distribution.format == "npm-package" {
+            distribution.source_date_epoch != 0
+                || distribution.build_backend_name != "npm"
+                || distribution
+                    .npm_integrity
+                    .as_deref()
+                    .is_none_or(|value| !value.starts_with("sha512-") || value.len() > 512)
+        } else {
+            distribution.npm_integrity.is_some()
+        }
+        || record.provenance.generated_artifacts.len() != 2
+    {
+        return false;
+    }
+    let expected = distribution
+        .run_digests
+        .iter()
+        .enumerate()
+        .map(|(index, digest)| {
+            (
+                format!(
+                    "distribution/{}/candidate-{}",
+                    record.unit_id.as_str().trim_start_matches("unit:"),
+                    index + 1
+                ),
+                digest,
+            )
+        })
+        .collect::<Vec<_>>();
+    expected.iter().all(|(logical_name, digest)| {
+        record
+            .provenance
+            .generated_artifacts
+            .iter()
+            .any(|artifact| {
+                artifact.logical_name.as_str() == logical_name && &artifact.sha256 == *digest
+            })
+    })
+}
+
 fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvidence) -> bool {
-    let expected_exit_codes = BTreeSet::from([101]);
+    let is_node = witness.subject.starts_with("npm:");
+    let is_python = witness.subject.starts_with("python:");
+    let expected_exit = if is_python || is_node { 1 } else { 101 };
+    let expected_exit_codes = BTreeSet::from([expected_exit]);
     let input_roles = [
         &witness.registry,
         &witness.target_preimage,
@@ -1514,7 +2037,8 @@ fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvid
         .iter()
         .map(|artifact| artifact.logical_name.as_str())
         .collect::<BTreeSet<_>>();
-    let input_roles_are_exact = record.provenance.input_artifacts.len() == input_roles.len()
+    let expected_input_count = input_roles.len() + usize::from(is_node) * 2;
+    let input_roles_are_exact = record.provenance.input_artifacts.len() == expected_input_count
         && input_role_names.len() == input_roles.len()
         && input_roles.iter().all(|artifact| {
             record
@@ -1524,7 +2048,17 @@ fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvid
                 .filter(|observed| *observed == *artifact)
                 .count()
                 == 1
-        });
+        })
+        && (!is_node
+            || ["package-lock.json", "package.json"].iter().all(|name| {
+                record
+                    .provenance
+                    .input_artifacts
+                    .iter()
+                    .filter(|artifact| artifact.logical_name.as_str() == *name)
+                    .count()
+                    == 1
+            }));
     let postimage_is_exact = record.provenance.generated_artifacts.len() == 1
         && record.provenance.generated_artifacts[0] == witness.target_postimage;
     let replacement_is_exact = witness.target_preimage.logical_name
@@ -1553,14 +2087,28 @@ fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvid
         baseline_command
             .zip(mutant_command)
             .is_some_and(|(baseline, mutant)| {
-                baseline.program != mutant.program
-                    && baseline.environment_allowlist == mutant.environment_allowlist
-                    && command_runs_exact_check(baseline, &witness.check_id)
-                    && command_runs_exact_check(mutant, &witness.check_id)
+                (if is_node {
+                    baseline.program == mutant.program && baseline.args == mutant.args
+                } else if is_python {
+                    python_mutation_command_runs_exact_check(
+                        baseline,
+                        "$BASELINE",
+                        &witness.check_id,
+                    ) && python_mutation_command_runs_exact_check(
+                        mutant,
+                        "$MUTANT",
+                        &witness.check_id,
+                    )
+                } else {
+                    baseline.program != mutant.program || baseline.args != mutant.args
+                }) && baseline.environment_allowlist == mutant.environment_allowlist
+                    && (is_python
+                        || (command_runs_exact_check(baseline, &witness.check_id)
+                            && command_runs_exact_check(mutant, &witness.check_id)))
             });
     let passed_run_shape = record.status != EvidenceStatus::Passed
         || (baseline_run.is_some_and(|run| run.exit_code == Some(0))
-            && mutant_run.is_some_and(|run| run.exit_code == Some(101))
+            && mutant_run.is_some_and(|run| run.exit_code == Some(expected_exit))
             && record
                 .provenance
                 .runs
@@ -1589,11 +2137,73 @@ fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvid
         && identity_is_exact
 }
 
+fn python_mutation_command_runs_exact_check(
+    command: &CommandSpec,
+    root: &str,
+    check_id: &str,
+) -> bool {
+    command.program == "python3"
+        && command.args
+            == [
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "--rootdir",
+                root,
+                "-q",
+                &format!("{root}/{check_id}"),
+            ]
+}
+
 fn command_runs_exact_check(command: &CommandSpec, check_id: &str) -> bool {
+    if command.args.first().map(String::as_str) == Some("run") {
+        return vitest_command_runs_exact_check(command, check_id);
+    }
+    if command.args.windows(2).any(|pair| pair == ["-m", "pytest"]) {
+        return command
+            .args
+            .last()
+            .is_some_and(|argument| argument.ends_with(check_id));
+    }
     let selector = check_id
         .split_once("::")
         .map_or(check_id, |(_, selector)| selector);
     command.args == [selector, "--exact"]
+}
+
+fn vitest_command_runs_exact_check(command: &CommandSpec, check_id: &str) -> bool {
+    let Some((file, name)) = check_id.split_once("::") else {
+        return false;
+    };
+    let expected_pattern = format!("^{}$", regex_escape(&name.replace(" > ", " ")));
+    command.args.len() >= 5
+        && command.args[..5]
+            == [
+                "run",
+                file,
+                "--reporter=json",
+                "--testNamePattern",
+                &expected_pattern,
+            ]
+        && (command.args.len() == 5
+            || (command.args.len() == 7
+                && command.args[5] == "--config"
+                && bounded_text(&command.args[6], 4096)))
+}
+
+fn regex_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        if matches!(
+            character,
+            '.' | '+' | '*' | '?' | '^' | '$' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
 }
 
 fn bounded_text(value: &str, max_chars: usize) -> bool {

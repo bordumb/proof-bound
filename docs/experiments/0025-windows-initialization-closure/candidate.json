@@ -1,0 +1,88 @@
+{
+  "schema": "proofbound-research-windows-initialization-candidate/1",
+  "experiment": "EXP-0025",
+  "programme_experiment": "EXP-LANG-018",
+  "status": "frozen-before-confirmation",
+  "date": "2026-09-04",
+  "discovery": [
+    {
+      "run": "https://github.com/bordumb/proof-bound/actions/runs/33816839640",
+      "artifact": "initialization-process-tree.json",
+      "sha256": "sha256:8580b51d82e1cdc1ef980b36599d0bcd4946d2f1fbdd151f22321ae198e89328",
+      "finding": "the failing low-integrity cmd process loaded cmd, KernelBase, kernel32, and ntdll before creating a low-integrity Conhost child"
+    },
+    {
+      "run": "https://github.com/bordumb/proof-bound/actions/runs/33817234653",
+      "artifact": "initialization-matrix.json",
+      "sha256": "sha256:5d2df51188f0f25b47d7cf32ce71e777132245eb894d20a557722e38ed85bc8b",
+      "finding": "only CREATE_NO_WINDOW caused STATUS_DLL_INIT_FAILED; normal console initialization passed with the private desktop and active-process limit one"
+    },
+    {
+      "run": "https://github.com/bordumb/proof-bound/actions/runs/33817590830",
+      "artifact": "runtime-entry-matrix.json",
+      "sha256": "sha256:61540bc2923c4e70babc1c62bf91f312b9ffd3768d7db8677fa566ea39815d7e",
+      "finding": "Node 24.20.0 and a Rust 1.94.0 binary entered directly and executable-only staged; CPython 3.12.10 required its split runtime closure"
+    },
+    {
+      "run": "https://github.com/bordumb/proof-bound/actions/runs/33817824464",
+      "artifact": "python-closure.json",
+      "sha256": "sha256:a7b8c4ed285b81d7e2e8cbbbd9e4995b1cabcfecbc00fe27f2978bcd0d04b6c2",
+      "finding": "CPython entered from a sealed 44-file native closure plus a deterministic archive of 1807 pure-Python modules"
+    }
+  ],
+  "boundary": {
+    "appcontainer": true,
+    "network_capabilities": [],
+    "integrity_sid": "S-1-16-4096",
+    "administrator_sid": "S-1-5-32-544",
+    "administrator_sid_required_deny_only": true,
+    "job": {
+      "active_process_limit": 1,
+      "kill_on_close": true,
+      "assigned_before_resume": true,
+      "breakaway": "forbidden"
+    },
+    "desktop": {
+      "private": true,
+      "appcontainer_acl_only": true
+    },
+    "process_creation": {
+      "suspended": true,
+      "create_no_window": false,
+      "console_broker_role": "windows-initialization-closure"
+    }
+  },
+  "runtime_closures": {
+    "python": {
+      "version": "3.12.10",
+      "layout": [
+        "python.exe",
+        "root runtime DLLs",
+        "DLLs/*.dll",
+        "DLLs/*.pyd",
+        "deterministic python312.zip"
+      ],
+      "maximum_staged_native_files": 512,
+      "site_packages": "excluded"
+    },
+    "node": {
+      "version": "24.20.0",
+      "layout": ["node.exe"]
+    },
+    "rust": {
+      "toolchain": "1.94.0",
+      "layout": ["freshly compiled frozen subject executable"]
+    }
+  },
+  "confirmation": {
+    "corpus": "docs/experiments/0018-os-enforced-effects/corpus",
+    "positive_slots": 30,
+    "authority_slots": 21,
+    "minimum_policy_attacks": 24,
+    "closure_frozen_before_first_slot": true,
+    "closure_expansion_after_first_slot": "forbidden",
+    "discovery_artifacts_reusable": false,
+    "denied_or_incomplete_receipts_reusable": false,
+    "fallback": "forbidden"
+  }
+}

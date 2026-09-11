@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "baseUrl": "../../../demo/typescript-codec",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "paths": {
+      "fast-check": ["node_modules/fast-check"],
+      "fast-check/*": ["node_modules/fast-check/*"]
+    },
+    "resolveJsonModule": true,
+    "strict": true,
+    "target": "ES2022",
+    "typeRoots": ["../../../demo/typescript-codec/node_modules/@types"],
+    "types": ["node"]
+  },
+  "files": [
+    "corpus/typescript/failing_property.ts",
+    "corpus/typescript/roundtrip_property.ts",
+    "drivers/fast-check-driver.ts"
+  ]
+}

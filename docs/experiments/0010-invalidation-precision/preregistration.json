@@ -1,0 +1,122 @@
+{
+  "schema": "proofbound-research-invalidation-preregistration/1",
+  "experiment": "EXP-0010",
+  "programme_experiment": "EXP-LANG-003",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "registered_at": "2026-09-03",
+  "subject": "git:74fada0ddb077f11b97b99fa10b73dce651c5329",
+  "prior_result": {
+    "path": "docs/experiments/0005-assurance-ir-extraction/results/2026-09-03-q1-finalization.json",
+    "sha256": "sha256:a00419e2532c36dd8be09516f825a2d36f155ffb10a535e4723b955778ea2f8b",
+    "falsifier": "portable cache evidence lacks its complete role-typed dependency projection"
+  },
+  "model": {
+    "projection_schema": "proofbound-ir-dependency-projection/1",
+    "projection_domain": "proofbound-ir-dependency-projection/1",
+    "trace_schema": "proofbound-ir-invalidation-trace/1",
+    "trace_domain": "proofbound-ir-invalidation-trace/1",
+    "legacy_constructor": "legacy-opaque-cache",
+    "node_kinds": [
+      "artifact",
+      "resolution",
+      "environment",
+      "tool",
+      "contract",
+      "platform"
+    ],
+    "use_roles": [
+      "semantic",
+      "execution",
+      "generated-baseline",
+      "external-contract"
+    ],
+    "rules": [
+      "dependency values are retained alongside their domain-separated identity",
+      "node and use collections are canonical lexical sets with duplicate rejection",
+      "artifact equality includes path, digest, size, and the registered permission model",
+      "negative resolution retains every registered candidate as present or absent",
+      "secret-present environment state is never reusable",
+      "presentation is not an execution use unless a route declares that consumption",
+      "every invalidated unit has at least one changed-node to unit to claim explanation path",
+      "generic invalidation does not branch on concrete language, framework, adapter, or tool names"
+    ]
+  },
+  "controlled_units": [
+    {"id": "reservation-example", "route": "python-pytest"},
+    {"id": "reservation-property", "route": "python-hypothesis"},
+    {"id": "reservation-types", "route": "python-mypy"},
+    {"id": "accept-over-cap-mutant", "route": "python-mutation"},
+    {"id": "wheel-reproduction", "route": "python-wheel"},
+    {"id": "reservation-vectors", "route": "independent-check"},
+    {"id": "reject-padding", "route": "typescript-vitest"},
+    {"id": "bounded-roundtrip", "route": "typescript-vitest"},
+    {"id": "strict-types", "route": "typescript-tsc"},
+    {"id": "reject-padding-mutant", "route": "typescript-mutation"},
+    {"id": "npm-package", "route": "typescript-npm-package"},
+    {"id": "rust-kernel-tests", "route": "rust-cargo-test"},
+    {"id": "remove-cap-guard", "route": "rust-mutation"},
+    {"id": "transfer-bounds", "route": "kani-bounded-check"},
+    {"id": "accept-respects-cap", "route": "lean-theorem"}
+  ],
+  "external_holdouts": [
+    {
+      "id": "CORPUS-EXT-PY-001",
+      "subject": "git:36baa15ff831b939a22bc527cd76ce653ef6f66d",
+      "route": "python-pytest",
+      "local_tree_identity": "TBD-at-start"
+    },
+    {
+      "id": "CORPUS-EXT-TS-001",
+      "subject": "git:c4bbc33a89b7ace0e63d35f1f7d4bcee31155a73",
+      "route": "typescript-vitest",
+      "local_tree_identity": "TBD-at-start"
+    }
+  ],
+  "change_classes": [
+    "direct-source-content",
+    "transitive-source-content",
+    "same-bytes-permission",
+    "package-or-toolchain-lock",
+    "tool-executable-or-version",
+    "negative-resolution-candidate",
+    "environment-value-or-absence",
+    "operation-manifest-or-config",
+    "generated-baseline",
+    "external-contract",
+    "presentation-only-control",
+    "unrelated-language-control"
+  ],
+  "attacks": [
+    {"id": "INV-001", "mutation": "omit one consumed dependency node", "expected_code": "IR-DEPENDENCY-OMITTED"},
+    {"id": "INV-002", "mutation": "substitute a dependency use role while retaining node identity", "expected_code": "IR-DEPENDENCY-ROLE-MISMATCH"},
+    {"id": "INV-003", "mutation": "change artifact bytes and retain its node and projection identities", "expected_code": "IR-DEPENDENCY-IDENTITY-MISMATCH"},
+    {"id": "INV-004", "mutation": "change executable permission with identical bytes and retain the projection identity", "expected_code": "IR-DEPENDENCY-PERMISSION-MISMATCH"},
+    {"id": "INV-005", "mutation": "turn an absent resolution candidate into a present file without invalidation", "expected_code": "IR-DEPENDENCY-RESOLUTION-MISMATCH"},
+    {"id": "INV-006", "mutation": "replace an absent environment variable with a value digest without invalidation", "expected_code": "IR-DEPENDENCY-ENVIRONMENT-MISMATCH"},
+    {"id": "INV-007", "mutation": "change a tool executable or version while retaining its tool node identity", "expected_code": "IR-DEPENDENCY-TOOL-MISMATCH"},
+    {"id": "INV-008", "mutation": "duplicate or alias one node under another logical role", "expected_code": "IR-DEPENDENCY-DUPLICATE"},
+    {"id": "INV-009", "mutation": "reorder a canonical set", "expected_code": "IR-DEPENDENCY-NONCANONICAL"},
+    {"id": "INV-010", "mutation": "promote a presentation-only path into an execution root", "expected_code": "IR-DEPENDENCY-OVERINVALIDATION"},
+    {"id": "INV-011", "mutation": "move a valid projection to another unit or same-count claim set", "expected_code": "IR-DEPENDENCY-BINDING-MISMATCH"},
+    {"id": "INV-012", "mutation": "replace typed dependency nodes with one opaque aggregate digest", "expected_code": "IR-DEPENDENCY-OPAQUE"},
+    {"id": "INV-013", "mutation": "retain a predicted cache identity after a load-bearing node changes", "expected_code": "IR-DEPENDENCY-STALE-KEY"},
+    {"id": "INV-014", "mutation": "mark secret-present environment authority reusable", "expected_code": "IR-DEPENDENCY-SECRET-REUSE"},
+    {"id": "INV-015", "mutation": "use an absolute, parent-traversing, symlinked, or control-bearing artifact path", "expected_code": "IR-DEPENDENCY-UNSAFE-PATH"}
+  ],
+  "metrics": {
+    "M-SOUND-002": {"target": 0, "unit": "stale retained evidence records"},
+    "M-SOUND-003": {"target": 0, "unit": "Rust/Python disagreements"},
+    "M-INV-001": {"definition": "truly affected evidence divided by all invalidated evidence", "controlled_target": 1.0},
+    "M-INV-002": {"definition": "runnable units avoided relative to a complete fresh run", "leaf_requirement": "at least one avoided unit"},
+    "explanation_coverage": {"target": 1.0, "unit": "invalidated units with a changed-node to unit to claim path"}
+  },
+  "decision_rules": {
+    "Q1": "Pass only with zero stale retention for every registered route and change class, plus agreement from forced fresh execution.",
+    "Q2": "Pass only when every controlled predicted set exactly equals ground truth, both controls invalidate no technical evidence, and every leaf scenario is a strict nonempty subset.",
+    "Q3": "Pass only with canonical Rust/Python equality and exact rejection of INV-001 through INV-015.",
+    "Q4": "Pass only with complete explanation paths and no notification for unconsumed drift or either negative control.",
+    "Q5": "Pass only when legacy opaque cache observations are non-reusable and no existing schema is reinterpreted.",
+    "ir_freeze": "Q1 and Q3 must pass before a revised Assurance IR freeze may be preregistered. This experiment does not itself freeze a production or research wire."
+  }
+}

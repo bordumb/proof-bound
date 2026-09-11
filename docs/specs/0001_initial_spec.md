@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.11.0
+**Version:** 0.12.0
 
 **Date:** 2026-09-01
 
@@ -12,6 +12,16 @@
 
 ### Revision history
 
+- **0.12.0** — adopts the Python and TypeScript ecosystem contracts of
+  Specifications 0002 version 0.3.0 and 0003 version 0.2.0: adds empirical
+  `static-check` evidence; typed pytest/Vitest plugin and property records;
+  mypy and `tsc --noEmit` analyzer routes; pytest and Vitest singleton mutation
+  witnesses; and the closed evidence-unit `/4` distribution-reproduction
+  route for wheels, sdists, and npm packages. The `ledger` profile admits the
+  new empirical kind but cannot promote it beyond `TESTED · MODEL_ONLY`.
+  Pyright, ty, pyrefly, ruff, and tsgo remain reserved until they satisfy the
+  authoritative-inventory admission criteria (§5, §9.1, §10.2, §11.2.2–3,
+  §12.2; Specifications 0002–0003).
 - **0.11.0** — sealed singleton mutation replay: reserves evidence-unit `/3`
   and mutation-registry `/2` for one byte-pinned full-file mutant and one exact
   witness per evidence fate; runs the witness in independent clean and mutated
@@ -161,8 +171,8 @@ more than ordinary unit-test confidence, including:
 - deterministic workflow engines; and
 - publication or certification pipelines.
 
-Proofbound is not restricted to Python, Rust, and Lean. Those languages form
-the first supported vertical because they exercise orchestration, production
+Proofbound is not restricted to Python, TypeScript, Rust, and Lean. Those
+languages form the first supported vertical because they exercise orchestration, production
 implementation, bounded model checking, source translation, and theorem proving.
 
 ## 3. Goals and non-goals
@@ -333,6 +343,7 @@ kinds simultaneously.
 | `exhaustive-check` | Every member of an explicitly finite registered domain was evaluated. |
 | `property-test` | Generated examples exercised a property; this is empirical evidence. |
 | `example-test` | Named test cases passed. |
+| `static-check` | A registered static analyzer reported zero violations over an exact authoritative target inventory under a byte-pinned configuration. This is empirical evidence, not a semantic proof. |
 | `mutation-witness` | One byte-pinned mutation of the subject was automatically installed in a fresh shadow after the same exact registered check passed on an independent clean shadow; that check then failed with its registered expected exit. The strongest form may additionally carry a compiled proof term witnessing the violation. |
 | `review` | A human review attestation exists for a precisely scoped surface. |
 | `assumption` | The claim depends on an explicit hypothesis or external premise. |
@@ -351,15 +362,23 @@ Two qualifiers keep the strong kinds honest:
   kinds and binding modes are not interchangeable, and the graph never
   conflates them.
 - **Binding derivation.** A checker outcome, theorem name, or Boolean assertion
-  is never a binding. Version 0.7 admits `digest-theorem` only when the exact
-  outermost elaborated statement is
+  is never a binding. An unconditional `digest-theorem` is admitted only when
+  the exact outermost elaborated statement is
   `Proofbound.Artifact.DigestBindingV1 claimId artifactSchema logicalName
   expectedSha256 bytes meaning`, the first four arguments are direct canonical
   string literals, and the proposition establishes both the SHA-256 identity
   and `meaning bytes`. The complete `lean-expr-cbor/1` statement is carried in
   theorem evidence so both status engines recompute its identity and parse it
-  independently. `bytes-in-theorem` remains reserved but fails closed until an
-  equally exact typed proposition and portable byte comparison are specified.
+  independently. A reviewed evidence context MAY instead activate a
+  `proofbound-evidence-unit/6` artifact check whose theorem has the exact root
+  `Proofbound.Artifact.DigestBindingSetV1 claimId artifactSchema members
+  meaning`. `members` is a nonempty direct `List.cons`/`List.nil` spine of at
+  most 256 `DigestBindingMemberV1.mk logicalName expectedSha256 bytes` values,
+  strictly ordered by unique logical name with unique canonical digest
+  literals. The checked artifact identity MUST match exactly one member; the
+  inactive members confer no release fact. `bytes-in-theorem` remains reserved
+  but fails closed until an equally exact typed proposition and portable byte
+  comparison are specified.
 
 The status vocabulary MUST NOT compress these into a single scalar such as
 `verified`. Summary status is the three-facet composition defined in
@@ -489,7 +508,7 @@ Linkage facet, from the subject-binding evidence:
 | Binding evidence | Linkage facet |
 |---|---|
 | `source-refinement` with a named refinement theorem and registered representation premises | `REFINED` |
-| `artifact-soundness` whose admitted theorem has the exact typed `DigestBindingV1` root and matching checked artifact identity (§5, §9.4) | `ARTIFACT_BOUND` |
+| `artifact-soundness` whose admitted theorem has the exact typed `DigestBindingV1` root, or a selected reviewed context whose theorem has the exact typed `DigestBindingSetV1` root, and whose checked artifact identity matches exactly (§5, §9.4) | `ARTIFACT_BOUND` |
 | `trusted-transcription` with binding `external-round-trip` (§7.1.1) | `TRANSCRIBED` |
 | no subject binding | `MODEL_ONLY` |
 
@@ -778,6 +797,44 @@ is the normal way a claim's assumption burden shrinks over time. A framework
 that hid undischarged premises would be reporting a stronger claim than the
 theorem states.
 
+A discharged representation-premise uses the same
+`proofbound-assumption/1` manifest with an explicit typed scope and discharge:
+
+```toml
+schema = "proofbound-assumption/1"
+id = "DEMO-U64-REP-001"
+statement = "Every decoded value fits the registered u64 carrier."
+category = "representation-premise"
+owner = "Demo maintainers"
+rationale = "The source-refinement theorem represents decoded values as u64."
+scope = "Every value accepted by the registered decoder."
+affected_claims = ["DEMO-TRANSFER-001"]
+review_evidence = []
+discharge_plan = "Prove the decoder establishes the carrier bound."
+status = "discharged"
+premise_scope = { kind = "all-registered-inputs" }
+discharge = { theorem = "decoder-carrier-bound", scope = { kind = "all-registered-inputs" } }
+```
+
+`premise_scope` defaults to `all-registered-inputs`; a narrower scope is
+`{ kind = "flows", flows = ["flow-a", "flow-b"] }`. A discharge scope MUST
+cover the premise scope. The `theorem` field names a local evidence unit of
+kind `theorem`; that unit MUST cite every affected claim, every affected claim
+MUST cite `theorem:<id>`, and the theorem MUST NOT depend on the premise it
+discharges. A discharge declaration requires `status = "discharged"`, while
+that status without the typed declaration is invalid. The compiler retains the
+premise, materializes its discharge record, and emits the exact
+`premise -> theorem` `discharged-by` edge. The core status engine and independent
+verifier still require that theorem to be policy-admitted before removing the
+premise from the assumption facet.
+
+This join creates one deliberately typed provenance cycle: the claim assumes
+the premise, the premise is discharged by the theorem, and the theorem proves
+the claim. Graph validation admits only that exact `claim -> premise -> theorem
+-> claim` shape (including multiple premises or discharge theorems in the same
+join). Additional internal edges, owner edges back to a discharged premise, or
+mixed node and edge kinds remain invalid cycles.
+
 ### 8.2 Lean axiom audit
 
 For every registered Lean theorem, Proofbound MUST compile an axiom audit from
@@ -858,7 +915,8 @@ The initial built-in profiles are:
 ### 9.1 `ledger`
 
 - This is the built-in Tier 0 adoption profile.
-- It admits registered property-test, example-test, mutation-witness, review,
+- It admits registered property-test, example-test, static-check,
+  mutation-witness, review,
   assumption, and open evidence; independent-check, exhaustive-check,
   theorem, artifact-soundness,
   source-refinement, and bounded-check evidence are not required or admitted
@@ -910,14 +968,29 @@ The initial built-in profiles are:
   `native-evaluated` must record its exact native premise and TCB.
 - The admitted theorem receipt carries the complete canonical elaborated
   statement and its recomputed statement identity.
-- For `digest-theorem`, that statement is exactly the outermost
-  `Proofbound.Artifact.DigestBindingV1` application defined in Section 5; the
-  literal claim ID, schema, logical name, and SHA-256 identity are derived from
-  theorem content rather than checker output.
+- For an unconditional `digest-theorem`, that statement is exactly the
+  outermost `Proofbound.Artifact.DigestBindingV1` application defined in
+  Section 5; the literal claim ID, schema, logical name, and SHA-256 identity
+  are derived from theorem content rather than checker output.
+- For a contextual `digest-theorem`, the statement is exactly the outermost
+  `Proofbound.Artifact.DigestBindingSetV1` application defined in Section 5.
+  Only a `proofbound-evidence-unit/6` canonical-artifact check owned by the one
+  selected, preregistered review context may activate it. Base checks exclude
+  such units. The producer and standalone verifier independently parse the
+  closed set and require the checked logical name and digest to equal exactly
+  one direct member.
 - The derived artifact logical name and digest equal exactly one checked input
   artifact in the separate artifact-soundness record. Version-2 provenance
   carries that artifact's complete logical-name, digest, and byte-size identity;
   both status engines require an exact match, including `size_bytes`.
+- A contextual release uses `proofbound-compiled-release/6` inside
+  `proofbound-release-envelope/6`; its contextual binding records use
+  `proofbound-evidence/5` and carry the same canonical `evidence_context`.
+  The producer seals the selected artifact at its theorem-derived logical name,
+  and the verifier recomputes those bytes before publication. Context omission,
+  replay, member omission or substitution, singular-root downgrade, and
+  replacement by an empirical exact observation all fail closed. Empirical
+  observations remain orthogonal and never derive `ARTIFACT_BOUND`.
 - `bytes-in-theorem` is not admitted in 0.7; `trusted-transcription` evidence
   remains `TRANSCRIBED`, never `ARTIFACT_BOUND` (§7.1.1).
 - Canonical parsing, re-encoding, and trailing-byte rejection are required work
@@ -1300,8 +1373,14 @@ names the compiled Lean declaration; `statement_encoding` names the canonical
 encoding; and `statement_sha256` binds the encoded elaborated expression.
 `foundational_axioms` is the sorted exact expected transitive foundational
 axiom inventory for that declaration; project axioms are mapped separately to
-registered assumptions. A missing, extra, or reclassified axiom invalidates
-the compiled claim inventory.
+registered assumptions. An assumption may register a bounded, unique
+`formal_axioms` list of fully qualified Lean declaration names. This explicit
+list is the normative mapping when one project axiom is shared across theorem
+modules; the historical first-token `source_citation` mapping remains limited
+to axioms in the audited theorem's own declaration namespace. Two assumptions
+that register the same formal axiom for one claim are ambiguous and fail
+closed. A missing, extra, or reclassified axiom invalidates the compiled claim
+inventory.
 `subject_closure` optionally pins a previously reviewed semantic closure and
 drift invalidates it. The all-zero digests above are illustrative placeholders,
 not admissible reviewed evidence. `schemas/claim.schema.json` is the
@@ -1516,15 +1595,39 @@ operation derives its test from `witness`; checker-authored target aliases,
 additional arguments, outputs, qualifiers, or multiple mutations are invalid.
 
 For `check` and `reproduce`, the adapter creates two fresh shadows from the
-same reviewed source. It verifies the target preimage, recompiles and discovers
-the exact witness in the baseline shadow, and requires that one test to pass.
-In the second shadow it copies the registered full-file mutant bytes over the
-target, verifies the target postimage equals the mutant artifact, recompiles,
-rediscovers the same test, and requires that exact test to fail with libtest
-exit code 101. A compile failure, missing or renamed test, another exit code,
-truncated output, timeout, extra changed path, or mutation of the repository is
-not a successful witness. `inventory` performs exact registration and witness
-discovery without admitting evidence; `update` is unsupported.
+same reviewed source. It verifies the target preimage, discovers the exact
+witness in the baseline shadow, and requires that one test to pass. The
+original Rust route uses `cargo-test`, a Rust subject, and libtest exit 101.
+Specification 0002 adds `pytest`, a Python subject, and exact pytest exit 1;
+Specification 0003 adds `vitest`, a TypeScript subject, and its exact typed
+failure ABI. In the second shadow the adapter copies the registered full-file
+mutant bytes over the target, verifies the target postimage equals the mutant
+artifact, rediscovers the same test, and requires only that exact test to fail
+with the route's registered exit. A compile or collection failure, missing or
+renamed test, another exit code, truncated output, timeout, extra changed path,
+or mutation of the repository is not a successful witness. `inventory`
+performs exact registration and witness discovery without admitting evidence;
+`update` is unsupported.
+
+### 11.2.3 Distribution reproduction
+
+`proofbound-evidence-unit/4` is the closed distribution-reproduction route. It
+is not a reinterpretation of versions 1–3 and forbids transcription, mutation,
+and untyped operation fields. The typed operations are `python-distribution`
+for wheel or sdist artifacts (Specification 0002 §9) and `npm-package` for npm
+package artifacts (Specification 0003). Each registration names one exact
+artifact, expected SHA-256 identity, deterministic-build epoch, and exact
+source inputs including the ecosystem manifest.
+
+The adapter builds the artifact in two independent sealed shadows, without
+dependency installation or network access, and requires both outputs to be
+byte-identical and equal the registered digest. Archive safety, exact member
+inventory, and ecosystem integrity metadata are independently checked as
+defined by the language specification. Generated candidates remain beneath
+`.proofbound/`; this route never writes a built distribution into the reviewed
+tree. Its passing record is `example-test` evidence and can establish only
+empirical support. The canonical evidence and standalone verifier recompute
+both digest comparisons from the portable receipt.
 
 ### 11.3 Translation unit
 
@@ -1899,6 +2002,10 @@ proofbound release [--output DIR]
   ready even when it differs from a project lock; the separate locked-toolchain
   capability is then unavailable and reports the exact mismatch. Only a ready
   tool and an available project capability can satisfy a unit.
+  Specifications 0002 and 0003 additionally require native Python/Node test,
+  analyzer, plugin, and distribution-builder probes only for the typed units
+  that register them. Reserved analyzer spellings are rejected before doctor
+  and never become runnable capabilities.
 - `check` materializes evidence and compiles the assurance graph. It writes
   receipts and the evidence store only; it never modifies committed files,
   including generated code. Valid cached receipts are reused (§16.2), and

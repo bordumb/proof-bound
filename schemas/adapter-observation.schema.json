@@ -8,7 +8,7 @@
   "properties": {
     "schema": { "const": "proofbound-adapter-observation/2" },
     "unit_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
-    "evidence_kind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "review", "assumption", "open"] },
+    "evidence_kind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "static-check", "review", "assumption", "open"] },
     "outcome": { "enum": ["passed", "failed"] },
     "input_artifacts": { "$ref": "#/$defs/artifacts" },
     "generated_artifacts": { "$ref": "#/$defs/artifacts" },
@@ -26,7 +26,11 @@
     "normalization": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" },
     "artifact_binding": { "$ref": "#/$defs/artifact_binding" },
     "trusted_transcription": { "$ref": "#/$defs/trusted_transcription" },
-    "mutation_replay": { "$ref": "#/$defs/mutation_replay" }
+    "mutation_replay": { "$ref": "#/$defs/mutation_replay" },
+    "python_plugins": { "type": "array", "items": { "$ref": "#/$defs/python_plugin" }, "uniqueItems": true, "maxItems": 32 },
+    "python_property": { "$ref": "#/$defs/python_property" },
+    "static_check": { "$ref": "#/$defs/static_check" },
+    "distribution_reproduction": { "$ref": "#/$defs/distribution_reproduction" }
   },
   "allOf": [
     {
@@ -74,6 +78,11 @@
         }
       },
       "else": { "not": { "required": ["mutation_replay"] } }
+    },
+    {
+      "if": { "properties": { "evidence_kind": { "const": "static-check" } }, "required": ["evidence_kind"] },
+      "then": { "required": ["static_check"] },
+      "else": { "not": { "required": ["static_check"] } }
     }
   ],
   "$defs": {
@@ -187,7 +196,7 @@
       "required": ["run_index", "allowed_exit_codes"],
       "properties": {
         "run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
-        "allowed_exit_codes": { "const": [101] }
+        "allowed_exit_codes": { "oneOf": [{ "const": [1] }, { "const": [101] }] }
       }
     },
     "mutation_replay": {
@@ -207,6 +216,72 @@
         "baseline_run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
         "expected_failure": { "$ref": "#/$defs/expected_failure" }
       }
+    },
+    "python_plugin": {
+      "type": "object", "additionalProperties": false,
+      "required": ["module", "distribution", "version", "origin_sha256"],
+      "properties": {
+        "module": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*(?:\\.[a-z0-9_]+)*$", "maxLength": 256 },
+        "distribution": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "origin_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "python_property": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "framework", "seed", "framework_version"],
+      "properties": {
+        "schema": { "const": "proofbound-python-property/1" },
+        "framework": { "const": "hypothesis" },
+        "seed": { "type": "integer", "minimum": 0 },
+        "framework_version": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "static_check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "tool", "tool_version", "configuration_sha256", "targets", "diagnostics"],
+      "properties": {
+        "schema": { "const": "proofbound-static-check/1" },
+        "tool": { "enum": ["mypy", "tsc"] },
+        "tool_version": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "configuration_sha256": { "$ref": "#/$defs/digest" },
+        "targets": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
+        "diagnostics": { "const": 0 }
+      }
+    },
+    "distribution_reproduction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "format", "run_digests", "registered_digest", "source_date_epoch", "build_backend_name", "build_backend_version", "member_inventory"],
+      "properties": {
+        "schema": { "const": "proofbound-distribution-reproduction/1" },
+        "format": { "enum": ["wheel", "sdist", "npm-package"] },
+        "run_digests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "minItems": 2, "maxItems": 2 },
+        "registered_digest": { "$ref": "#/$defs/digest" },
+        "source_date_epoch": { "type": "integer", "minimum": 0 },
+        "build_backend_name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "build_backend_version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "npm_integrity": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "member_inventory": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "format": { "const": "npm-package" } }, "required": ["format"] },
+          "then": {
+            "required": ["npm_integrity"],
+            "properties": {
+              "source_date_epoch": { "const": 0 },
+              "build_backend_name": { "const": "npm" },
+              "npm_integrity": { "pattern": "^sha512-[A-Za-z0-9+/]+={0,2}$" },
+              "member_inventory": { "minItems": 1 }
+            }
+          },
+          "else": { "not": { "required": ["npm_integrity"] } }
+        },
+        {
+          "if": { "properties": { "format": { "const": "wheel" } }, "required": ["format"] },
+          "then": { "properties": { "member_inventory": { "minItems": 1 } } }
+        }
+      ]
     }
   }
 }

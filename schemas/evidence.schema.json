@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "node_id", "unit_id", "kind", "status", "claims", "inventoried_targets", "assumptions", "premises", "provenance"],
   "properties": {
-    "schema": { "const": "proofbound-evidence/3" },
+    "schema": { "enum": ["proofbound-evidence/3", "proofbound-evidence/4"] },
     "id": { "$ref": "#/$defs/id" },
     "node_id": { "$ref": "#/$defs/id" },
     "unit_id": { "$ref": "#/$defs/id" },
@@ -17,11 +17,16 @@
     "binding_mode": { "enum": ["bytes-in-theorem", "digest-theorem", "external-round-trip"] },
     "theorem": { "$ref": "#/$defs/theorem" },
     "artifact_binding": { "$ref": "#/$defs/artifactBinding" },
+    "artifact_observation": { "$ref": "#/$defs/exactArtifactObservation" },
+    "evidence_context": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "trusted_transcription": { "$ref": "#/$defs/trustedTranscription" },
     "source_refinement": { "$ref": "#/$defs/sourceRefinement" },
     "bounded_check": { "$ref": "#/$defs/boundedCheck" },
     "exhaustive_check": { "$ref": "#/$defs/exhaustiveCheck" },
     "mutation_witness": { "$ref": "#/$defs/mutationWitness" },
+    "python_property": { "$ref": "#/$defs/pythonProperty" },
+    "static_check": { "$ref": "#/$defs/staticCheck" },
+    "distribution_reproduction": { "$ref": "#/$defs/distributionReproduction" },
     "independence": { "enum": ["independent", "common-origin"] },
     "inventoried_targets": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 },
     "assumptions": { "$ref": "#/$defs/ids" },
@@ -30,6 +35,14 @@
     "provenance": { "$ref": "#/$defs/provenance" }
   },
   "allOf": [
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-evidence/3" } }, "required": ["schema"] },
+      "then": { "not": { "anyOf": [{ "required": ["artifact_observation"] }, { "required": ["evidence_context"] }] } }
+    },
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-evidence/4" } }, "required": ["schema"] },
+      "then": { "required": ["artifact_observation"] }
+    },
     {
       "if": {
         "required": ["status", "provenance"],
@@ -102,6 +115,11 @@
       },
       "else": { "not": { "required": ["mutation_witness"] } }
     },
+    {
+      "if": { "properties": { "kind": { "const": "static-check" } }, "required": ["kind"] },
+      "then": { "required": ["static_check"] },
+      "else": { "not": { "required": ["static_check"] } }
+    },
     { "if": { "properties": { "kind": { "const": "open" } }, "required": ["kind"] }, "then": { "required": ["open_obligation"] } }
   ],
   "$defs": {
@@ -117,7 +135,7 @@
         { "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$" }
       ]
     },
-    "kind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "review", "assumption", "open"] },
+    "kind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "static-check", "review", "assumption", "open"] },
     "artifact": {
       "type": "object", "additionalProperties": false,
       "required": ["logical_name", "sha256", "size_bytes"],
@@ -125,6 +143,26 @@
         "logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 },
         "sha256": { "$ref": "#/$defs/digest" },
         "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "exactArtifactObservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "subject_role", "artifact", "platform", "procedure", "toolchain_closure", "dependencies"],
+      "properties": {
+        "schema": { "const": "proofbound-exact-artifact-observation/1" },
+        "subject_role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "artifact": { "$ref": "#/$defs/artifact" },
+        "platform": {
+          "type": "object", "additionalProperties": false,
+          "required": ["operating_system", "architecture"],
+          "properties": {
+            "operating_system": { "enum": ["linux", "macos", "windows"] },
+            "architecture": { "enum": ["x86_64", "aarch64"] }
+          }
+        },
+        "procedure": { "$ref": "#/$defs/artifact" },
+        "toolchain_closure": { "$ref": "#/$defs/closure" },
+        "dependencies": { "$ref": "#/$defs/ids" }
       }
     },
     "closure": {
@@ -218,6 +256,7 @@
         "resource_usage": { "$ref": "#/$defs/usage" },
         "cache_origin": { "enum": ["executed", "reused"] },
         "prior_receipt_sha256": { "$ref": "#/$defs/digest" }
+        ,"python_plugins": { "type": "array", "items": { "$ref": "#/$defs/pythonPlugin" }, "uniqueItems": true, "maxItems": 32 }
       },
       "allOf": [
         {
@@ -343,8 +382,74 @@
       "required": ["run_index", "allowed_exit_codes"],
       "properties": {
         "run_index": { "type": "integer", "minimum": 0, "maximum": 4095 },
-        "allowed_exit_codes": { "const": [101] }
+        "allowed_exit_codes": { "oneOf": [{ "const": [1] }, { "const": [101] }] }
       }
+    },
+    "pythonPlugin": {
+      "type": "object", "additionalProperties": false,
+      "required": ["module", "distribution", "version", "origin_sha256"],
+      "properties": {
+        "module": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*(?:\\.[a-z0-9_]+)*$", "maxLength": 256 },
+        "distribution": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "origin_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "pythonProperty": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "framework", "seed", "framework_version"],
+      "properties": {
+        "schema": { "const": "proofbound-python-property/1" },
+        "framework": { "const": "hypothesis" },
+        "seed": { "type": "integer", "minimum": 0 },
+        "framework_version": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "staticCheck": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "tool", "tool_version", "configuration_sha256", "targets", "diagnostics"],
+      "properties": {
+        "schema": { "const": "proofbound-static-check/1" },
+        "tool": { "enum": ["mypy", "tsc"] },
+        "tool_version": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "configuration_sha256": { "$ref": "#/$defs/digest" },
+        "targets": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 },
+        "diagnostics": { "const": 0 }
+      }
+    },
+    "distributionReproduction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "format", "run_digests", "registered_digest", "source_date_epoch", "build_backend_name", "build_backend_version", "member_inventory"],
+      "properties": {
+        "schema": { "const": "proofbound-distribution-reproduction/1" },
+        "format": { "enum": ["wheel", "sdist", "npm-package"] },
+        "run_digests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "minItems": 2, "maxItems": 2 },
+        "registered_digest": { "$ref": "#/$defs/digest" },
+        "source_date_epoch": { "type": "integer", "minimum": 0 },
+        "build_backend_name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "build_backend_version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "npm_integrity": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "member_inventory": { "type": "array", "items": { "$ref": "#/$defs/inventoryItem" }, "uniqueItems": true, "maxItems": 100000 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "format": { "const": "npm-package" } }, "required": ["format"] },
+          "then": {
+            "required": ["npm_integrity"],
+            "properties": {
+              "source_date_epoch": { "const": 0 },
+              "build_backend_name": { "const": "npm" },
+              "npm_integrity": { "pattern": "^sha512-[A-Za-z0-9+/]+={0,2}$" },
+              "member_inventory": { "minItems": 1 }
+            }
+          },
+          "else": { "not": { "required": ["npm_integrity"] } }
+        },
+        {
+          "if": { "properties": { "format": { "const": "wheel" } }, "required": ["format"] },
+          "then": { "properties": { "member_inventory": { "minItems": 1 } } }
+        }
+      ]
     },
     "openObligation": {
       "type": "object", "additionalProperties": false,

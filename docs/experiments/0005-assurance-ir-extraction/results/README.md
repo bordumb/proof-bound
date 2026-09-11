@@ -1,0 +1,26 @@
+# Experiment 0005 results
+
+[Experiment registration](../README.md) · [Artifact ledger](../ARTIFACTS.md)
+
+Machine-readable results use:
+
+```text
+YYYY-MM-DD-<bounded-run-name>.json
+```
+
+Each result must include its schema, experiment ID, exact Proofbound commit,
+corpus identity, implementation identity, environment summary, registered
+metrics, and referenced artifact digests. A committed result is immutable;
+corrections are new files plus an append-only journal entry.
+
+| Run | Status | Scope |
+|---|---|---|
+| [Initial projection parity](2026-09-01-initial-projection-parity.json) | complete, bounded | Twenty positive source projections and 15 canonical domain vectors; no preregistered adversarial execution or full status rederivation |
+| [Adversarial evidence algebra](2026-09-02-adversarial-evidence-algebra.json) | complete, bounded | Independent Rust/Python validation of 20 positive cases, all 20 corrected preregistered attacks, 15 canonical vectors, and seven exact status rederivations |
+| [Q1 forward-projection progress](2026-09-02-q1-forward-projection-progress.json) | complete progress run; Q1 still failed | Complete forward reconstruction for the frozen portable fixture, semantic reverse comparisons for registered claims and requests, and matched policy-omission and provenance-substitution attacks |
+| [Q1 losslessness decision](2026-09-02-q1-losslessness-decision.json) | complete decision run; Q1 failed | Twenty positive reverse projections, twelve exact matched programme attacks, and a sixteen-row re-audit finding nine complete and seven partial rows |
+| [Q1 representation hardening](2026-09-02-q1-representation-hardening.json) | complete progress run; Q1 still failed | Typed family records, canonical subject closures, and sealed typed TCB components close three rows; twelve complete and four partial remain |
+| [Q1 completion capture audit](2026-09-02-q1-completion-capture-audit.json) | complete gap audit; Q1 still failed | Three full language releases expose incomplete portable family conversion and reopen one row; eleven complete and five partial remain |
+| [Q1 exact derivation traces](2026-09-03-q1-derivation-traces.json) | complete trace slice; Q1 still open | Independent Rust/Python derivation of 23 claim and publication traces plus rejection of all six registered substitutions; thirteen complete and three partial rows remain |
+| [Q1 artifact-role closure](2026-09-03-q1-artifact-role-closure.json) | complete artifact slice; Q1 still open | Independent joins across 39 executable units plus rejection of all five registered artifact attacks; fourteen complete and two partial rows remain |
+| [Q1 finalization](2026-09-03-q1-finalization.json) | concluded; Q1 failed, Q2–Q5 bounded pass | Versioned sampling closure succeeds; source-retained cache dependency semantics fail the registered sufficiency rule, leaving fifteen complete rows and one partial row |

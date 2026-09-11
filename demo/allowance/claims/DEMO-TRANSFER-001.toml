@@ -14,7 +14,7 @@ primary_linkage = "model-only"
 evidence = [
   "theorem:accept-conserves",
   "bounded-check:transfer-bounds",
-  "property-test:rust-kernel-tests",
+  "example-test:rust-kernel-tests",
   "mutation-witness:remove-destination-overflow-guard",
   "mutation-witness:remove-source-balance-guard",
 ]

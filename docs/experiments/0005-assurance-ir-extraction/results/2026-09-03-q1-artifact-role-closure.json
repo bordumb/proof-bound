@@ -1,0 +1,66 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "run": "q1-artifact-role-closure",
+  "date": "2026-09-03",
+  "implementation": "git:25ad9b2a35bc2856013dd3bfc2322ecf793c64b6",
+  "inputs": {
+    "preregistration_path": "docs/experiments/0005-assurance-ir-extraction/q1-completion-preregistration.json",
+    "preregistration_sha256": "sha256:0815675e11a73cb0a6e3b76179b9e5d39152135b1f1bbf4a7113f6982862ca50",
+    "capture_index_path": "docs/experiments/0005-assurance-ir-extraction/captures/q1-completion-r1/index.json",
+    "capture_index_sha256": "sha256:54ff0bddf5251b1889e608bed86591600157335b0921f0c99b7584f4fae1c998"
+  },
+  "reports": [
+    {
+      "case": "Q1-VERTICAL-PYTHON",
+      "report_sha256": "sha256:408764bae359b67ac48490ab2a346c9c9f6783e6a79b7685afe67c530b819a97",
+      "units": 6,
+      "registered_inputs": 22,
+      "supplemental_inputs": 0,
+      "generated_artifacts": 3,
+      "bound_roles": 5
+    },
+    {
+      "case": "Q1-VERTICAL-TYPESCRIPT",
+      "report_sha256": "sha256:ad9d4e4f5ad9663c1f3f41c70bed1ec9444ef638a0cd71b99a674a6e0834e0eb",
+      "units": 5,
+      "registered_inputs": 26,
+      "supplemental_inputs": 0,
+      "generated_artifacts": 3,
+      "bound_roles": 5
+    },
+    {
+      "case": "Q1-VERTICAL-RUST",
+      "report_sha256": "sha256:708623edea1f6fd0bdd98188a0d7173a21a013e6a053922fca0689345a9b7153",
+      "units": 28,
+      "registered_inputs": 109,
+      "supplemental_inputs": 0,
+      "generated_artifacts": 19,
+      "bound_roles": 32
+    }
+  ],
+  "validation": {
+    "rust_python_canonical_bytes_equal": true,
+    "executable_units": 39,
+    "registered_inputs": 157,
+    "generated_artifacts": 25,
+    "bound_roles": 42,
+    "sealed_tcb_ledgers": 3,
+    "registered_attacks": 5,
+    "rust_registered_attacks_rejected": 5,
+    "python_registered_attacks_rejected": 5,
+    "same_digest_different_role_accepted": false
+  },
+  "outcome": {
+    "q1_field_009": "forward-and-reverse-complete",
+    "q1_pass": false,
+    "assurance_ir_1_frozen": false,
+    "remaining_partial_fields": [
+      "Q1-FIELD-012",
+      "Q1-FIELD-014"
+    ]
+  },
+  "interpretation": "Each registered input selector resolves to one exact observed logical-name, SHA-256, and size tuple before admission. Nested bound artifacts must equal an observed input or generated artifact as a complete typed identity, generated roles remain distinct, and each sealed TCB ledger is reconstructed from its captured bytes. Role substitution, byte substitution, generated-artifact omission, bound-role aliasing, and sealed-ledger substitution all fail in both independent implementations.",
+  "next_step": "Execute the preregistered cache invalidation matrix across all registered execution dependency classes; do not infer explicit sampling semantics for legacy receipts."
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "proofbound-ir-sampling-extension/1",
+  "registered_units": ["unit:bounded-roundtrip"],
+  "extensions": [
+    {
+      "record_sha256": "sha256:ab14aab1cbc0921da04d4fbec96629063be986a752d2b06d251ad59bc268d692",
+      "unit_id": "unit:bounded-roundtrip",
+      "claims": ["TS-CODEC-001"],
+      "inventory": ["src/roundtrip.test.ts::base64url codec > round trips bounded byte arrays"],
+      "case_path": "docs/experiments/0005-assurance-ir-extraction/captures/q1-finalization-r1/typescript/bounded-roundtrip-sampling.json",
+      "case_sha256": "sha256:4435e3d1a58c44c312e5d6d5fb1bdf1bfa17b9af582a02ab19ce9e40b8cf5e34",
+      "extension_sha256": "sha256:3eb149ccca79930e9f1634c373486c895f572ecfe9636dca6815de73b4ab18ff"
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "schema": "proofbound-research-evidence-algebra-result/1",
+  "experiment": "EXP-0009",
+  "run": "generated-rust-python-differential",
+  "date": "2026-09-03",
+  "status": "passed",
+  "implementation": "git:5fbf05bb7d2806dbfe6dd8d3f0b482807b816a4a",
+  "artifacts": [
+    {
+      "path": "crates/proofbound-ir-prototype/src/derivation.rs",
+      "sha256": "sha256:f0c93eb10937291705de75beba21b74c692641a2e61a0abea353e88ef84fde7d",
+      "size_bytes": 45287,
+      "role": "typed Rust generator and validator"
+    },
+    {
+      "path": "python/proofbound/assurance_ir_checker.py",
+      "sha256": "sha256:07ed0e6ee56d54e4bd9131959dc0db98cf84bf7d4f9ae35974daee5194599c48",
+      "size_bytes": 154312,
+      "role": "independent Python validator"
+    },
+    {
+      "path": "docs/experiments/0009-generated-evidence-algebra/corpus/templates.json",
+      "sha256": "sha256:4f5d8ca083d9232212adee2bebabd6ba691e93fb6624e917e69112aa1cbadcce",
+      "size_bytes": 973,
+      "role": "six-route generation templates"
+    }
+  ],
+  "generation": {
+    "schema": "proofbound-generated-derivation-corpus/1",
+    "algorithm": "proofbound-exp-0009-generator/1",
+    "seed": 9009,
+    "valid_programs": 500,
+    "adversarial_programs": 500,
+    "mutation_cardinality": 1,
+    "corpus_identity": "sha256:302c576218c434b2119d317ddbf2eef1b9090b48ecb6c73930014f470e16d490"
+  },
+  "coverage": {
+    "positive_routes": [
+      "artifact-binding",
+      "bounded-check",
+      "mutation-witness",
+      "sampled-property",
+      "theorem",
+      "trusted-transcription"
+    ],
+    "rules": [
+      "artifact-bound",
+      "assumption-facet",
+      "bounded-tested",
+      "evidence-valid",
+      "model-linked",
+      "mutation-tested",
+      "policy-admitted",
+      "sampled-tested",
+      "theorem-proved",
+      "transcription-linked",
+      "transcription-open"
+    ],
+    "backend_named_common_rules": 0,
+    "rust_python_disagreements": 0
+  },
+  "attack_execution": [
+    {"id": "EXP-0009-A001", "cases": 32, "expected": "derivation-rule-input-mismatch", "rust": "derivation-rule-input-mismatch", "python": "derivation-rule-input-mismatch"},
+    {"id": "EXP-0009-A002", "cases": 32, "expected": "derivation-rule-input-mismatch", "rust": "derivation-rule-input-mismatch", "python": "derivation-rule-input-mismatch"},
+    {"id": "EXP-0009-A003", "cases": 32, "expected": "derivation-dependency-mismatch", "rust": "derivation-dependency-mismatch", "python": "derivation-dependency-mismatch"},
+    {"id": "EXP-0009-A004", "cases": 32, "expected": "derivation-binding-mismatch", "rust": "derivation-binding-mismatch", "python": "derivation-binding-mismatch"},
+    {"id": "EXP-0009-A005", "cases": 31, "expected": "derivation-dependency-mismatch", "rust": "derivation-dependency-mismatch", "python": "derivation-dependency-mismatch"},
+    {"id": "EXP-0009-A006", "cases": 31, "expected": "derivation-dependency-mismatch", "rust": "derivation-dependency-mismatch", "python": "derivation-dependency-mismatch"},
+    {"id": "EXP-0009-A007", "cases": 31, "expected": "derivation-cycle", "rust": "derivation-cycle", "python": "derivation-cycle"},
+    {"id": "EXP-0009-A008", "cases": 31, "expected": "derivation-duplicate-identity", "rust": "derivation-duplicate-identity", "python": "derivation-duplicate-identity"},
+    {"id": "EXP-0009-A009", "cases": 31, "expected": "derivation-unknown-rule", "rust": "derivation-unknown-rule", "python": "derivation-unknown-rule"},
+    {"id": "EXP-0009-A010", "cases": 31, "expected": "derivation-authority-mismatch", "rust": "derivation-authority-mismatch", "python": "derivation-authority-mismatch"},
+    {"id": "EXP-0009-A011", "cases": 31, "expected": "derivation-admission-blocked", "rust": "derivation-admission-blocked", "python": "derivation-admission-blocked"},
+    {"id": "EXP-0009-A012", "cases": 31, "expected": "no-admission-consequence", "rust": "no-admission-consequence", "python": "no-admission-consequence"},
+    {"id": "EXP-0009-A013", "cases": 31, "expected": "derivation-root-mismatch", "rust": "derivation-root-mismatch", "python": "derivation-root-mismatch"},
+    {"id": "EXP-0009-A014", "cases": 31, "expected": "derivation-noncanonical", "rust": "derivation-noncanonical", "python": "derivation-noncanonical"},
+    {"id": "EXP-0009-A015", "cases": 31, "expected": "derivation-rule-input-mismatch", "rust": "derivation-rule-input-mismatch", "python": "derivation-rule-input-mismatch"},
+    {"id": "EXP-0009-A016", "cases": 31, "expected": "derivation-schema-mismatch", "rust": "derivation-schema-mismatch", "python": "derivation-schema-mismatch"}
+  ],
+  "decisions": {
+    "q1": "pass: all six positive routes and all 500 generated valid programs produce complete formal, linkage, assumption, and policy judgments with identical Rust and Python conclusions and trace identities",
+    "q2": "pass: sampled, bounded, transcription, theorem, correspondence, and artifact evidence cannot be coerced into stronger judgments outside their closed rule signatures",
+    "q3": "pass: exact references, authority checks, schemas, canonical encoding, topological order, and declared-root validation reject every registered integrity mutation independently",
+    "q4": "pass: the deterministic 500/500 corpus covers every rule and all sixteen attacks with zero unexplained Rust/Python disagreements",
+    "q5": "pass: an unavailable consumed fact blocks its exact derivation, while removing unused telemetry preserves admission and produces no alert"
+  },
+  "design_consequence": {
+    "adopt_for_next_research": "carry typed facts, closed backend-neutral derivation rules, canonical trace identities, and consequence-indexed unavailable facts into the Assurance IR candidate",
+    "notification_policy": "notify only when an unavailable or invalid fact is consumed by a registered derivation, and identify the failed rule and dependency",
+    "production_status": "research-only; the finite corpus does not prove the algebra complete and no production receipt or status schema changed"
+  }
+}

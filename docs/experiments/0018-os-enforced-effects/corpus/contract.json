@@ -1,0 +1,81 @@
+{
+  "schema": "proofbound-research-enforced-contract/1",
+  "platform": {
+    "os": "macos",
+    "architecture": "arm64",
+    "mechanism": "seatbelt-sandbox-exec",
+    "mechanism_path": "/usr/bin/sandbox-exec"
+  },
+  "schemas": {
+    "plan": "proofbound-research-enforced-plan/1",
+    "receipt": "proofbound-research-enforcement-receipt/1",
+    "report": "proofbound-research-enforced-effects-report/1"
+  },
+  "domains": {
+    "plan": "proofbound-research-enforced-plan/1",
+    "policy": "proofbound-research-seatbelt-policy/1",
+    "receipt": "proofbound-research-enforcement-receipt/1",
+    "report": "proofbound-research-enforced-effects-report/1"
+  },
+  "subjects": [
+    {
+      "id": "subject:node",
+      "kind": "interpreted",
+      "source": "workspace/subjects/node_subject.mjs",
+      "runtime": "node"
+    },
+    {
+      "id": "subject:python",
+      "kind": "interpreted",
+      "source": "workspace/subjects/python_subject.py",
+      "runtime": "python"
+    },
+    {
+      "id": "subject:rust",
+      "kind": "compiled",
+      "source": "workspace/subjects/rust_subject.rs",
+      "runtime": "rust-binary"
+    }
+  ],
+  "environment": [
+    {
+      "name": "PB_REGISTERED_VALUE",
+      "value": "registered-env"
+    }
+  ],
+  "preimages": {
+    "registered_files": [
+      "workspace/registered.txt",
+      "workspace/reviewed.txt"
+    ],
+    "registered_absence": "workspace/must-remain-absent.txt",
+    "unrelated_control": "workspace/unrelated.txt",
+    "undeclared_nested": "workspace/nested/outside.txt"
+  },
+  "command": {
+    "arguments": [
+      "{mode}",
+      "{registered_input}",
+      "{ephemeral_output}",
+      "{attack_path}",
+      "{listener_port}"
+    ],
+    "positive_mode": "positive"
+  },
+  "positive_output": "registered-input|registered-env\n",
+  "policy": {
+    "default": "allow",
+    "deny_project_reads_then_allow_exact": true,
+    "deny_all_writes_then_allow_ephemeral": true,
+    "deny_network": true,
+    "deny_process_exec_then_allow_subject": true,
+    "clear_environment": true,
+    "allow_broad_project_or_home_root": false,
+    "bind_runtime_and_system_roots_as_toolchain": true
+  },
+  "outcomes": [
+    "completed",
+    "denied",
+    "unsupported"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "run": "q1-forward-projection-progress",
+  "date": "2026-09-02",
+  "implementation": "git:6f9b89e898fd0be6a788af6f181fbccaf07305ba",
+  "inputs": {
+    "positive_corpus_path": "docs/experiments/0005-assurance-ir-extraction/corpus/cases.json",
+    "positive_corpus_revision": 2,
+    "positive_corpus_sha256": "sha256:508eaa75718a4f4bf221bbec9c4405772a8107689ae7350dfb760f832940a51b",
+    "gap_matrix_path": "docs/experiments/0005-assurance-ir-extraction/q1-losslessness-matrix.json",
+    "gap_matrix_revision": 1,
+    "gap_matrix_sha256": "sha256:0cde656cc329800792d6ace3eaf5a8a6b43b51f8a8029052352195f7b38e399b"
+  },
+  "execution": {
+    "positive_cases_projected_by_rust": 20,
+    "positive_cases_reconstructed_by_python": 20,
+    "rust_projection_sha256": "sha256:7e44e8f988292bc5895efa9a83a67a228fd8da2e5c033e545925c5a1aea68dd4",
+    "python_projection_equal": true,
+    "rust_unit_tests_passed": 5,
+    "python_tests_passed": 6,
+    "portable_omission_attacks_rejected_by_rust": 2,
+    "portable_omission_attacks_rejected_by_python": 2
+  },
+  "newly_preserved_meaning": [
+    "registered claim source identity, subject, internal statement, formal encoding, presentation, assumptions, premises, obligations, exclusions, policy, tier, and linkage",
+    "complete registered evidence request including operation, environment, resource budget, inventory, and every family-specific configuration field",
+    "portable evidence content address, node, outcome, evaluation, binding, inventory, assumptions, premises, and complete process provenance",
+    "portable project identity, graph, assumption and premise ledgers, policies, semantic closures, sealed artifacts, and publication blockers",
+    "portable tool and adapter identities, commands, runs, normalization, reproduction command, interval, budget, actual cost, cache key, and cache origin"
+  ],
+  "independent_checks": [
+    "Rust and Python independently reconstruct identical canonical case programmes from the frozen sources",
+    "both implementations reject omission of the portable policy ledger with IR-PROGRAMME-POLICY-OMITTED",
+    "both implementations reject project/provenance revision substitution with IR-PROGRAMME-PROVENANCE-MISMATCH",
+    "both implementations require every portable semantic-closure reference to resolve in the retained closure set"
+  ],
+  "outcome": {
+    "Q1": "partial-progress: the bounded corpus now has materially complete forward projection, and registration claims and requests have semantic reverse comparisons; Q1 remains failed until the portable IR has an explicit reverse projection and every remaining matrix row is typed or justified non-semantic",
+    "q1_pass": false
+  },
+  "remaining_falsifiers": [
+    "portable IR-to-receipt semantic reverse projection is not implemented",
+    "registration cache inputs are still a research placeholder derived from registered path names rather than the actual execution dependency projection",
+    "portable graph, policy, assumption, and premise records are retained as closed JSON values but are not yet independently interpreted typed kernel records",
+    "the bounded status cases still mix exact per-claim derivation with aggregate registration ceilings",
+    "policy admission traces and complete backend/TCB dependency identities are not represented for every applicable case"
+  ]
+}

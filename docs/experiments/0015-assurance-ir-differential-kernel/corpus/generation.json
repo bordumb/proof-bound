@@ -1,0 +1,12 @@
+{
+  "schema": "proofbound-research-assurance-generation/2",
+  "algorithm": "proofbound-exp-0015-generator/1",
+  "seed": 151510,
+  "valid_programs": 500,
+  "adversarial_programs": 500,
+  "mutation_cardinality": 1,
+  "template_selection": "index modulo six in templates file order",
+  "attack_selection": "index modulo twenty-eight in attacks file order; use the attack's registered template",
+  "identifier_suffix": "zero-padded six-digit index",
+  "repetitions": 10
+}

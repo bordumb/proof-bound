@@ -1,0 +1,21 @@
+{
+  "schema": "proofbound-research-native-expected/1",
+  "source_declarations": 13,
+  "contract_count": 5,
+  "value_rows": 4,
+  "input_rows": 156,
+  "semantic_mutants": 6,
+  "attack_count": 28,
+  "solver_results": ["unsat", "unsat", "unsat", "unsat", "unsat"],
+  "repetitions": 10,
+  "limits": {
+    "max_source_bytes": 4096,
+    "max_artifact_bytes": 128,
+    "max_certificate_bytes": 131072,
+    "max_smt_bytes": 16384,
+    "max_rust_module_lines": 1800,
+    "max_python_checker_lines": 1500,
+    "max_report_bytes": 65536,
+    "max_elapsed_ms": 30000
+  }
+}

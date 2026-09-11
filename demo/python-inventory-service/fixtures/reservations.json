@@ -1,0 +1,1 @@
+{"schema":"proofbound-python-inventory-vectors/1","vectors":[{"accepted":true,"capacity":10,"committed":3,"requested":4,"result":7},{"accepted":false,"capacity":10,"committed":7,"requested":4,"result":7},{"accepted":true,"capacity":0,"committed":0,"requested":0,"result":0}]}

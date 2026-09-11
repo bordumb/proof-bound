@@ -1,0 +1,39 @@
+{
+  "schema": "proofbound-research-invalidation-scenario-bindings/1",
+  "experiment": "EXP-0010",
+  "revision": 3,
+  "status": "frozen-before-implementation",
+  "rules": [
+    "selectors are stable logical names and never contain content identities",
+    "the converter derives unit uses from manifests and route contracts without reading expected_invalidated",
+    "expected_invalidated remains an independent comparison target from scenarios.json and extension-r2.json"
+  ],
+  "bindings": [
+    {"scenario":"INV-SC-001","changed_node":{"kind":"artifact","selector":"python-controlled/src/inventory_service/reservations.py"}},
+    {"scenario":"INV-SC-002","changed_node":{"kind":"artifact","selector":"python-controlled/tools/check_reservations.py"}},
+    {"scenario":"INV-SC-003","changed_node":{"kind":"artifact","selector":"python-controlled/requirements-dev.txt"}},
+    {"scenario":"INV-SC-004","changed_node":{"kind":"artifact","selector":"python-controlled/mypy.ini"}},
+    {"scenario":"INV-SC-005","changed_node":{"kind":"resolution","selector":"python-controlled/python-module:_hypothesis_pytestplugin"}},
+    {"scenario":"INV-SC-006","changed_node":{"kind":"environment","selector":"python-controlled/PATH"}},
+    {"scenario":"INV-SC-007","changed_node":{"kind":"artifact","selector":"typescript-controlled/src/base64url.ts"}},
+    {"scenario":"INV-SC-008","changed_node":{"kind":"artifact","selector":"typescript-controlled/package-lock.json"}},
+    {"scenario":"INV-SC-009","changed_node":{"kind":"artifact","selector":"typescript-controlled/tsconfig.json"}},
+    {"scenario":"INV-SC-010","changed_node":{"kind":"artifact","selector":"typescript-controlled/src/roundtrip.test.ts"}},
+    {"scenario":"INV-SC-011","changed_node":{"kind":"artifact","selector":"allowance-controlled/demo/allowance/rust/kernel/src/decision.rs"}},
+    {"scenario":"INV-SC-012","changed_node":{"kind":"artifact","selector":"allowance-controlled/demo/allowance/lean/ProofboundDemo/Transfer.lean"}},
+    {"scenario":"INV-SC-013","changed_node":{"kind":"environment","selector":"allowance-controlled/PATH"}},
+    {"scenario":"INV-SC-014","changed_node":{"kind":"contract","selector":"python-controlled/wheel-reproduction#artifact-sha256"}},
+    {"scenario":"INV-SC-015","changed_node":{"kind":"artifact","selector":"allowance-controlled/demo/allowance/README.md"}},
+    {"scenario":"INV-SC-016","changed_node":{"kind":"artifact","selector":"python-controlled/src/inventory_service/reservations.py"}},
+    {"scenario":"INV-SC-017","changed_node":{"kind":"artifact","selector":"auxiliary-mode-fixture/mode_gate.sh"}},
+    {"scenario":"INV-SC-018","changed_node":{"kind":"artifact","selector":"external-click/src/click/core.py"}},
+    {"scenario":"INV-SC-019","changed_node":{"kind":"artifact","selector":"external-click/README.md"}},
+    {"scenario":"INV-SC-020","changed_node":{"kind":"artifact","selector":"external-vitest-action/src/inputs/FileCoverageMode.ts"}},
+    {"scenario":"INV-SC-021","changed_node":{"kind":"artifact","selector":"external-vitest-action/README.md"}},
+    {"scenario":"INV-SC-022","changed_node":{"kind":"tool","selector":"allowance-controlled/kani"}},
+    {"scenario":"INV-SC-023","changed_node":{"kind":"tool","selector":"allowance-controlled/lean"}},
+    {"scenario":"INV-SC-024","changed_node":{"kind":"tool","selector":"typescript-controlled/node"}},
+    {"scenario":"INV-SC-025","changed_node":{"kind":"tool","selector":"python-controlled/python"}},
+    {"scenario":"INV-SC-026","changed_node":{"kind":"artifact","selector":"auxiliary-transitive-fixture/shared.rs"}}
+  ]
+}

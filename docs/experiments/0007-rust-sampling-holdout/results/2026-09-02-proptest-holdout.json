@@ -1,0 +1,63 @@
+{
+  "schema": "proofbound-research-rust-sampling-result/1",
+  "experiment": "EXP-0007",
+  "run": "proptest-public-api-holdout",
+  "date": "2026-09-02",
+  "status": "falsified",
+  "implementation": "git:a30e63dbde15d330e0e8a08535256e906b63283b",
+  "framework": {"name": "proptest", "version": "1.11.0"},
+  "artifacts": {
+    "probe_sha256": "sha256:9936a913d087b77809334ddf21bfaa5e530d0f5824096e3eb2c91f603b2beb98",
+    "lock_sha256": "sha256:06f53a41e3554c655bb9fc6fa2a034b6d44fb5cae54c330134ea0a641e2a1dbd",
+    "property_sha256": "sha256:92243ea3c2d3308220131798f06b7496dd4b3d27e7f63f19125dc5c854d5786e"
+  },
+  "registered_run": {
+    "seed": 424242,
+    "successful_cases": 100,
+    "rng_algorithm": "chacha",
+    "persistence": "disabled",
+    "max_shrink_iterations": 10000,
+    "max_local_rejects": 1000,
+    "max_global_rejects": 1000,
+    "observation_sha256": "sha256:f1350dcfac1f7aca1688464120a893b1c324fc1f1693a3d2dfc189c8d5c89a59",
+    "positive_predicate_invocations": 100,
+    "counterexample_predicate_invocations": 23,
+    "minimal_counterexample": {"from_balance": 0, "to_balance": 0, "amount": 0, "cap": 0, "authorized": false}
+  },
+  "rng_substitution": {
+    "attack": "EXP-0007-A002",
+    "changed_field": "rng_algorithm",
+    "substituted_value": "xorshift",
+    "seed_unchanged": 424242,
+    "framework_version_unchanged": "1.11.0",
+    "observation_sha256": "sha256:2b662cded56e2575a63690f5a5bb967d351ab38935bc30713fce6d7f7bbb2139",
+    "positive_predicate_invocations": 100,
+    "counterexample_predicate_invocations": 25,
+    "current_exp_0006_contract_identity_would_change": false,
+    "falsifier": "two distinct proptest executions share every field in proofbound-sampling-contract/1 because RNG algorithm is absent"
+  },
+  "public_api_audit": {
+    "typed_config_available": ["cases", "failure_persistence", "max_local_rejects", "max_global_rejects", "max_shrink_iters", "rng_algorithm", "rng_seed"],
+    "typed_result_available": ["pass", "abort reason", "failure reason", "minimal failing value"],
+    "stable_typed_counters_unavailable": ["successful cases", "local rejects", "global rejects", "accepted shrinks"],
+    "rejected_workarounds": ["parse TestRunner Display output", "read private TestRunner fields", "treat all predicate invocations as fresh attempts", "infer accepted shrink count from call order"]
+  },
+  "decisions": {
+    "q1": "fail: RNG algorithm is execution-relevant and independently configurable under the same proptest version and seed, but proofbound-sampling-contract/1 cannot represent it",
+    "q2": "fail: the stable typed API does not expose the counters needed to partition predicate invocations into fresh successes, rejections, and shrink replays",
+    "q3": "fail: TestError retains a typed minimal counterexample, but an authoritative accepted-shrink count is unavailable without private or prose interfaces",
+    "q4": "reject the unchanged common execution contract; do not add a Rust-only escape hatch"
+  },
+  "attack_execution": {
+    "executed": ["EXP-0007-A002"],
+    "not_executed_after_falsifier": ["EXP-0007-A001", "EXP-0007-A003", "EXP-0007-A004", "EXP-0007-A005", "EXP-0007-A006", "EXP-0007-A007", "EXP-0007-A008", "EXP-0007-A009", "EXP-0007-A010", "EXP-0007-A011", "EXP-0007-A012"],
+    "reason": "Q1, Q2, and Q3 had already triggered their preregistered falsifiers; completing a rejection matrix could not turn the unchanged contract into a pass"
+  },
+  "design_consequence": {
+    "common_layer": "retain evidence-family meaning, generator closure, target inventory, requested successful budget, seed value, persistence posture, and empirical ceiling",
+    "backend_plan": "bind typed framework-specific execution controls such as RNG algorithm, rejection ceilings, phases, and shrink limits",
+    "observation_capability": "represent exactly which counters the backend can authoritatively observe; never fill absent counters by inference",
+    "next_step": "prototype a layered SamplingIntent + BackendSamplingPlan + capability-indexed SamplingObservation and replay the three-framework corpus"
+  },
+  "production_status": "research-only; existing portable receipts and production schemas remain unchanged"
+}

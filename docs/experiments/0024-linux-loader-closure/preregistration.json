@@ -1,0 +1,50 @@
+{
+  "schema": "proofbound-research-linux-loader-preregistration/1",
+  "experiment": "EXP-0024",
+  "programme_experiment": "EXP-LANG-017",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:0fb54d71c9b1aba219831f83451fce87d8838e28",
+  "frozen_contract": {
+    "path": "docs/experiments/0018-os-enforced-effects/corpus/contract.json",
+    "sha256": "sha256:589244f93383788fcc61587ec665ddc9e38ebf96ce59f82da2fce9e7510d967d"
+  },
+  "retained_falsifier": {
+    "path": "docs/experiments/0022-linux-enforcement-confirmation/results/capture.json",
+    "sha256": "sha256:261be67200cf9180c3a2307c9c1260e44fe30945738ef5ec397635876674fcfe",
+    "code": "LNX-POSITIVE-OUTCOME"
+  },
+  "candidate_change": {
+    "new_role": "runtime-loader-executable",
+    "discovery": "strict-single-pt-interp",
+    "identity": ["requested-path", "resolved-path", "sha256", "size-bytes", "mode"],
+    "authority": "exact-file-read-execute",
+    "system_root_execute_authority": "deny"
+  },
+  "platform": {
+    "os": "linux",
+    "architecture": "aarch64",
+    "github_runner": "ubuntu-24.04-arm",
+    "minimum_landlock_abi": 4,
+    "mechanisms": ["landlock", "no-new-privileges", "seccomp-bpf"]
+  },
+  "inventory": {
+    "positive_slots": 30,
+    "authority_slots": 21,
+    "minimum_policy_attacks": 20
+  },
+  "ceilings": {
+    "max_elapsed_ms": 60000,
+    "max_native_launcher_lines": 500,
+    "max_python_runner_lines": 900,
+    "max_validator_lines_each": 1600,
+    "max_report_bytes": 262144
+  },
+  "decision": {
+    "pass": "Q1-Q5 pass on a supported native Linux host",
+    "revise": "the exact loader repair runs but a bounded criterion fails",
+    "unanswered": "the native mechanism is unavailable and zero workload receipts are emitted",
+    "stop": "loader authority broadens, unregistered execution succeeds, or execution falls back"
+  }
+}

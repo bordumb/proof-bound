@@ -1,0 +1,91 @@
+{
+  "schema": "proofbound-research-native-parser-preregistration/1",
+  "experiment": "EXP-0016",
+  "programme_experiment": "EXP-LANG-007",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:d809a9968f2e00805d4a82e5c01b02b9e5b16bf7",
+  "frozen_sources": [
+    {"path": "docs/experiments/0014-specification-falsifiers/corpus/universe.json", "sha256": "sha256:eb2c6094ae4b1e408604a9614f3e0991e9c60f020a55b0f9f3bc954922521e02", "size_bytes": 2439},
+    {"path": "docs/experiments/0014-specification-falsifiers/corpus/contracts.json", "sha256": "sha256:451922792869c32abb622891aaca10da2cff45e15b8f9ff65edc128c5d938735", "size_bytes": 2520},
+    {"path": "docs/experiments/0014-specification-falsifiers/corpus/execution-tables.json", "sha256": "sha256:8d0bedd2e3887cc30174631486a703412c5260aa4a2285c3d458fba5c1935a12", "size_bytes": 3928},
+    {"path": "docs/experiments/0015-assurance-ir-differential-kernel/results/execution.json", "sha256": "sha256:e60392a918a77b2c922e68d351df9ea456fcee01807708446a8328c6a905c41e", "size_bytes": 1722},
+    {"path": "docs/research/proofbound-language/assurance-ir-v2.md", "sha256": "sha256:3a18b210e44ff9573ae5de04ba6691638ac7272b5c074a0a9475cd97ebcebf95", "size_bytes": 5914}
+  ],
+  "candidate": {
+    "source_schema": "proofbound-native-source/1",
+    "ast_schema": "proofbound-research-native-ast/1",
+    "bytecode_schema": "proofbound-native-bytecode/1",
+    "certificate_schema": "proofbound-native-certificate/1",
+    "report_schema": "proofbound-research-native-report/1",
+    "artifact_identity_domain": "proofbound-native-bytecode/1",
+    "certificate_identity_domain": "proofbound-native-certificate/1"
+  },
+  "questions": [
+    {"id": "Q1", "pass": "both parsers accept the exact canonical source and reject every registered syntax, duplicate, partiality, type, effect, and bound attack with exact codes"},
+    {"id": "Q2", "pass": "Z3 returns unsat for five negated VCs and the independent checker recomputes every finite universal and bounded certificate obligation without invoking Z3"},
+    {"id": "Q3", "pass": "Rust and Python emit identical artifacts and executions in ten repetitions and reject every artifact identity, opcode, order, truncation, and trailing attack"},
+    {"id": "Q4", "pass": "reports distinguish finite-type universal proof, bounded byte-input exhaustiveness, examples, and explicit compiler/runtime assumptions without an artifact-proved upgrade"},
+    {"id": "Q5", "pass": "all six semantic mutants reject and source, artifact, certificate, SMT, implementation lines, report size, and elapsed time remain within frozen ceilings"}
+  ],
+  "proof_search": {
+    "program": "z3",
+    "argv": ["-in", "-smt2"],
+    "observed_preregistration_version": "Z3 version 4.15.2 - 64 bit",
+    "required_results": ["unsat", "unsat", "unsat", "unsat", "unsat"],
+    "independent_checker_invokes_solver": false
+  },
+  "generation": {
+    "value_carrier": [0, 1, 2, 3],
+    "input_alphabet": [0, 1, 2, 3, 4],
+    "maximum_input_length": 3,
+    "repetitions": 10,
+    "semantic_mutants": ["accept-noncanonical", "accept-trailing", "always-error", "always-success", "ignore-length", "payload-substitution"]
+  },
+  "attacks": [
+    {"id": "EXP-0016-A001", "class": "source", "action": "unknown-declaration", "expected": "NATIVE-SYNTAX"},
+    {"id": "EXP-0016-A002", "class": "source", "action": "duplicate-module", "expected": "NATIVE-DUPLICATE"},
+    {"id": "EXP-0016-A003", "class": "source", "action": "duplicate-function", "expected": "NATIVE-DUPLICATE"},
+    {"id": "EXP-0016-A004", "class": "source", "action": "replace-value-bound", "expected": "NATIVE-TYPE"},
+    {"id": "EXP-0016-A005", "class": "source", "action": "replace-prefix", "expected": "NATIVE-SPEC-BINDING"},
+    {"id": "EXP-0016-A006", "class": "source", "action": "remove-wildcard-branch", "expected": "NATIVE-NONTOTAL"},
+    {"id": "EXP-0016-A007", "class": "source", "action": "add-unbounded-loop", "expected": "NATIVE-NONTOTAL"},
+    {"id": "EXP-0016-A008", "class": "source", "action": "add-undeclared-effect", "expected": "NATIVE-EFFECT"},
+    {"id": "EXP-0016-A009", "class": "source", "action": "remove-specification", "expected": "NATIVE-SPEC-MISSING"},
+    {"id": "EXP-0016-A010", "class": "source", "action": "noncanonical-source", "expected": "NATIVE-NONCANONICAL"},
+    {"id": "EXP-0016-A011", "class": "artifact", "action": "replace-magic", "expected": "NATIVE-ARTIFACT-MAGIC"},
+    {"id": "EXP-0016-A012", "class": "artifact", "action": "replace-version", "expected": "NATIVE-ARTIFACT-VERSION"},
+    {"id": "EXP-0016-A013", "class": "artifact", "action": "replace-opcode", "expected": "NATIVE-ARTIFACT-OPCODE"},
+    {"id": "EXP-0016-A014", "class": "artifact", "action": "replace-immediate", "expected": "NATIVE-ARTIFACT-SEMANTICS"},
+    {"id": "EXP-0016-A015", "class": "artifact", "action": "truncate-artifact", "expected": "NATIVE-ARTIFACT-TRUNCATED"},
+    {"id": "EXP-0016-A016", "class": "artifact", "action": "append-artifact-byte", "expected": "NATIVE-ARTIFACT-TRAILING"},
+    {"id": "EXP-0016-A017", "class": "artifact", "action": "swap-programs", "expected": "NATIVE-ARTIFACT-ORDER"},
+    {"id": "EXP-0016-A018", "class": "certificate", "action": "replace-certificate-schema", "expected": "NATIVE-CERT-SCHEMA"},
+    {"id": "EXP-0016-A019", "class": "certificate", "action": "replace-source-identity", "expected": "NATIVE-CERT-SOURCE"},
+    {"id": "EXP-0016-A020", "class": "certificate", "action": "replace-artifact-identity", "expected": "NATIVE-CERT-ARTIFACT"},
+    {"id": "EXP-0016-A021", "class": "certificate", "action": "remove-value-row", "expected": "NATIVE-CERT-INCOMPLETE"},
+    {"id": "EXP-0016-A022", "class": "certificate", "action": "remove-input-row", "expected": "NATIVE-CERT-INCOMPLETE"},
+    {"id": "EXP-0016-A023", "class": "certificate", "action": "duplicate-row", "expected": "NATIVE-CERT-DUPLICATE"},
+    {"id": "EXP-0016-A024", "class": "certificate", "action": "replace-trace-result", "expected": "NATIVE-CERT-TRACE"},
+    {"id": "EXP-0016-A025", "class": "certificate", "action": "claim-unbounded-input", "expected": "NATIVE-CERT-SCOPE"},
+    {"id": "EXP-0016-A026", "class": "certificate", "action": "forge-certificate-identity", "expected": "NATIVE-CERT-IDENTITY"},
+    {"id": "EXP-0016-A027", "class": "smt", "action": "remove-verification-condition", "expected": "NATIVE-SMT-INCOMPLETE"},
+    {"id": "EXP-0016-A028", "class": "smt", "action": "replace-solver-result", "expected": "NATIVE-SMT-RESULT"}
+  ],
+  "complexity": {
+    "max_source_bytes": 4096,
+    "max_artifact_bytes": 128,
+    "max_certificate_bytes": 131072,
+    "max_smt_bytes": 16384,
+    "max_rust_module_lines": 1800,
+    "max_python_checker_lines": 1500,
+    "max_report_bytes": 65536,
+    "max_elapsed_ms": 30000
+  },
+  "decision": {
+    "pass": "Q1-Q5 pass over the complete frozen source, carrier, mutants, solver route, certificate route, and attacks",
+    "revise": "one bounded falsifier identifies a source, VM, certificate, or assurance correction without a stronger claim",
+    "stop": "proof checking requires proof search or reported status, artifact correspondence is hidden, assurance collapses to finite examples, or complexity exceeds a frozen ceiling"
+  }
+}

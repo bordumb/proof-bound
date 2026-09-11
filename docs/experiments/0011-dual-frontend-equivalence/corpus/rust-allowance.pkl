@@ -1,0 +1,182 @@
+amends "Schema.pkl"
+
+local cargoEnvironment = new Listing { "CARGO_HOME"; "PATH"; "RUSTUP_HOME" }
+local modelEnvironment = new Listing { "CARGO_HOME"; "RUSTUP_HOME"; "PATH" }
+local targetClaim = new Listing { "DEMO-TRANSFER-003" }
+local cargoBudget = new ResourceBudget {
+  time_seconds = 120
+  disk_bytes = 1073741824
+  memory_bytes = 2147483648
+}
+local domain = new BoundedDomain {
+  id = "allowance-u8-seeds-with-overflow-lane"
+  description = "All four u8 numeric seeds, both authorization values, and both low/high destination lanes; 2^34 finite requests, including destination-overflow cases."
+  cardinality = 17179869184
+  ordering_key = new { 0; 1; 2; 3; 4; 5 }
+}
+
+project = new Project {
+  id = "rust-allowance"
+  ecosystem = "rust"
+}
+
+claims = new Listing {
+  new Claim {
+    id = "DEMO-TRANSFER-003"
+    title = "Accepted transfers respect the configured cap"
+    statement = "For every accepted request, the requested amount is less than or equal to its configured cap."
+    public_language = "Given the explicit identity-provider assumption, every accepted transfer respects its configured per-transfer cap; Kani additionally checks the registered finite 2^34 request domain."
+    subject = "rust:allowance-kernel::decide_transfer"
+    formal_declaration = "ProofboundDemo.Claims.Transfer.accept_respects_cap"
+    statement_encoding = "lean-expr-cbor/1"
+    statement_sha256 = "sha256:8e10c3a3ef53e898dd400d8348ac0a70cb485c9012aaade92f7ba49ef94324be"
+    foundational_axioms = new { "Quot.sound"; "propext" }
+    profile = "kernel-with-assumptions"
+    tier = 2
+    primary_linkage = "model-only"
+    evidence = new {
+      "theorem:accept-respects-cap"
+      "bounded-check:transfer-bounds"
+      "example-test:rust-kernel-tests"
+      "mutation-witness:remove-cap-guard"
+    }
+    assumptions = new { "DEMO-IDENTITY-AX-001" }
+    premises = new { "DEMO-U64-REP-001" }
+    open_obligations = new {
+      "Produce a deterministic Charon/Aeneas receipt for the registered shipping symbol."
+    }
+    out_of_scope = new {
+      "Whether the configured cap reflects an appropriate business policy."
+    }
+    source_roots = new {
+      "demo/allowance/rust/kernel/src/decision.rs"
+      "demo/allowance/rust/kernel/src/lib.rs"
+      "demo/allowance/lean/ProofboundDemo/Claims/Transfer.lean"
+      "demo/allowance/lean/ProofboundDemo/Transfer.lean"
+      "demo/allowance/lean/ProofboundDemo/TransferRefinement.lean"
+    }
+    bounded_domain = domain
+  }
+}
+
+evidence = new Listing {
+  new LeanTheorem {
+    id = "accept-respects-cap"
+    claims = targetClaim
+    tier = 2
+    expected_inventory = new {
+      "ProofboundDemo.Claims.Transfer.accept_conserves"
+      "ProofboundDemo.Claims.Transfer.accept_never_overdraws"
+      "ProofboundDemo.Claims.Transfer.accept_respects_cap"
+      "ProofboundDemo.Claims.Transfer.denial_unchanged"
+    }
+    inputs = new {
+      "demo/allowance/lean/ProofboundDemo/Claims/Transfer.lean"
+      "demo/allowance/lean/ProofboundDemo/Transfer.lean"
+    }
+    environment_allowlist = new { "LEAN_PATH"; "PATH" }
+    evaluation_mode = "kernel"
+    theorem = "ProofboundDemo.Claims.Transfer.accept_respects_cap"
+    operation = new LeanAuditOperation {
+      targets = new { "ProofboundDemo.Claims.Transfer.accept_respects_cap" }
+      paths = new {
+        "demo/allowance/lean/ProofboundDemo/Claims/Transfer.lean"
+      }
+    }
+    resource_budget = new ResourceBudget {
+      time_seconds = 60
+      disk_bytes = 268435456
+      memory_bytes = 1073741824
+    }
+  }
+  new RustMutation {
+    id = "remove-cap-guard"
+    claims = new { "DEMO-TRANSFER-003"; "DEMO-TRANSFER-005" }
+    tier = 0
+    expected_inventory = new { "remove-cap-guard" }
+    inputs = new {
+      "demo/allowance/proofbound/mutations/mutants/remove-cap-guard/decision.rs"
+      "demo/allowance/proofbound/mutations/remove-cap-guard.toml"
+      "demo/allowance/rust/kernel/src/decision.rs"
+      "demo/allowance/rust/kernel/tests/mutation_witnesses.rs"
+    }
+    outputs = new {}
+    environment_allowlist = cargoEnvironment
+    mutation = new MutationReplay {
+      registry = "demo/allowance/proofbound/mutations/remove-cap-guard.toml"
+    }
+    operation = new CargoTestOperation {
+      package = "allowance-kernel"
+      manifest = "Cargo.toml"
+    }
+    resource_budget = cargoBudget
+  }
+  new RustExample {
+    id = "rust-kernel-tests"
+    claims = new {
+      "DEMO-TRANSFER-001"
+      "DEMO-TRANSFER-002"
+      "DEMO-TRANSFER-003"
+      "DEMO-TRANSFER-004"
+      "DEMO-TRANSFER-005"
+      "DEMO-TRANSFER-006"
+    }
+    tier = 0
+    expected_inventory = new {
+      "allowance_kernel::tests::accepted_transfer_uses_checked_arithmetic"
+      "allowance_kernel::tests::canonical_encoding_round_trips"
+      "canonical_fixtures::accepted_fixture_decodes_and_evaluates"
+      "canonical_fixtures::decoder_rejects_noncanonical_and_trailing_inputs"
+      "canonical_fixtures::denied_fixtures_have_stable_codes_and_unchanged_state"
+    }
+    inputs = new {
+      "demo/allowance/rust/kernel/src/lib.rs"
+      "demo/allowance/rust/kernel/tests/canonical_fixtures.rs"
+      "demo/allowance/fixtures/v1/manifest.json"
+    }
+    environment_allowlist = cargoEnvironment
+    operation = new CargoTestOperation {
+      package = "allowance-kernel"
+      manifest = "Cargo.toml"
+      targets = new { "--lib"; "--test=canonical_fixtures" }
+    }
+    resource_budget = cargoBudget
+  }
+  new KaniBounded {
+    id = "transfer-bounds"
+    claims = new {
+      "DEMO-TRANSFER-001"
+      "DEMO-TRANSFER-002"
+      "DEMO-TRANSFER-003"
+      "DEMO-TRANSFER-004"
+    }
+    tier = 1
+    expected_inventory = new {
+      "kani_harnesses::accepted_conserves_value"
+      "kani_harnesses::accepted_never_overdraws"
+      "kani_harnesses::accepted_respects_cap"
+      "kani_harnesses::denial_returns_unchanged_state"
+    }
+    inputs = new {
+      "demo/allowance/rust/kernel/src/lib.rs"
+      "demo/allowance/proofbound/model-checks/transfer-bounds.toml"
+    }
+    environment_allowlist = modelEnvironment
+    operation = new KaniOperation {
+      package = "allowance-kernel"
+      manifest = "demo/allowance/proofbound/model-checks/transfer-bounds.toml"
+      targets = new {
+        "kani_harnesses::accepted_conserves_value"
+        "kani_harnesses::accepted_never_overdraws"
+        "kani_harnesses::accepted_respects_cap"
+        "kani_harnesses::denial_returns_unchanged_state"
+      }
+    }
+    bounded_domain = domain
+    resource_budget = new ResourceBudget {
+      time_seconds = 600
+      disk_bytes = 2147483648
+      memory_bytes = 4294967296
+    }
+  }
+}

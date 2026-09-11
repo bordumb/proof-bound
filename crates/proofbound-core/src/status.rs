@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AssumptionCategory, AssumptionId, AssumptionRecord, AssumptionStanding, AssumptionStatus,
     AssuranceGraph, BoundedDomain, CLAIM_SCHEMA_V1, ClaimDefinition, ClaimId, EdgeKind, ErrorCode,
-    EvidenceId, EvidenceKind, EvidenceRecord, EvidenceStatus, FlowScope, FormalFacet, LinkageFacet,
-    NodeId, NodeKind, OpenObligation, OutOfScope, PolicyDefinition, PremiseId, PremiseRecord,
-    Sha256Digest, StructuredError, TheoremAdmission, Tier, parse_artifact_digest_binding,
+    EvidenceId, EvidenceKind, EvidenceRecord, EvidenceStatus, ExactArtifactObservationRelation,
+    FlowScope, FormalFacet, LinkageFacet, NodeId, NodeKind, OpenObligation, OutOfScope,
+    PolicyDefinition, PremiseId, PremiseRecord, Sha256Digest, StructuredError, TheoremAdmission,
+    Tier, parse_artifact_digest_bindings,
 };
 
 pub const CLAIM_STATUS_SCHEMA_V1: &str = "proofbound-claim-status/1";
@@ -36,6 +37,7 @@ pub struct ClaimEvaluationInput {
 pub enum EvidenceRole {
     Formal,
     Linkage,
+    ArtifactObservation,
     AssumptionReview,
     PremiseDischarge,
     OpenObligation,
@@ -142,6 +144,8 @@ pub struct ClaimStatus {
     pub evidence: Vec<EvidenceAssessment>,
     #[serde(default)]
     pub bounded_domains: Vec<BoundedDomain>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifact_observations: Vec<ExactArtifactObservationRelation>,
     #[serde(default)]
     pub premises: Vec<PremiseSummary>,
     pub not_proved_out_of_scope: NotProvedOutOfScope,
@@ -649,17 +653,22 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         match &premise.theorem_evidence {
             Some(owner) => match evidence_catalog.get(owner) {
                 Some(record)
-                    if record.kind == EvidenceKind::Theorem
-                        && relevant_evidence.contains(owner) => {}
-                Some(record) if record.kind != EvidenceKind::Theorem => {
+                    if relevant_evidence.contains(owner)
+                        && premise_owner_is_registered(record, premise, &input.graph) => {}
+                Some(record)
+                    if !matches!(
+                        record.kind,
+                        EvidenceKind::Theorem | EvidenceKind::SourceRefinement
+                    ) =>
+                {
                     errors.push(claim_error(
                         claim_id,
                         ErrorCode::PbCoreInvalidEvidence,
                         format!(
-                            "premise '{}' owner '{}' is not theorem evidence",
+                            "premise '{}' owner '{}' is neither theorem nor source-refinement evidence",
                             premise.id, owner
                         ),
-                        "bind the premise to its exact registered theorem evidence",
+                        "bind the premise to its exact registered theorem or source-refinement evidence",
                     ));
                 }
                 _ => {
@@ -667,10 +676,10 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
                         claim_id,
                         ErrorCode::PbCoreInvalidEvidence,
                         format!(
-                            "premise '{}' is detached from its registered theorem '{}'",
+                            "premise '{}' is detached from its registered evidence owner '{}'",
                             premise.id, owner
                         ),
-                        "cite and register the owning theorem, or omit the owner and add an exact claim-to-premise assumes edge",
+                        "cite the owner and add its exact assumes edge, or omit the owner and add an exact claim-to-premise assumes edge",
                     ));
                 }
             },
@@ -788,6 +797,8 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         .iter()
         .filter_map(|id| evidence_catalog[id].bounded_domain().cloned())
         .collect::<Vec<_>>();
+    let artifact_observations =
+        derive_artifact_observations(input, &evidence_catalog, &valid_evidence, &mut errors);
     if (formal == FormalFacet::BoundedChecked || used_exhaustive_as_proof)
         && input
             .claim
@@ -862,7 +873,7 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
                                 )
                             })
                             .and_then(|theorem| {
-                                parse_artifact_digest_binding(
+                                parse_artifact_digest_bindings(
                                     &theorem.statement_wire,
                                     theorem.statement_sha256,
                                     claim_id,
@@ -876,10 +887,13 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
                             });
                         match parsed {
                             Ok(parsed)
-                                if record.binding_mode == Some(parsed.mode)
-                                    && parsed.artifact_logical_name
-                                        == binding.artifact.logical_name
-                                    && parsed.artifact_sha256 == binding.artifact.sha256 =>
+                                if record.binding_mode == Some(crate::BindingMode::DigestTheorem)
+                                    && parsed.iter().filter(|member| {
+                                        member.artifact_logical_name
+                                            == binding.artifact.logical_name
+                                            && member.artifact_sha256
+                                                == binding.artifact.sha256
+                                    }).count() == 1 =>
                             {
                                 linkage_candidates.insert(LinkageFacet::ArtifactBound);
                                 linkage_evidence.insert(record.id.clone());
@@ -979,14 +993,21 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         });
     }
 
+    let artifact_observation_evidence = artifact_observations
+        .iter()
+        .map(|relation| relation.evidence.clone())
+        .collect();
     let evidence_assessments = evidence_assessments(
         &relevant_evidence,
         &evidence_catalog,
         &valid_evidence,
         &theorem_admissions,
         formal,
-        &linkage_evidence,
-        &discharge_evidence,
+        EvidenceRoleSets {
+            linkage: &linkage_evidence,
+            artifact_observation: &artifact_observation_evidence,
+            premise_discharge: &discharge_evidence,
+        },
     );
 
     let reader_statement = input
@@ -1025,9 +1046,118 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
         },
         evidence: evidence_assessments,
         bounded_domains,
+        artifact_observations,
         premises: all_premises,
         not_proved_out_of_scope,
         errors,
+    }
+}
+
+fn derive_artifact_observations(
+    input: &ClaimEvaluationInput,
+    catalog: &BTreeMap<EvidenceId, &EvidenceRecord>,
+    valid: &BTreeSet<EvidenceId>,
+    errors: &mut Vec<StructuredError>,
+) -> Vec<ExactArtifactObservationRelation> {
+    let mut relations = Vec::new();
+    let mut roles = BTreeMap::new();
+    for evidence_id in valid {
+        let record = catalog[evidence_id];
+        let Some(observation) = &record.artifact_observation else {
+            continue;
+        };
+        let mut dependencies_valid = true;
+        for dependency in &observation.dependencies {
+            let Some(dependency_record) = catalog.get(dependency) else {
+                errors.push(
+                    claim_error(
+                        &input.claim.id,
+                        ErrorCode::PbObs0009,
+                        format!(
+                            "exact artifact observation '{}' names missing dependency '{}'",
+                            record.id, dependency
+                        ),
+                        "materialize and cite every exact observation dependency",
+                    )
+                    .for_unit(record.unit_id.clone()),
+                );
+                dependencies_valid = false;
+                continue;
+            };
+            if !input.claim.cited_evidence.contains(dependency)
+                || !valid.contains(dependency)
+                || !input.graph.has_edge(
+                    &record.node_id,
+                    &dependency_record.node_id,
+                    EdgeKind::DependsOn,
+                )
+            {
+                errors.push(
+                    claim_error(
+                        &input.claim.id,
+                        ErrorCode::PbObs0009,
+                        format!(
+                            "exact artifact observation '{}' has an uncited, invalid, or graph-disconnected dependency '{}'",
+                            record.id, dependency
+                        ),
+                        "cite the passing dependency and add the exact typed depends-on edge",
+                    )
+                    .for_unit(record.unit_id.clone()),
+                );
+                dependencies_valid = false;
+            }
+        }
+        if !dependencies_valid {
+            continue;
+        }
+        let key = (observation.subject_role.clone(), observation.platform);
+        if let Some(existing) = roles.insert(key, observation.artifact.clone())
+            && existing != observation.artifact
+        {
+            errors.push(
+                claim_error(
+                    &input.claim.id,
+                    ErrorCode::PbObs0003,
+                    format!(
+                        "exact artifact observation role '{}' aliases different bytes on the same platform",
+                        observation.subject_role
+                    ),
+                    "use one exact artifact identity per claim, role, and platform",
+                )
+                .for_unit(record.unit_id.clone()),
+            );
+            continue;
+        }
+        relations.push(ExactArtifactObservationRelation::from_evidence(
+            &record.id,
+            record.kind,
+            observation,
+        ));
+    }
+    relations.sort_by(|left, right| {
+        left.subject_role
+            .cmp(&right.subject_role)
+            .then(left.platform.cmp(&right.platform))
+            .then(left.evidence.cmp(&right.evidence))
+    });
+    relations
+}
+
+fn premise_owner_is_registered(
+    record: &EvidenceRecord,
+    premise: &PremiseRecord,
+    graph: &AssuranceGraph,
+) -> bool {
+    match record.kind {
+        EvidenceKind::Theorem => true,
+        EvidenceKind::SourceRefinement => {
+            record.premises.contains(&premise.id)
+                && record.source_refinement.as_ref().is_some_and(|refinement| {
+                    refinement.representation_premises.contains(&premise.id)
+                })
+                && graph.has_edge(&record.node_id, &premise.node_id, EdgeKind::Assumes)
+        }
+        _ => false,
     }
 }
 
@@ -1094,6 +1224,7 @@ fn validate_evidence_graph_node(
         | EvidenceKind::PropertyTest
         | EvidenceKind::ExampleTest
         | EvidenceKind::MutationWitness => &[NodeKind::TestSuite, NodeKind::ModelCheckUnit],
+        EvidenceKind::StaticCheck => &[NodeKind::TestSuite],
         EvidenceKind::Review => &[NodeKind::Review],
         EvidenceKind::Assumption => &[NodeKind::Assumption],
         EvidenceKind::Open => &[NodeKind::Claim],
@@ -1354,14 +1485,19 @@ fn policy_blockers(
     blockers
 }
 
+struct EvidenceRoleSets<'a> {
+    linkage: &'a BTreeSet<EvidenceId>,
+    artifact_observation: &'a BTreeSet<EvidenceId>,
+    premise_discharge: &'a BTreeSet<EvidenceId>,
+}
+
 fn evidence_assessments(
     relevant: &BTreeSet<EvidenceId>,
     catalog: &BTreeMap<EvidenceId, &EvidenceRecord>,
     valid: &BTreeSet<EvidenceId>,
     theorem_admissions: &BTreeMap<EvidenceId, TheoremAdmission>,
     formal: FormalFacet,
-    linkage_evidence: &BTreeSet<EvidenceId>,
-    discharge_evidence: &BTreeSet<EvidenceId>,
+    role_sets: EvidenceRoleSets<'_>,
 ) -> Vec<EvidenceAssessment> {
     relevant
         .iter()
@@ -1387,10 +1523,13 @@ fn evidence_assessments(
             if contributes_formal {
                 roles.insert(EvidenceRole::Formal);
             }
-            if linkage_evidence.contains(&record.id) {
+            if role_sets.linkage.contains(&record.id) {
                 roles.insert(EvidenceRole::Linkage);
             }
-            if discharge_evidence.contains(&record.id) {
+            if role_sets.artifact_observation.contains(&record.id) {
+                roles.insert(EvidenceRole::ArtifactObservation);
+            }
+            if role_sets.premise_discharge.contains(&record.id) {
                 roles.insert(EvidenceRole::PremiseDischarge);
             }
             if record.kind == EvidenceKind::Review {

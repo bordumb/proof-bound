@@ -1,0 +1,52 @@
+{
+  "schema": "proofbound-research-mixed-graph-templates/1",
+  "public_contracts": [
+    {"claim_id": "claim:display", "statement": "render accepted packet values as decimal text"},
+    {"claim_id": "claim:python-packet", "statement": "the application accepts exactly canonical packet-v1 values under the registered foreign contract"},
+    {"claim_id": "claim:typescript-packet", "statement": "the application accepts exactly canonical packet-v1 values under the registered foreign contract"}
+  ],
+  "baseline": {
+    "components": [
+      {"id": "component:display", "kind": "foreign-component", "language": "neutral", "artifact_identity": null},
+      {"id": "component:legacy-parser", "kind": "foreign-component", "language": "neutral", "artifact_identity": null},
+      {"id": "component:python-app", "kind": "foreign-component", "language": "python", "artifact_identity": null},
+      {"id": "component:typescript-app", "kind": "foreign-component", "language": "typescript", "artifact_identity": null}
+    ],
+    "assumptions": [
+      {"id": "assumption:legacy-parser", "kind": "foreign-implementation", "statement": "the legacy parser implementation matches packet-v1 beyond the frozen calls"},
+      {"id": "assumption:python-runtime", "kind": "foreign-runtime", "statement": "the registered Python runtime executes the caller semantics"},
+      {"id": "assumption:typescript-runtime", "kind": "foreign-runtime", "statement": "the registered TypeScript runtime executes the caller semantics"}
+    ],
+    "claims": [
+      {"id": "claim:display", "component_id": "component:display", "formal": "tested", "artifact": "unbound", "evidence": ["evidence:display-tests"], "dependencies": [], "assumptions": []},
+      {"id": "claim:python-packet", "component_id": "component:python-app", "formal": "tested", "artifact": "unbound", "evidence": ["evidence:python-baseline-calls"], "dependencies": ["component:legacy-parser"], "assumptions": ["assumption:legacy-parser", "assumption:python-runtime"]},
+      {"id": "claim:typescript-packet", "component_id": "component:typescript-app", "formal": "tested", "artifact": "unbound", "evidence": ["evidence:typescript-baseline-calls"], "dependencies": ["component:legacy-parser"], "assumptions": ["assumption:legacy-parser", "assumption:typescript-runtime"]}
+    ]
+  },
+  "migrated": {
+    "components": [
+      {"id": "component:display", "kind": "foreign-component", "language": "neutral", "artifact_identity": null},
+      {"id": "component:native-parser", "kind": "native-component", "language": "proofbound-native", "artifact_identity": "sha256:1fe9ee82ee28420f7cd02d70617de5a2f56cbf5115ee410c784358a17a711384"},
+      {"id": "component:python-app", "kind": "foreign-component", "language": "python", "artifact_identity": null},
+      {"id": "component:typescript-app", "kind": "foreign-component", "language": "typescript", "artifact_identity": null}
+    ],
+    "assumptions": [
+      {"id": "assumption:artifact-correspondence", "kind": "compiler-correspondence", "statement": "the exact research artifact corresponds to source through independent dual compilation rather than a verified compiler"},
+      {"id": "assumption:python-bridge", "kind": "foreign-bridge", "statement": "the registered Python bridge faithfully implements the packet ABI"},
+      {"id": "assumption:python-runtime", "kind": "foreign-runtime", "statement": "the registered Python runtime executes the caller semantics"},
+      {"id": "assumption:typescript-bridge", "kind": "foreign-bridge", "statement": "the registered TypeScript bridge faithfully implements the packet ABI"},
+      {"id": "assumption:typescript-runtime", "kind": "foreign-runtime", "statement": "the registered TypeScript runtime executes the caller semantics"}
+    ],
+    "claims": [
+      {"id": "claim:display", "component_id": "component:display", "formal": "tested", "artifact": "unbound", "evidence": ["evidence:display-tests"], "dependencies": [], "assumptions": []},
+      {"id": "claim:native-parser", "component_id": "component:native-parser", "formal": "proved-finite-type", "artifact": "assumption-bound", "evidence": ["evidence:native-certificate"], "dependencies": [], "assumptions": ["assumption:artifact-correspondence"]},
+      {"id": "claim:python-packet", "component_id": "component:python-app", "formal": "tested", "artifact": "artifact-bound", "evidence": ["evidence:python-migrated-calls"], "dependencies": ["component:native-parser"], "assumptions": ["assumption:python-bridge", "assumption:python-runtime"]},
+      {"id": "claim:typescript-packet", "component_id": "component:typescript-app", "formal": "tested", "artifact": "artifact-bound", "evidence": ["evidence:typescript-migrated-calls"], "dependencies": ["component:native-parser"], "assumptions": ["assumption:typescript-bridge", "assumption:typescript-runtime"]}
+    ]
+  },
+  "migration": {
+    "affected_claims": ["claim:native-parser", "claim:python-packet", "claim:typescript-packet"],
+    "unaffected_claims": ["claim:display"],
+    "preserved_public_claims": ["claim:display", "claim:python-packet", "claim:typescript-packet"]
+  }
+}

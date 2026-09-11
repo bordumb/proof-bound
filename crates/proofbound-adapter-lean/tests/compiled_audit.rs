@@ -27,6 +27,7 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
         evidence_unit: EvidenceUnitManifest {
             schema: "proofbound-evidence-unit/1".to_owned(),
             id: "compiled-audit-smoke".to_owned(),
+            context: None,
             adapter: AdapterKind::Lean,
             kind: EvidenceKind::Theorem,
             claims: vec!["PBAC-SUM-001".to_owned()],
@@ -46,6 +47,8 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
                 inventory: None,
                 checker: None,
                 arguments: Vec::new(),
+                plugins: Vec::new(),
+                configuration: None,
             },
             evaluation_mode: Some(EvaluationMode::Native),
             binding_mode: None,
@@ -70,6 +73,9 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
             bounded_domain: None,
             transcription: None,
             mutation: None,
+            property: None,
+            distribution: None,
+            artifact_observation: None,
             resource_budget: ResourceBudget {
                 time_seconds: 60,
                 disk_bytes: 256 << 20,

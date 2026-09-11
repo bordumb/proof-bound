@@ -1,0 +1,55 @@
+{
+  "schema": "proofbound-research-linux-confirmation-preregistration/1",
+  "experiment": "EXP-0022",
+  "programme_experiment": "EXP-LANG-015",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:d6d828c8f56b541faeb6795ff433b3475e0b01f4",
+  "frozen_inputs": [
+    {
+      "path": "docs/experiments/0018-os-enforced-effects/corpus/contract.json",
+      "sha256": "sha256:589244f93383788fcc61587ec665ddc9e38ebf96ce59f82da2fce9e7510d967d"
+    },
+    {
+      "path": "docs/experiments/0020-linux-enforcement-portability/instrument/Dockerfile",
+      "sha256": "sha256:c3f0afb5e0485352bd3fdebd62af6b71885c2e1e1a4b10c037109753e5118379"
+    },
+    {
+      "path": "docs/experiments/0020-linux-enforcement-portability/instrument/linux_enforcer.c",
+      "sha256": "sha256:a5cbca2a6efb94166809a8d7f8efa16b3794418b19f68d49303e8ee5aac0e84a"
+    },
+    {
+      "path": "python/proofbound/linux_enforcement_execute.py",
+      "sha256": "sha256:843bc67898405a71acc658362bbd172c62cbefd3403ec2b34ae709c42a903700"
+    },
+    {
+      "path": "python/proofbound/linux_enforcement_research.py",
+      "sha256": "sha256:e2db932612fcee51770decd2ac61306d7d46b7b28ce40b15991974214d59504e"
+    },
+    {
+      "path": "crates/proofbound-ir-prototype/src/linux_enforcement.rs",
+      "sha256": "sha256:298782753f3ad25c384ca4cf899c9fae0da7b3f8ae36b2d51a6def33349fd408"
+    }
+  ],
+  "platform": {
+    "os": "linux",
+    "architectures": ["aarch64", "x86_64"],
+    "minimum_landlock_abi": 4,
+    "mechanisms": ["landlock", "no-new-privileges", "seccomp-bpf"],
+    "container_confinement_counted": false,
+    "unsupported_behavior": "zero-workload-receipts-never-fallback"
+  },
+  "inventory": {
+    "positive_slots": 30,
+    "authority_slots": 21,
+    "policy_attacks": 16
+  },
+  "decision": {
+    "pass": "supported availability and Q1-Q5 pass",
+    "revise": "the native mechanism is supported but a frozen enforcement criterion fails",
+    "unanswered": "the exact native mechanism is unavailable and zero workload receipts are emitted",
+    "stop": "execution falls back or denied authority produces reusable evidence"
+  }
+}
+

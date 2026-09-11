@@ -157,6 +157,84 @@ def test_default_push_uses_before_and_missing_default_ref_fails_closed(
     assert reviewed_base != previous_feature_tip
 
 
+def test_non_default_merge_push_uses_exact_first_parent(tmp_path: Path) -> None:
+    reviewed_base, _, stacked_base = feature_history(tmp_path)
+    git(tmp_path, "switch", "--quiet", "-c", "topic")
+    topic_head = commit(tmp_path, "topic change")
+    git(tmp_path, "switch", "--quiet", "-c", "stacked", stacked_base)
+    git(tmp_path, "merge", "--no-ff", "--no-edit", topic_head)
+    merge_head = git(tmp_path, "rev-parse", "HEAD")
+
+    merged_push = resolve(
+        tmp_path,
+        "push",
+        "",
+        stacked_base,
+        "refs/heads/stacked",
+        "main",
+        merge_head,
+    )
+    assert merged_push.returncode == 0, merged_push.stderr
+    assert merged_push.stdout.strip() == stacked_base
+    assert merged_push.stdout.strip() != reviewed_base
+
+    wrong_before = resolve(
+        tmp_path,
+        "push",
+        "",
+        reviewed_base,
+        "refs/heads/stacked",
+        "main",
+        merge_head,
+    )
+    assert wrong_before.returncode == 2
+    assert "base is not the merge first parent" in wrong_before.stderr
+
+    missing_before = resolve(
+        tmp_path,
+        "push",
+        "",
+        "",
+        "refs/heads/stacked",
+        "main",
+        merge_head,
+    )
+    assert missing_before.returncode == 2
+    assert "merge push base revision is missing" in missing_before.stderr
+
+
+def test_non_default_merge_push_rejects_a_stale_local_first_parent(
+    tmp_path: Path,
+) -> None:
+    reviewed_base, _, stacked_base = feature_history(tmp_path)
+    git(tmp_path, "switch", "--quiet", "-c", "remote-base", stacked_base)
+    remote_base = commit(tmp_path, "remote base advanced")
+    git(tmp_path, "switch", "--quiet", "-c", "topic", remote_base)
+    topic_head = commit(tmp_path, "reviewed topic")
+
+    # Reproduce a local merge made without first updating the destination
+    # branch. The resulting tree may be right, but its first parent is not the
+    # exact remote pre-push state and therefore cannot define an incremental
+    # assurance range.
+    git(tmp_path, "switch", "--quiet", "-c", "stale-local", stacked_base)
+    git(tmp_path, "merge", "--no-ff", "--no-edit", topic_head)
+    stale_merge = git(tmp_path, "rev-parse", "HEAD")
+    assert git(tmp_path, "rev-parse", f"{stale_merge}^1") == stacked_base
+    assert remote_base != reviewed_base
+
+    rejected = resolve(
+        tmp_path,
+        "push",
+        "",
+        remote_base,
+        "refs/heads/stacked",
+        "main",
+        stale_merge,
+    )
+    assert rejected.returncode == 2
+    assert "base is not the merge first parent" in rejected.stderr
+
+
 def test_schedule_and_release_compare_with_the_fetched_default_branch(
     tmp_path: Path,
 ) -> None:
