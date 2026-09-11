@@ -2023,7 +2023,7 @@ mod tests {
             ),
             (
                 "rust-allowance",
-                "sha256:e23b5451b4381b6ac829ff9807084eeb44a1c64a4faab7705d5cf6d98d19005a",
+                "sha256:96ab01b969ccf4ccc858c54ab6b126aa513ae2b860d1755a037f28202b5cbc43",
             ),
         ]);
         for subject in SUBJECTS {
