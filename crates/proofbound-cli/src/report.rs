@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use proofbound_core::ClaimStatus;
 use serde::Serialize;
 
-use crate::CompiledProject;
+use crate::{CompiledProject, UnitRun};
 
 #[derive(Serialize)]
 struct StatusProjection<'a> {
@@ -12,6 +12,7 @@ struct StatusProjection<'a> {
     project: &'a str,
     project_revision: &'a str,
     claims: &'a [ClaimStatus],
+    unit_runs: &'a [UnitRun],
     publication_blocked: bool,
     not_proved_out_of_scope: AggregateGaps,
 }
@@ -34,10 +35,11 @@ pub fn render_status(compiled: &CompiledProject, json: bool) -> Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(&StatusProjection {
-                schema: "proofbound-report/1",
+                schema: "proofbound-report/2",
                 project: &compiled.project,
                 project_revision: &compiled.project_revision,
                 claims: &compiled.statuses,
+                unit_runs: &compiled.unit_runs,
                 publication_blocked: blocked,
                 not_proved_out_of_scope: gaps,
             })?
@@ -67,12 +69,33 @@ pub fn render_status(compiled: &CompiledProject, json: bool) -> Result<()> {
             freshness(compiled, status)
         );
     }
+    render_unit_runs(&compiled.unit_runs);
     println!(
         "publication: {}",
         if blocked { "BLOCKED" } else { "ADMITTED" }
     );
     render_aggregate_gaps(&gaps);
     Ok(())
+}
+
+fn render_unit_runs(runs: &[UnitRun]) {
+    println!("unit runs");
+    if runs.is_empty() {
+        println!("  none selected");
+        return;
+    }
+    for run in runs {
+        println!("  {} ({}) — {}", run.unit_id, run.adapter, run.outcome);
+        for diagnostic in &run.diagnostics {
+            println!("    {}: {}", diagnostic.code, diagnostic.message);
+            if let Some(path) = &diagnostic.path {
+                println!("      path: {path}");
+            }
+            if let Some(remediation) = &diagnostic.remediation {
+                println!("      remediation: {remediation}");
+            }
+        }
+    }
 }
 
 pub fn render_claim(
@@ -458,6 +481,7 @@ fn html_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proofbound_manifest::AdapterDiagnostic;
 
     #[test]
     fn rendered_projection_gap_lines_are_mandatory_and_enumerated() {
@@ -478,5 +502,39 @@ mod tests {
         assert!(lines.contains("PREMISE TEST-CLAIM-001"));
         assert!(lines.contains("ASSUMPTION TEST-CLAIM-001"));
         assert!(lines.contains("OUT OF SCOPE TEST-CLAIM-001"));
+    }
+
+    #[test]
+    fn status_projection_retains_every_unit_outcome_and_diagnostic() {
+        let runs = vec![UnitRun {
+            unit_id: "missing-kani".into(),
+            adapter: "proofbound-adapter-kani".into(),
+            cache_key: "sha256:fixture".into(),
+            outcome: "unavailable".into(),
+            evidence_sha256: None,
+            inventory: Vec::new(),
+            diagnostics: vec![AdapterDiagnostic {
+                code: "PB-ADAPTER-0003".into(),
+                message: "could not start proofbound-adapter-kani".into(),
+                path: None,
+                remediation: Some("install the exact registered adapter executable".into()),
+            }],
+        }];
+        let value = serde_json::to_value(StatusProjection {
+            schema: "proofbound-report/2",
+            project: "fixture",
+            project_revision: "rev",
+            claims: &[],
+            unit_runs: &runs,
+            publication_blocked: true,
+            not_proved_out_of_scope: AggregateGaps::default(),
+        })
+        .unwrap();
+        assert_eq!(value["unit_runs"][0]["unit_id"], "missing-kani");
+        assert_eq!(
+            value["unit_runs"][0]["diagnostics"][0]["code"],
+            "PB-ADAPTER-0003"
+        );
+        assert_eq!(value["unit_runs"][0]["outcome"], "unavailable");
     }
 }

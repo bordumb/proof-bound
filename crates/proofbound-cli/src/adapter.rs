@@ -189,9 +189,12 @@ fn validate_response_schema(response: &AdapterResponse, request_operation: &str)
 
 fn validate_operation_response(response: &AdapterResponse, operation: &str) -> Result<()> {
     if !response.success {
-        if response.evidence.is_some() || !response.inventory.is_empty() {
+        if response.evidence.is_some()
+            || !response.inventory.is_empty()
+            || response.diagnostics.is_empty()
+        {
             bail!(
-                "PB-ADAPTER-0008: failed adapter response must carry null evidence and an empty inventory"
+                "PB-ADAPTER-0008: failed adapter response must carry null evidence, an empty inventory, and at least one structured diagnostic"
             );
         }
         return Ok(());
@@ -871,8 +874,24 @@ mod tests {
                 "lean",
                 "check",
             )
-            .is_ok()
+            .is_err()
         );
+        inventoried_failure["diagnostics"] = serde_json::json!([{
+            "code": "PB-LEAN-0001",
+            "message": "registered theorem was not found",
+            "remediation": "compile the registered module"
+        }]);
+        let bytes = canonical_json(&inventoried_failure).unwrap();
+        let response = parse_response(
+            &bytes,
+            &[],
+            "0123456789abcdef0123456789abcdef",
+            "lean",
+            "check",
+        )
+        .unwrap();
+        assert!(!response.success);
+        assert_eq!(response.diagnostics[0].code, "PB-LEAN-0001");
     }
 
     #[test]

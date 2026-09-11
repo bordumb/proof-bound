@@ -204,25 +204,28 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
                     .is_some_and(|selected| selected == &unit.id),
         ) {
             Ok((record, run)) => {
-                records.push(record);
+                if let Some(record) = record {
+                    records.push(record);
+                }
                 runs.push(run);
             }
-            Err(error) => runs.push(UnitRun {
-                unit_id: unit.id.clone(),
-                adapter: format!("{:?}", unit.adapter),
-                cache_key,
-                outcome: "unavailable-or-failed".into(),
-                evidence_sha256: None,
-                inventory: Vec::new(),
-                diagnostics: vec![AdapterDiagnostic {
-                    code: "PB-ADAPTER-0900".into(),
-                    message: error.to_string(),
-                    path: None,
-                    remediation: Some(
-                        "install the pinned tool/adapter and reproduce this exact unit".into(),
-                    ),
-                }],
-            }),
+            Err(error) => {
+                let diagnostic = adapter_execution_diagnostic(&error);
+                let outcome = match diagnostic.code.as_str() {
+                    "PB-ADAPTER-0003" => "unavailable",
+                    "PB-ADAPTER-0006" | "PB-ADAPTER-0007" | "PB-ADAPTER-0008" => "protocol-failed",
+                    _ => "failed",
+                };
+                runs.push(UnitRun {
+                    unit_id: unit.id.clone(),
+                    adapter: unit.adapter.executable().into(),
+                    cache_key,
+                    outcome: outcome.into(),
+                    evidence_sha256: None,
+                    inventory: Vec::new(),
+                    diagnostics: vec![diagnostic],
+                });
+            }
         }
     }
 
@@ -1861,7 +1864,7 @@ fn execute_or_reuse(
     additional_closures: &[ClosureIdentity],
     cache_key: &str,
     fresh: bool,
-) -> Result<(EvidenceRecord, UnitRun)> {
+) -> Result<(Option<EvidenceRecord>, UnitRun)> {
     // Mutation evidence is only meaningful when the compiler can join the
     // registered preimage to the exact source closure under review. Perform
     // this check before either execution or cache lookup so a stale receipt
@@ -1884,7 +1887,7 @@ fn execute_or_reuse(
     {
         let digest = context.store.put(EVIDENCE_DOMAIN, &record)?;
         return Ok((
-            record,
+            Some(record),
             UnitRun {
                 unit_id: unit.id.clone(),
                 adapter: format!("{:?}", unit.adapter),
@@ -1905,6 +1908,20 @@ fn execute_or_reuse(
     let registered_model = registered_model_check(context.bundle, unit)?;
     let request_unit = adapter_unit(context.root, context.bundle, unit)?;
     let response = adapter::invoke(context.root, unit, "check", request_unit)?;
+    if !response.success {
+        return Ok((
+            None,
+            UnitRun {
+                unit_id: unit.id.clone(),
+                adapter: response.adapter,
+                cache_key: cache_key.into(),
+                outcome: "failed".into(),
+                evidence_sha256: None,
+                inventory: response.inventory,
+                diagnostics: response.diagnostics,
+            },
+        ));
+    }
     let record = response_to_record(
         context.root,
         context.bundle,
@@ -1924,21 +1941,48 @@ fn execute_or_reuse(
         },
     )?;
     Ok((
-        record,
+        Some(record),
         UnitRun {
             unit_id: unit.id.clone(),
             adapter: response.adapter,
             cache_key: cache_key.into(),
-            outcome: if response.success {
-                "verified-now".into()
-            } else {
-                "failed".into()
-            },
+            outcome: "verified-now".into(),
             evidence_sha256: Some(digest),
             inventory: response.inventory,
             diagnostics: response.diagnostics,
         },
     ))
+}
+
+fn adapter_execution_diagnostic(error: &anyhow::Error) -> AdapterDiagnostic {
+    let full_message = error.to_string();
+    let code = full_message
+        .split(|character: char| character.is_whitespace() || character == ':')
+        .find(|token| {
+            token.starts_with("PB-ADAPTER-")
+                && token.len() == "PB-ADAPTER-0000".len()
+                && token["PB-ADAPTER-".len()..]
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit())
+        })
+        .unwrap_or("PB-ADAPTER-0900")
+        .to_owned();
+    let message = full_message.chars().take(8_192).collect::<String>();
+    let remediation = match code.as_str() {
+        "PB-ADAPTER-0003" => {
+            "install the exact registered adapter executable and reproduce this unit"
+        }
+        "PB-ADAPTER-0007" => {
+            "restore the adapter whose protocol identity matches the registered unit"
+        }
+        _ => "inspect the retained adapter failure and reproduce this exact unit",
+    };
+    AdapterDiagnostic {
+        code,
+        message,
+        path: None,
+        remediation: Some(remediation.into()),
+    }
 }
 
 /// Invalid cache state is deliberately collapsed to a miss. A corrupt index,
@@ -8858,6 +8902,38 @@ description = {description:?}
             bounded_check_from_registered_model(&unit, &empty_solver, &unit.expected_inventory)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn adapter_execution_failure_retains_stable_cause_and_remediation() {
+        let unavailable = adapter_execution_diagnostic(&anyhow!(
+            "PB-ADAPTER-0003: could not start proofbound-adapter-kani"
+        ));
+        assert_eq!(unavailable.code, "PB-ADAPTER-0003");
+        assert!(unavailable.message.contains("proofbound-adapter-kani"));
+        assert!(
+            unavailable
+                .remediation
+                .as_deref()
+                .unwrap()
+                .contains("install")
+        );
+
+        let wrong_identity = adapter_execution_diagnostic(&anyhow!(
+            "PB-ADAPTER-0007: adapter response identity does not match its request"
+        ));
+        assert_eq!(wrong_identity.code, "PB-ADAPTER-0007");
+        assert!(
+            wrong_identity
+                .remediation
+                .as_deref()
+                .unwrap()
+                .contains("protocol identity")
+        );
+
+        let oversized = adapter_execution_diagnostic(&anyhow!("{}", "x".repeat(10_000)));
+        assert_eq!(oversized.code, "PB-ADAPTER-0900");
+        assert_eq!(oversized.message.chars().count(), 8_192);
     }
 
     #[test]

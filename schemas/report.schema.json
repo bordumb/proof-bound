@@ -4,12 +4,44 @@
   "title": "Proofbound status report",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "project", "project_revision", "claims", "publication_blocked", "not_proved_out_of_scope"],
+  "required": ["schema", "project", "project_revision", "claims", "unit_runs", "publication_blocked", "not_proved_out_of_scope"],
   "properties": {
-    "schema": { "const": "proofbound-report/1" },
+    "schema": { "const": "proofbound-report/2" },
     "project": { "type": "string", "minLength": 1 },
     "project_revision": { "type": "string", "minLength": 1 },
     "claims": { "type": "array", "items": { "$ref": "graph.schema.json#/$defs/claimStatus" }, "maxItems": 100000 },
+    "unit_runs": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit_id", "adapter", "cache_key", "outcome", "evidence_sha256", "inventory", "diagnostics"],
+        "properties": {
+          "unit_id": { "type": "string", "minLength": 1 },
+          "adapter": { "type": "string", "minLength": 1 },
+          "cache_key": { "type": "string", "minLength": 1 },
+          "outcome": { "enum": ["verified-now", "verified-from-cache", "failed", "unavailable", "protocol-failed"] },
+          "evidence_sha256": { "type": ["string", "null"] },
+          "inventory": { "type": "array", "items": { "type": "string" }, "uniqueItems": true, "maxItems": 100000 },
+          "diagnostics": {
+            "type": "array",
+            "maxItems": 4096,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code", "message"],
+              "properties": {
+                "code": { "type": "string", "pattern": "^PB-[A-Z]+-[0-9]{4}$" },
+                "message": { "type": "string", "maxLength": 8192 },
+                "path": { "type": ["string", "null"], "maxLength": 4096 },
+                "remediation": { "type": ["string", "null"], "maxLength": 8192 }
+              }
+            }
+          }
+        }
+      }
+    },
     "publication_blocked": { "type": "boolean" },
     "not_proved_out_of_scope": {
       "type": "object",

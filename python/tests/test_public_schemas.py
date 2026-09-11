@@ -304,10 +304,27 @@ def test_standalone_verifier_release_fixture_matches_shipped_receipt_schema() ->
 def test_runtime_report_and_graph_export_shapes_match_public_schemas() -> None:
     status = sample_claim_status()
     report = {
-        "schema": "proofbound-report/1",
+        "schema": "proofbound-report/2",
         "project": "proofbound",
         "project_revision": "90a117e",
         "claims": [status],
+        "unit_runs": [
+            {
+                "unit_id": "missing-kani",
+                "adapter": "proofbound-adapter-kani",
+                "cache_key": f"sha256:{'01' * 32}",
+                "outcome": "unavailable",
+                "evidence_sha256": None,
+                "inventory": [],
+                "diagnostics": [
+                    {
+                        "code": "PB-ADAPTER-0003",
+                        "message": "could not start proofbound-adapter-kani",
+                        "remediation": "install the registered adapter",
+                    }
+                ],
+            }
+        ],
         "publication_blocked": False,
         "not_proved_out_of_scope": {
             "open_obligations": [],
