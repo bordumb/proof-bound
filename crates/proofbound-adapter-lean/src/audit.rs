@@ -57,7 +57,13 @@ pub fn verify_audit(
     output: &AuditOutput,
     require_target_digest: bool,
 ) -> Result<VerifiedAudit, AdapterError> {
-    verify_audit_with_policy(unit, output, require_target_digest, true)
+    verify_audit_with_policy(
+        unit,
+        output,
+        AuditVerificationMode::Pinned {
+            require_target_digest,
+        },
+    )
 }
 
 /// Validate all compiled facts while deliberately observing (rather than
@@ -68,14 +74,19 @@ pub fn observe_audit(
     unit: &LeanAdapterUnit,
     output: &AuditOutput,
 ) -> Result<VerifiedAudit, AdapterError> {
-    verify_audit_with_policy(unit, output, false, false)
+    verify_audit_with_policy(unit, output, AuditVerificationMode::ObserveTargetIdentity)
+}
+
+#[derive(Clone, Copy)]
+enum AuditVerificationMode {
+    Pinned { require_target_digest: bool },
+    ObserveTargetIdentity,
 }
 
 fn verify_audit_with_policy(
     unit: &LeanAdapterUnit,
     output: &AuditOutput,
-    require_target_digest: bool,
-    compare_pinned_digests: bool,
+    mode: AuditVerificationMode,
 ) -> Result<VerifiedAudit, AdapterError> {
     validate_unit(unit)?;
     validate_output(output)?;
@@ -98,6 +109,64 @@ fn verify_audit_with_policy(
             "register every compiled proofbound_claim and ensure every registered claim is imported",
         ));
     }
+    let mut target_verified = None;
+    let target_id = unit
+        .evidence_unit
+        .claims
+        .first()
+        .expect("validate_unit establishes exactly one claim");
+    for claim_id in &expected_ids {
+        let expected_claim = expected
+            .get(claim_id)
+            .expect("key originates from expected map");
+        let actual_claim = actual.get(claim_id).expect("sets were proven equal");
+        let observing_target =
+            matches!(mode, AuditVerificationMode::ObserveTargetIdentity) && claim_id == target_id;
+        let verified = if observing_target {
+            observe_claim_identity(expected_claim, actual_claim)?
+        } else {
+            verify_claim(expected_claim, actual_claim)?
+        };
+        if !observing_target && let Some(expected_digest) = &expected_claim.statement_sha256 {
+            let pinned = parse_prefixed_digest(expected_digest).map_err(|message| {
+                AdapterError::new(CONFIGURATION, message)
+                    .at(format!("claim_inventory[{claim_id}].statement_sha256"))
+            })?;
+            if pinned != verified.0 {
+                return Err(AdapterError::new(
+                    STATEMENT_DRIFT,
+                    format!(
+                        "statement digest drift for '{claim_id}': expected sha256:{pinned}, computed sha256:{}",
+                        verified.0
+                    ),
+                )
+                .remediate(
+                    "review the elaborated theorem change and update the claim digest explicitly",
+                ));
+            }
+        } else if !observing_target
+            && (matches!(mode, AuditVerificationMode::ObserveTargetIdentity)
+                || matches!(
+                    mode,
+                    AuditVerificationMode::Pinned {
+                        require_target_digest: true
+                    }
+                ) && claim_id == target_id)
+        {
+            return Err(AdapterError::new(
+                STATEMENT_DRIFT,
+                format!("registered claim '{claim_id}' has no statement_sha256"),
+            )
+            .remediate(
+                "pin the domain-separated lean-expr-cbor/1 digest before checking the claim",
+            ));
+        }
+
+        if claim_id == target_id {
+            target_verified = Some(((*actual_claim).clone(), verified));
+        }
+    }
+
     let configured: BTreeSet<_> = unit
         .evidence_unit
         .expected_inventory
@@ -116,50 +185,6 @@ fn verify_audit_with_policy(
                 "evidence_unit.expected_inventory differs from compiled declarations; configured={configured:?}, compiled={compiled:?}"
             ),
         ));
-    }
-
-    let mut target_verified = None;
-    let target_id = unit
-        .evidence_unit
-        .claims
-        .first()
-        .expect("validate_unit establishes exactly one claim");
-    for claim_id in &expected_ids {
-        let expected_claim = expected
-            .get(claim_id)
-            .expect("key originates from expected map");
-        let actual_claim = actual.get(claim_id).expect("sets were proven equal");
-        let verified = verify_claim(expected_claim, actual_claim)?;
-        if compare_pinned_digests && let Some(expected_digest) = &expected_claim.statement_sha256 {
-            let pinned = parse_prefixed_digest(expected_digest).map_err(|message| {
-                AdapterError::new(CONFIGURATION, message)
-                    .at(format!("claim_inventory[{claim_id}].statement_sha256"))
-            })?;
-            if pinned != verified.0 {
-                return Err(AdapterError::new(
-                    STATEMENT_DRIFT,
-                    format!(
-                        "statement digest drift for '{claim_id}': expected sha256:{pinned}, computed sha256:{}",
-                        verified.0
-                    ),
-                )
-                .remediate(
-                    "review the elaborated theorem change and update the claim digest explicitly",
-                ));
-            }
-        } else if compare_pinned_digests && require_target_digest && claim_id == target_id {
-            return Err(AdapterError::new(
-                STATEMENT_DRIFT,
-                format!("registered target claim '{claim_id}' has no statement_sha256"),
-            )
-            .remediate(
-                "pin the domain-separated lean-expr-cbor/1 digest before checking the claim",
-            ));
-        }
-
-        if claim_id == target_id {
-            target_verified = Some(((*actual_claim).clone(), verified));
-        }
     }
 
     let (target, (statement_sha256, foundational_axioms, project_axioms)) = target_verified
@@ -254,6 +279,15 @@ pub(crate) fn validate_unit(unit: &LeanAdapterUnit) -> Result<(), AdapterError> 
         return Err(AdapterError::new(
             CONFIGURATION,
             format!("unsupported Lean adapter unit schema '{}'", unit.schema),
+        ));
+    }
+    if unit.project_revision.trim().is_empty()
+        || unit.project_revision.len() > 512
+        || unit.project_revision.chars().any(char::is_control)
+    {
+        return Err(AdapterError::new(
+            CONFIGURATION,
+            "project_revision must be a bounded nonempty printable identity",
         ));
     }
     let evidence = &unit.evidence_unit;
@@ -617,29 +651,7 @@ fn verify_claim(
     expected: &ExpectedClaim,
     actual: &AuditClaim,
 ) -> Result<(Sha256Digest, BTreeSet<String>, BTreeSet<AssumptionId>), AdapterError> {
-    if expected.declaration != actual.declaration || expected.declaration_kind != actual.kind {
-        return Err(AdapterError::new(
-            DECLARATION,
-            format!(
-                "compiled declaration identity drift for '{}': expected '{}' ({:?}), found '{}' ({:?})",
-                expected.claim_id,
-                expected.declaration,
-                expected.declaration_kind,
-                actual.declaration,
-                actual.kind
-            ),
-        ));
-    }
-    if actual
-        .axioms
-        .iter()
-        .any(|name| name == "sorryAx" || name.ends_with(".sorryAx"))
-    {
-        return Err(AdapterError::new(
-            AXIOM,
-            format!("'{}' transitively depends on sorryAx", actual.declaration),
-        ));
-    }
+    validate_claim_identity(expected, actual)?;
 
     let expected_axioms: BTreeSet<_> = expected
         .foundational_axioms
@@ -691,6 +703,84 @@ fn verify_claim(
         expected.foundational_axioms.iter().cloned().collect(),
         project_axioms,
     ))
+}
+
+fn observe_claim_identity(
+    expected: &ExpectedClaim,
+    actual: &AuditClaim,
+) -> Result<(Sha256Digest, BTreeSet<String>, BTreeSet<AssumptionId>), AdapterError> {
+    validate_claim_identity(expected, actual)?;
+    let digest = statement_digest(&actual.expr_wire).map_err(|error| {
+        AdapterError::new(
+            EXPR_WIRE,
+            format!("invalid ExprWire for '{}': {error}", actual.declaration),
+        )
+    })?;
+    validate_digest_binding_v1(&actual.expr_wire, &actual.claim_id)?;
+
+    let actual_axioms = actual.axioms.iter().cloned().collect::<BTreeSet<_>>();
+    let registered_project_axioms = expected
+        .project_axioms
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let project_axiom_names = actual_axioms
+        .intersection(&registered_project_axioms)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let foundational_axioms = actual_axioms
+        .difference(&registered_project_axioms)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let project_axioms = project_axiom_names
+        .iter()
+        .map(|name| {
+            AssumptionId::new(
+                expected
+                    .project_axioms
+                    .get(name)
+                    .expect("name originates from registered project axioms")
+                    .clone(),
+            )
+            .map_err(|error| {
+                AdapterError::new(
+                    CONFIGURATION,
+                    format!("invalid project-axiom assumption ID: {error}"),
+                )
+            })
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    Ok((digest, foundational_axioms, project_axioms))
+}
+
+fn validate_claim_identity(
+    expected: &ExpectedClaim,
+    actual: &AuditClaim,
+) -> Result<(), AdapterError> {
+    if expected.declaration != actual.declaration || expected.declaration_kind != actual.kind {
+        return Err(AdapterError::new(
+            DECLARATION,
+            format!(
+                "compiled declaration identity drift for '{}': expected '{}' ({:?}), found '{}' ({:?})",
+                expected.claim_id,
+                expected.declaration,
+                expected.declaration_kind,
+                actual.declaration,
+                actual.kind
+            ),
+        ));
+    }
+    if actual
+        .axioms
+        .iter()
+        .any(|name| name == "sorryAx" || name.ends_with(".sorryAx"))
+    {
+        return Err(AdapterError::new(
+            AXIOM,
+            format!("'{}' transitively depends on sorryAx", actual.declaration),
+        ));
+    }
+    Ok(())
 }
 
 fn parse_prefixed_digest(value: &str) -> Result<Sha256Digest, String> {
@@ -841,6 +931,8 @@ mod tests {
                 },
             },
             environment_id: proofbound_core::EnvironmentId::new("lean:test").unwrap(),
+            project_revision: "fixture-revision".to_owned(),
+            tree_state: proofbound_core::TreeState::Clean,
             claim_inventory: vec![ExpectedClaim {
                 claim_id: "DEMO-CLAIM-001".to_owned(),
                 declaration: "Demo.claim".to_owned(),
@@ -901,6 +993,82 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.code, STATEMENT_DRIFT);
+    }
+
+    #[test]
+    fn update_observes_target_digest_and_axiom_identity_without_admitting_it() {
+        let mut registered = unit(Some(format!(
+            "sha256:{}",
+            Sha256Digest::of_bytes(b"old theorem")
+        )));
+        registered.claim_inventory[0].foundational_axioms = vec!["Quot.sound".to_owned()];
+        let mut audit = output();
+        audit.claims[0].axioms = vec!["propext".to_owned()];
+
+        let observed = observe_audit(&registered, &audit).unwrap();
+        assert_eq!(observed.target.declaration, "Demo.claim");
+        assert_eq!(
+            observed.foundational_axioms,
+            BTreeSet::from(["propext".to_owned()])
+        );
+        assert_ne!(
+            observed.statement_sha256,
+            Sha256Digest::of_bytes(b"old theorem")
+        );
+        assert!(verify_audit(&registered, &audit, true).is_err());
+    }
+
+    #[test]
+    fn update_rejects_a_substituted_declaration() {
+        let mut audit = output();
+        audit.claims[0].declaration = "Demo.substitute".to_owned();
+        assert_eq!(
+            observe_audit(&unit(None), &audit).unwrap_err().code,
+            DECLARATION
+        );
+    }
+
+    #[test]
+    fn update_keeps_neighboring_claim_identities_pinned() {
+        let mut registered = unit(None);
+        let mut audit = output();
+        let neighbor_wire = audit.claims[0].expr_wire.clone();
+        let neighbor_digest = statement_digest(&neighbor_wire).unwrap();
+        registered
+            .evidence_unit
+            .expected_inventory
+            .push("Demo.neighbor".to_owned());
+        registered.claim_inventory.push(ExpectedClaim {
+            claim_id: "OTHER-CLAIM-001".to_owned(),
+            declaration: "Demo.neighbor".to_owned(),
+            declaration_kind: DeclarationKind::Theorem,
+            statement_sha256: Some(format!("sha256:{neighbor_digest}")),
+            foundational_axioms: Vec::new(),
+            project_axioms: BTreeMap::new(),
+        });
+        audit.claims.push(AuditClaim {
+            axioms: Vec::new(),
+            claim_id: "OTHER-CLAIM-001".to_owned(),
+            declaration: "Demo.neighbor".to_owned(),
+            expr_wire: neighbor_wire,
+            kind: DeclarationKind::Theorem,
+            module: "Demo".to_owned(),
+        });
+        assert!(observe_audit(&registered, &audit).is_ok());
+
+        registered.claim_inventory[1].statement_sha256 = Some(format!(
+            "sha256:{}",
+            Sha256Digest::of_bytes(b"substituted neighbor")
+        ));
+        assert_eq!(
+            observe_audit(&registered, &audit).unwrap_err().code,
+            STATEMENT_DRIFT
+        );
+        registered.claim_inventory[1].statement_sha256 = None;
+        assert_eq!(
+            observe_audit(&registered, &audit).unwrap_err().code,
+            STATEMENT_DRIFT
+        );
     }
 
     #[test]

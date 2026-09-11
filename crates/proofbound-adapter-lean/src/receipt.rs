@@ -11,9 +11,7 @@ use proofbound_core::{
     EvidenceRecord, EvidenceStatus, ExecutionKind, NodeId, PremiseId, ResourceBudget, Sha256Digest,
     TheoremEvidence, TreeState, UnitId,
 };
-use proofbound_evidence::{
-    ClosureKind, ClosureLimits, build_closure, canonical_json, git_identity,
-};
+use proofbound_evidence::{ClosureKind, ClosureLimits, build_closure, canonical_json};
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 
@@ -28,6 +26,8 @@ struct ConfigurationIdentity<'a> {
     schema: &'static str,
     evidence_unit: &'a proofbound_manifest::EvidenceUnitManifest,
     environment_id: &'a proofbound_core::EnvironmentId,
+    project_revision: &'a str,
+    tree_state: TreeState,
     claim_inventory: &'a [crate::model::ExpectedClaim],
     audit_mode: &'static str,
 }
@@ -116,27 +116,12 @@ pub fn build_theorem_evidence(
         .collect::<Result<_, AdapterError>>()?;
     let generated_artifacts = exact_artifacts(root, &evidence_unit.outputs)?;
 
-    let git = git_identity(root).map_err(|error| {
-        AdapterError::new(
-            PROVENANCE,
-            format!("cannot bind project revision and tree state: {error}"),
-        )
-    })?;
-    let tree_state = match git.tree_state.as_str() {
-        "clean" => TreeState::Clean,
-        "dirty" => TreeState::Dirty,
-        other => {
-            return Err(AdapterError::new(
-                PROVENANCE,
-                format!("unsupported git tree state '{other}'"),
-            ));
-        }
-    };
-
     let configuration = ConfigurationIdentity {
-        schema: "proofbound-lean-unit-configuration/1",
+        schema: "proofbound-lean-unit-configuration/2",
         evidence_unit,
         environment_id: &unit.environment_id,
+        project_revision: &unit.project_revision,
+        tree_state: unit.tree_state,
         claim_inventory: &unit.claim_inventory,
         audit_mode: match unit.audit {
             AuditSource::Execute => "execute",
@@ -144,7 +129,7 @@ pub fn build_theorem_evidence(
         },
     };
     let unit_configuration_sha256 = domain_digest(
-        b"proofbound:lean-unit-configuration/1\0",
+        b"proofbound:lean-unit-configuration/2\0",
         &canonical_json(&configuration).map_err(|error| {
             AdapterError::new(
                 PROVENANCE,
@@ -218,8 +203,8 @@ pub fn build_theorem_evidence(
         premises,
         open_obligation: None,
         provenance: EvidenceProvenance {
-            project_revision: git.revision,
-            tree_state,
+            project_revision: unit.project_revision.clone(),
+            tree_state: unit.tree_state,
             semantic_source_closure,
             additional_closures: Vec::new(),
             input_artifacts,

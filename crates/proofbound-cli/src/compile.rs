@@ -866,6 +866,7 @@ pub fn update_unit(root: &Path, unit_id: &str) -> Result<()> {
     } else {
         None
     };
+    let lean_identity_target = lean_identity_update_target(root, &bundle, unit)?;
     let output_boundaries = translation.is_none().then(|| {
         vec![UpdateBoundaryGroup {
             paths: unit.outputs.clone(),
@@ -876,7 +877,11 @@ pub fn update_unit(root: &Path, unit_id: &str) -> Result<()> {
         validate_output_boundaries(boundaries)?;
     }
 
-    let request = adapter_unit(root, &bundle, unit)?;
+    let request = if let Some(target) = &lean_identity_target {
+        lean_update_adapter_unit(root, &bundle, unit, target)?
+    } else {
+        adapter_unit(root, &bundle, unit)?
+    };
     let shadow = sealed_update_shadow(
         root,
         unit.resource_budget
@@ -895,6 +900,9 @@ pub fn update_unit(root: &Path, unit_id: &str) -> Result<()> {
                 .collect::<Vec<_>>()
                 .join("; ")
         );
+    }
+    if let Some(target) = &lean_identity_target {
+        write_lean_identity_update(shadow.path(), &bundle, unit, target, &response)?;
     }
     let changes = classify_update_changes(root, shadow.path(), unit.resource_budget.disk_bytes)?;
     let changed = changes.all();
@@ -946,8 +954,220 @@ pub fn update_unit(root: &Path, unit_id: &str) -> Result<()> {
         replacement.commit()?;
     }
     println!("updated {} through {}", unit_id, unit.adapter.executable());
+    if let Some(target) = lean_identity_target {
+        println!("reviewed path: {}", target.manifest_relative);
+    }
     println!("Review the resulting diff, then run the same verify-only gates.");
     Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LeanIdentityUpdateTarget {
+    claim_id: String,
+    manifest_relative: String,
+    declaration: String,
+}
+
+fn lean_identity_update_target(
+    root: &Path,
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+) -> Result<Option<LeanIdentityUpdateTarget>> {
+    if unit.adapter != AdapterKind::Lean {
+        return Ok(None);
+    }
+    if unit.claims.len() != 1 {
+        bail!(
+            "PB-UPDATE-0006: Lean identity update {} must own exactly one claim; found {}",
+            unit.id,
+            unit.claims.len()
+        );
+    }
+    let claim_id = unit.claims[0].clone();
+    let (manifest_path, _) = bundle.claims.get(&claim_id).with_context(|| {
+        format!(
+            "PB-UPDATE-0006: Lean identity update {} names unregistered claim {claim_id}",
+            unit.id
+        )
+    })?;
+    let manifest_relative = manifest_path
+        .strip_prefix(root)?
+        .to_string_lossy()
+        .replace('\\', "/");
+    validate_update_relative_path(&manifest_relative)?;
+    if unit.outputs.len() != 1 || unit.outputs[0] != manifest_relative {
+        bail!(
+            "PB-UPDATE-0006: Lean identity update {} must declare exactly its owning claim manifest as its sole output; expected=[{}], configured={:?}",
+            unit.id,
+            manifest_relative,
+            unit.outputs
+        );
+    }
+    let declaration = unit.theorem.clone().with_context(|| {
+        format!(
+            "PB-UPDATE-0006: Lean identity update {} has no configured theorem declaration",
+            unit.id
+        )
+    })?;
+    if unit
+        .expected_inventory
+        .iter()
+        .filter(|item| *item == &declaration)
+        .count()
+        != 1
+    {
+        bail!(
+            "PB-UPDATE-0006: Lean identity update {} must contain its theorem exactly once in expected_inventory",
+            unit.id
+        );
+    }
+    Ok(Some(LeanIdentityUpdateTarget {
+        claim_id,
+        manifest_relative,
+        declaration,
+    }))
+}
+
+fn lean_update_adapter_unit(
+    root: &Path,
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+    target: &LeanIdentityUpdateTarget,
+) -> Result<serde_json::Value> {
+    lean_adapter_unit(root, bundle, unit, Some(target))
+}
+
+fn write_lean_identity_update(
+    shadow: &Path,
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+    target: &LeanIdentityUpdateTarget,
+    response: &AdapterResponse,
+) -> Result<()> {
+    let evidence = response
+        .evidence
+        .clone()
+        .context("PB-UPDATE-0006: Lean identity update omitted its drifted observation evidence")?;
+    let record: EvidenceRecord = serde_json::from_value(evidence)
+        .context("PB-UPDATE-0006: Lean identity update returned malformed theorem evidence")?;
+    if record.status != EvidenceStatus::Drifted
+        || record.claims != BTreeSet::from([ClaimId::new(target.claim_id.clone())?])
+        || record.unit_id != UnitId::new(format!("unit:{}", unit.id))?
+    {
+        bail!(
+            "PB-UPDATE-0006: Lean identity observation does not match the uniquely owned claim and unit"
+        );
+    }
+    let theorem = record
+        .theorem
+        .as_ref()
+        .context("PB-UPDATE-0006: Lean identity observation omitted theorem details")?;
+    if theorem.attributed_claim != ClaimId::new(target.claim_id.clone())?
+        || theorem.declaration != target.declaration
+        || theorem.statement_encoding != proofbound_core::LEAN_STATEMENT_ENCODING_V1
+        || !theorem.axiom_audit_passed
+        || theorem.contains_sorry_ax
+    {
+        bail!(
+            "PB-UPDATE-0006: Lean identity observation changed the configured declaration or failed its axiom audit"
+        );
+    }
+    let (_, claim) = bundle
+        .claims
+        .get(&target.claim_id)
+        .expect("target claim was resolved from this bundle");
+    let policy = resolve_policy(bundle, claim)?;
+    let unexpected_foundational = theorem
+        .foundational_axioms
+        .difference(&policy.allowed_foundational_axioms)
+        .cloned()
+        .collect::<Vec<_>>();
+    let unexpected_project = theorem
+        .project_axioms
+        .difference(&policy.allowed_project_axioms)
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    if !unexpected_foundational.is_empty()
+        || !unexpected_project.is_empty()
+        || (policy.components.contains(&BuiltInProfile::Kernel)
+            && !theorem.project_axioms.is_empty())
+    {
+        bail!(
+            "PB-UPDATE-0006: observed theorem axioms are forbidden by claim policy; foundational={unexpected_foundational:?}, project={unexpected_project:?}"
+        );
+    }
+
+    let path = shadow.join(&target.manifest_relative);
+    let source = fs::read_to_string(&path).with_context(|| {
+        format!(
+            "PB-UPDATE-0006: cannot read owning claim manifest {}",
+            target.manifest_relative
+        )
+    })?;
+    let updated_source = rewrite_lean_claim_identity(
+        &source,
+        claim,
+        &theorem.declaration,
+        &theorem.statement_encoding,
+        theorem.statement_sha256,
+        &theorem.foundational_axioms,
+    )?;
+    fs::write(&path, updated_source).with_context(|| {
+        format!(
+            "PB-UPDATE-0006: cannot write owning claim manifest {} in sealed update tree",
+            target.manifest_relative
+        )
+    })?;
+
+    let updated: ClaimManifest = load_toml(&path, ManifestLimits::default())?;
+    let mut expected = claim.clone();
+    expected.formal_declaration = Some(theorem.declaration.clone());
+    expected.statement_encoding = Some(theorem.statement_encoding.clone());
+    expected.statement_sha256 = Some(format!("sha256:{}", theorem.statement_sha256));
+    expected.foundational_axioms = theorem.foundational_axioms.iter().cloned().collect();
+    if updated != expected {
+        bail!(
+            "PB-UPDATE-0006: Lean identity update changed fields outside the four-field theorem identity"
+        );
+    }
+    ProjectBundle::load(shadow)
+        .context("PB-UPDATE-0006: updated claim manifest fails project validation")?;
+    Ok(())
+}
+
+fn rewrite_lean_claim_identity(
+    source: &str,
+    claim: &ClaimManifest,
+    declaration: &str,
+    statement_encoding: &str,
+    statement_sha256: Sha256Digest,
+    foundational_axioms: &BTreeSet<String>,
+) -> Result<String> {
+    let mut document = source
+        .parse::<toml_edit::DocumentMut>()
+        .context("PB-UPDATE-0006: owning claim manifest is not editable TOML")?;
+    document["formal_declaration"] = toml_edit::value(declaration);
+    document["statement_encoding"] = toml_edit::value(statement_encoding);
+    document["statement_sha256"] = toml_edit::value(format!("sha256:{statement_sha256}"));
+    let mut axioms = toml_edit::Array::new();
+    for axiom in foundational_axioms {
+        axioms.push(axiom);
+    }
+    document["foundational_axioms"] = toml_edit::Item::Value(toml_edit::Value::Array(axioms));
+    let rendered = document.to_string();
+    let updated: ClaimManifest =
+        toml::from_str(&rendered).context("PB-UPDATE-0006: rewritten claim manifest is invalid")?;
+    let mut expected = claim.clone();
+    expected.formal_declaration = Some(declaration.to_owned());
+    expected.statement_encoding = Some(statement_encoding.to_owned());
+    expected.statement_sha256 = Some(format!("sha256:{statement_sha256}"));
+    expected.foundational_axioms = foundational_axioms.iter().cloned().collect();
+    if updated != expected {
+        bail!(
+            "PB-UPDATE-0006: Lean identity update changed fields outside the four-field theorem identity"
+        );
+    }
+    Ok(rendered)
 }
 
 struct UpdateShadow {
@@ -3749,6 +3969,15 @@ fn adapter_unit(
     if unit.adapter != AdapterKind::Lean {
         return Ok(serde_json::to_value(unit)?);
     }
+    lean_adapter_unit(root, bundle, unit, None)
+}
+
+fn lean_adapter_unit(
+    root: &Path,
+    bundle: &ProjectBundle,
+    unit: &EvidenceUnitManifest,
+    update_target: Option<&LeanIdentityUpdateTarget>,
+) -> Result<serde_json::Value> {
     let theorem = unit
         .theorem
         .as_deref()
@@ -3768,7 +3997,12 @@ fn adapter_unit(
     };
     let mut inventory = BTreeMap::<String, serde_json::Value>::new();
     for (claim_id, (_, claim)) in &bundle.claims {
-        let Some(declaration) = claim.formal_declaration.as_ref() else {
+        let declaration = if update_target.is_some_and(|target| target.claim_id == *claim_id) {
+            Some(theorem)
+        } else {
+            claim.formal_declaration.as_deref()
+        };
+        let Some(declaration) = declaration else {
             continue;
         };
         if declaration.rsplit_once('.').map(|(module, _)| module) != Some(surface) {
@@ -3789,10 +4023,13 @@ fn adapter_unit(
     }
     let toolchain = fs::read(root.join("lean-toolchain")).unwrap_or_default();
     let environment = Sha256Digest::of_bytes(&toolchain).to_hex();
+    let identity = git_identity(root).context("PB-LEAN-0005: Git provenance unavailable")?;
     Ok(serde_json::json!({
-        "schema": "proofbound-lean-adapter-unit/1",
+        "schema": "proofbound-lean-adapter-unit/2",
         "evidence_unit": unit,
         "environment_id": format!("lean:{}", &environment[..32]),
+        "project_revision": identity.revision,
+        "tree_state": identity.tree_state,
         "claim_inventory": inventory.into_values().collect::<Vec<_>>(),
         "audit": {"mode": "execute"},
     }))
@@ -8394,6 +8631,160 @@ description = {description:?}
             )
             .is_err()
         );
+    }
+
+    fn lean_update_fixture(root: &Path) -> (ProjectBundle, EvidenceUnitManifest, ClaimManifest) {
+        let claim: ClaimManifest = serde_json::from_value(json!({
+            "schema": "proofbound-claim/1",
+            "id": "TEST-CLAIM-001",
+            "title": "A test theorem",
+            "statement": "The theorem holds.",
+            "public_language": "The theorem holds.",
+            "formal_declaration": null,
+            "statement_encoding": null,
+            "statement_sha256": null,
+            "foundational_axioms": [],
+            "subject": "module:Demo",
+            "subject_closure": null,
+            "profile": "kernel",
+            "tier": 2,
+            "primary_linkage": "refined",
+            "evidence": ["theorem:demo-theorem"],
+            "assumptions": [],
+            "premises": [],
+            "open_obligations": [],
+            "out_of_scope": ["Runtime behavior."],
+            "bounded_domain": null,
+            "source_roots": ["lean/Demo.lean"]
+        }))
+        .unwrap();
+        let unit: EvidenceUnitManifest = serde_json::from_value(json!({
+            "schema": "proofbound-evidence-unit/1",
+            "id": "demo-theorem",
+            "adapter": "lean",
+            "kind": "theorem",
+            "claims": ["TEST-CLAIM-001"],
+            "tier": 2,
+            "evaluation_mode": "kernel",
+            "theorem": "Demo.claim",
+            "expected_inventory": ["Demo.claim"],
+            "inputs": ["lean/Demo.lean"],
+            "outputs": ["claims/TEST-CLAIM-001.toml"],
+            "environment_allowlist": [],
+            "operation": {
+                "type": "lean-audit",
+                "targets": ["Demo.claim"],
+                "paths": ["lean/Demo.lean"]
+            },
+            "resource_budget": {
+                "time_seconds": 30,
+                "disk_bytes": 1048576,
+                "memory_bytes": 1048576
+            }
+        }))
+        .unwrap();
+        let mut bundle = cache_test_bundle(root);
+        bundle.claims.insert(
+            claim.id.clone(),
+            (root.join("claims/TEST-CLAIM-001.toml"), claim.clone()),
+        );
+        (bundle, unit, claim)
+    }
+
+    #[test]
+    fn lean_identity_update_requires_one_claim_and_its_exact_manifest_boundary() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let (bundle, unit, _) = lean_update_fixture(&root);
+        assert_eq!(
+            lean_identity_update_target(&root, &bundle, &unit)
+                .unwrap()
+                .unwrap(),
+            LeanIdentityUpdateTarget {
+                claim_id: "TEST-CLAIM-001".to_owned(),
+                manifest_relative: "claims/TEST-CLAIM-001.toml".to_owned(),
+                declaration: "Demo.claim".to_owned(),
+            }
+        );
+
+        let mut missing = unit.clone();
+        missing.outputs.clear();
+        assert!(
+            lean_identity_update_target(&root, &bundle, &missing)
+                .unwrap_err()
+                .to_string()
+                .contains("sole output")
+        );
+        let mut multiple = unit.clone();
+        multiple.outputs.push("claims/OTHER.toml".to_owned());
+        assert!(lean_identity_update_target(&root, &bundle, &multiple).is_err());
+        let mut ambiguous = unit.clone();
+        ambiguous.claims.push("OTHER-CLAIM-001".to_owned());
+        assert!(
+            lean_identity_update_target(&root, &bundle, &ambiguous)
+                .unwrap_err()
+                .to_string()
+                .contains("exactly one claim")
+        );
+    }
+
+    #[test]
+    fn lean_update_request_uses_the_unit_declaration_for_an_unpinned_claim() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let (bundle, unit, _) = lean_update_fixture(&root);
+        let target = lean_identity_update_target(&root, &bundle, &unit)
+            .unwrap()
+            .unwrap();
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let request = lean_update_adapter_unit(&workspace, &bundle, &unit, &target).unwrap();
+        assert_eq!(
+            request["claim_inventory"],
+            json!([{
+                "claim_id": "TEST-CLAIM-001",
+                "declaration": "Demo.claim",
+                "declaration_kind": "theorem",
+                "statement_sha256": null,
+                "foundational_axioms": [],
+                "project_axioms": {}
+            }])
+        );
+    }
+
+    #[test]
+    fn lean_identity_rewrite_changes_only_the_four_reviewed_fields() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let (_, _, claim) = lean_update_fixture(&root);
+        let source = toml::to_string_pretty(&claim).unwrap();
+        let digest = Sha256Digest::of_bytes(b"new theorem identity");
+        let axioms = BTreeSet::from(["Classical.choice".to_owned(), "propext".to_owned()]);
+        let rendered = rewrite_lean_claim_identity(
+            &source,
+            &claim,
+            "Demo.claim",
+            proofbound_core::LEAN_STATEMENT_ENCODING_V1,
+            digest,
+            &axioms,
+        )
+        .unwrap();
+        let updated: ClaimManifest = toml::from_str(&rendered).unwrap();
+        assert_eq!(updated.formal_declaration.as_deref(), Some("Demo.claim"));
+        assert_eq!(
+            updated.statement_encoding.as_deref(),
+            Some(proofbound_core::LEAN_STATEMENT_ENCODING_V1)
+        );
+        assert_eq!(updated.statement_sha256, Some(format!("sha256:{digest}")));
+        assert_eq!(
+            updated.foundational_axioms,
+            axioms.into_iter().collect::<Vec<_>>()
+        );
+        let mut restored = updated;
+        restored.formal_declaration = claim.formal_declaration.clone();
+        restored.statement_encoding = claim.statement_encoding.clone();
+        restored.statement_sha256 = claim.statement_sha256.clone();
+        restored.foundational_axioms = claim.foundational_axioms.clone();
+        assert_eq!(restored, claim);
     }
 
     #[test]

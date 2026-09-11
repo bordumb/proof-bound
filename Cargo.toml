@@ -39,6 +39,7 @@ tempfile = "3.27.0"
 tar = "0.4.46"
 thiserror = "1.0.69"
 toml = "0.8.23"
+toml_edit = "0.22.27"
 walkdir = "2.5.0"
 
 [profile.release]

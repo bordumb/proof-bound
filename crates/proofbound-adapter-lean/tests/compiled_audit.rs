@@ -83,6 +83,8 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
             },
         },
         environment_id: EnvironmentId::new("lean:workspace-smoke").unwrap(),
+        project_revision: "workspace-smoke".to_owned(),
+        tree_state: proofbound_core::TreeState::Clean,
         claim_inventory: vec![
             ExpectedClaim {
                 claim_id: "PBAC-CALIBRATED-001".to_owned(),
@@ -124,15 +126,20 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
 fn executes_the_compiled_attribute_and_axiom_audit() {
     let unit = compiled_demo_unit();
     let run = execute_audit(root(), &unit).unwrap();
-    assert_eq!(run.execution.commands.len(), 2);
-    assert_eq!(run.execution.runs.len(), 2);
+    assert_eq!(run.execution.commands.len(), 3);
+    assert_eq!(run.execution.runs.len(), 3);
     assert_eq!(
-        run.execution.commands[0].args[0..2],
+        run.execution.commands[0].args,
+        ["build", "ProofboundArtifactDemo.Claims"]
+    );
+    assert_eq!(
+        run.execution.commands[1].args[0..2],
         ["exe", "proofbound_lean_audit"]
     );
-    assert_eq!(run.execution.commands[1].args, ["--version"]);
+    assert_eq!(run.execution.commands[2].args, ["--version"]);
     assert_eq!(run.execution.runs[0].command_index, 0);
     assert_eq!(run.execution.runs[1].command_index, 1);
+    assert_eq!(run.execution.runs[2].command_index, 2);
     assert!(run.execution.completed_unix_ms >= run.execution.started_unix_ms);
     assert!(
         run.execution.resource_usage.time_ms

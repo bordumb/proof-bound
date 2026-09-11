@@ -60,10 +60,15 @@ pub fn execute_audit(root: &Path, unit: &LeanAdapterUnit) -> Result<AuditRun, Ad
     let surface = module_from_target(target, theorem)?;
 
     let lake = resolve_program("lake")?;
+    let environment = environment_allowlist(&unit.evidence_unit.environment_allowlist)?;
+    let build_command = CommandSpec {
+        program: lake.to_string_lossy().into_owned(),
+        args: vec!["build".to_owned(), surface.clone()],
+        environment_allowlist: environment.clone(),
+    };
     let mut args = vec!["exe".to_owned(), "proofbound_lean_audit".to_owned()];
     args.push(surface.clone());
     args.push(format!("--surface={surface}"));
-    let environment = environment_allowlist(&unit.evidence_unit.environment_allowlist)?;
     let audit_command = CommandSpec {
         program: lake.to_string_lossy().into_owned(),
         args,
@@ -79,6 +84,34 @@ pub fn execute_audit(root: &Path, unit: &LeanAdapterUnit) -> Result<AuditRun, Ad
     let execution_started = Instant::now();
     let deadline = execution_started.checked_add(time_limit).ok_or_else(|| {
         AdapterError::new(RESOURCE, "Lean audit time budget exceeds platform limits")
+    })?;
+    let build_result = run_bounded(
+        &root,
+        &build_command,
+        remaining_budget(deadline)?,
+        "Lean module build",
+    )?;
+    if !build_result.status.success() {
+        let stderr = String::from_utf8_lossy(&build_result.stderr);
+        return Err(AdapterError::new(
+            TOOL,
+            format!(
+                "Lean module build failed with {}: {}",
+                build_result.status,
+                truncate(&stderr, 8_192)
+            ),
+        ));
+    }
+    let normalized_build_output = canonical_json(&serde_json::json!({
+        "schema": "proofbound-lean-build-result/1",
+        "target": surface,
+        "exit_code": build_result.status.code(),
+    }))
+    .map_err(|error| {
+        AdapterError::new(
+            TOOL,
+            format!("cannot serialize normalized Lean build result: {error}"),
+        )
     })?;
     let audit_result = run_bounded(
         &root,
@@ -129,7 +162,7 @@ pub fn execute_audit(root: &Path, unit: &LeanAdapterUnit) -> Result<AuditRun, Ad
         return Err(AdapterError::new(
             RESOURCE,
             format!(
-                "Lean audit and version query exceeded their total time budget of {} ms",
+                "Lean build, audit, and version query exceeded their total time budget of {} ms",
                 time_limit.as_millis()
             ),
         ));
@@ -145,10 +178,19 @@ pub fn execute_audit(root: &Path, unit: &LeanAdapterUnit) -> Result<AuditRun, Ad
         output,
         execution: CapturedExecution {
             tool,
-            commands: vec![audit_command, version_command],
+            commands: vec![build_command, audit_command, version_command],
             runs: vec![
                 ExecutionRun {
                     command_index: 0,
+                    exit_code: build_result.status.code(),
+                    stdout_sha256: Sha256Digest::of_bytes(&build_result.stdout),
+                    stderr_sha256: Sha256Digest::of_bytes(&build_result.stderr),
+                    normalized_output_sha256: Sha256Digest::of_bytes(&normalized_build_output),
+                    output_truncated: false,
+                    duration_ms: build_result.elapsed_ms,
+                },
+                ExecutionRun {
+                    command_index: 1,
                     exit_code: audit_result.status.code(),
                     stdout_sha256: Sha256Digest::of_bytes(&audit_result.stdout),
                     stderr_sha256: Sha256Digest::of_bytes(&audit_result.stderr),
@@ -157,7 +199,7 @@ pub fn execute_audit(root: &Path, unit: &LeanAdapterUnit) -> Result<AuditRun, Ad
                     duration_ms: audit_result.elapsed_ms,
                 },
                 ExecutionRun {
-                    command_index: 1,
+                    command_index: 2,
                     exit_code: version_result.status.code(),
                     stdout_sha256: Sha256Digest::of_bytes(&version_result.stdout),
                     stderr_sha256: Sha256Digest::of_bytes(&version_result.stderr),
@@ -167,7 +209,7 @@ pub fn execute_audit(root: &Path, unit: &LeanAdapterUnit) -> Result<AuditRun, Ad
                 },
             ],
             normalization: EXECUTION_NORMALIZATION.into(),
-            started_unix_ms: audit_result.started_unix_ms,
+            started_unix_ms: build_result.started_unix_ms,
             completed_unix_ms: version_result.completed_unix_ms,
             resource_usage: ResourceUsage {
                 time_ms: execution_elapsed_ms,
