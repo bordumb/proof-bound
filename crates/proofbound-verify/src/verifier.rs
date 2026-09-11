@@ -12,7 +12,7 @@ use thiserror::Error;
 use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, ArtifactObservationRelation, AssumptionCategory,
     AssumptionFacet, AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode,
-    BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3,
+    BoundedDomain, BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3,
     COMPILED_RELEASE_SCHEMA_V4, COMPILED_RELEASE_SCHEMA_V5, COMPILED_RELEASE_SCHEMA_V6,
     ClaimReceipt, ClosureKind, CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1,
     EVIDENCE_SCHEMA_V3, EVIDENCE_SCHEMA_V4, EVIDENCE_SCHEMA_V5,
@@ -4408,6 +4408,35 @@ fn derive_claim(
         FormalFacet::Open
     };
     if matches!(formal, FormalFacet::BoundedChecked) || exhaustive_as_proof {
+        match claim.bounded_domain.as_ref() {
+            Some(expected) => {
+                if claim.registered_domain_language.as_deref()
+                    != Some(expected.description.as_str())
+                {
+                    claim_issue!(
+                        VerificationIssueCode::PbvInvalidEvidence,
+                        "claim bounded-domain language disagrees with its registered domain",
+                    );
+                }
+                for evidence_id in &valid {
+                    let Some(actual) = evidence_bounded_domain(evidence[evidence_id]) else {
+                        continue;
+                    };
+                    if actual != expected {
+                        claim_issue!(
+                            VerificationIssueCode::PbvInvalidEvidence,
+                            format!(
+                                "bounded evidence '{evidence_id}' uses a domain that differs from the claim registration"
+                            ),
+                        );
+                    }
+                }
+            }
+            None => claim_issue!(
+                VerificationIssueCode::PbvInvalidEvidence,
+                "bounded standing has no exact claim-owned domain registration",
+            ),
+        }
         match claim.registered_domain_language.as_deref() {
             Some(domain) if !domain.trim().is_empty() => {
                 let property = claim_public_property(claim);
@@ -4585,6 +4614,14 @@ fn derive_claim(
         },
         issues,
     )
+}
+
+fn evidence_bounded_domain(evidence: &EvidenceReceipt) -> Option<&BoundedDomain> {
+    evidence
+        .bounded_check
+        .as_ref()
+        .map(|item| &item.domain)
+        .or_else(|| evidence.exhaustive_check.as_ref().map(|item| &item.domain))
 }
 
 fn premise_owner_is_registered(

@@ -2251,6 +2251,10 @@ pub struct ClaimDefinition {
     pub primary_linkage: Option<LinkageFacet>,
     #[serde(default)]
     pub registered_inputs: BTreeSet<String>,
+    /// Exact claim-owned identity of the finite domain, when bounded standing
+    /// is possible. This is compared with every admitted bounded receipt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounded_domain: Option<BoundedDomain>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registered_domain_language: Option<String>,
 }

@@ -418,6 +418,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
             out_of_scope: BTreeSet::new(),
             primary_linkage: None,
             registered_inputs: BTreeSet::from(["all".into()]),
+            bounded_domain: None,
             registered_domain_language: None,
         },
         graph: AssuranceGraph {
@@ -690,7 +691,8 @@ fn empirical_bounded_and_theorem_precedence_is_exact_and_retains_weaker_evidence
         NodeKind::TestSuite,
         true,
     );
-    input.claim.registered_domain_language = Some("For every u8 input, P holds.".into());
+    input.claim.bounded_domain = Some(domain());
+    input.claim.registered_domain_language = Some(domain().description);
     add_record(
         &mut input,
         bounded_record("kani"),
@@ -854,8 +856,8 @@ fn exact_artifact_observation_shape_attacks_have_stable_producer_codes() {
 #[test]
 fn exhaustive_is_tested_unless_policy_explicitly_admits_finite_proof() {
     let mut default = base_input(Tier::Bounded, ledger_policy());
-    default.claim.registered_domain_language =
-        Some("For every registered u8 value, P holds.".into());
+    default.claim.bounded_domain = Some(domain());
+    default.claim.registered_domain_language = Some(domain().description);
     add_record(
         &mut default,
         exhaustive_record("all-u8"),
@@ -877,8 +879,8 @@ fn exhaustive_is_tested_unless_policy_explicitly_admits_finite_proof() {
         additional_required_evidence: BTreeSet::new(),
     };
     let mut admitted = base_input(Tier::Bounded, policy);
-    admitted.claim.registered_domain_language =
-        Some("For every registered u8 value, P holds.".into());
+    admitted.claim.bounded_domain = Some(domain());
+    admitted.claim.registered_domain_language = Some(domain().description);
     add_record(
         &mut admitted,
         exhaustive_record("all-u8"),
@@ -889,14 +891,15 @@ fn exhaustive_is_tested_unless_policy_explicitly_admits_finite_proof() {
     assert_eq!(status.formal, FormalFacet::Proved);
     assert_eq!(
         status.public_statement,
-        "The registered subject has property P. Registered finite domain: For every registered u8 value, P holds."
+        "The registered subject has property P. Registered finite domain: all values x where 0 <= x <= 255"
     );
 }
 
 #[test]
 fn bounded_public_statement_retains_property_and_registered_domain() {
     let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
-    input.claim.registered_domain_language = Some("For every registered u8 value, P holds.".into());
+    input.claim.bounded_domain = Some(domain());
+    input.claim.registered_domain_language = Some(domain().description);
     add_record(
         &mut input,
         bounded_record("kani"),
@@ -908,7 +911,7 @@ fn bounded_public_statement_retains_property_and_registered_domain() {
     assert_eq!(status.formal, FormalFacet::BoundedChecked);
     assert_eq!(
         status.public_statement,
-        "The registered subject has property P. Registered finite domain: For every registered u8 value, P holds."
+        "The registered subject has property P. Registered finite domain: all values x where 0 <= x <= 255"
     );
 
     input.claim.statement = "The registered subject has a different property Q.".into();
@@ -918,11 +921,79 @@ fn bounded_public_statement_retains_property_and_registered_domain() {
 }
 
 #[test]
+fn bounded_standing_requires_one_exact_claim_and_evidence_domain() {
+    let mut exact = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
+    exact.claim.bounded_domain = Some(domain());
+    exact.claim.registered_domain_language = Some(domain().description);
+    add_record(
+        &mut exact,
+        bounded_record("kani"),
+        NodeKind::ModelCheckUnit,
+        true,
+    );
+    assert_eq!(
+        derive_claim_status(&exact).formal,
+        FormalFacet::BoundedChecked
+    );
+
+    let mut missing = exact.clone();
+    missing.claim.bounded_domain = None;
+    assert_eq!(derive_claim_status(&missing).formal, FormalFacet::Invalid);
+
+    let attacks: [fn(&mut BoundedDomain); 5] = [
+        |value| value.id = UnitId::new("domain:other").unwrap(),
+        |value| value.description = "a different population".into(),
+        |value| value.cardinality = Some(255),
+        |value| value.constraints = vec!["x < 255".into()],
+        |value| value.registration_sha256 = digest("different-domain"),
+    ];
+    for attack in attacks {
+        let mut input = exact.clone();
+        attack(input.claim.bounded_domain.as_mut().unwrap());
+        input.claim.registered_domain_language = input
+            .claim
+            .bounded_domain
+            .as_ref()
+            .map(|value| value.description.clone());
+        let status = derive_claim_status(&input);
+        assert_eq!(status.formal, FormalFacet::Invalid);
+        assert!(status.errors.iter().any(|error| {
+            error.code == ErrorCode::PbCoreInvalidEvidence
+                && error
+                    .unit_id
+                    .as_ref()
+                    .is_some_and(|id| id.as_str() == "unit:kani")
+                && error.expected.is_some()
+                && error.actual.is_some()
+        }));
+    }
+
+    let mut substituted = exact;
+    let mut foreign = bounded_record("foreign");
+    foreign
+        .bounded_check
+        .as_mut()
+        .unwrap()
+        .domain
+        .registration_sha256 = digest("foreign-domain");
+    add_record(&mut substituted, foreign, NodeKind::ModelCheckUnit, true);
+    let status = derive_claim_status(&substituted);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error
+            .unit_id
+            .as_ref()
+            .is_some_and(|id| id.as_str() == "unit:foreign")
+    }));
+}
+
+#[test]
 fn public_language_is_reader_facing_without_replacing_the_internal_statement() {
     let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
     input.claim.statement = "Internal.Predicate subject".into();
     input.claim.public_language = Some("Every registered byte has property P.".into());
-    input.claim.registered_domain_language = Some("Inputs are exactly the u8 domain.".into());
+    input.claim.bounded_domain = Some(domain());
+    input.claim.registered_domain_language = Some(domain().description);
     add_record(
         &mut input,
         bounded_record("kani"),
@@ -934,7 +1005,7 @@ fn public_language_is_reader_facing_without_replacing_the_internal_statement() {
     assert_eq!(status.formal, FormalFacet::BoundedChecked);
     assert_eq!(
         status.public_statement,
-        "Every registered byte has property P. Registered finite domain: Inputs are exactly the u8 domain."
+        "Every registered byte has property P. Registered finite domain: all values x where 0 <= x <= 255"
     );
     assert_eq!(input.claim.statement, "Internal.Predicate subject");
     let encoded = serde_json::to_value(&input.claim).unwrap();
@@ -972,8 +1043,8 @@ fn bounded_check_requires_exact_nonzero_unwind_inventory() {
 
     for record in [extra, missing, zero] {
         let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
-        input.claim.registered_domain_language =
-            Some("For every registered u8 value, P holds.".into());
+        input.claim.bounded_domain = Some(domain());
+        input.claim.registered_domain_language = Some(domain().description);
         add_record(&mut input, record, NodeKind::ModelCheckUnit, true);
         assert_eq!(derive_claim_status(&input).formal, FormalFacet::Invalid);
     }
@@ -2609,9 +2680,12 @@ fn build_core_corpus_case(case: &CorpusCase) -> ClaimEvaluationInput {
     };
     let mut input = base_input(corpus_tier(case.tier), policy);
     input.claim.tier = case.claim_tier.map(corpus_tier);
-    input.claim.registered_domain_language = case
-        .registered_domain
-        .then(|| "For every member of the registered finite corpus domain, P holds.".into());
+    input.claim.bounded_domain = case.registered_domain.then(domain);
+    input.claim.registered_domain_language = input
+        .claim
+        .bounded_domain
+        .as_ref()
+        .map(|domain| domain.description.clone());
     input.claim.primary_linkage = case
         .primary_linkage
         .as_deref()

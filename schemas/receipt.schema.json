@@ -88,6 +88,7 @@
         "out_of_scope": { "type": "array", "items": { "$ref": "#/$defs/exclusion" } },
         "primary_linkage": { "$ref": "#/$defs/linkage" },
         "registered_inputs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "bounded_domain": { "$ref": "#/$defs/boundedDomain" },
         "registered_domain_language": { "type": "string" }
       }
     },
