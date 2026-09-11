@@ -281,9 +281,13 @@ Every field in `reported_statuses` must equal the recomputed value. Its required
 present, otherwise from the internal `statement`; `BOUNDED_CHECKED` and
 policy-admitted exhaustive `PROVED` output append
 ` Registered finite domain: <registered_domain_language>`. The verifier
+requires that language to equal the description in the claim's exact
+`bounded_domain`. It also requires that domain to equal every bounded or
+exhaustive evidence domain supporting the standing; the registration digest
+binds the complete manifest domain, including its ordering key. The verifier
 deliberately rejects substitution of the internal and reader-facing languages,
-status drift, upgrades, and unexplained downgrades so a receipt has one
-deterministic representation.
+claim/evidence domain drift, status drift, upgrades, and unexplained downgrades
+so a receipt has one deterministic representation.
 
 Every successful verification report also contains a mandatory
 `not_proved_out_of_scope` entry for every claim, including its open

@@ -349,6 +349,7 @@ fn base_release() -> CompiledRelease {
         out_of_scope: Default::default(),
         primary_linkage: None,
         registered_inputs: Default::default(),
+        bounded_domain: None,
         registered_domain_language: None,
     };
     let status = ReportedClaimStatus {
@@ -821,13 +822,14 @@ fn bounded_release() -> CompiledRelease {
     record.unit_id = "unit:bounded".into();
     record.kind = EvidenceKind::BoundedCheck;
     record.inventoried_targets = BTreeSet::from(["check_all".into()]);
+    let domain = BoundedDomain {
+        id: "domain:tiny".into(),
+        description: "All two-bit inputs".into(),
+        registration_sha256: digest("tiny domain"),
+        cardinality: Some(4),
+    };
     record.bounded_check = Some(BoundedCheckReceipt {
-        domain: BoundedDomain {
-            id: "domain:tiny".into(),
-            description: "All two-bit inputs".into(),
-            registration_sha256: digest("tiny domain"),
-            cardinality: Some(4),
-        },
+        domain: domain.clone(),
         solver: "kani 1.0".into(),
         harnesses: BTreeSet::from(["check_all".into()]),
         unwind_bounds: BTreeMap::from([("check_all".into(), 1)]),
@@ -841,8 +843,8 @@ fn bounded_release() -> CompiledRelease {
     release.claims[0]
         .cited_evidence
         .insert(release.evidence[0].sha256.clone());
-    release.claims[0].registered_domain_language =
-        Some("For every input in the registered two-bit domain".into());
+    release.claims[0].bounded_domain = Some(domain.clone());
+    release.claims[0].registered_domain_language = Some(domain.description);
     release.reported_statuses[0].public_statement = bounded_public_statement_for_test(
         &release.claims[0].statement,
         release.claims[0]
@@ -1825,6 +1827,38 @@ fn bounded_language_cannot_be_silently_omitted() {
     let error = verify_compiled_release(&release).unwrap_err();
     assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
     assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+}
+
+#[test]
+fn verifier_rejects_claim_and_bounded_evidence_domain_divergence() {
+    let mut missing = bounded_release();
+    missing.claims[0].bounded_domain = None;
+    let error = verify_compiled_release(&missing).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let attacks: [fn(&mut BoundedDomain); 4] = [
+        |value| value.id = "domain:other".into(),
+        |value| value.description = "a different finite population".into(),
+        |value| value.cardinality = Some(3),
+        |value| value.registration_sha256 = digest("different-ordering-key"),
+    ];
+    for attack in attacks {
+        let mut release = bounded_release();
+        attack(release.claims[0].bounded_domain.as_mut().unwrap());
+        release.claims[0].registered_domain_language = release.claims[0]
+            .bounded_domain
+            .as_ref()
+            .map(|domain| domain.description.clone());
+        release.reported_statuses[0].public_statement = bounded_public_statement_for_test(
+            &release.claims[0].statement,
+            release.claims[0]
+                .registered_domain_language
+                .as_deref()
+                .unwrap(),
+        );
+        let error = verify_compiled_release(&release).unwrap_err();
+        assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    }
 }
 
 #[test]
@@ -3634,9 +3668,16 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
     release.assumptions.clear();
     release.premises.clear();
     release.claims[0].cited_evidence.clear();
-    release.claims[0].registered_domain_language = case
-        .registered_domain
-        .then(|| "For every member of the registered finite corpus domain, P holds.".into());
+    release.claims[0].bounded_domain = case.registered_domain.then(|| BoundedDomain {
+        id: "domain:corpus".into(),
+        description: "all registered finite corpus values".into(),
+        registration_sha256: digest("corpus-domain"),
+        cardinality: Some(4),
+    });
+    release.claims[0].registered_domain_language = release.claims[0]
+        .bounded_domain
+        .as_ref()
+        .map(|domain| domain.description.clone());
     release.claims[0].primary_linkage =
         case.primary_linkage
             .as_deref()

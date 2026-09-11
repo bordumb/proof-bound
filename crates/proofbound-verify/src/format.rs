@@ -258,6 +258,8 @@ pub struct ClaimReceipt {
     #[serde(default)]
     pub registered_inputs: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounded_domain: Option<BoundedDomain>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registered_domain_language: Option<String>,
 }
 

@@ -648,6 +648,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         out_of_scope: BTreeSet::new(),
         primary_linkage: Some(LinkageFacet::ModelOnly),
         registered_inputs: BTreeSet::new(),
+        bounded_domain: None,
         registered_domain_language: None,
     };
     let graph = graph_for_claim(&claim, &policy, std::slice::from_ref(&evidence), &[], &[])?;
@@ -3857,6 +3858,23 @@ fn compile_claim(
                     .collect()
             })
             .unwrap_or_default(),
+        bounded_domain: manifest
+            .bounded_domain
+            .as_ref()
+            .map(|domain| {
+                Ok::<BoundedDomain, anyhow::Error>(BoundedDomain {
+                    id: UnitId::new(domain.id.clone())?,
+                    description: domain.description.clone(),
+                    registration_sha256: Sha256Digest::of_bytes(canonical_json(domain)?),
+                    cardinality: Some(domain.cardinality),
+                    constraints: domain
+                        .ordering_key
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                })
+            })
+            .transpose()?,
         registered_domain_language: manifest
             .bounded_domain
             .as_ref()
@@ -6005,6 +6023,12 @@ fn compiled_release_value(
             "out_of_scope": input.claim.out_of_scope.iter().collect::<Vec<_>>(),
             "primary_linkage": input.claim.primary_linkage,
             "registered_inputs": input.claim.registered_inputs,
+            "bounded_domain": input.claim.bounded_domain.as_ref().map(|domain| serde_json::json!({
+                "id": domain.id,
+                "description": domain.description,
+                "registration_sha256": format!("sha256:{}", domain.registration_sha256),
+                "cardinality": domain.cardinality,
+            })),
             "registered_domain_language": input.claim.registered_domain_language,
         }));
         insert_release_policy(&mut policies, &input.policy)?;
@@ -7448,6 +7472,7 @@ mod tests {
             out_of_scope: BTreeSet::new(),
             primary_linkage: Some(LinkageFacet::Refined),
             registered_inputs: BTreeSet::new(),
+            bounded_domain: None,
             registered_domain_language: None,
         };
 
