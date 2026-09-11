@@ -30,17 +30,22 @@ Diagnostics use stable `PB-LEAN-NNNN` codes.
     }
   ],
   "environment_id": "lean:project-toolchain-v1",
+  "project_revision": "0123456789abcdef0123456789abcdef01234567",
+  "tree_state": "clean",
   "evidence_unit": {
     "schema": "proofbound-evidence-unit/1"
   },
-  "schema": "proofbound-lean-adapter-unit/1"
+  "schema": "proofbound-lean-adapter-unit/2"
 }
 ```
 
 The abbreviated `evidence_unit` above stands for the complete strict
 `EvidenceUnitManifest`. The adapter accepts only `adapter=lean`,
 `kind=theorem`, and `operation.type=lean-audit`, with one target claim and its
-exact fully qualified `theorem`.
+exact fully qualified `theorem`. The orchestrator supplies its already observed
+Git revision and tree state, so a sealed update tree does not need access to
+the repository's Git metadata; those values are bound into the configuration
+identity and receipt.
 
 `claim_inventory` is the complete registered inventory for the modules loaded
 by this audit, not merely the target claim. Every compiled attributed claim
@@ -153,7 +158,9 @@ can deserialize the member directly. The theorem detail carries declaration,
 encoding, complete canonical statement wire and statement digest, attributed
 claim, environment, exact foundational/project axioms,
 `contains_sorry_ax=false`, and the evaluation mode.
-Provenance binds the Git revision/tree state, exact semantic inputs and output
+Execute-mode provenance records a bounded `lake build <audited-module>` before
+the audit so sealed trees cannot reuse ambient `.lake` outputs. Provenance then
+binds the Git revision/tree state, exact semantic inputs and output
 artifacts, source closure, audit and adapter executable identities, typed
 commands and their aligned run records, a required normalization identifier, a
 separate typed reproduction command, timestamps, result/configuration
@@ -163,10 +170,12 @@ zero-byte peak.
 
 `inventory` runs or consumes the same compiled audit and performs the same
 bidirectional declaration/axiom checks but does not create evidence.
-`update` intentionally ignores the old statement digest only after every other
-check passes, and returns a typed receipt with status `drifted`; the orchestrator
-may display its computed theorem digest for review and update the manifest. It
-must run a subsequent pinned `check` before the receipt can support a claim.
+`update` observes the target's statement digest and transitive axiom identity
+after its configured declaration, complete attributed inventory, neighboring
+claim pins, and `sorryAx` prohibition pass. It returns a typed receipt with
+status `drifted`; the orchestrator may update only the target claim manifest's
+four identity fields inside its sole explicit output boundary. It must run a
+subsequent pinned `check` before the receipt can support a claim.
 
 Core taxonomy keeps artifact soundness separate: this adapter emits theorem
 evidence. A canonical-artifact checker must produce a distinct

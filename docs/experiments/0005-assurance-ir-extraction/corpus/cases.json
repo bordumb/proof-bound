@@ -136,7 +136,7 @@
     },
     {
       "id": "IR-RS-002", "role": "positive-registration", "evidence_family": "theorem",
-      "source": {"path": "demo/allowance/proofbound/evidence/accept-conserves.toml", "sha256": "sha256:315655e6378109d81d324e04b0e41503328dfe769c66e1b8e61e6942edf9484e"},
+      "source": {"path": "demo/allowance/proofbound/evidence/accept-conserves.toml", "sha256": "sha256:e4957629324fd0c8d685d16ce3f5fe27fffd8a4d28e50c3aea45bc4be2cfd6bd"},
       "claim_sources": [{"path": "demo/allowance/claims/DEMO-TRANSFER-001.toml", "sha256": "sha256:95b00d879d5d9043a63ccc9db0d4fe9e56c349730b6c1967ef373c0f2c9bd073"}],
       "unit_id": "accept-conserves", "claim_ids": ["DEMO-TRANSFER-001"],
       "expected_claim": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
