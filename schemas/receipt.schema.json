@@ -265,7 +265,7 @@
       "properties": {
         "schema": { "const": "proofbound-mutation-witness/2" },
         "mutation_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,255}$" },
-        "subject": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?:rust:[a-z][a-z0-9_-]*(?:::[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)?|python:[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:::[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)?|npm:[a-z0-9][a-z0-9._-]*(?:::[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*)?)$" },
         "guard": { "type": "string", "minLength": 1, "maxLength": 8192, "pattern": "\\S" },
         "mutation_sha256": { "$ref": "#/$defs/digest" },
         "registry": { "$ref": "#/$defs/artifact" },

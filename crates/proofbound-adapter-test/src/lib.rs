@@ -2709,7 +2709,9 @@ fn run_python_mutation<E: Executor>(
     let loaded = load_mutation_registry(original_root, registry_path)?;
     validate_mutation_unit(unit, &loaded, &[])?;
     let mutation = &loaded.registry.mutation;
-    if !safe_pytest_node(&mutation.witness) || !loaded.registry.subject.starts_with("python:") {
+    if !safe_pytest_node(&mutation.witness)
+        || !valid_python_mutation_subject(&loaded.registry.subject)
+    {
         return Err(AdapterError::Unit(
             "Python mutation requires a python: subject and exact pytest node witness".to_owned(),
         ));
@@ -5164,6 +5166,27 @@ fn safe_python_module(value: &str) -> bool {
                     && (byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
             })
     })
+}
+fn valid_python_mutation_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("python:") else {
+        return false;
+    };
+    let (distribution, symbol) = value
+        .split_once("::")
+        .map_or((value, None), |(name, symbol)| (name, Some(symbol)));
+    let distribution_valid = distribution.len() <= 214
+        && distribution.split('-').enumerate().all(|(index, segment)| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                && (index != 0
+                    || segment
+                        .bytes()
+                        .next()
+                        .is_some_and(|byte| byte.is_ascii_lowercase()))
+        });
+    distribution_valid && symbol.is_none_or(safe_python_module)
 }
 fn valid_environment_name(name: &str) -> bool {
     let mut chars = name.chars();

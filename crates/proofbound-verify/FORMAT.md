@@ -194,11 +194,17 @@ mutation, or affected claim can be smuggled into the evidence unit.
 
 `baseline_run_index` binds the clean witness execution and
 `expected_failure.run_index` binds the later mutant execution. The former must
-exit 0 and the latter must exit 101; `{101}` is the complete allowed-exit set,
-and no other nonzero run is accepted. Both commands independently select the
-same exact test with `[<selector>, "--exact"]`, carry the same environment
-allowlist, and name distinct shadow-built executables so the clean binary
-cannot be replayed as the mutant. The verifier independently recomputes
+exit 0. A `rust:` subject must fail with exactly `{101}`; a `python:` or `npm:`
+subject must fail with exactly `{1}`. Subjects use one of those three closed
+grammars before they select a command ABI. Rust commands name executables below
+the distinct `$BASELINE/target/` and `$MUTANT/target/` roots and select the same
+exact libtest. Python commands carry the exact two-root pytest ABI. Node
+commands name the same tool-relative path below distinct
+`$BASELINE/node_modules/` and `$MUTANT/node_modules/` roots and carry the exact
+vitest selector. Every pair carries the same environment allowlist, so no
+subject prefix or argument prefix can select another language's weaker check
+and no clean executable can be replayed as the mutant. The verifier
+independently recomputes
 `mutation_sha256` as
 `sha256(proofbound-mutation/2 || NUL || canonical(material))`, where `material`
 contains `mutation_id`, `subject`, `guard`, `check_id`, the complete four input

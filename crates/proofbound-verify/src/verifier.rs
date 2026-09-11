@@ -2081,8 +2081,10 @@ fn mutation_witness_valid(
         .iter()
         .map(|artifact| artifact.logical_name.as_str())
         .collect::<BTreeSet<_>>();
-    let is_node = witness.subject.starts_with("npm:");
-    let is_python = witness.subject.starts_with("python:");
+    let Some(subject_kind) = mutation_subject_kind(&witness.subject) else {
+        return false;
+    };
+    let is_node = subject_kind == MutationSubjectKind::Node;
     let expected_input_count = input_roles.len() + usize::from(is_node) * 2;
     let input_roles_are_exact = evidence.provenance.input_artifacts.len() == expected_input_count
         && input_role_names.len() == input_roles.len()
@@ -2109,7 +2111,14 @@ fn mutation_witness_valid(
     let singleton_inventory =
         evidence.inventoried_targets == BTreeSet::from([witness.mutation_id.clone()]);
     let singleton_unit = evidence.unit_id == format!("unit:{}", witness.mutation_id);
-    let expected_exit = if is_python || is_node { 1 } else { 101 };
+    let expected_exit = if matches!(
+        subject_kind,
+        MutationSubjectKind::Python | MutationSubjectKind::Node
+    ) {
+        1
+    } else {
+        101
+    };
     let expected_failure_is_exact = witness.expected_failure.allowed_exit_codes
         == BTreeSet::from([expected_exit])
         && witness.baseline_run_index < witness.expected_failure.run_index;
@@ -2127,24 +2136,33 @@ fn mutation_witness_valid(
         baseline_command
             .zip(mutant_command)
             .is_some_and(|(baseline, mutant)| {
-                (if is_node {
-                    baseline.program == mutant.program && baseline.args == mutant.args
-                } else if is_python {
-                    python_mutation_command_runs_exact_check(
-                        baseline,
-                        "$BASELINE",
-                        &witness.check_id,
-                    ) && python_mutation_command_runs_exact_check(
-                        mutant,
-                        "$MUTANT",
-                        &witness.check_id,
-                    )
-                } else {
-                    baseline.program != mutant.program || baseline.args != mutant.args
+                (match subject_kind {
+                    MutationSubjectKind::Node => {
+                        node_mutation_commands_run_exact_check(baseline, mutant, &witness.check_id)
+                    }
+                    MutationSubjectKind::Python => {
+                        python_mutation_command_runs_exact_check(
+                            baseline,
+                            "$BASELINE",
+                            &witness.check_id,
+                        ) && python_mutation_command_runs_exact_check(
+                            mutant,
+                            "$MUTANT",
+                            &witness.check_id,
+                        )
+                    }
+                    MutationSubjectKind::Rust => {
+                        rust_mutation_command_runs_exact_check(
+                            baseline,
+                            "$BASELINE",
+                            &witness.check_id,
+                        ) && rust_mutation_command_runs_exact_check(
+                            mutant,
+                            "$MUTANT",
+                            &witness.check_id,
+                        )
+                    }
                 }) && baseline.environment_allowlist == mutant.environment_allowlist
-                    && (is_python
-                        || (command_runs_exact_check(baseline, &witness.check_id)
-                            && command_runs_exact_check(mutant, &witness.check_id)))
             });
     let passed_run_shape = evidence.outcome != EvidenceOutcome::Passed
         || (baseline_run.is_some_and(|run| run.exit_code == Some(0))
@@ -2198,6 +2216,115 @@ fn mutation_witness_valid(
         && affected_claim_subjects_match
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum MutationSubjectKind {
+    Rust,
+    Python,
+    Node,
+}
+
+fn mutation_subject_kind(value: &str) -> Option<MutationSubjectKind> {
+    if valid_rust_mutation_subject(value) {
+        Some(MutationSubjectKind::Rust)
+    } else if valid_python_mutation_subject(value) {
+        Some(MutationSubjectKind::Python)
+    } else if valid_node_mutation_subject(value) {
+        Some(MutationSubjectKind::Node)
+    } else {
+        None
+    }
+}
+
+fn valid_rust_mutation_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("rust:") else {
+        return false;
+    };
+    let (package, symbol) = value
+        .split_once("::")
+        .map_or((value, None), |(package, symbol)| (package, Some(symbol)));
+    valid_mutation_subject_package(package, true)
+        && symbol.is_none_or(|symbol| symbol.split("::").all(valid_mutation_subject_identifier))
+}
+
+fn valid_python_mutation_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("python:") else {
+        return false;
+    };
+    let (distribution, symbol) = value
+        .split_once("::")
+        .map_or((value, None), |(name, symbol)| (name, Some(symbol)));
+    valid_python_mutation_distribution(distribution)
+        && symbol.is_none_or(|symbol| symbol.split('.').all(valid_mutation_subject_identifier))
+}
+
+fn valid_node_mutation_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("npm:") else {
+        return false;
+    };
+    let (package, export) = value
+        .split_once("::")
+        .map_or((value, None), |(package, export)| (package, Some(export)));
+    !package.is_empty()
+        && package.len() <= 214
+        && package
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        && package.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+        })
+        && export.is_none_or(|export| export.split('.').all(valid_mutation_javascript_identifier))
+}
+
+fn valid_mutation_subject_package(value: &str, allow_underscore: bool) -> bool {
+    !value.is_empty()
+        && value.len() <= 214
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || byte == b'-'
+                || (allow_underscore && byte == b'_')
+        })
+}
+
+fn valid_python_mutation_distribution(value: &str) -> bool {
+    value.len() <= 214
+        && value.split('-').enumerate().all(|(index, segment)| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                && (index != 0
+                    || segment
+                        .bytes()
+                        .next()
+                        .is_some_and(|byte| byte.is_ascii_lowercase()))
+        })
+}
+
+fn valid_mutation_subject_identifier(value: &str) -> bool {
+    value.len() <= 256
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+        && value
+            .bytes()
+            .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+}
+
+fn valid_mutation_javascript_identifier(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$'))
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+}
+
 fn mutation_subject_node(subject: &str) -> String {
     let digest = raw_sha256(subject.as_bytes());
     format!(
@@ -2248,20 +2375,46 @@ fn python_mutation_command_runs_exact_check(
             ]
 }
 
-fn command_runs_exact_check(command: &crate::CommandReceipt, check_id: &str) -> bool {
-    if command.args.first().map(String::as_str) == Some("run") {
-        return vitest_command_runs_exact_check(command, check_id);
-    }
-    if command.args.windows(2).any(|pair| pair == ["-m", "pytest"]) {
-        return command
-            .args
-            .last()
-            .is_some_and(|argument| argument.ends_with(check_id));
-    }
+fn rust_mutation_command_runs_exact_check(
+    command: &crate::CommandReceipt,
+    root: &str,
+    check_id: &str,
+) -> bool {
     let selector = check_id
         .split_once("::")
         .map_or(check_id, |(_, selector)| selector);
-    command.args == [selector, "--exact"]
+    shadow_program_tail(&command.program, root, "target").is_some()
+        && command.args == [selector, "--exact"]
+}
+
+fn node_mutation_commands_run_exact_check(
+    baseline: &crate::CommandReceipt,
+    mutant: &crate::CommandReceipt,
+    check_id: &str,
+) -> bool {
+    let baseline_tool = shadow_program_tail(&baseline.program, "$BASELINE", "node_modules");
+    let mutant_tool = shadow_program_tail(&mutant.program, "$MUTANT", "node_modules");
+    baseline_tool.is_some()
+        && baseline_tool == mutant_tool
+        && vitest_command_runs_exact_check(baseline, check_id)
+        && vitest_command_runs_exact_check(mutant, check_id)
+}
+
+fn shadow_program_tail<'a>(program: &'a str, root: &str, first: &str) -> Option<&'a str> {
+    let tail = program.strip_prefix(root)?.strip_prefix('/')?;
+    let mut components = tail.split('/');
+    if components.next()? != first
+        || components.clone().next().is_none()
+        || components.any(|component| {
+            component.is_empty()
+                || matches!(component, "." | "..")
+                || component.contains('\\')
+                || component.chars().any(char::is_control)
+        })
+    {
+        return None;
+    }
+    Some(tail)
 }
 
 fn vitest_command_runs_exact_check(command: &crate::CommandReceipt, check_id: &str) -> bool {

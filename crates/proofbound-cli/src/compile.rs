@@ -3051,7 +3051,12 @@ fn mutation_command_shape_valid(
 ) -> bool {
     match adapter {
         AdapterKind::NodeTest => {
-            baseline.program == mutant.program
+            let baseline_tool =
+                mutation_shadow_program_tail(&baseline.program, "$BASELINE", "node_modules");
+            let mutant_tool =
+                mutation_shadow_program_tail(&mutant.program, "$MUTANT", "node_modules");
+            baseline_tool.is_some()
+                && baseline_tool == mutant_tool
                 && baseline.args == mutant.args
                 && baseline.args.len() >= 5
                 && baseline.args.first().map(String::as_str) == Some("run")
@@ -3088,12 +3093,30 @@ fn mutation_command_shape_valid(
             let selector = check_id
                 .split_once("::")
                 .map_or(check_id, |(_, selector)| selector);
-            baseline.program != mutant.program
+            mutation_shadow_program_tail(&baseline.program, "$BASELINE", "target").is_some()
+                && mutation_shadow_program_tail(&mutant.program, "$MUTANT", "target").is_some()
                 && baseline.args == [selector, "--exact"]
                 && mutant.args == [selector, "--exact"]
         }
         _ => false,
     }
+}
+
+fn mutation_shadow_program_tail<'a>(program: &'a str, root: &str, first: &str) -> Option<&'a str> {
+    let tail = program.strip_prefix(root)?.strip_prefix('/')?;
+    let mut components = tail.split('/');
+    if components.next()? != first
+        || components.clone().next().is_none()
+        || components.any(|component| {
+            component.is_empty()
+                || matches!(component, "." | "..")
+                || component.contains('\\')
+                || component.chars().any(char::is_control)
+        })
+    {
+        return None;
+    }
+    Some(tail)
 }
 
 fn trusted_transcription_from_observation(
@@ -7200,6 +7223,38 @@ description = {description:?}
             &baseline,
             &replayed_baseline,
             "tests/test_subject.py::test_guard"
+        ));
+
+        let node_args = vec![
+            "run".to_owned(),
+            "src/guard.test.ts".to_owned(),
+            "--reporter=json".to_owned(),
+            "--testNamePattern".to_owned(),
+            "^guard rejects invalid input$".to_owned(),
+        ];
+        let node_baseline = CommandObservation {
+            program: "$BASELINE/node_modules/vitest/vitest.mjs".to_owned(),
+            args: node_args.clone(),
+            environment_allowlist: Vec::new(),
+        };
+        let node_mutant = CommandObservation {
+            program: "$MUTANT/node_modules/vitest/vitest.mjs".to_owned(),
+            args: node_args,
+            environment_allowlist: Vec::new(),
+        };
+        assert!(mutation_command_shape_valid(
+            AdapterKind::NodeTest,
+            &node_baseline,
+            &node_mutant,
+            "src/guard.test.ts::guard > rejects invalid input"
+        ));
+        let mut node_replay = node_mutant;
+        node_replay.program = node_baseline.program.clone();
+        assert!(!mutation_command_shape_valid(
+            AdapterKind::NodeTest,
+            &node_baseline,
+            &node_replay,
+            "src/guard.test.ts::guard > rejects invalid input"
         ));
     }
 

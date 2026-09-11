@@ -408,12 +408,12 @@ fn mutation_release() -> CompiledRelease {
     record.provenance.generated_artifacts = vec![target_postimage.clone()];
     record.provenance.commands = vec![
         CommandReceipt {
-            program: "/baseline/target/debug/deps/guard_witnesses-a1".into(),
+            program: "$BASELINE/target/debug/deps/guard_witnesses-a1".into(),
             args: vec!["guard_is_enforced".into(), "--exact".into()],
             environment_allowlist: Vec::new(),
         },
         CommandReceipt {
-            program: "/mutant/target/debug/deps/guard_witnesses-b2".into(),
+            program: "$MUTANT/target/debug/deps/guard_witnesses-b2".into(),
             args: vec!["guard_is_enforced".into(), "--exact".into()],
             environment_allowlist: Vec::new(),
         },
@@ -486,12 +486,12 @@ fn node_mutation_release() -> CompiledRelease {
     ];
     record.provenance.commands = vec![
         CommandReceipt {
-            program: "node_modules/.bin/vitest".into(),
+            program: "$BASELINE/node_modules/.bin/vitest".into(),
             args: args.clone(),
             environment_allowlist: Vec::new(),
         },
         CommandReceipt {
-            program: "node_modules/.bin/vitest".into(),
+            program: "$MUTANT/node_modules/.bin/vitest".into(),
             args,
             environment_allowlist: Vec::new(),
         },
@@ -941,6 +941,21 @@ fn mutation_replay_is_singleton_hash_bound_and_truthful() {
     rehash_first_evidence(&mut wrong_selector);
     assert_invalid(&wrong_selector);
 
+    let mut pytest_prefix_injection = mutation_release();
+    for command in &mut pytest_prefix_injection.evidence[0]
+        .record
+        .provenance
+        .commands
+    {
+        command.args = vec![
+            "-m".into(),
+            "pytest".into(),
+            "guard_witnesses::guard_is_enforced".into(),
+        ];
+    }
+    rehash_first_evidence(&mut pytest_prefix_injection);
+    assert_invalid(&pytest_prefix_injection);
+
     let mut extra_input = mutation_release();
     extra_input.evidence[0]
         .record
@@ -1044,6 +1059,14 @@ fn node_mutation_receipt_requires_exact_vitest_abi_and_package_inputs() {
     wrong_exit.evidence[0].record.provenance.runs[1].exit_code = Some(101);
     rehash_first_evidence(&mut wrong_exit);
     assert!(verify_compiled_release(&wrong_exit).is_err());
+
+    let mut replayed_baseline = node_mutation_release();
+    let baseline_program = replayed_baseline.evidence[0].record.provenance.commands[0]
+        .program
+        .clone();
+    replayed_baseline.evidence[0].record.provenance.commands[1].program = baseline_program;
+    rehash_first_evidence(&mut replayed_baseline);
+    assert!(verify_compiled_release(&replayed_baseline).is_err());
 
     let mut missing_lock = node_mutation_release();
     missing_lock.evidence[0]

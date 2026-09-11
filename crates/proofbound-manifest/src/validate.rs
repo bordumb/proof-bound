@@ -1277,6 +1277,11 @@ fn validate_mutation_replays(bundle: &ProjectBundle) -> Result<(), SemanticError
                     .to_owned(),
             ));
         }
+        if unit.adapter == AdapterKind::RustTest && !valid_rust_subject(&registry.subject) {
+            return Err(fail(
+                "Rust mutation subject must use the rust:crate[::module::item] grammar".to_owned(),
+            ));
+        }
         if unit.adapter == AdapterKind::PythonTest && !valid_python_subject(&registry.subject) {
             return Err(fail(
                 "Python mutation subject must use the python:distribution[::module.qualname] grammar"
@@ -2137,6 +2142,25 @@ fn valid_pytest_node(value: &str) -> bool {
                 && !segment.starts_with('-')
                 && !segment.chars().any(char::is_control)
         })
+}
+
+fn valid_rust_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("rust:") else {
+        return false;
+    };
+    let (package, symbol) = value
+        .split_once("::")
+        .map_or((value, None), |(package, symbol)| (package, Some(symbol)));
+    let package_valid = !package.is_empty()
+        && package.len() <= 214
+        && package
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && package.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        });
+    package_valid && symbol.is_none_or(|symbol| symbol.split("::").all(valid_rust_identifier))
 }
 
 fn valid_python_subject(value: &str) -> bool {
