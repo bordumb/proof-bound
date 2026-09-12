@@ -158,9 +158,7 @@ can deserialize the member directly. The theorem detail carries declaration,
 encoding, complete canonical statement wire and statement digest, attributed
 claim, environment, exact foundational/project axioms,
 `contains_sorry_ax=false`, and the evaluation mode.
-Execute-mode provenance records a bounded `lake build <audited-module>` before
-the audit so sealed trees cannot reuse ambient `.lake` outputs. Provenance then
-binds the Git revision/tree state, exact semantic inputs and output
+Provenance binds the Git revision/tree state, exact semantic inputs and output
 artifacts, source closure, audit and adapter executable identities, typed
 commands and their aligned run records, a required normalization identifier, a
 separate typed reproduction command, timestamps, result/configuration
