@@ -208,7 +208,7 @@ impl Deadline {
         budget
             .checked_sub(elapsed)
             .filter(|remaining| !remaining.is_zero())
-            .ok_or(NodeError::Budget("time budget exhausted".to_owned()))
+            .ok_or(NodeError::Timeout(self.budget_ms))
     }
 }
 
@@ -265,7 +265,9 @@ impl Executor for RealExecutor {
                 let _ = child.wait();
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
-                return Err(NodeError::Budget("child command timed out".to_owned()));
+                return Err(NodeError::Timeout(
+                    u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                ));
             }
             thread::sleep(Duration::from_millis(10));
         };
@@ -306,6 +308,8 @@ enum NodeError {
     Inventory(String),
     #[error("Node tool failed: {0}")]
     ToolFailed(String),
+    #[error("tool exceeded its {0} ms time budget")]
+    Timeout(u64),
     #[error("resource budget exceeded: {0}")]
     Budget(String),
     #[error("internal adapter error: {0}")]
@@ -339,6 +343,10 @@ impl NodeError {
             Self::ToolFailed(_) => (
                 "PB-NODE-1007",
                 "reproduce the exact typed operation and fix its failure",
+            ),
+            Self::Timeout(_) => (
+                "PB-ADAPTER-0010",
+                "reduce the bounded workload or increase its reviewed time budget",
             ),
             Self::Budget(_) => (
                 "PB-NODE-1008",
@@ -635,10 +643,7 @@ fn execute_request<E: Executor>(
     }
     let time_ms = elapsed_ms(started);
     if time_ms > budget.time_ms {
-        return Err(NodeError::Budget(format!(
-            "adapter execution used {time_ms} ms, limit is {}",
-            budget.time_ms
-        )));
+        return Err(NodeError::Timeout(budget.time_ms));
     }
     let commands = specs
         .iter()
@@ -2717,6 +2722,18 @@ fn unix_ms() -> Result<u64, NodeError> {
 mod tests {
     use super::*;
     use flate2::{Compression, write::GzEncoder};
+
+    #[test]
+    fn timeout_and_resource_budget_have_distinct_diagnostics() {
+        assert_eq!(
+            NodeError::Timeout(900_000).diagnostic().code,
+            "PB-ADAPTER-0010"
+        );
+        assert_eq!(
+            NodeError::Budget("disk".to_owned()).diagnostic().code,
+            "PB-NODE-1008"
+        );
+    }
 
     fn write_node_metadata(root: &Path, dependency: &str, integrity: Option<&str>) {
         fs::write(

@@ -16,6 +16,7 @@ use proofbound_manifest::{
 use serde::Deserialize;
 
 const MAX_ADAPTER_OUTPUT: u64 = 16 << 20;
+pub(crate) const TIMEOUT_DIAGNOSTIC_CODE: &str = "PB-ADAPTER-0010";
 
 pub(crate) fn invoke(
     root: &Path,

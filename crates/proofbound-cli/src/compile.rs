@@ -1909,13 +1909,14 @@ fn execute_or_reuse(
     let request_unit = adapter_unit(context.root, context.bundle, unit)?;
     let response = adapter::invoke(context.root, unit, "check", request_unit)?;
     if !response.success {
+        let outcome = adapter_response_outcome(&response);
         return Ok((
             None,
             UnitRun {
                 unit_id: unit.id.clone(),
                 adapter: response.adapter,
                 cache_key: cache_key.into(),
-                outcome: "failed".into(),
+                outcome: outcome.into(),
                 evidence_sha256: None,
                 inventory: response.inventory,
                 diagnostics: response.diagnostics,
@@ -1952,6 +1953,18 @@ fn execute_or_reuse(
             diagnostics: response.diagnostics,
         },
     ))
+}
+
+fn adapter_response_outcome(response: &AdapterResponse) -> &'static str {
+    if response
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == adapter::TIMEOUT_DIAGNOSTIC_CODE)
+    {
+        "timeout"
+    } else {
+        "failed"
+    }
 }
 
 fn adapter_execution_diagnostic(error: &anyhow::Error) -> AdapterDiagnostic {
@@ -6713,6 +6726,29 @@ fn map_evidence_set(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn timeout_diagnostic_produces_distinct_unit_outcome() {
+        let mut response = AdapterResponse {
+            schema: "proofbound-adapter-protocol/1".to_owned(),
+            message_type: "response".to_owned(),
+            request_id: "00000000000000000000000000000000".to_owned(),
+            adapter: "fixture".to_owned(),
+            success: false,
+            evidence: None,
+            inventory: Vec::new(),
+            diagnostics: vec![AdapterDiagnostic {
+                code: adapter::TIMEOUT_DIAGNOSTIC_CODE.to_owned(),
+                message: "timed out".to_owned(),
+                path: None,
+                remediation: None,
+            }],
+        };
+        assert_eq!(adapter_response_outcome(&response), "timeout");
+
+        response.diagnostics[0].code = "PB-KANI-1002".to_owned();
+        assert_eq!(adapter_response_outcome(&response), "failed");
+    }
 
     #[derive(Debug, serde::Deserialize)]
     #[serde(deny_unknown_fields)]

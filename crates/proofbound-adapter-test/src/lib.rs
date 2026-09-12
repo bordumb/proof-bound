@@ -559,7 +559,11 @@ impl AdapterError {
                 "PB-TEST-1001",
                 "install the pinned Rust/Python test toolchain and expose it through the declared environment",
             ),
-            Self::Timeout(_) | Self::Budget(_) => (
+            Self::Timeout(_) => (
+                "PB-ADAPTER-0010",
+                "reduce the bounded workload or increase its reviewed time budget",
+            ),
+            Self::Budget(_) => (
                 "PB-TEST-1002",
                 "review the workload and increase the evidence-unit budget if justified",
             ),
@@ -5223,6 +5227,18 @@ fn truncate_message(message: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn timeout_and_resource_budget_have_distinct_diagnostics() {
+        assert_eq!(
+            AdapterError::Timeout(900_000).diagnostic().code,
+            "PB-ADAPTER-0010"
+        );
+        assert_eq!(
+            AdapterError::Budget("disk".to_owned()).diagnostic().code,
+            "PB-TEST-1002"
+        );
+    }
 
     fn checker_unit(adapter: &str, kind: &str, operation: &str) -> EvidenceUnitManifest {
         let mut value = json!({

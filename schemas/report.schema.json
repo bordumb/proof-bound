@@ -21,7 +21,7 @@
           "unit_id": { "type": "string", "minLength": 1 },
           "adapter": { "type": "string", "minLength": 1 },
           "cache_key": { "type": "string", "minLength": 1 },
-          "outcome": { "enum": ["verified-now", "verified-from-cache", "failed", "unavailable", "protocol-failed"] },
+          "outcome": { "enum": ["verified-now", "verified-from-cache", "failed", "unavailable", "protocol-failed", "timeout"] },
           "evidence_sha256": { "type": ["string", "null"] },
           "inventory": { "type": "array", "items": { "type": "string" }, "uniqueItems": true, "maxItems": 100000 },
           "diagnostics": {

@@ -321,7 +321,11 @@ impl AdapterError {
                 "PB-KANI-1001",
                 "install the pinned Kani toolchain and ensure `cargo` is on the allowed PATH",
             ),
-            Self::Timeout(_) | Self::Budget(_) => (
+            Self::Timeout(_) => (
+                "PB-ADAPTER-0010",
+                "reduce the bounded workload or increase its reviewed time budget",
+            ),
+            Self::Budget(_) => (
                 "PB-KANI-1002",
                 "increase the unit budget only after review, or reduce the bounded workload",
             ),
@@ -1454,6 +1458,18 @@ fn truncate_message(message: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn timeout_and_resource_budget_have_distinct_diagnostics() {
+        assert_eq!(
+            AdapterError::Timeout(900_000).diagnostic().code,
+            "PB-ADAPTER-0010"
+        );
+        assert_eq!(
+            AdapterError::Budget("disk".to_owned()).diagnostic().code,
+            "PB-KANI-1002"
+        );
+    }
 
     #[derive(Default)]
     struct FakeExecutor {
