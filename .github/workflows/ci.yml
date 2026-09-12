@@ -57,6 +57,13 @@ jobs:
         with:
           python-version-file: .python-version
 
+      - name: Install the pinned Node.js toolchain
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.3.0"
+          cache: npm
+          cache-dependency-path: demo/typescript-codec/package-lock.json
+
       - name: Install pinned Python environment tools
         uses: astral-sh/setup-uv@v6
         with:
