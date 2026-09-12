@@ -1732,7 +1732,8 @@ Every translation path is a portable, slash-normalized sequence of non-empty
 printable-ASCII components. Backslash, control or non-ASCII bytes, absolute
 paths, `.`, `..`, doubled separators, and trailing separators are forbidden,
 as are the project-control components `.git`, `target`, `.lake`, `.proofbound`,
-`.venv`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, and `.ruff_cache`. The
+`.venv`, `node_modules`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, and
+`.ruff_cache`. The
 complete UTF-8 encoding is at most 4096 bytes. Printable ASCII is a deliberate
 cross-platform choice: it makes the JSON Schema character bound and the runtime
 byte bound identical. A unit has at most 4096 invocations, claims, and entries

@@ -510,6 +510,7 @@ pub const TRANSLATION_RESERVED_PATH_COMPONENTS: &[&str] = &[
     ".lake",
     ".proofbound",
     ".venv",
+    "node_modules",
     "__pycache__",
     ".pytest_cache",
     ".mypy_cache",

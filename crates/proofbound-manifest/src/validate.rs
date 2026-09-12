@@ -2986,6 +2986,7 @@ mod tests {
             "claims/café.toml",
             ".git/objects",
             "lean/target/Funs.lean",
+            "generated/node_modules/tool.js",
         ] {
             assert!(
                 translation_path("x", invalid).is_err(),

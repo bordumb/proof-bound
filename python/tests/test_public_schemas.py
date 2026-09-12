@@ -657,6 +657,7 @@ def test_translation_unit_v3_schema_closes_invocations_outputs_and_report_invent
         "lean/Généré",
         ".git/Generated",
         "lean/target/Generated",
+        "lean/node_modules/Generated",
         "a" * 4097,
     ]:
         unsafe_path = json.loads(json.dumps(translation))
