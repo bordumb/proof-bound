@@ -60,6 +60,24 @@ its one output; units without that boundary fail closed with an actionable
 version 2 evidence remain the same, but accepting version 1 requests or cached
 configuration identities would be a downgrade and is forbidden.
 
+## Trusted-computing-base shift
+
+The version 2 request deliberately moves Git provenance observation out of the
+Lean adapter. The adapter no longer opens repository metadata and independently
+derives the revision and clean/dirty state. Instead, it binds the
+`project_revision` and `tree_state` supplied by the orchestrator into both the
+configuration identity and the resulting evidence provenance.
+
+This makes the orchestrator's worktree observation, sealed-shadow construction,
+and request assembly part of the trusted computing base for Lean provenance. A
+wrong or hostile caller can otherwise assert a clean tree or false revision,
+and the adapter cannot detect that lie from the request alone. The change is
+accepted so sealed update trees do not require Git metadata, but it is not an
+independent provenance observation. Consumers must rely on the orchestrator and
+the independent release verifier to enforce the enclosing reviewed-tree and
+release bindings; the adapter proves only that the supplied values are carried
+unchanged into its versioned receipt identity.
+
 ## Required falsifiers
 
 - missing, foreign, or multiple output manifests are rejected;
