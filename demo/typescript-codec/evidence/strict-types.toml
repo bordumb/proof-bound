@@ -1,0 +1,20 @@
+schema = "proofbound-evidence-unit/1"
+id = "strict-types"
+adapter = "node-test"
+kind = "static-check"
+claims = ["TS-CODEC-001"]
+tier = 0
+assumptions = ["TS-RUNTIME-001"]
+expected_inventory = ["src/base64url.ts", "src/reject-padding.test.ts", "src/roundtrip.test.ts"]
+inputs = ["package-lock.json", "package.json", "src/base64url.ts", "src/reject-padding.test.ts", "src/roundtrip.test.ts", "tsconfig.json"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "tsc"
+configuration = "tsconfig.json"
+
+[resource_budget]
+time_seconds = 300
+disk_bytes = 1073741824
+memory_bytes = 2147483648

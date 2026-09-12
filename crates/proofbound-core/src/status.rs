@@ -1094,6 +1094,7 @@ fn validate_evidence_graph_node(
         | EvidenceKind::PropertyTest
         | EvidenceKind::ExampleTest
         | EvidenceKind::MutationWitness => &[NodeKind::TestSuite, NodeKind::ModelCheckUnit],
+        EvidenceKind::StaticCheck => &[NodeKind::TestSuite],
         EvidenceKind::Review => &[NodeKind::Review],
         EvidenceKind::Assumption => &[NodeKind::Assumption],
         EvidenceKind::Open => &[NodeKind::Claim],

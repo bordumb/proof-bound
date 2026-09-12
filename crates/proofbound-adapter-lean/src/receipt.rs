@@ -7,7 +7,7 @@ use std::{
 
 use proofbound_core::{
     ArtifactIdentity, ArtifactLogicalName, AssumptionId, CacheOrigin, ClaimId, CommandSpec,
-    EVIDENCE_SCHEMA_V3, EvaluationMode, EvidenceId, EvidenceKind, EvidenceProvenance,
+    EVIDENCE_SCHEMA_V4, EvaluationMode, EvidenceId, EvidenceKind, EvidenceProvenance,
     EvidenceRecord, EvidenceStatus, ExecutionKind, NodeId, PremiseId, ResourceBudget, Sha256Digest,
     TheoremEvidence, TreeState, UnitId,
 };
@@ -181,7 +181,7 @@ pub fn build_theorem_evidence(
         .map_err(|error| AdapterError::new(CONFIGURATION, format!("invalid node ID: {error}")))?;
 
     let record = EvidenceRecord {
-        schema: EVIDENCE_SCHEMA_V3.to_owned(),
+        schema: EVIDENCE_SCHEMA_V4.to_owned(),
         id: evidence_id,
         node_id,
         unit_id,
@@ -209,6 +209,9 @@ pub fn build_theorem_evidence(
         exhaustive_check: None,
         mutation_witness: None,
         independence: None,
+        static_check: None,
+        python_property: None,
+        distribution_reproduction: None,
         inventoried_targets: verified.inventory.clone(),
         assumptions,
         premises,
@@ -243,6 +246,7 @@ pub fn build_theorem_evidence(
             resource_usage: execution.resource_usage.clone(),
             cache_origin: CacheOrigin::Executed,
             prior_receipt_sha256: None,
+            python_plugins: Vec::new(),
         },
     };
     record.validate(&claim_id).map_err(|errors| {

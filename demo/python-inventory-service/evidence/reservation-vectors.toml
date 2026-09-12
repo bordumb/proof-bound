@@ -1,0 +1,22 @@
+schema = "proofbound-evidence-unit/1"
+id = "reservation-vectors"
+adapter = "independent-check"
+kind = "independent-check"
+claims = ["PY-RESERVATION-001"]
+tier = 1
+assumptions = ["PY-RUNTIME-001"]
+expected_inventory = ["reservation-vectors"]
+inputs = ["fixtures/reservations.json", "tools/check_reservations.py"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "independent-check"
+checker = "tools/check_reservations.py"
+arguments = ["fixtures/reservations.json"]
+paths = ["fixtures/reservations.json"]
+
+[resource_budget]
+time_seconds = 30
+disk_bytes = 134217728
+memory_bytes = 268435456

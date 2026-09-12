@@ -1,0 +1,25 @@
+schema = "proofbound-evidence-unit/4"
+id = "wheel-reproduction"
+adapter = "python-test"
+kind = "example-test"
+claims = ["PY-WHEEL-001"]
+tier = 0
+expected_inventory = ["dist/proofbound_python_inventory-0.1.0-py3-none-any.whl"]
+inputs = ["pyproject.toml", "src/inventory_service/__init__.py", "src/inventory_service/reservations.py"]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "python-distribution"
+
+[distribution]
+schema = "proofbound-distribution-reproduction/1"
+format = "wheel"
+artifact_name = "proofbound_python_inventory-0.1.0-py3-none-any.whl"
+artifact_sha256 = "sha256:35fdd1e89443b08d83bb3060e466010cd1b6937a0d2a0f5b37302051bda28be0"
+source_date_epoch = 315532800
+
+[resource_budget]
+time_seconds = 120
+disk_bytes = 536870912
+memory_bytes = 1073741824

@@ -332,7 +332,7 @@ fn compare_manifest_path(
             path,
             regressions,
         ),
-        Some("proofbound-mutation-registry/2") => compare_mutation_registries(
+        Some("proofbound-mutation-registry/3") => compare_mutation_registries(
             parse_at_schema(old_text.as_deref(), old_schema.as_deref(), path)?,
             parse_at_schema(new_text.as_deref(), new_schema.as_deref(), path)?,
             path,
@@ -1991,7 +1991,7 @@ claims = ["TEST-CLAIM-001"]
     #[test]
     fn mutation_registry_changes_are_never_silent() {
         let old: MutationRegistry = serde_json::from_value(json!({
-            "schema": "proofbound-mutation-registry/2",
+            "schema": "proofbound-mutation-registry/3",
             "subject": "rust:allowance_kernel::decide_transfer",
             "mutation": {
                 "id": "remove-cap-guard",

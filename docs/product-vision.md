@@ -409,6 +409,10 @@ low-context notifications engineers must process.
 
 ### Phase 4: win a narrow, painful market first
 
+(An exploratory companion, [notes/distribution-wedge.md](notes/distribution-wedge.md),
+records firsthand FOSDEM and Local-First demand signals and proposes an
+adoption wedge distinct from this paying wedge.)
+
 Start with teams for whom behavioural assurance and artifact identity are
 already expensive problems—and where overlapping tools already create costly
 notification fatigue:

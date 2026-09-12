@@ -1,6 +1,6 @@
 # Specification 0003: TypeScript Ecosystem Support
 
-**Status:** Draft for review
+**Status:** Initial implementation specification
 
 **Version:** 0.2.0
 
@@ -10,7 +10,7 @@
 
 **Process:** Proof-Driven Development (PDD)
 
-**Depends on:** Specification 0001, version 0.11.0 or later;
+**Depends on:** Specification 0001, version 0.12.0 or later;
 Specification 0002 §7.1 (the `static-check` evidence kind) and §7.4
 (analyzer admission criteria)
 
@@ -59,11 +59,10 @@ as evidence. Every route below derives its inventory from tool metadata,
 disables lifecycle scripts, and fails closed on anything it cannot
 inventory. A zero exit status is never evidence.
 
-## 2. Amendments to Specification 0001
+## 2. Adopted amendments to Specification 0001
 
-Adopting this specification requires a Specification 0001 revision
-entry; until then it is a proposal and none of its wire versions may
-ship.
+Specification 0001 version 0.12.0 adopts this specification's typed
+routes and wire contracts as follows.
 
 1. **§10.2 adapter inventory** gains the `node-test` adapter, executable
    `proofbound-adapter-node` (§4).
@@ -129,7 +128,7 @@ This specification MUST NOT:
   adapter layout: a stdin/stdout binary speaking
   `schemas/adapter-protocol.schema.json`, a cleared child environment
   with per-unit allowlists, bounded output drains, deadline enforcement,
-  and observations in `proofbound-adapter-observation/2`.
+  and observations in `proofbound-adapter-observation/3`.
 - Error family: `PB-NODE-NNNN`, following the 0001 §12.3 contract.
 - Operation vocabulary owned by this adapter (closed):
   `vitest` (§6), `tsc` (§7), `npm-package` (§8), and the `vitest`
@@ -154,7 +153,9 @@ Every Node evidence unit binds:
 
 `package-lock.json` MUST be present, parse as canonical JSON with
 `lockfileVersion >= 3`, and carry an `integrity` value for every
-depended-upon package entry. A missing lockfile, a missing integrity
+depended-upon package entry. An `inBundle = true` child MAY omit its own
+value only when a proper containing package entry carries the integrity
+that binds the bundled bytes. A missing lockfile, an otherwise missing integrity
 field, or a `file:`/`link:`/`git:` dependency is an unsupported
 capability failure in this version.
 

@@ -1,14 +1,17 @@
-//! Closed `proofbound-compiled-release/3` receipt format.
+//! Closed `proofbound-compiled-release/4` receipt format.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 pub const RELEASE_ENVELOPE_SCHEMA_V3: &str = "proofbound-release-envelope/3";
+pub const RELEASE_ENVELOPE_SCHEMA_V4: &str = "proofbound-release-envelope/4";
 pub const COMPILED_RELEASE_SCHEMA_V3: &str = "proofbound-compiled-release/3";
+pub const COMPILED_RELEASE_SCHEMA_V4: &str = "proofbound-compiled-release/4";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
+pub const EVIDENCE_SCHEMA_V4: &str = "proofbound-evidence/4";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const CLOSURE_SCHEMA_V1: &str = "proofbound-source-closure/1";
 pub const POLICY_SCHEMA_V1: &str = "proofbound-policy/1";
@@ -16,7 +19,11 @@ pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcript
 pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
 pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
 pub const MUTATION_WITNESS_SCHEMA_V2: &str = "proofbound-mutation-witness/2";
+pub const MUTATION_WITNESS_SCHEMA_V3: &str = "proofbound-mutation-witness/3";
 pub const MUTATION_IDENTITY_DOMAIN_V2: &str = "proofbound-mutation/2";
+pub const PYTHON_PROPERTY_SCHEMA_V1: &str = "proofbound-python-property/1";
+pub const STATIC_CHECK_SCHEMA_V1: &str = "proofbound-static-check/1";
+pub const DISTRIBUTION_REPRODUCTION_SCHEMA_V1: &str = "proofbound-distribution-reproduction/1";
 
 /// Small canonical index stored as `<release>/release.json`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -256,6 +263,7 @@ pub enum EvidenceKind {
     PropertyTest,
     ExampleTest,
     MutationWitness,
+    StaticCheck,
     Review,
     Assumption,
     Open,
@@ -539,6 +547,17 @@ pub struct EvidenceProvenance {
     pub reused_from: Option<String>,
     pub resource_budget: ResourceMeasure,
     pub actual_cost: ActualCostReceipt,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub python_plugins: Vec<PythonPluginReceipt>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPluginReceipt {
+    pub module: String,
+    pub distribution: String,
+    pub version: String,
+    pub origin_sha256: String,
 }
 
 /// Measured adapter cost; `None` means peak memory was not measured.
@@ -608,6 +627,12 @@ pub struct EvidenceReceipt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mutation_witness: Option<MutationWitnessReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_property: Option<PythonPropertyReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub static_check: Option<StaticCheckReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution_reproduction: Option<DistributionReproductionReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub independence: Option<IndependenceMode>,
     #[serde(default)]
     pub inventoried_targets: BTreeSet<String>,
@@ -618,6 +643,42 @@ pub struct EvidenceReceipt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_obligation: Option<OpenObligation>,
     pub provenance: EvidenceProvenance,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPropertyReceipt {
+    pub schema: String,
+    pub framework: String,
+    pub seed: u64,
+    pub framework_version: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StaticCheckReceipt {
+    pub schema: String,
+    pub tool: String,
+    pub tool_version: String,
+    pub configuration_sha256: String,
+    pub targets: BTreeSet<String>,
+    pub diagnostics: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DistributionReproductionReceipt {
+    pub schema: String,
+    pub format: String,
+    pub run_digests: Vec<String>,
+    pub registered_digest: String,
+    pub source_date_epoch: u64,
+    pub build_backend_name: String,
+    pub build_backend_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npm_integrity: Option<String>,
+    #[serde(default)]
+    pub member_inventory: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]

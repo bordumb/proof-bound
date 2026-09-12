@@ -196,7 +196,55 @@ pub struct EvidenceUnitManifest {
     pub transcription: Option<TrustedTranscriptionConfig>,
     #[serde(default)]
     pub mutation: Option<MutationReplayConfig>,
+    #[serde(default)]
+    pub property: Option<PythonPropertyConfig>,
+    #[serde(default)]
+    pub distribution: Option<DistributionReproductionConfig>,
     pub resource_budget: ResourceBudget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPropertyConfig {
+    pub schema: PythonPropertySchema,
+    pub framework: PythonPropertyFramework,
+    pub seed: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PythonPropertySchema {
+    #[serde(rename = "proofbound-python-property/1")]
+    Version1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PythonPropertyFramework {
+    Hypothesis,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DistributionReproductionConfig {
+    pub schema: DistributionReproductionSchema,
+    pub format: DistributionFormat,
+    pub artifact_name: String,
+    pub artifact_sha256: String,
+    pub source_date_epoch: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DistributionReproductionSchema {
+    #[serde(rename = "proofbound-distribution-reproduction/1")]
+    Version1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DistributionFormat {
+    Wheel,
+    Sdist,
+    NpmPackage,
 }
 
 /// Maximum number of exact targets one evidence-producing adapter may bind.
@@ -272,8 +320,9 @@ pub enum MutationReplaySchema {
 
 /// One exact, automatically replayable mutation registration.
 ///
-/// Version 2 deliberately has a singular `mutation` field. A registry cannot
-/// make several mutations share one evidence fate.
+/// Version 3 deliberately has a singular `mutation` field. A registry cannot
+/// make several mutations share one evidence fate. It supersedes version 2
+/// because the subject grammar was intentionally widened for Python and Node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MutationRegistry {
@@ -284,8 +333,8 @@ pub struct MutationRegistry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MutationRegistrySchema {
-    #[serde(rename = "proofbound-mutation-registry/2")]
-    Version2,
+    #[serde(rename = "proofbound-mutation-registry/3")]
+    Version3,
 }
 
 /// Exact preimage, full-file mutant, and detecting witness for one replay.
@@ -312,6 +361,7 @@ pub enum AdapterKind {
     Kani,
     RustTest,
     PythonTest,
+    NodeTest,
     CanonicalArtifact,
     SourceClosure,
     IndependentCheck,
@@ -326,6 +376,7 @@ impl AdapterKind {
             Self::CharonAeneas => "proofbound-adapter-aeneas",
             Self::Kani => "proofbound-adapter-kani",
             Self::RustTest | Self::PythonTest => "proofbound-adapter-test",
+            Self::NodeTest => "proofbound-adapter-node",
             Self::CanonicalArtifact
             | Self::IndependentCheck
             | Self::SourceClosure
@@ -348,6 +399,7 @@ pub enum EvidenceKind {
     PropertyTest,
     ExampleTest,
     MutationWitness,
+    StaticCheck,
     Review,
     Assumption,
     Open,
@@ -366,6 +418,7 @@ impl EvidenceKind {
             Self::PropertyTest => "property-test",
             Self::ExampleTest => "test",
             Self::MutationWitness => "mutation",
+            Self::StaticCheck => "static-check",
             Self::Review => "review",
             Self::Assumption => "assumption",
             Self::Open => "open",
@@ -401,6 +454,9 @@ pub struct AdapterOperation {
     pub manifest: Option<String>,
     pub inventory: Option<String>,
     pub checker: Option<String>,
+    pub configuration: Option<String>,
+    #[serde(default)]
+    pub plugins: Vec<String>,
     #[serde(default)]
     pub arguments: Vec<String>,
 }
@@ -419,6 +475,16 @@ pub enum OperationKind {
     Review,
     Closure,
     Transcription,
+    Mypy,
+    Pyright,
+    PythonDistribution,
+    Ty,
+    Pyrefly,
+    Ruff,
+    Vitest,
+    Tsc,
+    NpmPackage,
+    Tsgo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -444,6 +510,7 @@ pub const TRANSLATION_RESERVED_PATH_COMPONENTS: &[&str] = &[
     ".lake",
     ".proofbound",
     ".venv",
+    "node_modules",
     "__pycache__",
     ".pytest_cache",
     ".mypy_cache",

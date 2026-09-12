@@ -1,7 +1,8 @@
 use std::{collections::BTreeMap, fs, io, path::Path, process::Command, str};
 
 use anyhow::{Context, Result};
-use proofbound_manifest::{AdapterKind, ProjectBundle, ResourceBudget};
+use proofbound_evidence::sha256_bytes;
+use proofbound_manifest::{AdapterKind, OperationKind, ProjectBundle, ResourceBudget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize)]
@@ -80,26 +81,64 @@ struct UnitRequirement {
     manifest_kind: &'static str,
     id: String,
     budget: ResourceBudget,
-    capabilities: Vec<&'static str>,
+    capabilities: Vec<String>,
 }
 
 pub fn doctor(root: &Path, json: bool) -> Result<()> {
     let bundle = ProjectBundle::load(root).context("manifest validation failed")?;
     let executor = ProcessProbeExecutor;
-    let tools = vec![
+    let mut tools = vec![
         probe_standard(&executor, "git", "git", &["--version"]),
         probe_standard(&executor, "rustc", "rustc", &["--version"]),
         probe_standard(&executor, "cargo", "cargo", &["--version"]),
         probe_standard(&executor, "lean", "lean", &["--version"]),
         probe_standard(&executor, "lake", "lake", &["--version"]),
-        probe_standard(&executor, "python3", "python3", &["--version"]),
+        probe_python(&executor),
+        probe_standard(&executor, "node", "node", &["--version"]),
+        probe_standard(&executor, "npm", "npm", &["--version"]),
         // Kani is a Cargo subcommand; there is intentionally no `kani`
         // executable in a standard installation.
         probe_standard(&executor, "kani", "cargo", &["kani", "--version"]),
         probe_charon(&executor),
         probe_aeneas(&executor),
     ];
-    let capabilities = vec![translation_lock_capability(root, &bundle, &tools)];
+    let evidence_units = bundle.evidence_units.values().map(|(_, unit)| unit);
+    if evidence_units
+        .clone()
+        .any(|unit| unit.operation.kind == OperationKind::Pytest)
+    {
+        tools.push(probe_standard(
+            &executor,
+            "pytest",
+            "python3",
+            &["-m", "pytest", "--version"],
+        ));
+    }
+    if evidence_units
+        .clone()
+        .any(|unit| unit.operation.kind == OperationKind::Mypy)
+    {
+        tools.push(probe_standard(
+            &executor,
+            "mypy",
+            "python3",
+            &["-m", "mypy", "--version"],
+        ));
+    }
+    if evidence_units
+        .clone()
+        .any(|unit| unit.operation.kind == OperationKind::PythonDistribution)
+    {
+        tools.push(probe_standard(
+            &executor,
+            "python-build",
+            "python3",
+            &["-m", "build", "--version"],
+        ));
+    }
+    let mut capabilities = vec![translation_lock_capability(root, &bundle, &tools)];
+    capabilities.extend(python_plugin_capabilities(root, &bundle));
+    capabilities.extend(node_tool_capabilities(root, &bundle));
     let host_capacity = HostCapacity {
         disk_available: probe_disk_available(root),
         memory_capacity: probe_memory_capacity(),
@@ -161,17 +200,49 @@ fn collect_requirements(bundle: &ProjectBundle) -> Vec<UnitRequirement> {
     let mut requirements = Vec::new();
     for (_, unit) in bundle.evidence_units.values() {
         let capabilities = match unit.adapter {
-            AdapterKind::Lean => vec!["lean", "lake"],
+            AdapterKind::Lean => strings(&["lean", "lake"]),
             AdapterKind::CharonAeneas => {
-                vec!["cargo", "charon", "aeneas", "translation-toolchain-lock"]
+                strings(&["cargo", "charon", "aeneas", "translation-toolchain-lock"])
             }
-            AdapterKind::Kani => vec!["cargo", "kani"],
-            AdapterKind::PythonTest
-            | AdapterKind::CanonicalArtifact
+            AdapterKind::Kani => strings(&["cargo", "kani"]),
+            AdapterKind::PythonTest => {
+                let mut capabilities = strings(&["python3"]);
+                match unit.operation.kind {
+                    OperationKind::Pytest => {
+                        capabilities.push("pytest".to_owned());
+                        capabilities.extend(
+                            unit.operation
+                                .plugins
+                                .iter()
+                                .map(|module| python_plugin_capability_name(&unit.id, module)),
+                        );
+                    }
+                    OperationKind::Mypy => capabilities.push("mypy".to_owned()),
+                    OperationKind::PythonDistribution => {
+                        capabilities.push("python-build".to_owned());
+                    }
+                    _ => {}
+                }
+                capabilities
+            }
+            AdapterKind::CanonicalArtifact
             | AdapterKind::IndependentCheck
-            | AdapterKind::TrustedTranscription => vec!["python3"],
-            AdapterKind::RustTest => vec!["cargo", "rustc"],
-            AdapterKind::SourceClosure | AdapterKind::HumanReview => vec!["git"],
+            | AdapterKind::TrustedTranscription => strings(&["python3"]),
+            AdapterKind::NodeTest => {
+                let tool = match unit.operation.kind {
+                    OperationKind::Vitest => Some("vitest"),
+                    OperationKind::Tsc => Some("tsc"),
+                    OperationKind::NpmPackage => None,
+                    _ => None,
+                };
+                let mut capabilities = strings(&["node", "npm"]);
+                if let Some(tool) = tool {
+                    capabilities.push(format!("node-unit:{}:{tool}", unit.id));
+                }
+                capabilities
+            }
+            AdapterKind::RustTest => strings(&["cargo", "rustc"]),
+            AdapterKind::SourceClosure | AdapterKind::HumanReview => strings(&["git"]),
         };
         requirements.push(UnitRequirement {
             manifest_kind: "evidence",
@@ -185,7 +256,7 @@ fn collect_requirements(bundle: &ProjectBundle) -> Vec<UnitRequirement> {
             manifest_kind: "translation",
             id: unit.id.clone(),
             budget: unit.resource_budget,
-            capabilities: vec!["cargo", "charon", "aeneas", "translation-toolchain-lock"],
+            capabilities: strings(&["cargo", "charon", "aeneas", "translation-toolchain-lock"]),
         });
     }
     for (_, unit) in bundle.model_check_units.values() {
@@ -193,13 +264,146 @@ fn collect_requirements(bundle: &ProjectBundle) -> Vec<UnitRequirement> {
             manifest_kind: "model-check",
             id: unit.id.clone(),
             budget: unit.resource_budget,
-            capabilities: vec!["cargo", "kani"],
+            capabilities: strings(&["cargo", "kani"]),
         });
     }
     requirements.sort_by(|left, right| {
         (left.manifest_kind, &left.id).cmp(&(right.manifest_kind, &right.id))
     });
     requirements
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_owned()).collect()
+}
+
+fn python_plugin_capability_name(unit: &str, module: &str) -> String {
+    format!("python-unit:{unit}:plugin:{module}")
+}
+
+fn python_plugin_capabilities(root: &Path, bundle: &ProjectBundle) -> Vec<CapabilityProbe> {
+    const IMPORT_PLUGIN: &str = "import importlib,sys; importlib.import_module(sys.argv[1])";
+
+    bundle
+        .evidence_units
+        .values()
+        .flat_map(|(_, unit)| {
+            unit.operation.plugins.iter().map(move |module| {
+                let capability = python_plugin_capability_name(&unit.id, module);
+                let mut command = Command::new("python3");
+                command
+                    .args(["-c", IMPORT_PLUGIN, module])
+                    .current_dir(root)
+                    .env_clear()
+                    .env("PYTHONDONTWRITEBYTECODE", "1")
+                    .env("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1");
+                for name in &unit.environment_allowlist {
+                    if let Some(value) = std::env::var_os(name) {
+                        command.env(name, value);
+                    }
+                }
+                match command.output() {
+                    Ok(output) if output.status.success() => CapabilityProbe {
+                        capability,
+                        available: true,
+                        detail: format!(
+                            "registered module `{module}` imports in the unit environment"
+                        ),
+                    },
+                    Ok(output) => CapabilityProbe {
+                        capability,
+                        available: false,
+                        detail: format!(
+                            "registered module `{module}` is not importable: {}",
+                            diagnostic_text(&output.stderr, &output.stdout)
+                        ),
+                    },
+                    Err(error) => CapabilityProbe {
+                        capability,
+                        available: false,
+                        detail: format!("could not probe registered module `{module}`: {error}"),
+                    },
+                }
+            })
+        })
+        .collect()
+}
+
+fn node_tool_capabilities(root: &Path, bundle: &ProjectBundle) -> Vec<CapabilityProbe> {
+    bundle
+        .evidence_units
+        .values()
+        .filter_map(|(_, unit)| {
+            if unit.adapter != AdapterKind::NodeTest {
+                return None;
+            }
+            let tool = match unit.operation.kind {
+                OperationKind::Vitest => "vitest",
+                OperationKind::Tsc => "tsc",
+                OperationKind::NpmPackage => return None,
+                _ => return None,
+            };
+            let capability = format!("node-unit:{}:{tool}", unit.id);
+            let candidate = root.join("node_modules/.bin").join(tool);
+            let failure = |detail: String| CapabilityProbe {
+                capability: capability.clone(),
+                available: false,
+                detail,
+            };
+            let metadata = match fs::symlink_metadata(&candidate) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    return Some(failure(format!(
+                        "{} is unavailable; doctor never installs dependencies: {error}",
+                        candidate.display()
+                    )));
+                }
+            };
+            if !metadata.is_file() && !metadata.file_type().is_symlink() {
+                return Some(failure(format!(
+                    "{} is not a regular file or in-tree link",
+                    candidate.display()
+                )));
+            }
+            let node_modules = match root.join("node_modules").canonicalize() {
+                Ok(path) => path,
+                Err(error) => {
+                    return Some(failure(format!(
+                        "node_modules cannot be resolved without installing: {error}"
+                    )));
+                }
+            };
+            let resolved = match candidate.canonicalize() {
+                Ok(path) => path,
+                Err(error) => {
+                    return Some(failure(format!(
+                        "{} cannot be resolved: {error}",
+                        candidate.display()
+                    )));
+                }
+            };
+            if !resolved.starts_with(&node_modules) || !resolved.is_file() {
+                return Some(failure(format!(
+                    "{} resolves outside node_modules",
+                    candidate.display()
+                )));
+            }
+            let bytes = match fs::read(&resolved) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return Some(failure(format!(
+                        "{} cannot be read: {error}",
+                        resolved.display()
+                    )));
+                }
+            };
+            Some(CapabilityProbe {
+                capability,
+                available: true,
+                detail: format!("{} ({})", resolved.display(), sha256_bytes(&bytes)),
+            })
+        })
+        .collect()
 }
 
 fn assess_unit(
@@ -219,9 +423,9 @@ fn assess_unit(
     let mut blockers = Vec::new();
     for capability in &requirement.capabilities {
         let available = tool_availability
-            .get(capability)
+            .get(capability.as_str())
             .copied()
-            .or_else(|| capability_availability.get(capability).copied())
+            .or_else(|| capability_availability.get(capability.as_str()).copied())
             .unwrap_or(false);
         if !available {
             blockers.push(format!("required capability '{capability}' is unavailable"));
@@ -243,11 +447,7 @@ fn assess_unit(
     UnitAffordability {
         manifest_kind: requirement.manifest_kind,
         unit: requirement.id,
-        required_capabilities: requirement
-            .capabilities
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
+        required_capabilities: requirement.capabilities.into_iter().collect(),
         declared_time_seconds: requirement.budget.time_seconds,
         declared_disk_bytes: requirement.budget.disk_bytes,
         declared_memory_bytes: requirement.budget.memory_bytes,
@@ -344,6 +544,74 @@ fn probe_standard(
         tool,
         truncate(if stdout.is_empty() { stderr } else { stdout }),
     )
+}
+
+fn probe_python(executor: &dyn ProbeExecutor) -> ToolProbe {
+    let mut probe = probe_standard(executor, "python3", "python3", &["--version"]);
+    if !probe.available {
+        return probe;
+    }
+    let resolved = match resolve_on_path("python3").and_then(resolve_unambiguous_executable) {
+        Ok(path) => path,
+        Err(error) => {
+            return failed_tool_probe(
+                "python3",
+                ToolState::Misconfigured,
+                &format!("could not resolve the interpreter identity: {error}"),
+            );
+        }
+    };
+    let bytes = match fs::read(&resolved) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return failed_tool_probe(
+                "python3",
+                ToolState::Misconfigured,
+                &format!("could not read {}: {error}", resolved.display()),
+            );
+        }
+    };
+    probe.identity = truncate(format!(
+        "{}; resolved={}; {}",
+        probe.identity,
+        resolved.display(),
+        sha256_bytes(&bytes)
+    ));
+    probe
+}
+
+fn resolve_on_path(program: &str) -> io::Result<std::path::PathBuf> {
+    let search = std::env::var_os("PATH")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "PATH is unset"))?;
+    std::env::split_paths(&search)
+        .map(|directory| directory.join(program))
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{program} was not found on PATH"),
+            )
+        })
+}
+
+fn resolve_unambiguous_executable(path: std::path::PathBuf) -> io::Result<std::path::PathBuf> {
+    let absolute = if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    for parent in absolute.parent().into_iter().flat_map(Path::ancestors) {
+        if fs::symlink_metadata(parent)?.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "interpreter resolves through symlinked PATH directory {}",
+                    parent.display()
+                ),
+            ));
+        }
+    }
+    absolute.canonicalize()
 }
 
 fn probe_charon(executor: &dyn ProbeExecutor) -> ToolProbe {
@@ -1085,7 +1353,7 @@ mod tests {
                 disk_bytes: 101,
                 memory_bytes: 1,
             },
-            capabilities: vec!["cargo"],
+            capabilities: vec!["cargo".to_owned()],
         };
         let tools = [ToolProbe {
             tool: "cargo",
