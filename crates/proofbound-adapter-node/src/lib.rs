@@ -3041,19 +3041,50 @@ mod tests {
     }
 
     #[test]
-    fn mutation_command_observation_preserves_the_exact_shadow_role() {
+    fn mutation_command_observation_preserves_both_exact_shadow_roles() {
         let temporary = tempfile::tempdir().unwrap();
-        let execution_root = temporary.path().join("baseline");
-        let spec = ProcessSpec {
-            program: execution_root.join("node_modules/vitest/vitest.mjs"),
-            args: vec!["run".to_owned(), "src/guard.test.ts".to_owned()],
+        let baseline_root = temporary.path().join("baseline");
+        let mutant_root = temporary.path().join("mutant");
+        let baseline = ProcessSpec {
+            program: baseline_root.join("node_modules/vitest/vitest.mjs"),
+            args: vec![
+                "run".to_owned(),
+                baseline_root
+                    .join("src/guard.test.ts")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
         };
-        let observation = observe_mutation_command(&spec, &execution_root, "$BASELINE", &[]);
+        let mutant = ProcessSpec {
+            program: mutant_root.join("node_modules/vitest/vitest.mjs"),
+            args: vec![
+                "run".to_owned(),
+                mutant_root
+                    .join("src/guard.test.ts")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        };
+        let baseline_observation =
+            observe_mutation_command(&baseline, &baseline_root, "$BASELINE", &[]);
+        let mutant_observation = observe_mutation_command(&mutant, &mutant_root, "$MUTANT", &[]);
         assert_eq!(
-            observation.program,
+            baseline_observation.program,
             "$BASELINE/node_modules/vitest/vitest.mjs"
         );
-        assert_eq!(observation.args, ["run", "src/guard.test.ts"]);
+        assert_eq!(
+            mutant_observation.program,
+            "$MUTANT/node_modules/vitest/vitest.mjs"
+        );
+        assert_eq!(
+            baseline_observation.args,
+            ["run", "$BASELINE/src/guard.test.ts"]
+        );
+        assert_eq!(
+            mutant_observation.args,
+            ["run", "$MUTANT/src/guard.test.ts"]
+        );
+        assert_ne!(baseline_observation, mutant_observation);
     }
 
     struct RecordingExecutor {
