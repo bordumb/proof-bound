@@ -659,7 +659,7 @@ fn validate_value(root: &Value) -> Result<(), IrValidationError> {
             .transpose()?;
         if authority == "portable-receipt" {
             portable_receipt = true;
-            if item.get("schema").and_then(Value::as_str) != Some("proofbound-evidence/3") {
+            if item.get("schema").and_then(Value::as_str) != Some("proofbound-evidence/4") {
                 return Err(IrValidationError::new(
                     "IR-PORTABLE-EVIDENCE-SCHEMA",
                     "portable evidence schema is missing or unsupported",

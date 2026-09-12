@@ -193,9 +193,9 @@
       "id": "IR-REL-001", "role": "positive-portable-release", "evidence_family": "compiler-internal-and-example-test",
       "source": {
         "path": "proofbound/conformance/v1/release-valid/compiled-receipt.json",
-        "sha256": "sha256:b6e16078ddb5af8f5983bf1a61d73f9532620a413ebf688516d6103778682edd",
+        "sha256": "sha256:e915ab9c1fa9a743dd657c260fc822650947abb329df0789b47bff748747c4ac",
         "envelope_path": "proofbound/conformance/v1/release-valid/release.json",
-        "envelope_sha256": "sha256:6204659b54820b9b9840e86a20337d314b172c4f157d197c7843c442ef5f7134"
+        "envelope_sha256": "sha256:66878421da15074b4d524882c20615f24292146e7e9fb4b509c05efb80425743"
       },
       "claim_ids": ["c"], "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "policy_admitted": true},
       "projection_profiles": ["portable-release", "derived-claim"], "toolchain_required_to_regenerate": []

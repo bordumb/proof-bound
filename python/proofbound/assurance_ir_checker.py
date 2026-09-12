@@ -1969,7 +1969,7 @@ def validate_case_program(data: bytes) -> None:
         request = _object(item, "request") if authority == "registered" else None
         if authority == "portable-receipt":
             portable_receipt = True
-            if item.get("schema") != "proofbound-evidence/3":
+            if item.get("schema") != "proofbound-evidence/4":
                 _fail(
                     "IR-PORTABLE-EVIDENCE-SCHEMA",
                     "portable evidence schema is missing or unsupported",

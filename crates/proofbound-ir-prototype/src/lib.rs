@@ -3054,7 +3054,7 @@ mod tests {
         let evidence = &program.evidence[0];
         assert_eq!(
             evidence.content_sha256.as_deref(),
-            Some("sha256:0472956f8429866d293913903a3b1ac9ae42764e658078953dae8015939b44d4")
+            Some("sha256:9cb70e1b87da4d5783f96b691e02d9fc5a45f622f718578eebb9247393459016")
         );
         assert_eq!(evidence.provenance.commands[0].program, "synthetic-runner");
         assert_eq!(evidence.provenance.runs[0].exit_code, Some(0));
