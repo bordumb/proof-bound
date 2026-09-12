@@ -1,4 +1,4 @@
-# Proofbound compiled release receipts v3 through v6
+# Proofbound compiled release receipts v4 through v6
 
 This document is the handoff contract between a release producer and the
 standalone `proofbound-verify` binary. The authoritative field types are the
@@ -18,7 +18,7 @@ does not run external tools.
 `release.json` has exactly this shape:
 
 ```json
-{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/3"}
+{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/4"}
 ```
 
 `payload` is a normalized relative path. Absolute paths, `.`/`..`, duplicate
@@ -41,13 +41,11 @@ The domains are fixed:
 
 | Value | Domain |
 |---|---|
-| compiled payload | `proofbound-compiled-release/3` |
-| compiled payload with exact observations | `proofbound-compiled-release/4` |
+| base compiled payload, optionally with exact observations | `proofbound-compiled-release/4` |
 | compiled payload with context-bound exact observations | `proofbound-compiled-release/5` |
 | compiled payload with contextual artifact bindings | `proofbound-compiled-release/6` |
 | graph | `proofbound-graph/1` |
-| evidence record | `proofbound-evidence/3` |
-| evidence record with exact observation | `proofbound-evidence/4` |
+| base evidence record, optionally with exact observation | `proofbound-evidence/4` |
 | evidence record with contextual artifact binding | `proofbound-evidence/5` |
 | exact observation relation | `proofbound-exact-artifact-observation/1` |
 | source-closure record | `proofbound-source-closure/1` |
@@ -59,18 +57,18 @@ the exact file bytes, still rendered as `sha256:<64 lowercase hex>`.
 
 ## Compiled payload
 
-The v3 payload schema is `proofbound-compiled-release/3`. Version 4 is selected
-exactly when at least one `proofbound-evidence/4` record carries a
-`proofbound-exact-artifact-observation/1` detail without an evidence context.
-Version 5 is selected for a contextual release containing exact observations
-but no contextual artifact binding. It binds the same canonical
+The base payload schema is `proofbound-compiled-release/4`; it may contain
+noncontextual `proofbound-exact-artifact-observation/1` details. Version 5 is
+selected for a contextual release containing exact observations but no
+contextual artifact binding. It binds the same canonical
 `evidence_context` into the compiled payload and every exact-observation
 evidence record. Version 6 is selected exactly when a contextual release has at
 least one `proofbound-evidence/5` artifact-binding record; it may also retain
 contextual `proofbound-evidence/4` observation records. Base releases cannot
-contain either contextual record. The envelope version equals the compiled
-payload version, and unsupported or incoherent combinations fail closed. All
-versions contain exactly:
+contain either contextual record. Version 3 is obsolete and rejected because
+it predates the current mutation-witness validation contract. The envelope
+version equals the compiled payload version, and unsupported or incoherent
+combinations fail closed. All versions contain exactly:
 
 | Field | Meaning |
 |---|---|
@@ -178,7 +176,7 @@ native mode as well.
 encoding and digest. The v2 `ArtifactBindingReceipt` is exactly
 `{"theorem_evidence": ..., "artifact": {"logical_name": ..., "sha256": ...,
 "size_bytes": ...}}`; the six v1 checker-authored binding booleans are not
-accepted. Release-envelope, compiled-release, and evidence v1/v2 inputs are
+accepted. Release-envelope, compiled-release, and evidence v1/v2/v3 inputs are
 rejected rather than guessed or migrated by the verifier.
 
 A trusted-transcription detail is the nested, versioned
@@ -202,7 +200,7 @@ ledger must contain the corresponding unit-scoped components named
 version and the recomputed role digest as identity. This permits two units with
 different drivers without collapsing their trust identities.
 
-A mutation witness is the nested `proofbound-mutation-witness/2` record. It
+A mutation witness is the nested `proofbound-mutation-witness/3` record. It
 names exactly one lowercase mutation ID, and the outer target inventory must be
 that singleton. The outer unit ID must be exactly `unit:<mutation-id>`. Every
 affected outer claim must bind the subject node independently derived as
@@ -217,11 +215,17 @@ mutation, or affected claim can be smuggled into the evidence unit.
 
 `baseline_run_index` binds the clean witness execution and
 `expected_failure.run_index` binds the later mutant execution. The former must
-exit 0 and the latter must exit 101; `{101}` is the complete allowed-exit set,
-and no other nonzero run is accepted. Both commands independently select the
-same exact test with `[<selector>, "--exact"]`, carry the same environment
-allowlist, and name distinct shadow-built executables so the clean binary
-cannot be replayed as the mutant. The verifier independently recomputes
+exit 0. A `rust:` subject must fail with exactly `{101}`; a `python:` or `npm:`
+subject must fail with exactly `{1}`. Subjects use one of those three closed
+grammars before they select a command ABI. Rust commands name executables below
+the distinct `$BASELINE/target/` and `$MUTANT/target/` roots and select the same
+exact libtest. Python commands carry the exact two-root pytest ABI. Node
+commands name the same tool-relative path below distinct
+`$BASELINE/node_modules/` and `$MUTANT/node_modules/` roots and carry the exact
+vitest selector. Every pair carries the same environment allowlist, so no
+subject prefix or argument prefix can select another language's weaker check
+and no clean executable can be replayed as the mutant. The verifier
+independently recomputes
 `mutation_sha256` as
 `sha256(proofbound-mutation/2 || NUL || canonical(material))`, where `material`
 contains `mutation_id`, `subject`, `guard`, `check_id`, the complete four input

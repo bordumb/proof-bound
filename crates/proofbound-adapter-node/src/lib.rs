@@ -30,7 +30,7 @@ use walkdir::WalkDir;
 
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
-const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
+const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_JSON_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_EXECUTABLE_BYTES: u64 = 512 * 1024 * 1024;
@@ -640,9 +640,30 @@ fn execute_request<E: Executor>(
             budget.time_ms
         )));
     }
+    let mutation_runs = result.mutation.as_ref().map(|mutation| {
+        (
+            mutation.baseline_run_index,
+            mutation.expected_failure.run_index,
+        )
+    });
     let commands = specs
         .iter()
-        .map(|spec| observe_command(spec, &root, &shadows, &environment_observation))
+        .enumerate()
+        .map(|(index, spec)| match mutation_runs {
+            Some((baseline, _)) if index == baseline => observe_mutation_command(
+                spec,
+                &shadows[0].project,
+                "$BASELINE",
+                &environment_observation,
+            ),
+            Some((_, mutant)) if index == mutant => observe_mutation_command(
+                spec,
+                &shadows[1].project,
+                "$MUTANT",
+                &environment_observation,
+            ),
+            _ => observe_command(spec, &root, &shadows, &environment_observation),
+        })
         .collect::<Vec<_>>();
     let runs = observe_runs(&outputs, &root, &shadows);
     let unit_bytes =
@@ -2580,6 +2601,38 @@ fn observe_command(
     }
 }
 
+fn observe_mutation_command(
+    spec: &ProcessSpec,
+    execution_root: &Path,
+    logical_root: &str,
+    environment: &[EnvironmentObservation],
+) -> CommandObservation {
+    let logicalize = |value: &str| {
+        Path::new(value).strip_prefix(execution_root).map_or_else(
+            |_| value.to_owned(),
+            |relative| {
+                if relative.as_os_str().is_empty() {
+                    logical_root.to_owned()
+                } else {
+                    format!(
+                        "{logical_root}/{}",
+                        relative.to_string_lossy().replace('\\', "/")
+                    )
+                }
+            },
+        )
+    };
+    CommandObservation {
+        program: logicalize(&spec.program.to_string_lossy()),
+        args: spec
+            .args
+            .iter()
+            .map(|argument| logicalize(argument))
+            .collect(),
+        environment_allowlist: environment.to_vec(),
+    }
+}
+
 fn observe_runs(outputs: &[ProcessOutput], root: &Path, shadows: &[Shadow]) -> Vec<RunObservation> {
     outputs
         .iter()
@@ -2985,6 +3038,53 @@ mod tests {
             ..output
         };
         assert!(validate_vitest_report(&output, &root, &expected, true).is_err());
+    }
+
+    #[test]
+    fn mutation_command_observation_preserves_both_exact_shadow_roles() {
+        let temporary = tempfile::tempdir().unwrap();
+        let baseline_root = temporary.path().join("baseline");
+        let mutant_root = temporary.path().join("mutant");
+        let baseline = ProcessSpec {
+            program: baseline_root.join("node_modules/vitest/vitest.mjs"),
+            args: vec![
+                "run".to_owned(),
+                baseline_root
+                    .join("src/guard.test.ts")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        };
+        let mutant = ProcessSpec {
+            program: mutant_root.join("node_modules/vitest/vitest.mjs"),
+            args: vec![
+                "run".to_owned(),
+                mutant_root
+                    .join("src/guard.test.ts")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        };
+        let baseline_observation =
+            observe_mutation_command(&baseline, &baseline_root, "$BASELINE", &[]);
+        let mutant_observation = observe_mutation_command(&mutant, &mutant_root, "$MUTANT", &[]);
+        assert_eq!(
+            baseline_observation.program,
+            "$BASELINE/node_modules/vitest/vitest.mjs"
+        );
+        assert_eq!(
+            mutant_observation.program,
+            "$MUTANT/node_modules/vitest/vitest.mjs"
+        );
+        assert_eq!(
+            baseline_observation.args,
+            ["run", "$BASELINE/src/guard.test.ts"]
+        );
+        assert_eq!(
+            mutant_observation.args,
+            ["run", "$MUTANT/src/guard.test.ts"]
+        );
+        assert_ne!(baseline_observation, mutant_observation);
     }
 
     struct RecordingExecutor {

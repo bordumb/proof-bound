@@ -28,7 +28,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 4096,
-      "pattern": "^(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))(?!(?:\\.git|target|\\.lake|\\.proofbound|\\.venv|__pycache__|\\.pytest_cache|\\.mypy_cache|\\.ruff_cache)(?:/|$))(?!.*\\/(?:\\.git|target|\\.lake|\\.proofbound|\\.venv|__pycache__|\\.pytest_cache|\\.mypy_cache|\\.ruff_cache)(?:/|$))[\\u0020-\\u002E\\u0030-\\u005B\\u005D-\\u007E]+(?:/[\\u0020-\\u002E\\u0030-\\u005B\\u005D-\\u007E]+)*$",
+      "pattern": "^(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))(?!(?:\\.git|target|\\.lake|\\.proofbound|\\.venv|node_modules|__pycache__|\\.pytest_cache|\\.mypy_cache|\\.ruff_cache)(?:/|$))(?!.*\\/(?:\\.git|target|\\.lake|\\.proofbound|\\.venv|node_modules|__pycache__|\\.pytest_cache|\\.mypy_cache|\\.ruff_cache)(?:/|$))[\\u0020-\\u002E\\u0030-\\u005B\\u005D-\\u007E]+(?:/[\\u0020-\\u002E\\u0030-\\u005B\\u005D-\\u007E]+)*$",
       "description": "Portable slash-normalized relative path. Printable ASCII excludes backslash and control bytes, so maxLength is also the UTF-8 byte limit. Empty, dot, parent, doubled, trailing-slash, and Proofbound project-control components are forbidden."
     },
     "symbol": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" },

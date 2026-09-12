@@ -40,11 +40,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{adapter, closures, model::CompiledProject, model::UnitRun, safe_component};
 
-const COMPILED_SCHEMA_V3: &str = "proofbound-compiled-project/3";
-const COMPILED_SCHEMA_V4: &str = "proofbound-compiled-project/4";
+const COMPILED_SCHEMA: &str = "proofbound-compiled-project/4";
 const CLAIM_INPUT_DOMAIN: &str = "proofbound-claim-input/3";
-const EVIDENCE_DOMAIN: &str = "proofbound-evidence/3";
-const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
+const EVIDENCE_DOMAIN: &str = "proofbound-evidence/4";
+const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 const MAX_CARGO_METADATA_OUTPUT: usize = 64 << 20;
 
 #[derive(Clone, Debug, Default)]
@@ -266,12 +265,7 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
     runs.sort_by(|left, right| left.unit_id.cmp(&right.unit_id));
 
     let compiled = CompiledProject {
-        schema: if evidence_context.is_some() {
-            COMPILED_SCHEMA_V4
-        } else {
-            COMPILED_SCHEMA_V3
-        }
-        .into(),
+        schema: COMPILED_SCHEMA.into(),
         project: bundle.project.project,
         project_revision: identity.revision,
         evidence_context,
@@ -301,12 +295,7 @@ pub fn load_compiled(root: &Path) -> Result<CompiledProject> {
         bail!("PB-RECEIPT-0001: compiled result crosses an unsafe boundary");
     }
     let compiled: CompiledProject = serde_json::from_slice(&fs::read(&path)?)?;
-    if !matches!(
-        compiled.schema.as_str(),
-        COMPILED_SCHEMA_V3 | COMPILED_SCHEMA_V4
-    ) || (compiled.schema == COMPILED_SCHEMA_V3 && compiled.evidence_context.is_some())
-        || (compiled.schema == COMPILED_SCHEMA_V4 && compiled.evidence_context.is_none())
-    {
+    if compiled.schema != COMPILED_SCHEMA {
         bail!("PB-RECEIPT-0002: unsupported compiled-project schema");
     }
     validate_reviewed_tree_snapshot(root, &compiled.reviewed_tree_sha256)?;
@@ -438,8 +427,7 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     let envelope_schema = match payload_schema {
         "proofbound-compiled-release/6" => "proofbound-release-envelope/6",
         "proofbound-compiled-release/5" => "proofbound-release-envelope/5",
-        "proofbound-compiled-release/4" => "proofbound-release-envelope/4",
-        _ => "proofbound-release-envelope/3",
+        _ => "proofbound-release-envelope/4",
     };
     write_canonical(
         &destination.join("release.json"),
@@ -665,7 +653,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         bail!("PB-RELEASE-0019: internal release-smoke claim is inadmissible");
     }
     let compiled = CompiledProject {
-        schema: COMPILED_SCHEMA_V3.into(),
+        schema: COMPILED_SCHEMA.into(),
         project: "proofbound-release-smoke".into(),
         project_revision: "proofbound-release-smoke-v1".into(),
         evidence_context: None,
@@ -689,9 +677,9 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     write_canonical(
         &output.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/3",
+            "schema": "proofbound-release-envelope/4",
             "payload": "compiled-receipt.json",
-            "payload_sha256": domain_hash("proofbound-compiled-release/3", &payload_bytes),
+            "payload_sha256": domain_hash("proofbound-compiled-release/4", &payload_bytes),
         }),
     )?;
     Ok(output.to_owned())
@@ -2455,7 +2443,7 @@ fn mutation_record_matches_registration(
         .as_ref()
         .context("PB-MUTATION-0005: cached mutation evidence omitted replay facts")?;
     let expected = MutationWitnessEvidence {
-        schema: "proofbound-mutation-witness/2".into(),
+        schema: "proofbound-mutation-witness/3".into(),
         mutation_id: registered.mutation_id,
         subject: registered.subject,
         guard: registered.guard,
@@ -3323,7 +3311,7 @@ fn mutation_witness_from_observation(
     }
 
     let mut witness = MutationWitnessEvidence {
-        schema: "proofbound-mutation-witness/2".into(),
+        schema: "proofbound-mutation-witness/3".into(),
         mutation_id: registered.mutation_id,
         subject: registered.subject,
         guard: registered.guard,
@@ -3361,7 +3349,12 @@ fn mutation_command_shape_valid(
 ) -> bool {
     match adapter {
         AdapterKind::NodeTest => {
-            baseline.program == mutant.program
+            let baseline_tool =
+                mutation_shadow_program_tail(&baseline.program, "$BASELINE", "node_modules");
+            let mutant_tool =
+                mutation_shadow_program_tail(&mutant.program, "$MUTANT", "node_modules");
+            baseline_tool.is_some()
+                && baseline_tool == mutant_tool
                 && baseline.args == mutant.args
                 && baseline.args.len() >= 5
                 && baseline.args.first().map(String::as_str) == Some("run")
@@ -3398,12 +3391,30 @@ fn mutation_command_shape_valid(
             let selector = check_id
                 .split_once("::")
                 .map_or(check_id, |(_, selector)| selector);
-            baseline.program != mutant.program
+            mutation_shadow_program_tail(&baseline.program, "$BASELINE", "target").is_some()
+                && mutation_shadow_program_tail(&mutant.program, "$MUTANT", "target").is_some()
                 && baseline.args == [selector, "--exact"]
                 && mutant.args == [selector, "--exact"]
         }
         _ => false,
     }
+}
+
+fn mutation_shadow_program_tail<'a>(program: &'a str, root: &str, first: &str) -> Option<&'a str> {
+    let tail = program.strip_prefix(root)?.strip_prefix('/')?;
+    let mut components = tail.split('/');
+    if components.next()? != first
+        || components.clone().next().is_none()
+        || components.any(|component| {
+            component.is_empty()
+                || matches!(component, "." | "..")
+                || component.contains('\\')
+                || component.chars().any(char::is_control)
+        })
+    {
+        return None;
+    }
+    Some(tail)
 }
 
 fn trusted_transcription_from_observation(
@@ -6154,12 +6165,10 @@ fn compiled_release_value(
     let mut payload = serde_json::json!({
         "schema": if has_contextual_artifact_bindings {
             "proofbound-compiled-release/6"
-        } else if compiled.evidence_context.is_some() {
+        } else if compiled.evidence_context.is_some() && has_artifact_observations {
             "proofbound-compiled-release/5"
-        } else if has_artifact_observations {
-            "proofbound-compiled-release/4"
         } else {
-            "proofbound-compiled-release/3"
+            "proofbound-compiled-release/4"
         },
         "project": compiled.project,
         "project_revision": compiled.project_revision,
@@ -6668,11 +6677,7 @@ mod tests {
 
     fn empty_context_compiled(evidence_context: Option<&str>) -> CompiledProject {
         CompiledProject {
-            schema: if evidence_context.is_some() {
-                COMPILED_SCHEMA_V4.to_owned()
-            } else {
-                COMPILED_SCHEMA_V3.to_owned()
-            },
+            schema: COMPILED_SCHEMA.to_owned(),
             project: "context-fixture".to_owned(),
             project_revision: "fixture-revision".to_owned(),
             evidence_context: evidence_context.map(str::to_owned),
@@ -6882,7 +6887,7 @@ mod tests {
             .context = Some(context.clone());
 
         let mut compiled = CompiledProject {
-            schema: COMPILED_SCHEMA_V3.to_owned(),
+            schema: COMPILED_SCHEMA.to_owned(),
             project: "context-fixture".to_owned(),
             project_revision: "fixture-revision".to_owned(),
             evidence_context: None,
@@ -6915,7 +6920,6 @@ mod tests {
             serde_json::from_value(direct_example_record_value(vec!["inactive"])).unwrap();
         smuggled_record.unit_id = UnitId::new("unit:inactive-context").unwrap();
         compiled.evidence.push(smuggled_record);
-        compiled.schema = COMPILED_SCHEMA_V4.to_owned();
         compiled.evidence_context = Some(context.clone());
         assert!(
             validate_release_evidence_context(&bundle, &compiled)
@@ -6924,11 +6928,9 @@ mod tests {
                 .contains("PB-CTX-0004")
         );
         compiled.evidence.clear();
-        compiled.schema = COMPILED_SCHEMA_V3.to_owned();
         compiled.evidence_context = None;
 
         let mut replayed = compiled.clone();
-        replayed.schema = COMPILED_SCHEMA_V4.to_owned();
         replayed.evidence_context = Some("release-linux-riscv64".to_owned());
         assert!(
             validate_release_evidence_context(&bundle, &replayed)
@@ -6938,7 +6940,6 @@ mod tests {
         );
 
         let mut missing = compiled;
-        missing.schema = COMPILED_SCHEMA_V4.to_owned();
         missing.evidence_context = Some(context);
         assert!(
             validate_release_evidence_context(&bundle, &missing)
@@ -8700,6 +8701,38 @@ description = {description:?}
             &replayed_baseline,
             "tests/test_subject.py::test_guard"
         ));
+
+        let node_args = vec![
+            "run".to_owned(),
+            "src/guard.test.ts".to_owned(),
+            "--reporter=json".to_owned(),
+            "--testNamePattern".to_owned(),
+            "^guard rejects invalid input$".to_owned(),
+        ];
+        let node_baseline = CommandObservation {
+            program: "$BASELINE/node_modules/vitest/vitest.mjs".to_owned(),
+            args: node_args.clone(),
+            environment_allowlist: Vec::new(),
+        };
+        let node_mutant = CommandObservation {
+            program: "$MUTANT/node_modules/vitest/vitest.mjs".to_owned(),
+            args: node_args,
+            environment_allowlist: Vec::new(),
+        };
+        assert!(mutation_command_shape_valid(
+            AdapterKind::NodeTest,
+            &node_baseline,
+            &node_mutant,
+            "src/guard.test.ts::guard > rejects invalid input"
+        ));
+        let mut node_replay = node_mutant;
+        node_replay.program = node_baseline.program.clone();
+        assert!(!mutation_command_shape_valid(
+            AdapterKind::NodeTest,
+            &node_baseline,
+            &node_replay,
+            "src/guard.test.ts::guard > rejects invalid input"
+        ));
     }
 
     #[test]
@@ -8880,7 +8913,7 @@ description = {description:?}
             })
         };
         let observation = json!({
-            "schema": "proofbound-adapter-observation/2",
+            "schema": "proofbound-adapter-observation/3",
             "unit_id": "multi-command",
             "evidence_kind": "example-test",
             "outcome": "passed",
@@ -9121,7 +9154,7 @@ description = {description:?}
             ])
         };
         let observation = json!({
-            "schema": "proofbound-adapter-observation/2",
+            "schema": "proofbound-adapter-observation/3",
             "unit_id": "round-trip",
             "evidence_kind": "trusted-transcription",
             "outcome": "passed",
@@ -9328,7 +9361,7 @@ description = {description:?}
     fn direct_example_record_value(inventory: Vec<&str>) -> serde_json::Value {
         let digest = format!("sha256:{}", "00".repeat(32));
         json!({
-            "schema": "proofbound-evidence/3",
+            "schema": "proofbound-evidence/4",
             "id": "example-test:inventory-protocol",
             "node_id": "evidence:example-test:inventory-protocol",
             "unit_id": "unit:inventory-protocol",
@@ -9668,7 +9701,7 @@ description = {description:?}
     fn artifact_adapter_cannot_bypass_checked_observation_with_core_record() {
         let digest = format!("sha256:{}", "00".repeat(32));
         let forged = json!({
-            "schema": "proofbound-evidence/3",
+            "schema": "proofbound-evidence/4",
             "id": "artifact:forged",
             "node_id": "evidence:artifact:forged",
             "unit_id": "unit:forged",
@@ -9771,7 +9804,7 @@ description = {description:?}
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: "lean".into(),
             success: false,
-            evidence: Some(json!({"schema": "proofbound-evidence/3"})),
+            evidence: Some(json!({"schema": "proofbound-evidence/4"})),
             inventory: Vec::new(),
             diagnostics: Vec::new(),
         };
@@ -9845,7 +9878,7 @@ description = {description:?}
         fs::write(temporary.path().join("reviewed.txt"), b"reviewed-v1").unwrap();
         let expected = sha256_bytes(&worktree_snapshot(temporary.path()).unwrap());
         let compiled = CompiledProject {
-            schema: COMPILED_SCHEMA_V3.to_owned(),
+            schema: COMPILED_SCHEMA.to_owned(),
             project: "freshness-fixture".to_owned(),
             project_revision: "fixture-revision".to_owned(),
             evidence_context: None,

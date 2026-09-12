@@ -186,7 +186,7 @@ fn attach_mutation_witness(
         .push(target_postimage.clone());
     record.inventoried_targets = BTreeSet::from([mutation_id.to_owned()]);
     let mut witness = MutationWitnessEvidence {
-        schema: crate::MUTATION_WITNESS_SCHEMA_V2.into(),
+        schema: crate::MUTATION_WITNESS_SCHEMA_V3.into(),
         mutation_id: mutation_id.into(),
         subject: "rust:crate::decide".into(),
         guard: "the registered guard remains enforced".into(),
@@ -229,12 +229,12 @@ fn node_mutation_record() -> EvidenceRecord {
     ];
     record.provenance.commands = vec![
         CommandSpec {
-            program: "node_modules/.bin/vitest".into(),
+            program: "$BASELINE/node_modules/.bin/vitest".into(),
             args: args.clone(),
             environment_allowlist: Vec::new(),
         },
         CommandSpec {
-            program: "node_modules/.bin/vitest".into(),
+            program: "$MUTANT/node_modules/.bin/vitest".into(),
             args,
             environment_allowlist: Vec::new(),
         },
@@ -451,7 +451,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
 
 fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
     EvidenceRecord {
-        schema: crate::EVIDENCE_SCHEMA_V3.into(),
+        schema: crate::EVIDENCE_SCHEMA_V4.into(),
         id: EvidenceId::new(id).unwrap(),
         node_id: NodeId::new(node_id).unwrap(),
         unit_id: UnitId::new(format!("unit:{id}")).unwrap(),
@@ -2296,6 +2296,27 @@ fn mutation_witness_replay_is_exact_and_fail_closed() {
         replayed_baseline_binary,
     ));
 
+    let mut pytest_prefix_injection = valid.clone();
+    for command in &mut pytest_prefix_injection.provenance.commands {
+        command.args = vec![
+            "-m".into(),
+            "pytest".into(),
+            "guard_witnesses::guard_removed".into(),
+        ];
+    }
+    cases.push((
+        "pytest prefix selected for a Rust subject",
+        pytest_prefix_injection,
+    ));
+
+    let mut malformed_subject = valid.clone();
+    let witness = malformed_subject.mutation_witness.as_mut().unwrap();
+    witness.subject = "python:not valid".into();
+    witness.mutation_sha256 = witness
+        .derived_mutation_sha256(&malformed_subject.claims)
+        .unwrap();
+    cases.push(("unvalidated subject prefix", malformed_subject));
+
     let mut hidden_input = valid.clone();
     hidden_input
         .provenance
@@ -2356,6 +2377,11 @@ fn node_mutation_witness_requires_exact_vitest_abi_and_package_inputs() {
     let mut wrong_exit = valid.clone();
     wrong_exit.provenance.runs[1].exit_code = Some(101);
     assert!(wrong_exit.validate(&claim_id()).is_err());
+
+    let mut replayed_baseline = valid.clone();
+    replayed_baseline.provenance.commands[1].program =
+        replayed_baseline.provenance.commands[0].program.clone();
+    assert!(replayed_baseline.validate(&claim_id()).is_err());
 
     let mut missing_lock = valid;
     missing_lock

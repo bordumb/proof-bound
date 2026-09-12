@@ -108,7 +108,7 @@ enum Role {
 struct ProcessStep {
     phase: Phase,
     role: Role,
-    label: &'static str,
+    label: String,
     program: OsString,
     args: Vec<OsString>,
     stdout_file: Option<PathBuf>,
@@ -118,14 +118,14 @@ impl ProcessStep {
     fn new(
         phase: Phase,
         role: Role,
-        label: &'static str,
+        label: impl Into<String>,
         program: impl Into<OsString>,
         args: impl IntoIterator<Item = impl Into<OsString>>,
     ) -> Self {
         Self {
             phase,
             role,
-            label,
+            label: label.into(),
             program: program.into(),
             args: args.into_iter().map(Into::into).collect(),
             stdout_file: None,
@@ -941,6 +941,46 @@ fn ci_steps(root: &Path, scratch: &Path, diff: Option<&str>) -> Vec<ProcessStep>
         ],
     ));
 
+    for (name, relative_root) in [
+        ("Python inventory", "demo/python-inventory-service"),
+        ("TypeScript codec", "demo/typescript-codec"),
+    ] {
+        let demo_root = root.join(relative_root);
+        let release = scratch.join(format!("{}-release", relative_root.replace('/', "-")));
+        steps.push(ProcessStep::new(
+            Phase::Stage10,
+            Role::Ordinary,
+            format!("verify the {name} reference vertical from fresh evidence"),
+            workspace_binary(root, "proofbound"),
+            [
+                OsString::from("--root"),
+                demo_root.clone().into_os_string(),
+                OsString::from("check"),
+                OsString::from("--fresh"),
+            ],
+        ));
+        steps.push(ProcessStep::new(
+            Phase::Stage10,
+            Role::Ordinary,
+            format!("release the {name} reference vertical"),
+            workspace_binary(root, "proofbound"),
+            [
+                OsString::from("--root"),
+                demo_root.into_os_string(),
+                OsString::from("release"),
+                OsString::from("--output"),
+                release.clone().into_os_string(),
+            ],
+        ));
+        steps.push(ProcessStep::new(
+            Phase::Stage10,
+            Role::Ordinary,
+            format!("independently verify the {name} reference release"),
+            workspace_binary(root, "proofbound-verify"),
+            [OsString::from("--release"), release.into_os_string()],
+        ));
+    }
+
     let current_release = scratch.join("current-release");
     steps.push(ProcessStep::new(
         Phase::Stage11,
@@ -1174,6 +1214,36 @@ mod tests {
                 banners.iter().any(|banner| banner.contains(&marker)),
                 "missing §18 {marker} banner"
             );
+        }
+    }
+
+    #[test]
+    fn ci_runs_python_and_typescript_reference_verticals_end_to_end() {
+        let root = Path::new("/checkout/proof-bound");
+        let scratch = Path::new("/tmp/xtask-test");
+        let plan = ci_steps(root, scratch, None);
+        let stage10 = plan
+            .iter()
+            .filter(|step| step.phase == Phase::Stage10)
+            .collect::<Vec<_>>();
+
+        for (name, relative_root) in [
+            ("Python inventory", "demo/python-inventory-service"),
+            ("TypeScript codec", "demo/typescript-codec"),
+        ] {
+            let demo_root = root.join(relative_root).into_os_string();
+            let reference_steps = stage10
+                .iter()
+                .filter(|step| step.label.contains(name))
+                .copied()
+                .collect::<Vec<_>>();
+            assert_eq!(reference_steps.len(), 3);
+            assert_eq!(reference_steps[0].args[0], "--root");
+            assert_eq!(reference_steps[0].args[1], demo_root);
+            assert_eq!(reference_steps[0].args[2..], ["check", "--fresh"]);
+            assert_eq!(reference_steps[1].args[2], "release");
+            assert!(Path::new(&reference_steps[2].program).ends_with("proofbound-verify"));
+            assert_eq!(reference_steps[2].args[0], "--release");
         }
     }
 
