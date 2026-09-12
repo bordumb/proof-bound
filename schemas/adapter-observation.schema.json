@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "unit_id", "evidence_kind", "outcome", "input_artifacts", "generated_artifacts", "tool", "adapter", "commands", "runs", "started_unix_ms", "completed_unix_ms", "deterministic_result_sha256", "unit_configuration_sha256", "resource_budget", "resource_usage", "inventory", "normalization"],
   "properties": {
-    "schema": { "const": "proofbound-adapter-observation/2" },
+    "schema": { "const": "proofbound-adapter-observation/3" },
     "unit_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "evidence_kind": { "enum": ["theorem", "artifact-soundness", "trusted-transcription", "source-refinement", "bounded-check", "independent-check", "exhaustive-check", "property-test", "example-test", "mutation-witness", "static-check", "review", "assumption", "open"] },
     "outcome": { "enum": ["passed", "failed"] },

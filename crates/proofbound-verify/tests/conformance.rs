@@ -236,7 +236,7 @@ fn provenance(closure: &str) -> EvidenceProvenance {
 
 fn hash_evidence(record: EvidenceReceipt) -> HashedRecord<EvidenceReceipt> {
     HashedRecord {
-        sha256: domain_hash(EVIDENCE_SCHEMA_V3, &canonical_json(&record).unwrap()),
+        sha256: domain_hash(EVIDENCE_SCHEMA_V4, &canonical_json(&record).unwrap()),
         record,
     }
 }
@@ -271,7 +271,7 @@ fn base_release() -> CompiledRelease {
         mutual_theorem_groups: Vec::new(),
     };
     let test = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V3.into(),
+        schema: EVIDENCE_SCHEMA_V4.into(),
         unit_id: "unit:test".into(),
         node_id: "test:t".into(),
         kind: EvidenceKind::ExampleTest,
@@ -325,7 +325,7 @@ fn base_release() -> CompiledRelease {
         policy_admitted: true,
     };
     CompiledRelease {
-        schema: COMPILED_RELEASE_SCHEMA_V3.into(),
+        schema: COMPILED_RELEASE_SCHEMA_V4.into(),
         project: "synthetic".into(),
         project_revision: "rev-1".into(),
         project_tier: Tier::Ledger,
@@ -439,7 +439,7 @@ fn mutation_release() -> CompiledRelease {
         },
     ];
     record.mutation_witness = Some(MutationWitnessReceipt {
-        schema: MUTATION_WITNESS_SCHEMA_V2.into(),
+        schema: MUTATION_WITNESS_SCHEMA_V3.into(),
         mutation_id: "remove-guard".into(),
         subject: "rust:crate::decide".into(),
         guard: "the registered guard remains enforced".into(),
@@ -582,7 +582,7 @@ fn theorem_release() -> CompiledRelease {
     };
     let statement_wire = plain_statement("Synthetic.statement");
     let theorem = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V3.into(),
+        schema: EVIDENCE_SCHEMA_V4.into(),
         unit_id: "unit:theorem".into(),
         node_id: "theorem:t".into(),
         kind: EvidenceKind::Theorem,
@@ -655,7 +655,7 @@ fn bounded_release() -> CompiledRelease {
         assumptions: Vec::new(),
     });
     release.evidence[0].sha256 = domain_hash(
-        EVIDENCE_SCHEMA_V3,
+        EVIDENCE_SCHEMA_V4,
         &canonical_json(&release.evidence[0].record).unwrap(),
     );
     release.claims[0].cited_evidence.remove(&old);
@@ -682,7 +682,7 @@ fn bounded_release() -> CompiledRelease {
 fn rehash_first_evidence(release: &mut CompiledRelease) {
     let old = release.evidence[0].sha256.clone();
     let replacement = domain_hash(
-        EVIDENCE_SCHEMA_V3,
+        EVIDENCE_SCHEMA_V4,
         &canonical_json(&release.evidence[0].record).unwrap(),
     );
     release.evidence[0].sha256.clone_from(&replacement);
@@ -1264,7 +1264,7 @@ fn bounded_and_exhaustive_precedence_is_recomputed() {
         domain,
     });
     exhaustive.evidence[0].sha256 = domain_hash(
-        EVIDENCE_SCHEMA_V3,
+        EVIDENCE_SCHEMA_V4,
         &canonical_json(&exhaustive.evidence[0].record).unwrap(),
     );
     exhaustive.claims[0].cited_evidence.remove(&old);
@@ -1372,9 +1372,9 @@ fn strict_parser_rejects_unknown_enums() {
     let payload = canonical_json(&value).unwrap();
     fs::write(directory.path().join("compiled-receipt.json"), &payload).unwrap();
     let envelope = ReleaseEnvelope {
-        schema: RELEASE_ENVELOPE_SCHEMA_V3.into(),
+        schema: RELEASE_ENVELOPE_SCHEMA_V4.into(),
         payload: "compiled-receipt.json".into(),
-        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V3, &payload),
+        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V4, &payload),
     };
     fs::write(
         directory.path().join("release.json"),
@@ -1396,7 +1396,7 @@ fn invalid_digest_and_drifted_evidence_are_rejected() {
     let old = drifted.evidence[0].sha256.clone();
     drifted.evidence[0].record.outcome = EvidenceOutcome::Drifted;
     drifted.evidence[0].sha256 = domain_hash(
-        EVIDENCE_SCHEMA_V3,
+        EVIDENCE_SCHEMA_V4,
         &canonical_json(&drifted.evidence[0].record).unwrap(),
     );
     drifted.claims[0].cited_evidence.remove(&old);
@@ -1424,7 +1424,7 @@ fn unresolved_assumption_cannot_be_omitted_from_output() {
         },
     ]);
     let review = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V3.into(),
+        schema: EVIDENCE_SCHEMA_V4.into(),
         unit_id: "unit:review".into(),
         node_id: "review:a".into(),
         kind: EvidenceKind::Review,
@@ -1655,7 +1655,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         &canonical_json(&artifact_provenance.cache_material()).unwrap(),
     );
     let artifact = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V3.into(),
+        schema: EVIDENCE_SCHEMA_V4.into(),
         unit_id: "unit:artifact".into(),
         node_id: "artifact:a".into(),
         kind: EvidenceKind::ArtifactSoundness,
@@ -1687,7 +1687,7 @@ fn add_binding_paths(release: &mut CompiledRelease) {
         trusted_transcription("transcription", &release.closures[0].sha256);
     let transcription_inventory = trusted_transcription_inventory(&trusted_transcription);
     let transcription = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V3.into(),
+        schema: EVIDENCE_SCHEMA_V4.into(),
         unit_id: "unit:transcription".into(),
         node_id: "artifact:a".into(),
         kind: EvidenceKind::TrustedTranscription,
@@ -1758,7 +1758,7 @@ fn transcribed_release() -> CompiledRelease {
     let (detail, provenance) = trusted_transcription("transcription", &release.closures[0].sha256);
     let transcription_inventory = trusted_transcription_inventory(&detail);
     let transcription = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V3.into(),
+        schema: EVIDENCE_SCHEMA_V4.into(),
         unit_id: "unit:transcription".into(),
         node_id: "artifact:transcription".into(),
         kind: EvidenceKind::TrustedTranscription,
@@ -1798,7 +1798,7 @@ fn transcribed_release() -> CompiledRelease {
 fn rehash_evidence_at(release: &mut CompiledRelease, index: usize) {
     let old = release.evidence[index].sha256.clone();
     let replacement = domain_hash(
-        EVIDENCE_SCHEMA_V3,
+        EVIDENCE_SCHEMA_V4,
         &canonical_json(&release.evidence[index].record).unwrap(),
     );
     release.evidence[index].sha256.clone_from(&replacement);
@@ -2539,7 +2539,7 @@ fn unit_scoped_transcription_tcb_roles_allow_distinct_drivers() {
     ]);
     let second_inventory = trusted_transcription_inventory(&detail);
     let second = hash_evidence(EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V3.into(),
+        schema: EVIDENCE_SCHEMA_V4.into(),
         unit_id: "unit:transcription-two".into(),
         node_id: "artifact:transcription-two".into(),
         kind: EvidenceKind::TrustedTranscription,
@@ -2681,9 +2681,9 @@ fn write_payload_at(directory: &Path, release: &CompiledRelease) {
     let payload = canonical_json(release).unwrap();
     fs::write(directory.join("compiled-receipt.json"), &payload).unwrap();
     let envelope = ReleaseEnvelope {
-        schema: RELEASE_ENVELOPE_SCHEMA_V3.into(),
+        schema: RELEASE_ENVELOPE_SCHEMA_V4.into(),
         payload: "compiled-receipt.json".into(),
-        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V3, &payload),
+        payload_sha256: domain_hash(COMPILED_RELEASE_SCHEMA_V4, &payload),
     };
     fs::write(
         directory.join("release.json"),
@@ -2834,7 +2834,7 @@ fn empty_raw_record(
     node_id: String,
 ) -> EvidenceReceipt {
     EvidenceReceipt {
-        schema: EVIDENCE_SCHEMA_V3.into(),
+        schema: EVIDENCE_SCHEMA_V4.into(),
         unit_id: format!("unit:{}", raw.id),
         node_id,
         kind,

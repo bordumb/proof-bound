@@ -1,4 +1,4 @@
-# Proofbound compiled release receipt v3
+# Proofbound compiled release receipt v4
 
 This document is the handoff contract between a release producer and the
 standalone `proofbound-verify` binary. The authoritative field types are the
@@ -18,7 +18,7 @@ does not run external tools.
 `release.json` has exactly this shape:
 
 ```json
-{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/3"}
+{"payload":"compiled-receipt.json","payload_sha256":"sha256:<64 lowercase hex>","schema":"proofbound-release-envelope/4"}
 ```
 
 `payload` is a normalized relative path. Absolute paths, `.`/`..`, duplicate
@@ -41,9 +41,9 @@ The domains are fixed:
 
 | Value | Domain |
 |---|---|
-| compiled payload | `proofbound-compiled-release/3` |
+| compiled payload | `proofbound-compiled-release/4` |
 | graph | `proofbound-graph/1` |
-| evidence record | `proofbound-evidence/3` |
+| evidence record | `proofbound-evidence/4` |
 | source-closure record | `proofbound-source-closure/1` |
 | evidence cache material | `proofbound-cache-key/1` |
 | registered mutation identity | `proofbound-mutation/2` |
@@ -53,7 +53,7 @@ the exact file bytes, still rendered as `sha256:<64 lowercase hex>`.
 
 ## Compiled payload
 
-The payload schema is `proofbound-compiled-release/3` and contains exactly:
+The payload schema is `proofbound-compiled-release/4` and contains exactly:
 
 | Field | Meaning |
 |---|---|
@@ -155,7 +155,7 @@ to native mode as well.
 encoding and digest. The v2 `ArtifactBindingReceipt` is exactly
 `{"theorem_evidence": ..., "artifact": {"logical_name": ..., "sha256": ...,
 "size_bytes": ...}}`; the six v1 checker-authored binding booleans are not
-accepted. Release-envelope, compiled-release, and evidence v1/v2 inputs are
+accepted. Release-envelope, compiled-release, and evidence v1/v2/v3 inputs are
 rejected rather than guessed or migrated by the verifier.
 
 A trusted-transcription detail is the nested, versioned
@@ -179,7 +179,7 @@ ledger must contain the corresponding unit-scoped components named
 version and the recomputed role digest as identity. This permits two units with
 different drivers without collapsing their trust identities.
 
-A mutation witness is the nested `proofbound-mutation-witness/2` record. It
+A mutation witness is the nested `proofbound-mutation-witness/3` record. It
 names exactly one lowercase mutation ID, and the outer target inventory must be
 that singleton. The outer unit ID must be exactly `unit:<mutation-id>`. Every
 affected outer claim must bind the subject node independently derived as

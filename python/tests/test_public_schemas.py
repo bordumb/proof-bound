@@ -73,7 +73,7 @@ def sample_bounded_evidence() -> dict[str, object]:
         "environment_allowlist": [],
     }
     return {
-        "schema": "proofbound-evidence/3",
+        "schema": "proofbound-evidence/4",
         "id": "kani:registered-case",
         "node_id": "evidence:kani:registered-case",
         "unit_id": "unit:registered-case",
@@ -151,7 +151,7 @@ def sample_adapter_observation() -> dict[str, object]:
     provenance = evidence["provenance"]
     assert isinstance(provenance, dict)
     return {
-        "schema": "proofbound-adapter-observation/2",
+        "schema": "proofbound-adapter-observation/3",
         "unit_id": "registered-case",
         "evidence_kind": "bounded-check",
         "outcome": "passed",
@@ -345,7 +345,7 @@ def test_adapter_schema_forbids_evidence_on_failure() -> None:
         "request_id": "0123456789abcdef0123456789abcdef",
         "adapter": "lean",
         "success": False,
-        "evidence": {"schema": "proofbound-evidence/3"},
+        "evidence": {"schema": "proofbound-evidence/4"},
         "inventory": [],
         "diagnostics": [],
     }
@@ -437,7 +437,7 @@ def test_checker_result_wire_requires_one_canonical_json_value() -> None:
         assert json.dumps(candidate, sort_keys=True, separators=(",", ":")) != framed
 
 
-def test_version_3_evidence_schema_preserves_receipt_fidelity() -> None:
+def test_version_4_evidence_schema_preserves_receipt_fidelity() -> None:
     validate = validator("evidence.schema.json")
     evidence = sample_bounded_evidence()
     validate.validate(evidence)
@@ -525,6 +525,41 @@ def test_adapter_observation_schema_keeps_ordered_execution_facts() -> None:
     failed["runs"][0]["exit_code"] = 1
     failed["runs"][0]["output_truncated"] = True
     validate.validate(failed)
+
+
+def test_python_and_node_schema_migration_rejects_legacy_versions() -> None:
+    evidence = sample_bounded_evidence()
+    evidence["schema"] = "proofbound-evidence/3"
+    assert list(validator("evidence.schema.json").iter_errors(evidence))
+
+    observation = sample_adapter_observation()
+    observation["schema"] = "proofbound-adapter-observation/2"
+    assert list(
+        validator("adapter-observation.schema.json").iter_errors(observation)
+    )
+
+    release_dir = ROOT / "proofbound" / "conformance" / "v1" / "release-valid"
+    receipt_validator = validator("receipt.schema.json")
+    envelope = load_json(release_dir / "release.json")
+    envelope["schema"] = "proofbound-release-envelope/3"
+    assert list(receipt_validator.iter_errors(envelope))
+    compiled = load_json(release_dir / "compiled-receipt.json")
+    compiled["schema"] = "proofbound-compiled-release/3"
+    assert list(receipt_validator.iter_errors(compiled))
+
+    mutation = tomllib.loads(
+        (
+            ROOT
+            / "demo"
+            / "typescript-codec"
+            / "mutations"
+            / "reject-padding.toml"
+        ).read_text(encoding="utf-8")
+    )
+    mutation["schema"] = "proofbound-mutation-registry/2"
+    assert list(
+        validator("mutation-registry.schema.json").iter_errors(mutation)
+    )
 
 
 def test_auxiliary_adapter_manifests_match_strict_public_schemas() -> None:

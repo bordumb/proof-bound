@@ -320,8 +320,9 @@ pub enum MutationReplaySchema {
 
 /// One exact, automatically replayable mutation registration.
 ///
-/// Version 2 deliberately has a singular `mutation` field. A registry cannot
-/// make several mutations share one evidence fate.
+/// Version 3 deliberately has a singular `mutation` field. A registry cannot
+/// make several mutations share one evidence fate. It supersedes version 2
+/// because the subject grammar was intentionally widened for Python and Node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MutationRegistry {
@@ -332,8 +333,8 @@ pub struct MutationRegistry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MutationRegistrySchema {
-    #[serde(rename = "proofbound-mutation-registry/2")]
-    Version2,
+    #[serde(rename = "proofbound-mutation-registry/3")]
+    Version3,
 }
 
 /// Exact preimage, full-file mutant, and detecting witness for one replay.

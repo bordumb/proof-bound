@@ -12,13 +12,13 @@ use thiserror::Error;
 use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, AssumptionCategory, AssumptionFacet,
     AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode, BuiltInProfile,
-    CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3, ClaimReceipt, ClosureKind,
-    CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EdgeKind,
+    CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V4, ClaimReceipt, ClosureKind,
+    CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V4, EdgeKind,
     EvaluationMode, EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, ExecutionKind,
     FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphNode, HashedRecord, IndependenceMode,
-    LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V2, NodeKind,
+    LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V3, NodeKind,
     OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
-    RELEASE_ENVELOPE_SCHEMA_V3, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
+    RELEASE_ENVELOPE_SCHEMA_V4, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
     SourceClosureReceipt, TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
     TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole, TreeState, canonical_json,
     domain_hash, raw_sha256,
@@ -199,7 +199,7 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
 
     let envelope_path = root.join("release.json");
     let (envelope, _) = read_canonical::<ReleaseEnvelope>(&envelope_path, MAX_ENVELOPE_BYTES)?;
-    if envelope.schema != RELEASE_ENVELOPE_SCHEMA_V3 {
+    if envelope.schema != RELEASE_ENVELOPE_SCHEMA_V4 {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
                 VerificationIssueCode::PbvSchema,
@@ -221,7 +221,7 @@ pub fn verify_release_dir(release_dir: &Path) -> Result<VerificationReport, Veri
     }
     let (release, payload_bytes) =
         read_canonical::<CompiledRelease>(&payload_path, MAX_PAYLOAD_BYTES)?;
-    let actual_payload = domain_hash(COMPILED_RELEASE_SCHEMA_V3, &payload_bytes);
+    let actual_payload = domain_hash(COMPILED_RELEASE_SCHEMA_V4, &payload_bytes);
     if actual_payload != envelope.payload_sha256 {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
@@ -253,7 +253,7 @@ fn verify_compiled_release_internal(
     release_root: Option<&Path>,
 ) -> Result<VerificationReport, VerificationErrors> {
     let mut issues = Vec::new();
-    if release.schema != COMPILED_RELEASE_SCHEMA_V3 {
+    if release.schema != COMPILED_RELEASE_SCHEMA_V4 {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
             format!("unsupported compiled release schema '{}'", release.schema),
@@ -1075,7 +1075,7 @@ fn validate_evidence_records(
             ));
         }
         if let Ok(bytes) = canonical_json(evidence) {
-            let actual = domain_hash(EVIDENCE_SCHEMA_V3, &bytes);
+            let actual = domain_hash(EVIDENCE_SCHEMA_V4, &bytes);
             if actual != wrapper.sha256 {
                 evidence_issue(
                     issues,
@@ -1084,7 +1084,7 @@ fn validate_evidence_records(
                 );
             }
         }
-        if evidence.schema != EVIDENCE_SCHEMA_V3 {
+        if evidence.schema != EVIDENCE_SCHEMA_V4 {
             evidence_issue(
                 issues,
                 &wrapper.sha256,
@@ -2174,7 +2174,7 @@ fn mutation_witness_valid(
                 .filter(|run| run.exit_code != Some(0))
                 .count()
                 == 1);
-    let strings_are_valid = witness.schema == MUTATION_WITNESS_SCHEMA_V2
+    let strings_are_valid = witness.schema == MUTATION_WITNESS_SCHEMA_V3
         && valid_mutation_id(&witness.mutation_id)
         && bounded_text(&witness.subject, 4096)
         && bounded_text(&witness.guard, 8192)

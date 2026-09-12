@@ -180,7 +180,7 @@ fn attach_mutation_witness(
         .push(target_postimage.clone());
     record.inventoried_targets = BTreeSet::from([mutation_id.to_owned()]);
     let mut witness = MutationWitnessEvidence {
-        schema: crate::MUTATION_WITNESS_SCHEMA_V2.into(),
+        schema: crate::MUTATION_WITNESS_SCHEMA_V3.into(),
         mutation_id: mutation_id.into(),
         subject: "rust:crate::decide".into(),
         guard: "the registered guard remains enforced".into(),
@@ -411,7 +411,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
 
 fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
     EvidenceRecord {
-        schema: crate::EVIDENCE_SCHEMA_V3.into(),
+        schema: crate::EVIDENCE_SCHEMA_V4.into(),
         id: EvidenceId::new(id).unwrap(),
         node_id: NodeId::new(node_id).unwrap(),
         unit_id: UnitId::new(format!("unit:{id}")).unwrap(),

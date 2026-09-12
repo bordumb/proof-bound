@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "id", "node_id", "unit_id", "kind", "status", "claims", "inventoried_targets", "assumptions", "premises", "provenance"],
   "properties": {
-    "schema": { "const": "proofbound-evidence/3" },
+    "schema": { "const": "proofbound-evidence/4" },
     "id": { "$ref": "#/$defs/id" },
     "node_id": { "$ref": "#/$defs/id" },
     "unit_id": { "$ref": "#/$defs/id" },
@@ -331,7 +331,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["schema", "mutation_id", "subject", "guard", "mutation_sha256", "registry", "target_preimage", "mutant_artifact", "target_postimage", "witness_source", "check_id", "baseline_run_index", "expected_failure"],
       "properties": {
-        "schema": { "const": "proofbound-mutation-witness/2" },
+        "schema": { "const": "proofbound-mutation-witness/3" },
         "mutation_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,255}$" },
         "subject": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?:rust:[a-z][a-z0-9_-]*(?:::[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)?|python:[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:::[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)?|npm:[a-z0-9][a-z0-9._-]*(?:::[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*)?)$" },
         "guard": { "type": "string", "minLength": 1, "maxLength": 8192, "pattern": "\\S" },

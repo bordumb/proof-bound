@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.12.0
+**Version:** 0.13.0
 
 **Date:** 2026-09-01
 
@@ -12,6 +12,13 @@
 
 ### Revision history
 
+- **0.13.0** — makes the Python and TypeScript wire migration explicit:
+  adapter observations advance to `/3`, canonical evidence and compiled state
+  to `/4`, mutation witnesses and registries to `/3`, and compiled releases
+  and envelopes to `/4`. Version-2 observations and registries and version-3
+  evidence and receipts retain their old meanings and are rejected rather
+  than silently accepting the new exit-code and mutation-symbol rules (§5,
+  §7.1, §10.2, §11.2.2; review item PR2-3).
 - **0.12.0** — adopts the Python and TypeScript ecosystem contracts of
   Specifications 0002 version 0.3.0 and 0003 version 0.2.0: adds empirical
   `static-check` evidence; typed pytest/Vitest plugin and property records;
@@ -545,7 +552,7 @@ Additional rules:
   separator ` Registered finite domain: ` and the registered finite-domain
   language.
   The property is never replaced by domain-only wording, and no unbounded
-  language is emitted for bounded evidence. The version-3 compiled claim keeps
+  language is emitted for bounded evidence. The version-4 compiled claim keeps
   `statement` and optional `public_language` as separate fields, while the
   reported status keeps the derived `public_statement`; both status engines
   independently reproduce this composition. The same composition applies
@@ -1053,8 +1060,8 @@ metadata, not source-text scanning (§17).
 Adapters communicate with the orchestrator over a versioned JSON subprocess
 protocol: requests and responses are schema-validated canonical JSON on
 stdin/stdout (`schemas/adapter-protocol.schema.json`), and evidence is
-returned either as a complete `proofbound-evidence/3` record or as a strict
-`proofbound-adapter-observation/2` execution receipt that the assurance
+returned either as a complete `proofbound-evidence/4` record or as a strict
+`proofbound-adapter-observation/3` execution receipt that the assurance
 compiler deterministically enriches with graph and source-closure identities.
 The latter prevents a tool adapter from fabricating project provenance it does
 not own. Both alternatives are closed schemas; an arbitrary JSON object is not
@@ -1120,7 +1127,7 @@ equally sized ordered `runs` array. Run `i` has `command_index = i` and binds
 that command's exit state, raw stdout/stderr identities, normalized-output
 identity, truncation state, and duration. A nonblank `normalization` identifier
 names the transformation used before the deterministic-result identity was
-computed. The compiler preserves these fields in `proofbound-evidence/3`
+computed. The compiler preserves these fields in `proofbound-evidence/4`
 provenance instead of selecting a representative command; it also records the
 separate typed `reproduction_command`. An unavailable memory observation is
 the explicit JSON value `null`, never an invented zero.
@@ -1139,8 +1146,9 @@ reproduced and audited.
 A `Passed` observation, or a `Passed` canonical evidence/receipt record whose
 `execution_kind` is `observed-processes`, has a nonempty exact inventory. Every
 run has `output_truncated = false` and normally has `exit_code = 0`. The sole
-nonzero case is the one run named by a version-2 mutation-witness detail's
-typed `expected_failure`; its allowed exit-code set is exactly `[101]`, its
+nonzero case is the one run named by a version-3 mutation-witness detail's
+typed `expected_failure`; its allowed exit-code set is exactly `[101]` for a
+Rust subject or `[1]` for a grammar-validated Python or Node subject, its
 baseline run executed the same exact check with exit zero, and every other run
 remains zero.
 `compiler-internal` evidence has no observed runs and may legitimately have an
@@ -1292,7 +1300,7 @@ Every claim has a stable ID, exact internal `statement`, bound `subject`, trust
 `profile`, cited `evidence`, cited `assumptions`, and explicit
 `open_obligations` and `out_of_scope` lists. `public_language` is an optional
 reader-facing restatement and cannot strengthen `statement`; it never replaces
-the internal field. The version-3 compiled release retains `statement` and,
+the internal field. The version-4 compiled release retains `statement` and,
 when supplied, `public_language` separately. Its reported claim status carries
 the independently derived `public_statement`: `public_language` when present,
 otherwise `statement`, with the bounded-domain suffix required by Section
@@ -1439,7 +1447,7 @@ exists in the nested observation or manifest; the generic protocol outcome is
 derived from execution and comparison results.
 
 The compiler admits that observation only when every registered path, format,
-inventory member, and artifact identity matches. The canonical version-3
+inventory member, and artifact identity matches. The canonical version-4
 evidence record then retains the five artifact identities and two derived role
 records under its nested `proofbound-trusted-transcription/1` value. Each role
 identity is independently recomputed from canonical `{abi, driver, role}`
@@ -1501,7 +1509,7 @@ memory_bytes = 2147483648
 The referenced registry is structurally singular:
 
 ```toml
-schema = "proofbound-mutation-registry/2"
+schema = "proofbound-mutation-registry/3"
 subject = "rust:allowance-kernel::decide_transfer"
 
 [mutation]
@@ -1859,12 +1867,12 @@ The canonical evidence record has these additional fidelity requirements:
   Non-passing records may retain empty or partial inventory and failed run
   facts for diagnosis; those facts never support claim admission.
 
-Version 3 is a second coordinated transition:
-`proofbound-adapter-observation/2`, `proofbound-evidence/3`,
-`proofbound-compiled-project/3`, `proofbound-compiled-release/3`, and
-`proofbound-release-envelope/3`. It retains every version-2 fidelity rule and
+Version 4 is a third coordinated transition:
+`proofbound-adapter-observation/3`, `proofbound-evidence/4`,
+`proofbound-compiled-project/4`, `proofbound-compiled-release/4`, and
+`proofbound-release-envelope/4`. It retains every version-3 fidelity rule and
 adds a typed expected-failure binding to the closed
-`proofbound-mutation-witness/2` detail. That detail carries the exact mutation
+`proofbound-mutation-witness/3` detail. That detail carries the exact mutation
 ID, subject and guard; registry, target-preimage, full-file-mutant,
 target-postimage, and witness-source artifact identities; check identity;
 baseline run index; one expected-failure run index; and optional proof-term
@@ -1875,18 +1883,18 @@ For passed mutation evidence, the baseline and mutant commands run the same
 exact check. The baseline run is earlier and exits zero; the expected-failure
 run exits exactly 101; all other runs exit zero; and no output is truncated.
 For every non-mutation passed record, `expected_failure` is absent and the
-version-2 all-zero rule remains unchanged. Version-2 evidence and receipts are
-never accepted under these version-3 rules, so a previously invalid nonzero
+version-3 all-zero rule remains unchanged. Version-3 evidence and receipts are
+never accepted under these version-4 rules, so a previously invalid nonzero
 run cannot acquire a new meaning without a fresh check and receipt.
 
-The version-3 compiled release keeps a claim's required internal `statement` and its
+The version-4 compiled release keeps a claim's required internal `statement` and its
 optional `public_language` as distinct fields. Each reported claim status
 contains the required derived `public_statement` described in Section 6.3.2.
 The independent verifier recomputes that rendered field from the retained
 claim inputs and rejects substitution or drift.
 
 The producer's private compiled-state boundary is
-`proofbound-compiled-project/3`, and claim-input identities use the
+`proofbound-compiled-project/4`, and claim-input identities use the
 `proofbound-claim-input/3` domain. Reporting and release commands MUST reject
 older compiled state and require a fresh `proofbound check`; otherwise an
 evidence-free legacy ledger claim could be released after its internal

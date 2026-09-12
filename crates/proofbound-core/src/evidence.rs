@@ -22,12 +22,16 @@ pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 pub const EVIDENCE_SCHEMA_V1: &str = "proofbound-evidence/1";
 /// Superseded version-2 evidence schema retained for explicit migration errors.
 pub const EVIDENCE_SCHEMA_V2: &str = "proofbound-evidence/2";
+/// Superseded version-3 evidence schema retained for explicit migration errors.
 pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
+pub const EVIDENCE_SCHEMA_V4: &str = "proofbound-evidence/4";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcription/1";
 pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
 pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
+/// Superseded mutation-witness schema retained for explicit migration errors.
 pub const MUTATION_WITNESS_SCHEMA_V2: &str = "proofbound-mutation-witness/2";
+pub const MUTATION_WITNESS_SCHEMA_V3: &str = "proofbound-mutation-witness/3";
 pub const PYTHON_PROPERTY_SCHEMA_V1: &str = "proofbound-python-property/1";
 pub const STATIC_CHECK_SCHEMA_V1: &str = "proofbound-static-check/1";
 pub const DISTRIBUTION_REPRODUCTION_SCHEMA_V1: &str = "proofbound-distribution-reproduction/1";
@@ -1085,16 +1089,16 @@ impl EvidenceRecord {
                 .for_unit(self.unit_id.clone())
         };
 
-        if self.schema != EVIDENCE_SCHEMA_V3 {
+        if self.schema != EVIDENCE_SCHEMA_V4 {
             errors.push(
                 StructuredError::new(
                     ErrorCode::PbCoreUnsupportedSchema,
                     format!("unsupported evidence schema '{}'", self.schema),
-                    "migrate the evidence record to proofbound-evidence/3",
+                    "migrate the evidence record to proofbound-evidence/4",
                 )
                 .for_claim(claim_id.clone())
                 .for_unit(self.unit_id.clone())
-                .identities(EVIDENCE_SCHEMA_V3, &self.schema),
+                .identities(EVIDENCE_SCHEMA_V4, &self.schema),
             );
         }
         if !self.claims.contains(claim_id) {
@@ -1841,7 +1845,7 @@ fn mutation_witness_valid(record: &EvidenceRecord, witness: &MutationWitnessEvid
                 .filter(|run| run.exit_code != Some(0))
                 .count()
                 == 1);
-    let strings_are_valid = witness.schema == MUTATION_WITNESS_SCHEMA_V2
+    let strings_are_valid = witness.schema == MUTATION_WITNESS_SCHEMA_V3
         && valid_mutation_id(&witness.mutation_id)
         && bounded_text(&witness.subject, 4096)
         && bounded_text(&witness.guard, 8192)
@@ -2160,7 +2164,7 @@ mod tests {
     #[test]
     fn strict_evidence_rejects_unknown_fields() {
         let value = serde_json::json!({
-            "schema": EVIDENCE_SCHEMA_V3,
+            "schema": EVIDENCE_SCHEMA_V4,
             "id": "test:e",
             "node_id": "node:e",
             "unit_id": "unit:e",

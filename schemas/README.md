@@ -14,8 +14,8 @@ separator.
 identity. Pretty-printer output is diagnostic only and is never hashed.
 
 `adapter-protocol.schema.json` defines the canonical subprocess envelope.
-Successful adapters return either a complete `proofbound-evidence/3` record or
-the strict, tool-neutral `proofbound-adapter-observation/2` object defined by
+Successful adapters return either a complete `proofbound-evidence/4` record or
+the strict, tool-neutral `proofbound-adapter-observation/3` object defined by
 `adapter-observation.schema.json`; the compiler validates and converts the
 latter without trusting adapter-supplied claim status.
 Operation responses are exact: successful `doctor` is null evidence plus empty
@@ -35,7 +35,7 @@ this ABI because adapters reject a nonzero checker exit before parsing its
 output. Adapters also require canonical JSON framing with no trailing bytes and
 exact equality with the registered inventory, which JSON Schema cannot express.
 
-Version-3 evidence retains version 2's exact registered bounded-assumption strings,
+Version-4 evidence retains version 3's exact registered bounded-assumption strings,
 requires nullable `peak_memory_bytes` (`null` means unmeasured; numeric zero is
 a measurement), and requires `execution_kind`. `observed-processes` records
 the full nonempty ordered `commands` and aligned `runs`; `compiler-internal`
@@ -48,9 +48,10 @@ the closed field shapes, while the implementations enforce cross-field
 equality, command/run alignment, and exact registration matches.
 A passed observed-process record requires a nonempty inventory and
 `output_truncated: false` for every run. Every run normally requires exit code
-zero. A version-2 singleton mutation replay is the sole exception: its typed
+zero. A version-3 singleton mutation replay is the sole exception: its typed
 replay block identifies exactly one later run whose only allowed exit code is
-101, after the same witness passed against an exact registered preimage. A
+101 for Rust or 1 for a grammar-validated Python or Node subject, after the
+same witness passed against an exact registered preimage. A
 passed compiler-internal record
 may have an empty inventory because it has no tool-selected targets or runs;
 non-passing records may retain failed run facts and empty/partial inventories
@@ -63,13 +64,20 @@ addition to its selector roots and exact produced-to-destination map. Version 2
 is rejected rather than allowing a successful translator exit with an empty or
 partial transitive closure.
 
-The version-3 compiled release retains required internal claim `statement`,
+The version-4 compiled release retains required internal claim `statement`,
 optional reader-facing `public_language`, and required derived status
 `public_statement` as distinct values. The final field is recomputed, never
 accepted as a replacement for the first.
 
+The Python and TypeScript transition is deliberately breaking. It advances
+adapter observations from version 2 to 3, canonical evidence and mutation
+witnesses from version 3 and 2 to 4 and 3, mutation registries from version 2
+to 3, and compiled state, releases, and envelopes from version 3 to 4. Older
+identities retain their previous meanings and are rejected rather than
+reinterpreted under the widened exit-code and mutation-symbol rules.
+
 `mutation-registry.schema.json` defines only
-`proofbound-mutation-registry/2`: one subject and one mutation with byte-pinned
+`proofbound-mutation-registry/3`: one subject and one mutation with byte-pinned
 target preimage, full-file mutant, and witness source. The corresponding
 `proofbound-evidence-unit/3` route admits exactly one registry, mutation ID,
 inventory entry, evidence fate, and affected-claim set. Multiple mutations may

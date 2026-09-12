@@ -32,7 +32,7 @@ use thiserror::Error;
 use walkdir::WalkDir;
 
 pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
-pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
+pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TOOL_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INVENTORY: usize = 100_000;
@@ -4376,9 +4376,9 @@ fn load_mutation_registry(
         .map_err(|error| AdapterError::Unit(format!("mutation registry is not UTF-8: {error}")))?;
     let value = toml::from_str::<toml::Value>(text)
         .map_err(|error| AdapterError::Unit(format!("invalid mutation registry: {error}")))?;
-    if value.get("schema").and_then(toml::Value::as_str) != Some("proofbound-mutation-registry/2") {
+    if value.get("schema").and_then(toml::Value::as_str) != Some("proofbound-mutation-registry/3") {
         return Err(AdapterError::Unit(
-            "direct/manual mutation evidence is unsupported; use proofbound-mutation-registry/2 replay"
+            "direct/manual mutation evidence is unsupported; use proofbound-mutation-registry/3 replay"
                 .to_owned(),
         ));
     }
@@ -4387,7 +4387,7 @@ fn load_mutation_registry(
         registry: toml::from_str::<MutationRegistry>(text)
             .map_err(|error| AdapterError::Unit(error.to_string()))?,
     };
-    if loaded.registry.schema != "proofbound-mutation-registry/2"
+    if loaded.registry.schema != "proofbound-mutation-registry/3"
         || loaded.registry.subject.trim().is_empty()
         || loaded.registry.subject.chars().count() > 4096
     {
@@ -6216,7 +6216,7 @@ path.write_bytes(b"fixture")
     fn mutation_registry_is_strict_and_binds_witnesses() {
         let registry: MutationRegistry = toml::from_str(
             r#"
-schema = "proofbound-mutation-registry/2"
+schema = "proofbound-mutation-registry/3"
 subject = "rust:crate::f"
 [mutation]
 id = "remove-guard"
@@ -6233,7 +6233,7 @@ affected_claims = ["CLAIM-ONE"]
         )
         .unwrap();
         assert_eq!(registry.mutation.witness, "crate::tests::detects_guard");
-        assert!(serde_json::from_value::<MutationRegistry>(json!({"schema":"proofbound-mutation-registry/2","subject":"s","mutation":{},"extra":1})).is_err());
+        assert!(serde_json::from_value::<MutationRegistry>(json!({"schema":"proofbound-mutation-registry/3","subject":"s","mutation":{},"extra":1})).is_err());
     }
 
     fn mutation_replay_fixture(root: &Path) -> EvidenceUnitManifest {
@@ -6262,7 +6262,7 @@ affected_claims = ["CLAIM-ONE"]
         fs::write(root.join("mutations/mutants/remove-guard/lib.rs"), mutant).unwrap();
         fs::write(root.join("tests/witness.rs"), witness).unwrap();
         let registry = format!(
-            r#"schema = "proofbound-mutation-registry/2"
+            r#"schema = "proofbound-mutation-registry/3"
 subject = "rust:mutation-fixture::guarded"
 
 [mutation]
@@ -6331,7 +6331,7 @@ affected_claims = ["CLAIM-ONE"]
         .unwrap();
         let observation = observation.unwrap();
         let replay = observation.mutation_replay.as_ref().unwrap();
-        assert_eq!(observation.schema, "proofbound-adapter-observation/2");
+        assert_eq!(observation.schema, "proofbound-adapter-observation/3");
         assert_eq!(inventory, ["remove-guard"]);
         assert_eq!(replay.mutation_id, "remove-guard");
         assert_eq!(replay.target_preimage.logical_name, "src/lib.rs");

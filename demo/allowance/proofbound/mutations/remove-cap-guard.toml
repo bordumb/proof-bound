@@ -1,4 +1,4 @@
-schema = "proofbound-mutation-registry/2"
+schema = "proofbound-mutation-registry/3"
 subject = "rust:allowance-kernel::decide_transfer"
 
 [mutation]

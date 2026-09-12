@@ -1,14 +1,17 @@
-//! Closed `proofbound-compiled-release/3` receipt format.
+//! Closed `proofbound-compiled-release/4` receipt format.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 pub const RELEASE_ENVELOPE_SCHEMA_V3: &str = "proofbound-release-envelope/3";
+pub const RELEASE_ENVELOPE_SCHEMA_V4: &str = "proofbound-release-envelope/4";
 pub const COMPILED_RELEASE_SCHEMA_V3: &str = "proofbound-compiled-release/3";
+pub const COMPILED_RELEASE_SCHEMA_V4: &str = "proofbound-compiled-release/4";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
+pub const EVIDENCE_SCHEMA_V4: &str = "proofbound-evidence/4";
 pub const ASSUMPTION_SCHEMA_V1: &str = "proofbound-assumption/1";
 pub const CLOSURE_SCHEMA_V1: &str = "proofbound-source-closure/1";
 pub const POLICY_SCHEMA_V1: &str = "proofbound-policy/1";
@@ -16,6 +19,7 @@ pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcript
 pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
 pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
 pub const MUTATION_WITNESS_SCHEMA_V2: &str = "proofbound-mutation-witness/2";
+pub const MUTATION_WITNESS_SCHEMA_V3: &str = "proofbound-mutation-witness/3";
 pub const MUTATION_IDENTITY_DOMAIN_V2: &str = "proofbound-mutation/2";
 pub const PYTHON_PROPERTY_SCHEMA_V1: &str = "proofbound-python-property/1";
 pub const STATIC_CHECK_SCHEMA_V1: &str = "proofbound-static-check/1";

@@ -33,7 +33,7 @@
       "additionalProperties": false,
       "required": ["schema", "payload", "payload_sha256"],
       "properties": {
-        "schema": { "const": "proofbound-release-envelope/3" },
+        "schema": { "const": "proofbound-release-envelope/4" },
         "payload": { "const": "compiled-receipt.json" },
         "payload_sha256": { "$ref": "#/$defs/digest" }
       }
@@ -43,7 +43,7 @@
       "additionalProperties": false,
       "required": ["schema", "project", "project_revision", "project_tier", "tree_state", "graph", "graph_sha256", "claims", "evidence", "assumptions", "premises", "policies", "closures", "sealed_files", "reported_statuses"],
       "properties": {
-        "schema": { "const": "proofbound-compiled-release/3" },
+        "schema": { "const": "proofbound-compiled-release/4" },
         "project": { "type": "string", "minLength": 1, "maxLength": 128 },
         "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
         "project_tier": { "type": "integer", "minimum": 0, "maximum": 3 },
@@ -97,7 +97,7 @@
       "additionalProperties": false,
       "required": ["schema", "unit_id", "node_id", "kind", "claim_ids", "outcome", "inventoried_targets", "assumptions", "premises", "provenance"],
       "properties": {
-        "schema": { "const": "proofbound-evidence/3" },
+        "schema": { "const": "proofbound-evidence/4" },
         "unit_id": { "$ref": "#/$defs/id" },
         "node_id": { "$ref": "#/$defs/id" },
         "kind": { "$ref": "#/$defs/evidenceKind" },
@@ -263,7 +263,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["schema", "mutation_id", "subject", "guard", "mutation_sha256", "registry", "target_preimage", "mutant_artifact", "target_postimage", "witness_source", "check_id", "baseline_run_index", "expected_failure", "proof_term_witness"],
       "properties": {
-        "schema": { "const": "proofbound-mutation-witness/2" },
+        "schema": { "const": "proofbound-mutation-witness/3" },
         "mutation_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,255}$" },
         "subject": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?:rust:[a-z][a-z0-9_-]*(?:::[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)?|python:[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:::[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)?|npm:[a-z0-9][a-z0-9._-]*(?:::[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*)?)$" },
         "guard": { "type": "string", "minLength": 1, "maxLength": 8192, "pattern": "\\S" },

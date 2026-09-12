@@ -30,7 +30,7 @@ use walkdir::WalkDir;
 
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
-const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
+const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_JSON_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_EXECUTABLE_BYTES: u64 = 512 * 1024 * 1024;

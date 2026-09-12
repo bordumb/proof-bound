@@ -38,10 +38,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{adapter, closures, model::CompiledProject, model::UnitRun, safe_component};
 
-const COMPILED_SCHEMA: &str = "proofbound-compiled-project/3";
+const COMPILED_SCHEMA: &str = "proofbound-compiled-project/4";
 const CLAIM_INPUT_DOMAIN: &str = "proofbound-claim-input/3";
-const EVIDENCE_DOMAIN: &str = "proofbound-evidence/3";
-const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
+const EVIDENCE_DOMAIN: &str = "proofbound-evidence/4";
+const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 const MAX_CARGO_METADATA_OUTPUT: usize = 64 << 20;
 
 #[derive(Clone, Debug, Default)]
@@ -391,11 +391,11 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
     let payload = compiled_release_value(&compiled, bundle.project.tier, graph, sealed_files)?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&destination.join("compiled-receipt.json"), &payload_bytes)?;
-    let payload_sha256 = domain_hash("proofbound-compiled-release/3", &payload_bytes);
+    let payload_sha256 = domain_hash("proofbound-compiled-release/4", &payload_bytes);
     write_canonical(
         &destination.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/3",
+            "schema": "proofbound-release-envelope/4",
             "payload": "compiled-receipt.json",
             "payload_sha256": payload_sha256,
         }),
@@ -561,9 +561,9 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     write_canonical(
         &output.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/3",
+            "schema": "proofbound-release-envelope/4",
             "payload": "compiled-receipt.json",
-            "payload_sha256": domain_hash("proofbound-compiled-release/3", &payload_bytes),
+            "payload_sha256": domain_hash("proofbound-compiled-release/4", &payload_bytes),
         }),
     )?;
     Ok(output.to_owned())
@@ -2262,7 +2262,7 @@ fn mutation_record_matches_registration(
         .as_ref()
         .context("PB-MUTATION-0005: cached mutation evidence omitted replay facts")?;
     let expected = MutationWitnessEvidence {
-        schema: "proofbound-mutation-witness/2".into(),
+        schema: "proofbound-mutation-witness/3".into(),
         mutation_id: registered.mutation_id,
         subject: registered.subject,
         guard: registered.guard,
@@ -3013,7 +3013,7 @@ fn mutation_witness_from_observation(
     }
 
     let mut witness = MutationWitnessEvidence {
-        schema: "proofbound-mutation-witness/2".into(),
+        schema: "proofbound-mutation-witness/3".into(),
         mutation_id: registered.mutation_id,
         subject: registered.subject,
         guard: registered.guard,
@@ -5544,7 +5544,7 @@ fn compiled_release_value(
         })
         .collect::<Vec<_>>();
     let mut payload = serde_json::json!({
-        "schema": "proofbound-compiled-release/3",
+        "schema": "proofbound-compiled-release/4",
         "project": compiled.project,
         "project_revision": compiled.project_revision,
         "project_tier": project_tier,
@@ -7436,7 +7436,7 @@ description = {description:?}
             })
         };
         let observation = json!({
-            "schema": "proofbound-adapter-observation/2",
+            "schema": "proofbound-adapter-observation/3",
             "unit_id": "multi-command",
             "evidence_kind": "example-test",
             "outcome": "passed",
@@ -7675,7 +7675,7 @@ description = {description:?}
             ])
         };
         let observation = json!({
-            "schema": "proofbound-adapter-observation/2",
+            "schema": "proofbound-adapter-observation/3",
             "unit_id": "round-trip",
             "evidence_kind": "trusted-transcription",
             "outcome": "passed",
@@ -7880,7 +7880,7 @@ description = {description:?}
     fn direct_example_record_value(inventory: Vec<&str>) -> serde_json::Value {
         let digest = format!("sha256:{}", "00".repeat(32));
         json!({
-            "schema": "proofbound-evidence/3",
+            "schema": "proofbound-evidence/4",
             "id": "example-test:inventory-protocol",
             "node_id": "evidence:example-test:inventory-protocol",
             "unit_id": "unit:inventory-protocol",
@@ -8082,7 +8082,7 @@ description = {description:?}
     fn artifact_adapter_cannot_bypass_checked_observation_with_core_record() {
         let digest = format!("sha256:{}", "00".repeat(32));
         let forged = json!({
-            "schema": "proofbound-evidence/3",
+            "schema": "proofbound-evidence/4",
             "id": "artifact:forged",
             "node_id": "evidence:artifact:forged",
             "unit_id": "unit:forged",
@@ -8185,7 +8185,7 @@ description = {description:?}
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: "lean".into(),
             success: false,
-            evidence: Some(json!({"schema": "proofbound-evidence/3"})),
+            evidence: Some(json!({"schema": "proofbound-evidence/4"})),
             inventory: Vec::new(),
             diagnostics: Vec::new(),
         };

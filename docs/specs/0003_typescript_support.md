@@ -128,7 +128,7 @@ This specification MUST NOT:
   adapter layout: a stdin/stdout binary speaking
   `schemas/adapter-protocol.schema.json`, a cleared child environment
   with per-unit allowlists, bounded output drains, deadline enforcement,
-  and observations in `proofbound-adapter-observation/2`.
+  and observations in `proofbound-adapter-observation/3`.
 - Error family: `PB-NODE-NNNN`, following the 0001 §12.3 contract.
 - Operation vocabulary owned by this adapter (closed):
   `vitest` (§6), `tsc` (§7), `npm-package` (§8), and the `vitest`

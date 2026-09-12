@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema", "subject", "mutation"],
   "properties": {
-    "schema": { "const": "proofbound-mutation-registry/2" },
+    "schema": { "const": "proofbound-mutation-registry/3" },
     "subject": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?:rust:[a-z][a-z0-9_-]*(?:::[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)?|python:[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:::[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)?|npm:[a-z0-9][a-z0-9._-]*(?:::[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*)?)$" },
     "mutation": { "$ref": "#/$defs/mutation" }
   },
