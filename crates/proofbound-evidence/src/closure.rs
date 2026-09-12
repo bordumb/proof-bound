@@ -385,13 +385,10 @@ mod tests {
 
     #[test]
     fn public_schema_discovery_vocabulary_matches_runtime() {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(Path::parent)
-            .unwrap();
-        let schema: serde_json::Value = serde_json::from_slice(
-            &fs::read(workspace.join("schemas/closure.schema.json")).unwrap(),
-        )
+        let schema: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../schemas/closure.schema.json"
+        )))
         .unwrap();
         let schema_methods = schema["properties"]["discovery"]["enum"]
             .as_array()
