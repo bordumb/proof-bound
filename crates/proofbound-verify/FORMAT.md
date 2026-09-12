@@ -45,6 +45,7 @@ The domains are fixed:
 | compiled payload with exact observations | `proofbound-compiled-release/4` |
 | compiled payload with context-bound exact observations | `proofbound-compiled-release/5` |
 | compiled payload with contextual artifact bindings | `proofbound-compiled-release/6` |
+| current compiled payload with claim-owned bounded domains | `proofbound-compiled-release/7` |
 | graph | `proofbound-graph/1` |
 | evidence record | `proofbound-evidence/3` |
 | evidence record with exact observation | `proofbound-evidence/4` |
@@ -68,7 +69,12 @@ but no contextual artifact binding. It binds the same canonical
 evidence record. Version 6 is selected exactly when a contextual release has at
 least one `proofbound-evidence/5` artifact-binding record; it may also retain
 contextual `proofbound-evidence/4` observation records. Base releases cannot
-contain either contextual record. The envelope version equals the compiled
+contain either contextual record. Version 7 is emitted by the current producer
+for every new release. It adds the optional claim-owned `bounded_domain` field
+and requires that field for bounded standing; the independent verifier retains
+versions 3 through 6 under their historical rules and does not retroactively
+require the new field from those receipts. Version 7 preserves the established
+context and observation shape rules. The envelope version equals the compiled
 payload version, and unsupported or incoherent combinations fail closed. All
 versions contain exactly:
 

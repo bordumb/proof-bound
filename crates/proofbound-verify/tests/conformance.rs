@@ -810,6 +810,7 @@ fn theorem_release() -> CompiledRelease {
 
 fn bounded_release() -> CompiledRelease {
     let mut release = base_release();
+    release.schema = COMPILED_RELEASE_SCHEMA_V7.into();
     release.project_tier = Tier::Bounded;
     release.graph.nodes[3] = GraphNode {
         id: "model-check:m".into(),
@@ -1859,6 +1860,15 @@ fn verifier_rejects_claim_and_bounded_evidence_domain_divergence() {
         let error = verify_compiled_release(&release).unwrap_err();
         assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
     }
+}
+
+#[test]
+fn legacy_bounded_release_keeps_its_historical_domain_contract() {
+    let mut release = bounded_release();
+    release.schema = COMPILED_RELEASE_SCHEMA_V3.into();
+    release.claims[0].bounded_domain = None;
+
+    verify_compiled_release(&release).unwrap();
 }
 
 #[test]
@@ -3466,6 +3476,7 @@ fn write_payload_at(directory: &Path, release: &CompiledRelease) {
     let payload = canonical_json(release).unwrap();
     fs::write(directory.join("compiled-receipt.json"), &payload).unwrap();
     let envelope_schema = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V7 => RELEASE_ENVELOPE_SCHEMA_V7,
         COMPILED_RELEASE_SCHEMA_V6 => RELEASE_ENVELOPE_SCHEMA_V6,
         COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
         COMPILED_RELEASE_SCHEMA_V4 => RELEASE_ENVELOPE_SCHEMA_V4,

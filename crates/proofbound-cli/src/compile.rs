@@ -436,6 +436,7 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
         .context("PB-RELEASE-0021: compiled receipt omitted its schema")?;
     let payload_sha256 = domain_hash(payload_schema, &payload_bytes);
     let envelope_schema = match payload_schema {
+        "proofbound-compiled-release/7" => "proofbound-release-envelope/7",
         "proofbound-compiled-release/6" => "proofbound-release-envelope/6",
         "proofbound-compiled-release/5" => "proofbound-release-envelope/5",
         "proofbound-compiled-release/4" => "proofbound-release-envelope/4",
@@ -6176,15 +6177,7 @@ fn compiled_release_value(
         bail!("PB-CTX-0004: a contextual release contains no admitted contextual evidence");
     }
     let mut payload = serde_json::json!({
-        "schema": if has_contextual_artifact_bindings {
-            "proofbound-compiled-release/6"
-        } else if compiled.evidence_context.is_some() {
-            "proofbound-compiled-release/5"
-        } else if has_artifact_observations {
-            "proofbound-compiled-release/4"
-        } else {
-            "proofbound-compiled-release/3"
-        },
+        "schema": "proofbound-compiled-release/7",
         "project": compiled.project,
         "project_revision": compiled.project_revision,
         "evidence_context": compiled.evidence_context,
@@ -6710,6 +6703,21 @@ mod tests {
             unit_runs: Vec::new(),
             claim_input_identities: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn current_release_producer_uses_compiled_release_v7() {
+        let compiled = empty_context_compiled(None);
+        let graph = serde_json::json!({
+            "schema": "proofbound-graph/1",
+            "nodes": [],
+            "edges": [],
+            "mutual_theorem_groups": [],
+        });
+        let payload =
+            compiled_release_value(&compiled, 0, graph, Vec::new(), &BTreeSet::new()).unwrap();
+
+        assert_eq!(payload["schema"], "proofbound-compiled-release/7");
     }
 
     fn policy_manifest(overrides: serde_json::Value) -> PolicyManifest {

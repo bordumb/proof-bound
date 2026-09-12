@@ -82,13 +82,17 @@ schema 5 remains exclusively the contextual empirical observation route. The
 compiler requires the version-6 theorem to have the exact closed
 `DigestBindingSetV1` root and the checked name/digest to select one member.
 
-`receipt.schema.json` coordinates contextual portable versions. A release with
-only contextual exact observations uses `proofbound-compiled-release/5`; one
-with any contextual artifact binding uses version 6. Contextual binding records
-use `proofbound-evidence/5`, retain the selected context and exact artifact
-identity, and require that artifact to be sealed into the release for
-byte-recomputed publication. Existing version-3 evidence and version-4
-observations keep their meanings; older schemas reject the new route.
+`receipt.schema.json` coordinates contextual portable versions. Legacy releases
+with only contextual exact observations use `proofbound-compiled-release/5`;
+legacy releases with contextual artifact bindings use version 6. Version 7 is
+the current producer format across all release shapes and adds the optional
+claim-owned `bounded_domain` field. A bounded or exhaustive standing in v7
+requires that exact domain to agree with its primary evidence. The independent
+verifier retains versions 3 through 6 under their historical rules, so the new
+field does not retroactively invalidate issued receipts. Contextual binding
+records use `proofbound-evidence/5`, retain the selected context and exact
+artifact identity, and require that artifact to be sealed into the release for
+byte-recomputed publication.
 
 `mutation-registry.schema.json` defines only
 `proofbound-mutation-registry/2`: one subject and one mutation with byte-pinned

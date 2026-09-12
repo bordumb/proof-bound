@@ -14,15 +14,16 @@ use crate::{
     AssumptionFacet, AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode,
     BoundedDomain, BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3,
     COMPILED_RELEASE_SCHEMA_V4, COMPILED_RELEASE_SCHEMA_V5, COMPILED_RELEASE_SCHEMA_V6,
-    ClaimReceipt, ClosureKind, CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1,
-    EVIDENCE_SCHEMA_V3, EVIDENCE_SCHEMA_V4, EVIDENCE_SCHEMA_V5,
-    EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
-    EvidenceReceipt, Exclusion, ExecutionKind, ExternalObservationInput, FlowScope, FormalFacet,
-    GRAPH_SCHEMA_V1, GraphEdge, GraphNode, HashedRecord, IndependenceMode, LinkageFacet,
-    MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V2, NodeKind, ObservationPlatform,
-    OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
-    RELEASE_ENVELOPE_SCHEMA_V3, RELEASE_ENVELOPE_SCHEMA_V4, RELEASE_ENVELOPE_SCHEMA_V5,
-    RELEASE_ENVELOPE_SCHEMA_V6, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
+    COMPILED_RELEASE_SCHEMA_V7, ClaimReceipt, ClosureKind, CompiledRelease,
+    DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EVIDENCE_SCHEMA_V4,
+    EVIDENCE_SCHEMA_V5, EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind, EvaluationMode,
+    EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, ExecutionKind,
+    ExternalObservationInput, FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphEdge, GraphNode,
+    HashedRecord, IndependenceMode, LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2,
+    MUTATION_WITNESS_SCHEMA_V2, NodeKind, ObservationPlatform, OpenObligation, POLICY_SCHEMA_V1,
+    PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V3,
+    RELEASE_ENVELOPE_SCHEMA_V4, RELEASE_ENVELOPE_SCHEMA_V5, RELEASE_ENVELOPE_SCHEMA_V6,
+    RELEASE_ENVELOPE_SCHEMA_V7, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
     SourceClosureReceipt, SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1,
     TRANSCRIPTION_TCB_ROLE_DOMAIN_V1, TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole,
     TreeState, canonical_json, domain_hash, raw_sha256,
@@ -248,6 +249,7 @@ pub fn verify_release_dir_with_observations(
             | RELEASE_ENVELOPE_SCHEMA_V4
             | RELEASE_ENVELOPE_SCHEMA_V5
             | RELEASE_ENVELOPE_SCHEMA_V6
+            | RELEASE_ENVELOPE_SCHEMA_V7
     ) {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
@@ -275,6 +277,7 @@ pub fn verify_release_dir_with_observations(
         COMPILED_RELEASE_SCHEMA_V4 => COMPILED_RELEASE_SCHEMA_V4,
         COMPILED_RELEASE_SCHEMA_V5 => COMPILED_RELEASE_SCHEMA_V5,
         COMPILED_RELEASE_SCHEMA_V6 => COMPILED_RELEASE_SCHEMA_V6,
+        COMPILED_RELEASE_SCHEMA_V7 => COMPILED_RELEASE_SCHEMA_V7,
         _ => COMPILED_RELEASE_SCHEMA_V3,
     };
     let actual_payload = domain_hash(payload_domain, &payload_bytes);
@@ -292,6 +295,7 @@ pub fn verify_release_dir_with_observations(
     }
 
     let expected_envelope = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V7 => RELEASE_ENVELOPE_SCHEMA_V7,
         COMPILED_RELEASE_SCHEMA_V6 => RELEASE_ENVELOPE_SCHEMA_V6,
         COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
         COMPILED_RELEASE_SCHEMA_V4 => RELEASE_ENVELOPE_SCHEMA_V4,
@@ -350,6 +354,7 @@ fn verify_compiled_release_internal(
             | COMPILED_RELEASE_SCHEMA_V4
             | COMPILED_RELEASE_SCHEMA_V5
             | COMPILED_RELEASE_SCHEMA_V6
+            | COMPILED_RELEASE_SCHEMA_V7
     ) {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
@@ -401,6 +406,22 @@ fn verify_compiled_release_internal(
             issues.push(VerificationIssue::new(
                 VerificationIssueCode::PbCtx0008,
                 "compiled release v6 requires contextual artifact bindings and one canonical evidence context",
+            ));
+        }
+        COMPILED_RELEASE_SCHEMA_V7
+            if release.evidence_context.is_some()
+                && !has_observations
+                && !has_contextual_bindings =>
+        {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbCtx0008,
+                "compiled release v7 evidence context requires exact observations or contextual artifact bindings",
+            ));
+        }
+        COMPILED_RELEASE_SCHEMA_V7 if has_contextual_bindings && !valid_context => {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbCtx0008,
+                "compiled release v7 contextual artifact bindings require one canonical evidence context",
             ));
         }
         _ => {}
@@ -723,7 +744,10 @@ fn validate_evidence_context_bindings(
             );
         }
         if evidence.record.schema == EVIDENCE_SCHEMA_V5
-            && release.schema != COMPILED_RELEASE_SCHEMA_V6
+            && !matches!(
+                release.schema.as_str(),
+                COMPILED_RELEASE_SCHEMA_V6 | COMPILED_RELEASE_SCHEMA_V7
+            )
         {
             issues.push(
                 VerificationIssue::new(
@@ -4407,7 +4431,9 @@ fn derive_claim(
     } else {
         FormalFacet::Open
     };
-    if matches!(formal, FormalFacet::BoundedChecked) || exhaustive_as_proof {
+    if release.schema == COMPILED_RELEASE_SCHEMA_V7
+        && (matches!(formal, FormalFacet::BoundedChecked) || exhaustive_as_proof)
+    {
         match claim.bounded_domain.as_ref() {
             Some(expected) => {
                 if claim.registered_domain_language.as_deref()
