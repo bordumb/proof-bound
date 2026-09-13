@@ -736,12 +736,7 @@ fn admitted_theorem_keeps_exhaustive_evidence_corroborating() {
         .unwrap()
         .domain
         .registration_sha256 = digest("unregistered-corroborating-domain");
-    add_record(
-        &mut input,
-        corroborating,
-        NodeKind::ModelCheckUnit,
-        true,
-    );
+    add_record(&mut input, corroborating, NodeKind::ModelCheckUnit, true);
 
     let status = derive_claim_status(&input);
     assert_eq!(status.formal, FormalFacet::Proved);

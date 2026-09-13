@@ -1971,7 +1971,10 @@ fn verifier_keeps_exhaustive_evidence_corroborating_after_theorem_proof() {
 
     let report = verify_compiled_release(&release).unwrap();
     assert_eq!(report.claims[0].formal, FormalFacet::Proved);
-    assert_eq!(report.claims[0].public_statement, release.claims[0].statement);
+    assert_eq!(
+        report.claims[0].public_statement,
+        release.claims[0].statement
+    );
 }
 
 #[test]
