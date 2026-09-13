@@ -1,7 +1,7 @@
 schema = "proofbound-evidence-unit/1"
 id = "rust-kernel-tests"
 adapter = "rust-test"
-kind = "property-test"
+kind = "example-test"
 claims = [
   "DEMO-TRANSFER-001",
   "DEMO-TRANSFER-002",

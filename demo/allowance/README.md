@@ -105,6 +105,18 @@ therefore have five independent evidence fates. A broken witness invalidates
 only the claims named by that mutation rather than conservatively removing one
 shared receipt from unrelated claims.
 
+## Rust test evidence classification
+
+`rust-kernel-tests` is intentionally registered as `example-test`, not
+`property-test`. Its exact inventory contains five deterministic Rust/libtest
+cases over named examples and fixed canonical fixtures. It has no generated or
+randomized input domain and therefore does not justify property-test assurance.
+The former property-test label overstated what those runs observed; changing the
+label and the six claim citations is an intentional correction of that
+misclassification, not a reduction in the tests that execute. Universal and
+bounded transfer properties remain supported separately by the registered Lean
+theorems and Kani bounded-check evidence.
+
 ## Run locally
 
 From the repository root:

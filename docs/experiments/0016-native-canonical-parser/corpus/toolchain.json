@@ -1,0 +1,10 @@
+{
+  "schema": "proofbound-research-native-toolchain/1",
+  "solver": {
+    "program": "z3",
+    "argv": ["-in", "-smt2"],
+    "version_argv": ["--version"],
+    "expected_version": "Z3 version 4.15.2 - 64 bit",
+    "expected_results": ["unsat", "unsat", "unsat", "unsat", "unsat"]
+  }
+}

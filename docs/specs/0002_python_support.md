@@ -2,9 +2,9 @@
 
 **Status:** Initial implementation
 
-**Version:** 0.3.0
+**Version:** 0.3.1
 
-**Date:** 2026-09-01
+**Date:** 2026-09-12
 
 **Project:** Proofbound
 
@@ -14,6 +14,12 @@
 
 ### Revision history
 
+- **0.3.1** — binds the registered pytest plugin coordinates to the
+  observed pytest tool version. The version carries a stable digest of
+  each plugin's module, distribution, and version. Plugin origin bytes
+  remain part of tool identity, so changed bytes under the same
+  coordinates remain a release conflict instead of becoming a new
+  logical tool version.
 - **0.3.0** — reserves `pyright` instead of admitting a count-only
   analyzed inventory. Stock `pyright --outputjson` reports the number of
   analyzed files but not their identities, so it cannot meet §7.4's
@@ -191,6 +197,12 @@ plugins = ["_hypothesis_pytestplugin"]
   by `importlib.metadata`, and the SHA-256 of the module's resolved origin
   file. The array is in strict module-name order and is empty when
   `plugins` is absent.
+- The observed pytest tool version includes a domain-separated digest of
+  the sorted `(module, distribution, version)` plugin coordinates. This
+  prevents a plugin-bearing pytest run from sharing a logical tool label
+  with an ordinary pytest run. The digest excludes origin bytes. The
+  tool identity includes those bytes and therefore detects a byte change
+  under unchanged coordinates as a conflicting release dependency.
 - The compiler preserves `python_plugins` in `proofbound-evidence/4`
   provenance. The independent verifier requires the array to be sorted,
   duplicate-free, and consistent with the registered `plugins` list when

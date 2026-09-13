@@ -1,0 +1,60 @@
+{
+  "schema": "proofbound-research-batched-enforcement-preregistration/1",
+  "experiment": "EXP-0019",
+  "programme_experiment": "EXP-LANG-012",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:2dd8fcd1cb5c6eb76438e00dfb13af20eeb760fc",
+  "frozen_corpus": {
+    "path": "docs/experiments/0018-os-enforced-effects/corpus/index.json",
+    "sha256": "sha256:9686074a5cd8e5f2b3f0018ab95104f697bce292e0e948482220ec378780bd43",
+    "size_bytes": 1631
+  },
+  "frozen_baseline": {
+    "capture_sha256": "sha256:1e82a1696fdfc24a5676c26205781029b2b6573d7d6d3596e9393ec0d4df4c70",
+    "execution_sha256": "sha256:6920524ef537842076a74caeac50451c09a981297d11e3896f0520479a0a8503",
+    "elapsed_ms": 93574,
+    "ceiling_ms": 60000
+  },
+  "candidate": {
+    "scheduler": "concurrent-isolated-processes",
+    "shared_sandbox_process": false,
+    "separate_plan_and_receipt_per_slot": true,
+    "maximum_in_flight": 51,
+    "fallback": "unsupported-never-reusable"
+  },
+  "inventory": {
+    "positive_subjects": ["subject:node", "subject:python", "subject:rust"],
+    "positive_repetitions_per_subject": 10,
+    "positive_slots": 30,
+    "authority_modes_per_subject": 7,
+    "authority_slots": 21,
+    "base_attacks": 30,
+    "scheduler_attacks": 10
+  },
+  "scheduler_attacks": [
+    {"id": "EXP-0019-A031", "mutation": "omit one registered slot", "expected": "BFX-SLOT-MISSING"},
+    {"id": "EXP-0019-A032", "mutation": "duplicate one registered slot", "expected": "BFX-SLOT-DUPLICATE"},
+    {"id": "EXP-0019-A033", "mutation": "reorder canonical slots", "expected": "BFX-NONCANONICAL"},
+    {"id": "EXP-0019-A034", "mutation": "swap receipts between slots", "expected": "BFX-SLOT-BINDING"},
+    {"id": "EXP-0019-A035", "mutation": "reuse an ephemeral root across slots", "expected": "BFX-EPHEMERAL-ALIAS"},
+    {"id": "EXP-0019-A036", "mutation": "alias two output artifacts", "expected": "BFX-OUTPUT-ALIAS"},
+    {"id": "EXP-0019-A037", "mutation": "omit a completed worker result", "expected": "BFX-PARTIAL"},
+    {"id": "EXP-0019-A038", "mutation": "weaken one slot policy", "expected": "EFX-POLICY-IDENTITY"},
+    {"id": "EXP-0019-A039", "mutation": "mark a denied slot reusable", "expected": "EFX-RUN-OUTCOME"},
+    {"id": "EXP-0019-A040", "mutation": "forge the batch report identity", "expected": "BFX-REPORT-IDENTITY"}
+  ],
+  "ceilings": {
+    "max_elapsed_ms": 60000,
+    "max_rust_scheduler_and_validator_lines": 1600,
+    "max_python_validator_lines": 1000,
+    "max_policy_lines": 160,
+    "max_report_bytes": 196608
+  },
+  "decision": {
+    "pass": "Q1-Q5 pass",
+    "revise": "security and independent validation pass but a bounded latency or complexity criterion fails",
+    "stop": "batching permits ambient authority, stale reuse, cross-slot confusion, silent fallback, or reusable denied evidence"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schema": "proofbound-research-native-attacks/1",
+  "attacks": [
+    {"id": "EXP-0016-A001", "class": "source", "action": "unknown-declaration", "expected": "NATIVE-SYNTAX"},
+    {"id": "EXP-0016-A002", "class": "source", "action": "duplicate-module", "expected": "NATIVE-DUPLICATE"},
+    {"id": "EXP-0016-A003", "class": "source", "action": "duplicate-function", "expected": "NATIVE-DUPLICATE"},
+    {"id": "EXP-0016-A004", "class": "source", "action": "replace-value-bound", "expected": "NATIVE-TYPE"},
+    {"id": "EXP-0016-A005", "class": "source", "action": "replace-prefix", "expected": "NATIVE-SPEC-BINDING"},
+    {"id": "EXP-0016-A006", "class": "source", "action": "remove-wildcard-branch", "expected": "NATIVE-NONTOTAL"},
+    {"id": "EXP-0016-A007", "class": "source", "action": "add-unbounded-loop", "expected": "NATIVE-NONTOTAL"},
+    {"id": "EXP-0016-A008", "class": "source", "action": "add-undeclared-effect", "expected": "NATIVE-EFFECT"},
+    {"id": "EXP-0016-A009", "class": "source", "action": "remove-specification", "expected": "NATIVE-SPEC-MISSING"},
+    {"id": "EXP-0016-A010", "class": "source", "action": "noncanonical-source", "expected": "NATIVE-NONCANONICAL"},
+    {"id": "EXP-0016-A011", "class": "artifact", "action": "replace-magic", "expected": "NATIVE-ARTIFACT-MAGIC"},
+    {"id": "EXP-0016-A012", "class": "artifact", "action": "replace-version", "expected": "NATIVE-ARTIFACT-VERSION"},
+    {"id": "EXP-0016-A013", "class": "artifact", "action": "replace-opcode", "expected": "NATIVE-ARTIFACT-OPCODE"},
+    {"id": "EXP-0016-A014", "class": "artifact", "action": "replace-immediate", "expected": "NATIVE-ARTIFACT-SEMANTICS"},
+    {"id": "EXP-0016-A015", "class": "artifact", "action": "truncate-artifact", "expected": "NATIVE-ARTIFACT-TRUNCATED"},
+    {"id": "EXP-0016-A016", "class": "artifact", "action": "append-artifact-byte", "expected": "NATIVE-ARTIFACT-TRAILING"},
+    {"id": "EXP-0016-A017", "class": "artifact", "action": "swap-programs", "expected": "NATIVE-ARTIFACT-ORDER"},
+    {"id": "EXP-0016-A018", "class": "certificate", "action": "replace-certificate-schema", "expected": "NATIVE-CERT-SCHEMA"},
+    {"id": "EXP-0016-A019", "class": "certificate", "action": "replace-source-identity", "expected": "NATIVE-CERT-SOURCE"},
+    {"id": "EXP-0016-A020", "class": "certificate", "action": "replace-artifact-identity", "expected": "NATIVE-CERT-ARTIFACT"},
+    {"id": "EXP-0016-A021", "class": "certificate", "action": "remove-value-row", "expected": "NATIVE-CERT-INCOMPLETE"},
+    {"id": "EXP-0016-A022", "class": "certificate", "action": "remove-input-row", "expected": "NATIVE-CERT-INCOMPLETE"},
+    {"id": "EXP-0016-A023", "class": "certificate", "action": "duplicate-row", "expected": "NATIVE-CERT-DUPLICATE"},
+    {"id": "EXP-0016-A024", "class": "certificate", "action": "replace-trace-result", "expected": "NATIVE-CERT-TRACE"},
+    {"id": "EXP-0016-A025", "class": "certificate", "action": "claim-unbounded-input", "expected": "NATIVE-CERT-SCOPE"},
+    {"id": "EXP-0016-A026", "class": "certificate", "action": "forge-certificate-identity", "expected": "NATIVE-CERT-IDENTITY"},
+    {"id": "EXP-0016-A027", "class": "smt", "action": "remove-verification-condition", "expected": "NATIVE-SMT-INCOMPLETE"},
+    {"id": "EXP-0016-A028", "class": "smt", "action": "replace-solver-result", "expected": "NATIVE-SMT-RESULT"}
+  ]
+}

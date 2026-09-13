@@ -1,0 +1,28 @@
+{
+  "schema": "proofbound-research-enforced-expected/1",
+  "positive_subjects": [
+    "subject:node",
+    "subject:python",
+    "subject:rust"
+  ],
+  "positive_output": {
+    "text": "registered-input|registered-env\n",
+    "sha256": "sha256:6897a0406cd3b5b1aa1c9fb86c784f443606a03f487d2cc00e9fd1a0e2144d22",
+    "size_bytes": 32
+  },
+  "repetitions": 10,
+  "attack_count": 30,
+  "expected_positive_executions": 30,
+  "expected_denied_reusable": 0,
+  "expected_stale_reuse": 0,
+  "expected_unrelated_invalidation": 0,
+  "expected_validator_disagreement": 0,
+  "ceilings": {
+    "max_rust_runner_and_validator_lines": 1800,
+    "max_python_validator_lines": 1200,
+    "max_subject_lines_each": 120,
+    "max_policy_lines": 160,
+    "max_report_bytes": 131072,
+    "max_elapsed_ms": 60000
+  }
+}

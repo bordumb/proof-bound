@@ -1,0 +1,13 @@
+module canonical-packet;
+type Value = range(0, 3);
+type Decode = result(Value, Error);
+effect encode = pure;
+effect decode = pure;
+fn encode(value: Value) -> Bytes = bytes(1, value);
+fn decode(input: Bytes) -> Decode = match-exact(input, length=2, prefix=1, payload-max=3, fallback=Error);
+spec round-trip = forall value: Value => decode(encode(value)) == Ok(value);
+spec malformed-rejection = forall input: BytesBounded => malformed(input) implies decode(input) == Error;
+spec canonicality = forall input: BytesBounded => is-ok(decode(input)) implies encode(value-of(decode(input))) == input;
+spec exact-consumption = forall input: BytesBounded => is-ok(decode(input)) implies consumed(input) == 2;
+spec bounded-termination = forall input: BytesBounded => steps(decode(input)) <= length(input) + 4;
+bound BytesBounded = bytes(alphabet=0..4, length=0..3);

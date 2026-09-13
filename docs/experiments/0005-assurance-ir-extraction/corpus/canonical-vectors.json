@@ -1,0 +1,61 @@
+{
+  "schema": "proofbound-research-canonical-vectors/1",
+  "experiment": "EXP-0005",
+  "revision": 1,
+  "status": "preregistered",
+  "algorithm": "sha256(utf8(domain) || 0x00 || canonical_json_bytes)",
+  "canonical_json": {
+    "encoding": "UTF-8",
+    "object_keys": "lexical Unicode scalar order",
+    "whitespace": "none",
+    "trailing_newline": false,
+    "duplicate_keys": "reject-before-canonicalization",
+    "numbers": "bounded integers only",
+    "floats": "forbidden"
+  },
+  "domains": [
+    "proofbound-assurance-ir-program/1",
+    "proofbound-assurance-ir-claim/1",
+    "proofbound-assurance-ir-evidence/1",
+    "proofbound-assurance-ir-cache/1",
+    "proofbound-assurance-ir-projection/1"
+  ],
+  "vectors": [
+    {
+      "id": "IR-CANON-001",
+      "value": {},
+      "canonical_utf8": "{}",
+      "hashes": {
+        "proofbound-assurance-ir-program/1": "sha256:0fa6a38eed097c0980564ff3227f761e4fb9ff5453bf3c36aa10ac20f3478a7f",
+        "proofbound-assurance-ir-claim/1": "sha256:dce5cc33e92e8fd567e07da221483dc1023943018b410fd43efa7e624f6876ee",
+        "proofbound-assurance-ir-evidence/1": "sha256:7b168a21c64e1ca95e1a3d97368a62fba9f01be46047853dee5b89a8d9742189",
+        "proofbound-assurance-ir-cache/1": "sha256:701dbb6824f69ad4b13e72892d137e201bc417402e492d25e3736d0b027059e1",
+        "proofbound-assurance-ir-projection/1": "sha256:0a29ba430e8640290870e676f4d7883f090d72bfd03d59d585e26e1b95cdded8"
+      }
+    },
+    {
+      "id": "IR-CANON-002",
+      "value": {"z": {"b": 2, "a": 1}, "a": [{"d": 4, "c": 3}]},
+      "canonical_utf8": "{\"a\":[{\"c\":3,\"d\":4}],\"z\":{\"a\":1,\"b\":2}}",
+      "hashes": {
+        "proofbound-assurance-ir-program/1": "sha256:5eb4310327055fca998ba8b44f5338b4506a0a6dc7a5449576ee0aff24107010",
+        "proofbound-assurance-ir-claim/1": "sha256:fd5f1e29d7488ccd13aabe1e75341aa367b6b1449ec51d3aa48ca6bde9f84702",
+        "proofbound-assurance-ir-evidence/1": "sha256:f66fb6c5235dae12723932c14aa00d2c955c498f0a27da857b35631cd576e9d4",
+        "proofbound-assurance-ir-cache/1": "sha256:4ef2c5d3cfd4207a207ce6425dd3456ade97e1ad5a669547a076f78cb7e13dec",
+        "proofbound-assurance-ir-projection/1": "sha256:a9da0da4bd27dff26a0d3dbe8cbd20c8dcc91117448f4b2e18fd28ffd1e372c3"
+      }
+    },
+    {
+      "id": "IR-CANON-003",
+      "value": {"schema": "proofbound-assurance-ir/1", "claims": [], "evidence": []},
+      "canonical_utf8": "{\"claims\":[],\"evidence\":[],\"schema\":\"proofbound-assurance-ir/1\"}",
+      "hashes": {
+        "proofbound-assurance-ir-program/1": "sha256:40bf6e1b00fba3676990ed9484debab99642b54dd13a4d417d3425551c8accaa",
+        "proofbound-assurance-ir-claim/1": "sha256:f817b726bd4761fbdb38c6ad8d6d8a1b4e78ce4174954906c46fe76692a5427d",
+        "proofbound-assurance-ir-evidence/1": "sha256:48711687f55c34a639ec937c0c25e09759beeb86d83b1700e0fcb43f7f57d924",
+        "proofbound-assurance-ir-cache/1": "sha256:938678a20adb96fe3279892ba4021f541c216b9622650b170775693dd8196d14",
+        "proofbound-assurance-ir-projection/1": "sha256:6b216c0f9aea688a8c9afcb723ec7dd53d73240be60c9166ad59ad53bdc3bc5e"
+      }
+    }
+  ]
+}

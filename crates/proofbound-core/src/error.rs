@@ -34,6 +34,30 @@ pub enum ErrorCode {
     PbCoreMissingPremise,
     PbCoreInvalidDischarge,
     PbCoreGraphMismatch,
+    #[serde(rename = "PB-OBS-0001")]
+    PbObs0001,
+    #[serde(rename = "PB-OBS-0002")]
+    PbObs0002,
+    #[serde(rename = "PB-OBS-0003")]
+    PbObs0003,
+    #[serde(rename = "PB-OBS-0004")]
+    PbObs0004,
+    #[serde(rename = "PB-OBS-0005")]
+    PbObs0005,
+    #[serde(rename = "PB-OBS-0006")]
+    PbObs0006,
+    #[serde(rename = "PB-OBS-0007")]
+    PbObs0007,
+    #[serde(rename = "PB-OBS-0008")]
+    PbObs0008,
+    #[serde(rename = "PB-OBS-0009")]
+    PbObs0009,
+    #[serde(rename = "PB-OBS-0010")]
+    PbObs0010,
+    #[serde(rename = "PB-OBS-0011")]
+    PbObs0011,
+    #[serde(rename = "PB-OBS-0012")]
+    PbObs0012,
 }
 
 /// Complete error payload required by Specification 0001 section 12.3.
@@ -144,5 +168,17 @@ mod tests {
           "surprise":true
         }"#;
         assert!(serde_json::from_str::<StructuredError>(input).is_err());
+    }
+
+    #[test]
+    fn exact_artifact_observation_codes_match_the_frozen_corpus() {
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::PbObs0001).unwrap(),
+            "\"PB-OBS-0001\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::PbObs0012).unwrap(),
+            "\"PB-OBS-0012\""
+        );
     }
 }

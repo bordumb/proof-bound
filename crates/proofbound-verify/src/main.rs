@@ -1,9 +1,13 @@
 //! Standalone, tool-free Proofbound release verifier.
 
-use std::{path::PathBuf, process::ExitCode};
+use std::{fs, path::PathBuf, process::ExitCode};
 
 use clap::Parser;
-use proofbound_verify::{AssumptionFacet, FormalFacet, LinkageFacet, verify_release_dir};
+use proofbound_verify::{
+    AssumptionFacet, ExternalObservationInput, ExternalObservationInputs, FormalFacet,
+    LinkageFacet, OBSERVATION_INPUTS_SCHEMA_V1, verify_release_dir,
+    verify_release_dir_with_observations,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "proofbound-verify", version, about)]
@@ -12,6 +16,10 @@ struct Arguments {
     #[arg(long, value_name = "DIR")]
     release: PathBuf,
 
+    /// JSON manifest supplying bytes for exact observations not sealed in the release.
+    #[arg(long, value_name = "FILE")]
+    observation_inputs: Option<PathBuf>,
+
     /// Emit the complete machine-readable verification report.
     #[arg(long)]
     json: bool,
@@ -19,7 +27,21 @@ struct Arguments {
 
 fn main() -> ExitCode {
     let arguments = Arguments::parse();
-    match verify_release_dir(&arguments.release) {
+    let inputs = match arguments.observation_inputs.as_deref() {
+        Some(path) => match load_observation_inputs(path) {
+            Ok(inputs) => Some(inputs),
+            Err(error) => {
+                eprintln!("proofbound-verify: {error}");
+                return ExitCode::from(2);
+            }
+        },
+        None => None,
+    };
+    let result = inputs.as_deref().map_or_else(
+        || verify_release_dir(&arguments.release),
+        |inputs| verify_release_dir_with_observations(&arguments.release, inputs),
+    );
+    match result {
         Ok(report) => {
             if arguments.json {
                 match serde_json::to_string(&report) {
@@ -31,7 +53,8 @@ fn main() -> ExitCode {
                 }
             } else {
                 println!(
-                    "receipt-consistent: {}@{} ({} claim(s))",
+                    "{}: {}@{} ({} claim(s))",
+                    report.verdict,
                     report.project,
                     report.project_revision,
                     report.claims.len()
@@ -87,6 +110,39 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+fn load_observation_inputs(
+    path: &std::path::Path,
+) -> Result<Vec<ExternalObservationInput>, String> {
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("cannot stat observation input manifest: {error}"))?;
+    if metadata.len() > 1 << 20 {
+        return Err("observation input manifest exceeds 1 MiB".into());
+    }
+    let bytes = fs::read(path)
+        .map_err(|error| format!("cannot read observation input manifest: {error}"))?;
+    let mut manifest: ExternalObservationInputs = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("cannot parse observation input manifest: {error}"))?;
+    if manifest.schema != OBSERVATION_INPUTS_SCHEMA_V1 {
+        return Err(format!(
+            "unsupported observation input manifest schema '{}'",
+            manifest.schema
+        ));
+    }
+    if manifest.observations.len() > 100_000 {
+        return Err("observation input manifest contains too many entries".into());
+    }
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    for input in &mut manifest.observations {
+        if input.artifact_path.is_relative() {
+            input.artifact_path = parent.join(&input.artifact_path);
+        }
+        if input.procedure_path.is_relative() {
+            input.procedure_path = parent.join(&input.procedure_path);
+        }
+    }
+    Ok(manifest.observations)
 }
 
 const fn formal_name(value: FormalFacet) -> &'static str {

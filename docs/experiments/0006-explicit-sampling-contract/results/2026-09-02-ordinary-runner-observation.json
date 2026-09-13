@@ -1,0 +1,80 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0006",
+  "run": "ordinary-runner-observation",
+  "date": "2026-09-02",
+  "subject": "git:c5c4e256f97606ddfa5b8044f3b5152f8919adfd",
+  "route": "ordinary-runner-instrumentation",
+  "constraint": "Both selected application test files remained byte-identical to the frozen subjects.",
+  "python": {
+    "framework": "hypothesis",
+    "framework_version": "6.112.0",
+    "source_sha256_before": "sha256:1620fe9d52072f2753265a7ccabdc6d2ff7ba2a4fc7b3c48b214021f52a7f869",
+    "source_sha256_after": "sha256:1620fe9d52072f2753265a7ccabdc6d2ff7ba2a4fc7b3c48b214021f52a7f869",
+    "command": [
+      "demo/python-inventory-service/.venv/bin/python",
+      "-m",
+      "pytest",
+      "-p",
+      "no:cacheprovider",
+      "--rootdir",
+      "demo/python-inventory-service",
+      "-p",
+      "_hypothesis_pytestplugin",
+      "--hypothesis-seed=4025493768",
+      "--hypothesis-show-statistics",
+      "-q",
+      "demo/python-inventory-service/tests/test_reservations.py::test_accepted_reservation_never_exceeds_capacity"
+    ],
+    "environment": {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    "exit_code": 0,
+    "terminal_observation": {
+      "passed_test_nodes": 1,
+      "passing_examples": 100,
+      "failing_examples": 0,
+      "invalid_examples": 0,
+      "stop_reason": "settings.max_examples=100"
+    },
+    "strict_machine_result": false,
+    "actual_seed_in_result": false,
+    "framework_identity_in_result": false,
+    "generator_identity_in_result": false,
+    "shrink_count_in_result": false,
+    "finding": "The pytest plugin emits useful statistics as human terminal text. The seed is bound in command provenance but is not echoed as an observed result, and the output is not a closed machine ABI."
+  },
+  "typescript": {
+    "framework": "fast-check",
+    "framework_version": "4.3.0",
+    "runner": "vitest 3.2.4",
+    "source_sha256_before": "sha256:997293b3bbc8a965093ce13a56ba73bdacf72a9d4e49ed56c201c020e937680d",
+    "source_sha256_after": "sha256:997293b3bbc8a965093ce13a56ba73bdacf72a9d4e49ed56c201c020e937680d",
+    "command": [
+      "node_modules/.bin/vitest",
+      "run",
+      "src/roundtrip.test.ts",
+      "--reporter=json",
+      "--testNamePattern",
+      "^base64url codec round trips bounded byte arrays$"
+    ],
+    "exit_code": 0,
+    "strict_machine_result": true,
+    "runner_observation": {
+      "passed_test_nodes": 1,
+      "failed_test_nodes": 0,
+      "test_status": "passed"
+    },
+    "actual_seed_in_result": false,
+    "completed_cases_in_result": false,
+    "framework_identity_in_result": false,
+    "generator_identity_in_result": false,
+    "skips_or_shrinks_in_result": false,
+    "finding": "Vitest emits strict JSON for the test node but does not expose the nested fast-check RunDetails. The pass result cannot establish the registered sampling contract."
+  },
+  "decision": {
+    "route_passes_q1": false,
+    "route_passes_q2": false,
+    "instrumentation_without_additional_driver": "failed",
+    "reason": "Neither ordinary runner emits all required contract and observation fields. Parsing Hypothesis terminal prose would not create a strict ABI; Vitest JSON loses the nested property-run semantics.",
+    "next_route": "adapter-owned-property-driver"
+  }
+}

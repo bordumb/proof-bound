@@ -1,0 +1,111 @@
+{
+  "schema": "proofbound-research-explicit-sampling-result/1",
+  "experiment": "EXP-0006",
+  "run": "adapter-owned-property-driver",
+  "date": "2026-09-02",
+  "status": "completed",
+  "implementation": "git:f4e5ec8a717e218c876547d508a399e517365abf",
+  "route_decision": {
+    "ordinary_runner_instrumentation": "failed",
+    "vitest_setup_instrumentation": "failed-closed",
+    "adapter_owned_property_driver": "passed"
+  },
+  "contract": {
+    "schema": "proofbound-sampling-contract/1",
+    "observation_schema": "proofbound-sampling-observation/1",
+    "generator_identity_domain": "proofbound-generator-closure/1",
+    "contract_identity_domain": "proofbound-sampling-contract/1",
+    "attempted_case_semantics": "predicate invocations, excluding values discarded internally before predicate invocation",
+    "completed_case_semantics": "predicate invocations that returned successfully",
+    "skipped_case_semantics": "predicate precondition rejections: Hypothesis UnsatisfiedAssumption or fast-check numSkips",
+    "counterexample_semantics": "typed bounded JSON counterexample plus framework-independent failure class; a counterexample is emitted before nonzero driver exit",
+    "success_budget_semantics": "a passed observation must complete exactly the registered successful-case budget; a counterexample must occur before completion"
+  },
+  "positive_runs": [
+    {
+      "framework": "hypothesis",
+      "framework_version": "6.112.0",
+      "driver_sha256": "sha256:1c4d3d7ab6c45eaf506cfd1df4601dea33eeabe9f63b071bcd5b65ca505038e3",
+      "registered_contract_file_sha256": "sha256:2a4e3bcf036592ddc67c7ef14366aac9df73139a56371e881f80f468930f6677",
+      "observation_sha256": "sha256:128b584e0042f88d3738ac95ad0ff62bc9f997c6e963309349b712eba66c9abe",
+      "contract_identity": "sha256:486e3737eb54005f3f87b6d1d557b544db39564bf1511e26e3580481ed99314d",
+      "generator_identity": "sha256:cf69c8181045d856cdbfdf6bf473696cd9218d855d48f16c5bf5d301a667d515",
+      "seed": 4025493768,
+      "attempted_cases": 100,
+      "completed_cases": 100,
+      "skipped_cases": 0,
+      "shrink_count": 0,
+      "result": "passed",
+      "rust_validation": "passed",
+      "python_validation": "passed"
+    },
+    {
+      "framework": "fast-check",
+      "framework_version": "4.3.0",
+      "driver_sha256": "sha256:208f3199ab4a6d0508277b5b5f7bce11777b7c19b26367680ddfccc755c21bc6",
+      "registered_contract_file_sha256": "sha256:7d95e10bbbe68ecad4df458d10720ed762481eac4796189393709883f2a280d5",
+      "observation_sha256": "sha256:fe3dd8709da97fcea371c732e17077cab54b225f8786cefc3a6df381ffd1a31a",
+      "contract_identity": "sha256:5df0cc9d5bb2678de7c648f48c5719fac1b6e0805d9ba1ab2e6583f00cf47368",
+      "generator_identity": "sha256:5b9dc19811a0dd02840bb7886f98759052b6e4a55f1184b7dad974fa6651fd27",
+      "seed": 424242,
+      "attempted_cases": 100,
+      "completed_cases": 100,
+      "skipped_cases": 0,
+      "shrink_count": 0,
+      "result": "passed",
+      "rust_validation": "passed",
+      "python_validation": "passed"
+    }
+  ],
+  "counterexample_runs": [
+    {
+      "framework": "hypothesis",
+      "observation_sha256": "sha256:943f29af5d2198dbe4de2d9cd0ee17a0cc520574cd708e735edc62e51f8a8e9f",
+      "process_exit": 1,
+      "attempted_cases": 2,
+      "completed_cases": 0,
+      "skipped_cases": 0,
+      "shrink_count": 0,
+      "result": {"status": "counterexample", "counterexample": 0, "failure_kind": "AssertionError"}
+    },
+    {
+      "framework": "fast-check",
+      "observation_sha256": "sha256:016dbbf8339a3af81b2b11b45c84109c25c17c4f4a5f07f3b66207e551b77f6b",
+      "process_exit": 1,
+      "attempted_cases": 1,
+      "completed_cases": 0,
+      "skipped_cases": 0,
+      "shrink_count": 1,
+      "result": {"status": "counterexample", "counterexample": [0], "failure_kind": "property-false-or-threw"}
+    }
+  ],
+  "adversarial_results": {
+    "registered_attacks": 10,
+    "rust_expected_rejections": 10,
+    "python_expected_rejections": 10,
+    "framework_name_branches_in_common_validation": 0,
+    "classes": {
+      "EXP-0006-A001": "sampling-contract-mismatch",
+      "EXP-0006-A002": "sampling-contract-mismatch",
+      "EXP-0006-A003": "generator-identity-mismatch",
+      "EXP-0006-A004": "generator-identity-mismatch",
+      "EXP-0006-A005": "sampling-inventory-mismatch",
+      "EXP-0006-A006": "sampling-report-invalid",
+      "EXP-0006-A007": "sampling-contract-mismatch",
+      "EXP-0006-A008": "sampling-schema-mismatch",
+      "EXP-0006-A009": "sampling-contract-mismatch",
+      "EXP-0006-A010": "sampling-tool-mismatch"
+    }
+  },
+  "decisions": {
+    "q1": "pass: both frameworks project every registered field into one closed contract and both independent validators reconstruct the same identities without a framework-name branch",
+    "q2": "pass at the research driver boundary: the adapter-owned driver controls execution, emits actual counters and typed results, and the validators join the report to separate registration and live closure bytes; production evidence integration must additionally retain the outer command, environment, driver, runtime, and framework provenance",
+    "q3": "driver ABI required: ordinary runner and setup instrumentation were rejected rather than assigned inferred semantics",
+    "q4": "pass at the versioned prototype boundary: explicit /1 contracts and observations cannot deserialize as legacy sampling, and the existing portable converter continues to retain old receipts as LegacyBackendSampling"
+  },
+  "programme_effect": {
+    "oq_001": "resolved for Hypothesis and fast-check; Rust property-labelled tests remain a separate unregistered legacy case",
+    "q1_field_012": "sampling constructor design is unblocked, but old portable receipts remain honestly legacy until a production wire adopts the explicit contract and new captures replace them",
+    "production_status": "research-only; no production Proofbound schema or adapter changed"
+  }
+}

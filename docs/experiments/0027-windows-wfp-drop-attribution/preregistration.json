@@ -1,0 +1,93 @@
+{
+  "schema": "proofbound-research-windows-wfp-preregistration/1",
+  "experiment": "EXP-0027",
+  "programme_experiment": "EXP-LANG-020",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-04",
+  "subject_baseline": "git:96206dc3b8bb95c3124c7c41aab31c8cea822658",
+  "retained_candidate": {
+    "sha256": "sha256:4bf2040c0c42f183796eb563113372f50f8f113170914c864da9d56e1a3fb47e",
+    "closure_sha256": "sha256:6f63eb83c4220c9a189a318b2ea9b4d930d4c4ad1e2010abdcb12124ed4089cb",
+    "corpus_revision_sha256": "sha256:eeac289a4f3d7cd6efb1f8245fb85cdbb20998799f3a8fb3c797a3d00ea5f720"
+  },
+  "retained_result": {
+    "run": "https://github.com/bordumb/proof-bound/actions/runs/33827784782",
+    "payload_sha256": "sha256:f5ed99e6c5495ad15aeb68ed14be32bfb488a15662fe23732e7f7b30b5018236",
+    "decision": "revise",
+    "failed_questions": ["Q2"]
+  },
+  "changes": [
+    "typed-network-outcome",
+    "read-only-wfp-capability-drop-observer",
+    "package-application-flow-window-attribution"
+  ],
+  "observer": {
+    "platform": "windows-11-arm64-native",
+    "engine": "Windows Filtering Platform",
+    "collection_query": "FwpmEngineGetOption0(FWPM_ENGINE_COLLECT_NET_EVENTS)",
+    "collection_required": 1,
+    "collection_mutation_forbidden": true,
+    "subscription": "FwpmNetEventSubscribe1",
+    "event_schema": "FWPM_NET_EVENT2",
+    "event_type": "FWPM_NET_EVENT_TYPE_CAPABILITY_DROP",
+    "application_identity": "FwpmGetAppIdFromFileName0(exact-staged-executable)",
+    "required_header_flags": [
+      "FWPM_NET_EVENT_FLAG_IP_PROTOCOL_SET",
+      "FWPM_NET_EVENT_FLAG_IP_VERSION_SET",
+      "FWPM_NET_EVENT_FLAG_REMOTE_ADDR_SET",
+      "FWPM_NET_EVENT_FLAG_REMOTE_PORT_SET",
+      "FWPM_NET_EVENT_FLAG_APP_ID_SET",
+      "FWPM_NET_EVENT_FLAG_PACKAGE_ID_SET"
+    ],
+    "flow": {
+      "ip_version": "v4",
+      "protocol": "tcp",
+      "remote_address": "127.0.0.1",
+      "remote_port": "fresh-listener-port"
+    },
+    "drop": {
+      "is_loopback": true,
+      "capability_ids": [
+        "internet-client",
+        "internet-client-server",
+        "internet-private-network"
+      ],
+      "filter_id": "nonzero"
+    },
+    "authority": "read-only-parent-instrument",
+    "host_mutations": []
+  },
+  "network_outcomes": [
+    "synchronous-denial",
+    "capability-drop-denial",
+    "bounded-non-delivery",
+    "accepted"
+  ],
+  "inventory": {
+    "positive_slots": 30,
+    "non_network_authority_slots": 18,
+    "network_controls": 3,
+    "network_sandbox_slots": 3,
+    "inherited_policy_attacks": 38,
+    "successor_policy_attacks": [
+      {"id": "EXP-0027-A039", "code": "WIN27-OBSERVER"},
+      {"id": "EXP-0027-A040", "code": "WIN27-COLLECTION"},
+      {"id": "EXP-0027-A041", "code": "WIN27-EVENT-TYPE"},
+      {"id": "EXP-0027-A042", "code": "WIN27-SUBJECT"},
+      {"id": "EXP-0027-A043", "code": "WIN27-FLOW"},
+      {"id": "EXP-0027-A044", "code": "WIN27-WINDOW"},
+      {"id": "EXP-0027-A045", "code": "WIN27-DROP"},
+      {"id": "EXP-0027-A046", "code": "WIN27-ACCEPTED"},
+      {"id": "EXP-0027-A047", "code": "WIN27-ATTRIBUTION"},
+      {"id": "EXP-0027-A048", "code": "WIN27-REPORT"}
+    ]
+  },
+  "limits": {
+    "elapsed_ms": 60000,
+    "capture_bytes": 786432,
+    "maximum_retained_wfp_events_per_slot": 64
+  },
+  "questions": ["Q1", "Q2", "Q3", "Q4", "Q5"],
+  "decisions": ["pass", "revise", "unanswered", "stop"]
+}

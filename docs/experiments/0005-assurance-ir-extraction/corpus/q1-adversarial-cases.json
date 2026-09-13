@@ -1,0 +1,83 @@
+{
+  "schema": "proofbound-research-q1-adversarial-corpus/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "base_case": "IR-REL-001",
+  "comparison": "Each mutation is applied to an isolated canonical projection of the frozen portable release. Domain identities named by a mutation are recomputed after the semantic change. Both independent validators must reject with the exact registered code.",
+  "cases": [
+    {
+      "id": "Q1-ADV-001",
+      "meaning": "portable evidence schema omission",
+      "mutation": {"operation": "delete", "path": "/evidence/0/schema"},
+      "expected": {"code": "IR-PORTABLE-EVIDENCE-SCHEMA"}
+    },
+    {
+      "id": "Q1-ADV-002",
+      "meaning": "reader projection differs between claim and reported status",
+      "mutation": {"operation": "replace", "path": "/claims/0/presentation/public_statement", "value": "Substituted public claim."},
+      "expected": {"code": "IR-PROGRAMME-PRESENTATION-MISMATCH"}
+    },
+    {
+      "id": "Q1-ADV-003",
+      "meaning": "portable reported formal facet differs from independent derivation",
+      "mutation": {"operation": "replace", "path": "/programme/reported_statuses/0/formal", "value": "PROVED"},
+      "expected": {"code": "IR-PROGRAMME-STATUS-MISMATCH"}
+    },
+    {
+      "id": "Q1-ADV-004",
+      "meaning": "effective policy differs from the policy used by status derivation",
+      "mutation": {"operation": "replace", "path": "/programme/policies/0/components/0", "value": "kernel"},
+      "expected": {"code": "IR-PROGRAMME-POLICY-MISMATCH"}
+    },
+    {
+      "id": "Q1-ADV-005",
+      "meaning": "unknown policy field smuggles backend meaning",
+      "mutation": {"operation": "add-object-field", "path": "/programme/policies/0", "field": "backend_hint", "value": "hidden"},
+      "expected": {"code": "IR-PROGRAMME-TYPED-RECORD"}
+    },
+    {
+      "id": "Q1-ADV-006",
+      "meaning": "self-consistent graph adds an illegal edge kind and refreshes its identity",
+      "mutation": {"operation": "add-graph-edge-and-rehash", "value": {"from": "claim:c", "to": "subject:s", "kind": "backend-specific-edge"}},
+      "expected": {"code": "IR-PROGRAMME-GRAPH-SEMANTICS"}
+    },
+    {
+      "id": "Q1-ADV-007",
+      "meaning": "self-consistent graph changes a node to an unknown kind and refreshes its identity",
+      "mutation": {"operation": "replace-and-rehash-graph", "path": "/programme/graph/nodes/0/kind", "value": "backend-specific-node"},
+      "expected": {"code": "IR-PROGRAMME-GRAPH-SEMANTICS"}
+    },
+    {
+      "id": "Q1-ADV-008",
+      "meaning": "portable evidence names an omitted semantic closure",
+      "mutation": {"operation": "delete-array-member", "path": "/programme/closures", "index": 0},
+      "expected": {"code": "IR-PROGRAMME-CLOSURE-MISSING"}
+    },
+    {
+      "id": "Q1-ADV-009",
+      "meaning": "duplicate reported status creates ambiguous claim ownership",
+      "mutation": {"operation": "duplicate-array-member", "path": "/programme/reported_statuses", "index": 0},
+      "expected": {"code": "IR-DECODE-DUPLICATE"}
+    },
+    {
+      "id": "Q1-ADV-010",
+      "meaning": "publication blocker contradicts admitted status",
+      "mutation": {"operation": "add-array-member", "path": "/programme/publication_blockers", "value": "c"},
+      "expected": {"code": "IR-PROGRAMME-BLOCKER-MISMATCH"}
+    },
+    {
+      "id": "Q1-ADV-011",
+      "meaning": "assumption ledger entry names an absent graph node and claim",
+      "mutation": {"operation": "add-array-member", "path": "/programme/assumptions", "value": {"schema": "proofbound-assumption/1", "id": "ASSUMPTION-1", "node_id": "assumption:missing", "statement": "An unregistered runtime assumption.", "category": "runtime-environment", "owner": "unknown", "rationale": "attack", "scope": "all claims", "affected_claims": ["MISSING-CLAIM"], "review_evidence": [], "falsification_or_discharge_plan": "none", "state": "active", "depends_on": []}},
+      "expected": {"code": "IR-PROGRAMME-LEDGER-JOIN"}
+    },
+    {
+      "id": "Q1-ADV-012",
+      "meaning": "premise ledger entry and discharge name absent graph and evidence nodes",
+      "mutation": {"operation": "add-array-member", "path": "/programme/premises", "value": {"id": "PREMISE-1", "node_id": "premise:missing", "statement": "An unregistered representation premise.", "category": "representation-premise", "theorem_evidence": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "scope": {"kind": "all-registered-inputs"}, "discharge": {"theorem_evidence": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "scope": {"kind": "all-registered-inputs"}}}},
+      "expected": {"code": "IR-PROGRAMME-LEDGER-JOIN"}
+    }
+  ]
+}

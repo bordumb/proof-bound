@@ -4,6 +4,7 @@ members = [
   "crates/proofbound-core",
   "crates/proofbound-manifest",
   "crates/proofbound-evidence",
+  "crates/proofbound-ir-prototype",
   "crates/proofbound-cli",
   "crates/proofbound-verify",
   "crates/proofbound-adapter-lean",

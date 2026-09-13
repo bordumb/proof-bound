@@ -1,0 +1,59 @@
+# WS-EA: evidence algebra
+
+- **Status:** bounded generated algebra joined in Assurance IR `/2`
+- **Hypothesis:** H2
+- **Depends on:** WS-IR field classification
+- **Blocks:** DSL typing and native evidence constructors
+
+## Objective
+
+Represent evidence strength as closed typed constructors and explicit
+derivation rules rather than a common success Boolean.
+
+## Required distinctions
+
+Examples, sampled properties, finite exhaustive checks, bounded model checks,
+universal source proofs, source correspondence, artifact correspondence,
+reproducibility, mutation witnesses, and human review.
+
+## Exit criteria
+
+Every current derivation has an explicit rule, producer and checker agree over
+a generated corpus, and forbidden strengthening is unrepresentable or rejected.
+
+## Stop condition
+
+Do not proceed if compatibility requires flattening sampled, bounded, formal,
+or artifact evidence.
+
+## Active experiments
+
+- [EXP-0005](../../../experiments/0005-assurance-ir-extraction/README.md)
+  extracts the common algebra. Its final versioned extension removes both
+  legacy sampling constructors, while its cache-dependency row fails and keeps
+  Assurance IR `/1` unfrozen.
+- [EXP-0006](../../../experiments/0006-explicit-sampling-contract/README.md)
+  shows that Hypothesis and fast-check can emit one explicit, independently
+  checked sampling contract through an adapter-owned driver, while ordinary
+  runner instrumentation cannot. A Rust framework remains the holdout.
+- [EXP-0007](../../../experiments/0007-rust-sampling-holdout/README.md)
+  falsifies the EXP-0006 shape as one complete execution contract: proptest
+  needs a bound RNG algorithm and cannot authoritatively expose the same
+  counter set. The next candidate is a layered intent/plan/observation model.
+- [EXP-0008](../../../experiments/0008-layered-sampling-model/README.md)
+  passes that layered model in independent Rust and Python implementations.
+  Common intent and admission stay backend-neutral; typed plans retain backend
+  execution controls; unavailable telemetry has a consequence only when a
+  registered admission rule consumes it.
+- [EXP-0009](../../../experiments/0009-generated-evidence-algebra/README.md)
+  passes a closed fact, judgment, rule, and trace model over six evidence
+  routes and 1,000 generated programs. Independent validators reject forbidden
+  strengthening and ambiguous traces, while unused telemetry remains silent.
+- [EXP-LANG-009 / Experiment 0014](../../../experiments/0014-specification-falsifiers/README.md)
+  adds a bounded adequacy layer before proof checking: five reachable typed
+  contracts accept the correct finite relation, kill six registered mutants,
+  and reject 20 vacuity, weakness, type, and integrity attacks independently.
+- [EXP-LANG-010 / Experiment 0015](../../../experiments/0015-assurance-ir-differential-kernel/README.md)
+  joins the representative algebra to dependencies, effects, artifacts,
+  specification adequacy, uncertainty, invalidation, and admission. Both
+  kernels preserve all registered family ceilings over the 500/500 corpus.

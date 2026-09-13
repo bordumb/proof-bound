@@ -1,0 +1,65 @@
+{
+  "schema": "proofbound-exact-artifact-observation-attacks/1",
+  "cases": [
+    {
+      "id": "artifact-omission",
+      "mutation": "remove the observed artifact identity",
+      "expected_code": "PB-OBS-0001"
+    },
+    {
+      "id": "artifact-substitution",
+      "mutation": "replace the observed artifact bytes while retaining its registered identity",
+      "expected_code": "PB-OBS-0002"
+    },
+    {
+      "id": "role-substitution",
+      "mutation": "change the subject role without changing the remaining relation",
+      "expected_code": "PB-OBS-0003"
+    },
+    {
+      "id": "architecture-replay",
+      "mutation": "reuse an observation under a different architecture",
+      "expected_code": "PB-OBS-0004"
+    },
+    {
+      "id": "platform-replay",
+      "mutation": "reuse an observation under a different operating system",
+      "expected_code": "PB-OBS-0005"
+    },
+    {
+      "id": "procedure-omission",
+      "mutation": "remove the observation procedure identity",
+      "expected_code": "PB-OBS-0006"
+    },
+    {
+      "id": "procedure-substitution",
+      "mutation": "replace the observation procedure bytes while retaining its registered identity",
+      "expected_code": "PB-OBS-0007"
+    },
+    {
+      "id": "toolchain-loss",
+      "mutation": "remove the registered toolchain closure",
+      "expected_code": "PB-OBS-0008"
+    },
+    {
+      "id": "dependency-omission",
+      "mutation": "remove one registered evidence dependency",
+      "expected_code": "PB-OBS-0009"
+    },
+    {
+      "id": "assumption-loss",
+      "mutation": "remove an inherited observation assumption",
+      "expected_code": "PB-OBS-0010"
+    },
+    {
+      "id": "status-upgrade",
+      "mutation": "replace TESTED and MODEL_ONLY with PROVED and ARTIFACT_BOUND",
+      "expected_code": "PB-OBS-0011"
+    },
+    {
+      "id": "relation-identity-substitution",
+      "mutation": "replace a relation field and retain the prior canonical relation identity",
+      "expected_code": "PB-OBS-0012"
+    }
+  ]
+}

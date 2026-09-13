@@ -29,6 +29,8 @@ pub struct CompiledProject {
     pub schema: String,
     pub project: String,
     pub project_revision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_context: Option<String>,
     pub tree_state: String,
     /// Digest of every reviewed tracked or non-ignored untracked byte at the
     /// instant this compilation began. Reports may be loaded only while this

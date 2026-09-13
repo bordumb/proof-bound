@@ -1,0 +1,17 @@
+[workspace]
+
+[package]
+name = "proofbound-exp0007-proptest-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+allowance-kernel = { path = "../../../../../demo/allowance/rust/kernel" }
+proofbound-evidence = { path = "../../../../../crates/proofbound-evidence" }
+proptest = "=1.11.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints.rust]
+unsafe_code = "forbid"

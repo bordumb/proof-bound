@@ -1,0 +1,53 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0006",
+  "run": "fast-check-instrumentation",
+  "date": "2026-09-02",
+  "subject": "git:9d3299b702257c18508a612721cf8c5ce48f6304",
+  "route": "ordinary-runner-instrumentation",
+  "framework": "fast-check",
+  "framework_version": "4.3.0",
+  "runner": "vitest 3.2.4",
+  "source_sha256_before": "sha256:997293b3bbc8a965093ce13a56ba73bdacf72a9d4e49ed56c201c020e937680d",
+  "source_sha256_after": "sha256:997293b3bbc8a965093ce13a56ba73bdacf72a9d4e49ed56c201c020e937680d",
+  "prototypes": [
+    {
+      "method": "fast-check configureGlobal reporter in a Vitest setup module",
+      "test_passed": true,
+      "observation_emitted": false,
+      "interpretation": "The setup and application imports did not share observable global reporter state under Vitest module isolation."
+    },
+    {
+      "method": "Vitest module mock wrapping fast-check assert",
+      "test_passed": true,
+      "observation_emitted": false,
+      "interpretation": "The setup-time mock did not intercept the application's already-resolved fast-check import."
+    },
+    {
+      "method": "direct mutation of the imported fast-check assert export",
+      "test_passed": false,
+      "observation_emitted": false,
+      "interpretation": "The ESM export is read-only and rejected mutation before test collection."
+    },
+    {
+      "method": "adapter-owned global setup teardown requiring a strict report",
+      "test_passed": true,
+      "observation_emitted": false,
+      "process_exit_code": 1,
+      "diagnostic": "sampling observer did not emit strict JSON",
+      "interpretation": "The final prototype fails closed even when the nested property and outer Vitest node pass."
+    }
+  ],
+  "final_prototype": {
+    "observer_sha256": "sha256:34aa7bc8bdfbdac4fe1581d76b1d66e6ae8db0bff42f820630733f371d02afca",
+    "teardown_sha256": "sha256:a2fd16ab582eb7f301d5ff481a7695d2eb0c63084c72b2fac930cb941b719955",
+    "config_sha256": "sha256:5b52c3a2f4c901ffa1eb399057975e48466cf0c31ae602a5e2cf330ff6d042cd"
+  },
+  "decision": {
+    "instrumentation_passes_q2": false,
+    "source_unchanged": true,
+    "failed_closed": true,
+    "reason": "Documented runner setup and fast-check reporter APIs do not guarantee interception of the application's framework instance under Vitest isolation. An observer that is not structurally in the property call path cannot author evidence.",
+    "next_route": "adapter-owned-property-driver"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "schema": "proofbound-evidence-context-attacks/1",
+  "cases": [
+    {
+      "id": "unknown-context",
+      "mutation": "request a context absent from the reviewed project manifest",
+      "expected_code": "PB-CTX-0001"
+    },
+    {
+      "id": "malformed-context",
+      "mutation": "register an empty or noncanonical context name",
+      "expected_code": "PB-CTX-0002"
+    },
+    {
+      "id": "unreviewed-manifest",
+      "mutation": "load a contextual evidence manifest that is ignored or untracked",
+      "expected_code": "PB-CTX-0003"
+    },
+    {
+      "id": "inactive-evidence-smuggling",
+      "mutation": "include evidence owned by a context other than the selected context",
+      "expected_code": "PB-CTX-0004"
+    },
+    {
+      "id": "partial-context-check",
+      "mutation": "combine a context with a filtered claim or trust-profile check",
+      "expected_code": "PB-CTX-0005"
+    },
+    {
+      "id": "required-context-omission",
+      "mutation": "create a release from base compiled state when a release context is required",
+      "expected_code": "PB-CTX-0006"
+    },
+    {
+      "id": "context-replay",
+      "mutation": "reuse compiled state or exact observations under a different registered context",
+      "expected_code": "PB-CTX-0007"
+    },
+    {
+      "id": "receipt-context-substitution",
+      "mutation": "change or omit the selected context in a version 5 portable receipt",
+      "expected_code": "PB-CTX-0008"
+    }
+  ]
+}

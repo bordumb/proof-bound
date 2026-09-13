@@ -1,0 +1,111 @@
+{
+  "schema": "proofbound-research-invalidation-forced-fresh/1",
+  "experiment": "EXP-0010",
+  "executed_at": "2026-09-03",
+  "proofbound_revision": "git:99f77d5565e2d753643ebfa73090340311248578",
+  "runs": [
+    {
+      "id": "python-controlled",
+      "command": "proofbound check --root demo/python-inventory-service --fresh --json",
+      "exit_code": 0,
+      "registered_units": 6,
+      "passed_units": [
+        "accept-over-cap-mutant",
+        "reservation-example",
+        "reservation-property",
+        "reservation-types",
+        "reservation-vectors",
+        "wheel-reproduction"
+      ],
+      "disposition": "baseline-runnable"
+    },
+    {
+      "id": "typescript-controlled",
+      "command": "proofbound check --root demo/typescript-codec --fresh --json",
+      "exit_code": 0,
+      "registered_units": 5,
+      "passed_units": [
+        "bounded-roundtrip",
+        "npm-package",
+        "reject-padding",
+        "reject-padding-mutant",
+        "strict-types"
+      ],
+      "disposition": "baseline-runnable"
+    },
+    {
+      "id": "allowance-controlled",
+      "command": "proofbound check --claim DEMO-TRANSFER-003 --root . --fresh --json",
+      "exit_code": 3,
+      "registered_units": 4,
+      "passed_units": [
+        "remove-cap-guard",
+        "rust-kernel-tests",
+        "transfer-bounds"
+      ],
+      "missing_units": [
+        "accept-respects-cap"
+      ],
+      "doctor_reported_missing_unit_runnable": true,
+      "disposition": "lean-route-unanswered"
+    },
+    {
+      "id": "external-click",
+      "command": "proofbound check --root external-click --fresh --json",
+      "exit_code": 0,
+      "registered_units": 1,
+      "passed_units": [
+        "external-click-existing-tests"
+      ],
+      "environment_preparation": "uv sync --frozen --all-groups",
+      "disposition": "baseline-runnable"
+    },
+    {
+      "id": "external-vitest-action",
+      "command": "proofbound check --root external-vitest-action --fresh --json",
+      "exit_code": 3,
+      "registered_units": 1,
+      "passed_units": [],
+      "registered_inventory_count": 6,
+      "discovered_inventory_count": 161,
+      "disposition": "registered-holdout-inventory-incomplete"
+    },
+    {
+      "id": "auxiliary-mode-baseline",
+      "command": "cargo test --locked --offline --manifest-path corpus/fixtures/mode-project/Cargo.toml",
+      "exit_code": 0,
+      "disposition": "baseline-runnable"
+    },
+    {
+      "id": "auxiliary-mode-permission-change",
+      "command": "chmod 0644 mode_gate.sh; cargo test --locked --offline",
+      "exit_code": 101,
+      "bytes_unchanged": true,
+      "failure": "PermissionDenied while executing the build helper",
+      "disposition": "registered-change-load-bearing"
+    },
+    {
+      "id": "auxiliary-transitive-baseline",
+      "command": "cargo test --locked --offline -p proofbound-invalidation-transitive-fixture",
+      "exit_code": 0,
+      "disposition": "baseline-runnable"
+    },
+    {
+      "id": "auxiliary-transitive-source-change",
+      "command": "change shared.rs return value from 11 to 12; cargo test --locked --offline",
+      "exit_code": 101,
+      "failure": "registered assertion observed 12 instead of 11",
+      "disposition": "registered-change-load-bearing"
+    }
+  ],
+  "summary": {
+    "route_shapes_registered": 14,
+    "route_shapes_with_passing_baseline": 13,
+    "route_shapes_unanswered": [
+      "lean-theorem"
+    ],
+    "external_holdouts_passing": 1,
+    "external_holdouts_registered": 2,
+    "required_forced_fresh_change_matrix_complete": false
+  }
+}

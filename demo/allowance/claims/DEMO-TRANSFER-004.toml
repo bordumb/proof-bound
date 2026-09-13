@@ -14,7 +14,7 @@ primary_linkage = "model-only"
 evidence = [
   "theorem:denial-unchanged",
   "bounded-check:transfer-bounds",
-  "property-test:rust-kernel-tests",
+  "example-test:rust-kernel-tests",
 ]
 assumptions = []
 premises = ["DEMO-U64-REP-001"]

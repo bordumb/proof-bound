@@ -1,0 +1,56 @@
+{
+  "carriers": [
+    {
+      "cases": [
+        {"environment": {"input_len": 0, "malformed_input": true, "valid_input": false}, "id": "I-EMPTY"},
+        {"environment": {"input_len": 2, "malformed_input": true, "valid_input": false}, "id": "I-LENGTH-2"},
+        {"environment": {"input_len": 1, "malformed_input": true, "valid_input": false}, "id": "I-ONE"},
+        {"environment": {"input_len": 2, "malformed_input": true, "valid_input": false}, "id": "I-PAYLOAD-4"},
+        {"environment": {"input_len": 3, "malformed_input": true, "valid_input": false}, "id": "I-TRAILING"},
+        {"environment": {"input_len": 2, "malformed_input": false, "valid_input": true}, "id": "I-VALID-0"},
+        {"environment": {"input_len": 2, "malformed_input": false, "valid_input": true}, "id": "I-VALID-1"},
+        {"environment": {"input_len": 2, "malformed_input": false, "valid_input": true}, "id": "I-VALID-2"},
+        {"environment": {"input_len": 2, "malformed_input": false, "valid_input": true}, "id": "I-VALID-3"},
+        {"environment": {"input_len": 1, "malformed_input": true, "valid_input": false}, "id": "I-ZERO"}
+      ],
+      "id": "inputs"
+    },
+    {
+      "cases": [
+        {"environment": {"value": 0}, "id": "V0"},
+        {"environment": {"value": 1}, "id": "V1"},
+        {"environment": {"value": 2}, "id": "V2"},
+        {"environment": {"value": 3}, "id": "V3"}
+      ],
+      "id": "values"
+    }
+  ],
+  "required_mutants": [
+    "accept-noncanonical",
+    "accept-trailing",
+    "always-error",
+    "always-success",
+    "ignore-length",
+    "payload-substitution"
+  ],
+  "required_roles": [
+    "bounded-termination",
+    "canonicality",
+    "exact-consumption",
+    "malformed-rejection",
+    "round-trip"
+  ],
+  "schema": "proofbound-research-specification-universe/1",
+  "variables": [
+    {"name": "canonical_equal", "role": "result", "type": "bool"},
+    {"name": "consumed", "role": "result", "type": "int"},
+    {"name": "decoded_value", "role": "result", "type": "int"},
+    {"name": "input_len", "role": "input", "type": "int"},
+    {"name": "malformed_input", "role": "input", "type": "bool"},
+    {"name": "result_ok", "role": "result", "type": "bool"},
+    {"name": "roundtrip_equal", "role": "result", "type": "bool"},
+    {"name": "steps", "role": "result", "type": "int"},
+    {"name": "valid_input", "role": "input", "type": "bool"},
+    {"name": "value", "role": "input", "type": "int"}
+  ]
+}

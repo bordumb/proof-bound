@@ -1,0 +1,111 @@
+{
+  "schema": "proofbound-research-q1-completion-preregistration/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "subject": "git:f3a5362fda0bcdfc444bd9f9db06e94b84ae1784",
+  "purpose": "Collect complete registration, observation, portable receipt, policy, derivation, artifact, and cache semantics before implementing the four remaining Q1 rows.",
+  "cases": [
+    {
+      "id": "Q1-VERTICAL-PYTHON",
+      "language": "python",
+      "project_root": "demo/python-inventory-service",
+      "claims": ["PY-RESERVATION-001", "PY-WHEEL-001"],
+      "required_routes": ["example-test", "mutation-witness", "property-test", "static-check", "independent-check", "distribution-reproduction"],
+      "required_execution_dependencies": ["project-tree-regular-files-and-modes", "python-interpreter", "pytest-plugins", "analyzer", "build-backend"]
+    },
+    {
+      "id": "Q1-VERTICAL-TYPESCRIPT",
+      "language": "typescript",
+      "project_root": "demo/typescript-codec",
+      "claims": ["TS-CODEC-001", "TS-PACKAGE-001"],
+      "required_routes": ["example-test", "mutation-witness", "property-test", "static-check", "distribution-reproduction"],
+      "required_execution_dependencies": ["project-tree-regular-files-and-modes", "node-executable", "npm-executable", "package-lock", "vitest", "fast-check", "typescript"]
+    },
+    {
+      "id": "Q1-VERTICAL-RUST",
+      "language": "rust",
+      "project_root": "demo/allowance",
+      "claims": ["DEMO-TRANSFER-003"],
+      "required_routes": ["theorem", "bounded-check", "property-test", "mutation-witness"],
+      "required_execution_dependencies": ["project-tree-regular-files-and-modes", "cargo-metadata-closure", "rust-toolchain", "lean-toolchain", "kani"]
+    }
+  ],
+  "capture_contract": {
+    "execution": [
+      "fresh check JSON",
+      "second unchanged check JSON",
+      "portable compiled receipt",
+      "portable release envelope",
+      "sealed TCB ledger",
+      "every evidence record cited by the selected claims"
+    ],
+    "registration": [
+      "project manifest",
+      "selected claim manifests",
+      "cited evidence manifests",
+      "cited assumption and premise manifests",
+      "effective built-in or custom policies",
+      "semantic and runner closures"
+    ],
+    "identity": "Every captured file is identified by repository-relative role, exact SHA-256, and size. Generated timestamps may differ between runs but cannot substitute for semantic equality.",
+    "environment": "Record Proofbound, operating system, architecture, and every executable or backend dependency identity used by the evidence routes. Missing required tools make the case not executed, never passed."
+  },
+  "derivation_trace_contract": {
+    "schema": "proofbound-ir-derivation-trace/1",
+    "per_claim_fields": [
+      "claim_id",
+      "formal_value_and_rule",
+      "linkage_value_and_rule",
+      "assumption_value_and_inputs",
+      "policy_id",
+      "effective_tier",
+      "required_policy_components",
+      "satisfied_policy_components",
+      "load_bearing_evidence",
+      "open_obligations",
+      "blockers"
+    ],
+    "publication_fields": ["admitted_claims", "blocked_claims", "blockers"],
+    "acceptance": "Rust and Python independently derive byte-equal canonical traces from typed IR inputs. Reported statuses and publication decisions are comparisons only and are never derivation inputs."
+  },
+  "artifact_contract": {
+    "acceptance": "Every registered input role resolves to an exact observed logical-name, SHA-256, and size tuple before passed evidence is admitted. Every generated, bound, and sealed artifact remains a distinct typed role. Missing, extra, aliased, or same-digest/different-role artifacts fail closed.",
+    "attacks": [
+      "substitute an input logical role while retaining its bytes",
+      "substitute input bytes while retaining its role",
+      "omit one generated artifact",
+      "alias a bound artifact to a different logical role",
+      "substitute a sealed artifact and refresh only its outer digest"
+    ]
+  },
+  "cache_contract": {
+    "acceptance": "For every route, unchanged replay may reuse only the exact prior receipt. Changing any execution-relevant content, mode, lock, configuration, executable, plugin, analyzer, builder, or negative module-resolution state must change the cache key or fail before reuse. Presentation-only changes must not invalidate technical evidence unless the route declares them as execution input.",
+    "attacks": [
+      "change a directly registered source byte",
+      "change an imported or transitive source byte outside the immediate package",
+      "change an execution-relevant file mode without changing bytes",
+      "change a package or toolchain lock",
+      "change a plugin, analyzer, compiler, or builder identity",
+      "add a competing module-resolution candidate",
+      "change unrelated presentation bytes"
+    ],
+    "success_measure": "zero stale reuses across every execution-relevant attack and zero technical reruns for the registered presentation-only control"
+  },
+  "trace_attacks": [
+    {"id": "Q1-TRACE-001", "mutation": "remove one load-bearing evidence ID", "expected_code": "IR-DERIVATION-TRACE-MISMATCH"},
+    {"id": "Q1-TRACE-002", "mutation": "replace a formal derivation rule with a stronger rule", "expected_code": "IR-DERIVATION-TRACE-MISMATCH"},
+    {"id": "Q1-TRACE-003", "mutation": "mark one unsatisfied policy component satisfied", "expected_code": "IR-DERIVATION-TRACE-MISMATCH"},
+    {"id": "Q1-TRACE-004", "mutation": "remove a publication blocker", "expected_code": "IR-DERIVATION-TRACE-MISMATCH"},
+    {"id": "Q1-TRACE-005", "mutation": "move a valid trace to another claim", "expected_code": "IR-DERIVATION-TRACE-MISMATCH"},
+    {"id": "Q1-TRACE-006", "mutation": "derive policy admission from reported policy_admitted instead of typed inputs", "expected_code": "IR-DERIVATION-TRACE-MISMATCH"}
+  ],
+  "decision_rule": {
+    "close_q1_field_006_and_016": "Every selected claim has an independently reproduced exact trace and all six trace attacks are rejected by both implementations with the registered code.",
+    "close_q1_field_009": "The artifact contract passes for every selected route and attack in both implementations.",
+    "close_q1_field_014": "The cache success measure is met for every selected route in all three language cases.",
+    "freeze_assurance_ir_1": "Only after all sixteen matrix rows are complete and this completed vertical corpus has no unresolved divergence.",
+    "preregister_go_holdout": "Only after the IR is frozen; none of these cases may be reused as the holdout."
+  }
+}

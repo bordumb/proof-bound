@@ -172,6 +172,75 @@ def sample_adapter_observation() -> dict[str, object]:
     }
 
 
+def sample_artifact(name: str, discriminator: int) -> dict[str, object]:
+    return {
+        "logical_name": name,
+        "sha256": f"sha256:{discriminator:064x}",
+        "size_bytes": discriminator,
+    }
+
+
+def sample_mutation_detail(subject: str, *, portable: bool) -> dict[str, object]:
+    artifacts = [
+        sample_artifact("mutations/remove-guard.toml", 2),
+        sample_artifact("src/guard.ts", 3),
+        sample_artifact("mutants/guard.ts", 4),
+        sample_artifact("tests/guard.test.ts", 5),
+    ]
+    detail: dict[str, object] = {
+        "schema": "proofbound-mutation-witness/3",
+        "mutation_id": "remove-guard",
+        "subject": subject,
+        "guard": "The registered guard must remain effective.",
+        "mutation_sha256": f"sha256:{'06' * 32}",
+        "registry": artifacts[0],
+        "target_preimage": artifacts[1],
+        "mutant_artifact": artifacts[2],
+        "target_postimage": sample_artifact("src/guard.ts", 4),
+        "witness_source": artifacts[3],
+        "check_id": "tests/guard.test.ts::rejects invalid input",
+        "baseline_run_index": 0,
+        "expected_failure": {
+            "run_index": 1,
+            "allowed_exit_codes": [101 if subject.startswith("rust:") else 1],
+        },
+    }
+    if portable:
+        detail["proof_term_witness"] = False
+    return detail
+
+
+def sample_mutation_evidence(subject: str) -> dict[str, object]:
+    evidence = sample_bounded_evidence()
+    evidence["kind"] = "mutation-witness"
+    evidence["id"] = "mutation:remove-guard"
+    evidence["node_id"] = "test:remove-guard"
+    evidence["unit_id"] = "unit:remove-guard"
+    evidence["inventoried_targets"] = ["remove-guard"]
+    del evidence["bounded_check"]
+    evidence["mutation_witness"] = sample_mutation_detail(subject, portable=False)
+    provenance = evidence["provenance"]
+    assert isinstance(provenance, dict)
+    detail = evidence["mutation_witness"]
+    assert isinstance(detail, dict)
+    inputs = [
+        detail["registry"],
+        detail["target_preimage"],
+        detail["mutant_artifact"],
+        detail["witness_source"],
+    ]
+    if subject.startswith("npm:"):
+        inputs.extend(
+            [
+                sample_artifact("package-lock.json", 7),
+                sample_artifact("package.json", 8),
+            ]
+        )
+    provenance["input_artifacts"] = inputs
+    provenance["generated_artifacts"] = [detail["target_postimage"]]
+    return evidence
+
+
 def sample_artifact_checker_result() -> dict[str, object]:
     return {
         "schema": "proofbound-artifact-check-result/1",
@@ -193,6 +262,51 @@ def sample_independent_checker_result() -> dict[str, object]:
 def test_every_public_schema_is_valid_draft_2020_12() -> None:
     schemas, _ = schema_registry()
     assert schemas
+
+
+def test_project_v2_requires_nonempty_reviewed_release_contexts() -> None:
+    project = {
+        "schema": "proofbound-project/2",
+        "project": "contextual-release",
+        "tier": 1,
+        "source": {"semantic": [], "runner": [], "presentation": []},
+        "claim_manifests": ["proofbound/claims/*.toml"],
+        "evidence_contexts": ["release-linux-x86-64"],
+        "required_release_contexts": ["release-linux-x86-64"],
+    }
+    validate = validator("project.schema.json")
+    validate.validate(project)
+
+    for field in ["evidence_contexts", "required_release_contexts"]:
+        missing = dict(project)
+        del missing[field]
+        assert list(validate.iter_errors(missing))
+
+        empty = dict(project)
+        empty[field] = []
+        assert list(validate.iter_errors(empty))
+
+
+def test_external_observation_input_manifest_is_closed() -> None:
+    value = {
+        "schema": "proofbound-observation-inputs/1",
+        "observations": [
+            {
+                "claim_id": "PBR-RUN",
+                "subject_role": "runtime-release",
+                "platform": {
+                    "operating_system": "linux",
+                    "architecture": "x86_64",
+                },
+                "artifact_path": "dist/proofbound-runtime.tar.zst",
+                "procedure_path": "tools/run-native.sh",
+            }
+        ],
+    }
+    schema = validator("observation-inputs.schema.json")
+    schema.validate(value)
+    value["observations"][0]["formal"] = "PROVED"
+    assert list(schema.iter_errors(value))
 
 
 def test_actual_runtime_closure_records_match_public_schema() -> None:
@@ -534,9 +648,7 @@ def test_python_and_node_schema_migration_rejects_legacy_versions() -> None:
 
     observation = sample_adapter_observation()
     observation["schema"] = "proofbound-adapter-observation/2"
-    assert list(
-        validator("adapter-observation.schema.json").iter_errors(observation)
-    )
+    assert list(validator("adapter-observation.schema.json").iter_errors(observation))
 
     release_dir = ROOT / "proofbound" / "conformance" / "v1" / "release-valid"
     receipt_validator = validator("receipt.schema.json")
@@ -549,17 +661,63 @@ def test_python_and_node_schema_migration_rejects_legacy_versions() -> None:
 
     mutation = tomllib.loads(
         (
-            ROOT
-            / "demo"
-            / "typescript-codec"
-            / "mutations"
-            / "reject-padding.toml"
+            ROOT / "demo" / "typescript-codec" / "mutations" / "reject-padding.toml"
         ).read_text(encoding="utf-8")
     )
     mutation["schema"] = "proofbound-mutation-registry/2"
-    assert list(
-        validator("mutation-registry.schema.json").iter_errors(mutation)
+    assert list(validator("mutation-registry.schema.json").iter_errors(mutation))
+
+
+def test_mutation_receipt_input_cardinality_is_subject_specific() -> None:
+    evidence_validator = validator("evidence.schema.json")
+    for subject in [
+        "rust:proofbound-demo::rejects_invalid_input",
+        "python:proofbound-demo::test_rejects_invalid_input",
+        "npm:proofbound-demo::rejectsInvalidInput",
+    ]:
+        evidence = sample_mutation_evidence(subject)
+        evidence_validator.validate(evidence)
+        inputs = evidence["provenance"]["input_artifacts"]
+        assert isinstance(inputs, list)
+        wrong_counts = [4, 5] if subject.startswith("npm:") else [5, 6]
+        for count in wrong_counts:
+            invalid = json.loads(json.dumps(evidence))
+            while len(invalid["provenance"]["input_artifacts"]) < count:
+                index = len(invalid["provenance"]["input_artifacts"]) + 10
+                invalid["provenance"]["input_artifacts"].append(
+                    sample_artifact(f"extra-{index}.json", index)
+                )
+            invalid["provenance"]["input_artifacts"] = invalid["provenance"][
+                "input_artifacts"
+            ][:count]
+            assert list(evidence_validator.iter_errors(invalid)), (subject, count)
+
+    release = load_json(
+        ROOT / "proofbound/conformance/v1/release-valid/compiled-receipt.json"
     )
+    node_evidence = sample_mutation_evidence("npm:proofbound-demo::rejectsInvalidInput")
+    record = release["evidence"][0]["record"]
+    record["kind"] = node_evidence["kind"]
+    record["unit_id"] = node_evidence["unit_id"]
+    record["node_id"] = node_evidence["node_id"]
+    record["inventoried_targets"] = node_evidence["inventoried_targets"]
+    record["mutation_witness"] = sample_mutation_detail(
+        "npm:proofbound-demo::rejectsInvalidInput", portable=True
+    )
+    record["provenance"]["input_artifacts"] = node_evidence["provenance"][
+        "input_artifacts"
+    ]
+    record["provenance"]["generated_artifacts"] = node_evidence["provenance"][
+        "generated_artifacts"
+    ]
+    receipt_validator = validator("receipt.schema.json")
+    receipt_validator.validate(release)
+    for count in [4, 5]:
+        invalid = json.loads(json.dumps(release))
+        invalid["evidence"][0]["record"]["provenance"]["input_artifacts"] = invalid[
+            "evidence"
+        ][0]["record"]["provenance"]["input_artifacts"][:count]
+        assert list(receipt_validator.iter_errors(invalid)), count
 
 
 def test_auxiliary_adapter_manifests_match_strict_public_schemas() -> None:

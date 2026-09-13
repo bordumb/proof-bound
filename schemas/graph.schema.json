@@ -9,6 +9,26 @@
   "$defs": {
     "id": { "type": "string", "minLength": 1, "maxLength": 512 },
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["logical_name", "sha256", "size_bytes"],
+      "properties": { "logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 }, "sha256": { "$ref": "#/$defs/digest" }, "size_bytes": { "type": "integer", "minimum": 0 } }
+    },
+    "artifactObservationRelation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity", "evidence", "semantic_kind", "subject_role", "artifact", "platform", "procedure", "toolchain_closure", "dependencies"],
+      "properties": {
+        "identity": { "$ref": "#/$defs/digest" },
+        "evidence": { "$ref": "#/$defs/id" },
+        "semantic_kind": { "$ref": "#/$defs/evidenceKind" },
+        "subject_role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "artifact": { "$ref": "#/$defs/artifact" },
+        "platform": { "type": "object", "additionalProperties": false, "required": ["operating_system", "architecture"], "properties": { "operating_system": { "enum": ["linux", "macos", "windows"] }, "architecture": { "enum": ["x86_64", "aarch64"] } } },
+        "procedure": { "$ref": "#/$defs/artifact" },
+        "toolchain_closure": { "type": "object", "additionalProperties": false, "required": ["kind", "sha256"], "properties": { "kind": { "const": "toolchain" }, "sha256": { "$ref": "#/$defs/digest" } } },
+        "dependencies": { "type": "array", "items": { "$ref": "#/$defs/id" }, "uniqueItems": true, "minItems": 1, "maxItems": 4096 }
+      }
+    },
     "node": {
       "type": "object",
       "additionalProperties": false,
@@ -212,6 +232,7 @@
         "policy": { "$ref": "#/$defs/policyVerdict" },
         "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidenceAssessment" } },
         "bounded_domains": { "type": "array", "items": { "$ref": "#/$defs/boundedDomain" } },
+        "artifact_observations": { "type": "array", "items": { "$ref": "#/$defs/artifactObservationRelation" }, "maxItems": 100000 },
         "premises": { "type": "array", "items": { "$ref": "#/$defs/premiseSummary" } },
         "not_proved_out_of_scope": { "$ref": "#/$defs/notProvedOutOfScope" },
         "errors": { "type": "array", "items": { "$ref": "#/$defs/structuredError" } }

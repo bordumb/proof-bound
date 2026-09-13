@@ -1,0 +1,55 @@
+{
+  "schema": "proofbound-research-result/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "run": "q1-losslessness-decision",
+  "date": "2026-09-02",
+  "implementation": "git:fb1229087983eff9678dd99cc211dedaa06ac508",
+  "inputs": {
+    "positive_corpus_path": "docs/experiments/0005-assurance-ir-extraction/corpus/cases.json",
+    "positive_corpus_revision": 2,
+    "positive_corpus_sha256": "sha256:508eaa75718a4f4bf221bbec9c4405772a8107689ae7350dfb760f832940a51b",
+    "q1_adversarial_path": "docs/experiments/0005-assurance-ir-extraction/corpus/q1-adversarial-cases.json",
+    "q1_adversarial_revision": 1,
+    "q1_adversarial_sha256": "sha256:42bfec5a3c792f5516a0a0af93240a154bb0bdc9afb453c3a5a26ce543638133",
+    "losslessness_matrix_path": "docs/experiments/0005-assurance-ir-extraction/q1-losslessness-matrix-r2.json",
+    "losslessness_matrix_revision": 2,
+    "losslessness_matrix_sha256": "sha256:cd1d632afd38e4eb2171f216659311921ce8f784f4b545102dbd0d7c67d4941c"
+  },
+  "execution": {
+    "positive_cases_projected_by_rust": 20,
+    "positive_cases_reconstructed_by_python": 20,
+    "projection_sha256": "sha256:3107fafe494d200f808951ed608f913692aff056d06ca53882dcd85968eb8fc4",
+    "source_to_ir_to_source_comparison_passed": true,
+    "rust_q1_attacks_rejected": 12,
+    "python_q1_attacks_rejected": 12,
+    "exact_rejection_codes_matched": true,
+    "rust_package_tests_passed": 7,
+    "python_checker_tests_passed": 8
+  },
+  "completed_rows": [
+    "claim identity",
+    "internal machine claim meaning",
+    "claim presentation",
+    "formal/linkage/assumption status facets",
+    "evidence identity and classification",
+    "authoritative inventory",
+    "assumptions/premises/obligations/exclusions",
+    "closures",
+    "execution provenance"
+  ],
+  "remaining_gaps": [
+    "subject-closure identity is not canonical for registration cases",
+    "publication and policy derivation traces are incomplete",
+    "artifact roles and every evidence-family detail are not closed typed records",
+    "declared registration inputs do not prove complete transitive execution-cache coverage",
+    "backend retained facts and TCB-ledger component semantics are not closed typed records"
+  ],
+  "outcome": {
+    "Q1": "failed: nine of sixteen registered semantic rows are forward-and-reverse complete, while seven remain partial",
+    "q1_pass": false,
+    "assurance_ir_1_frozen": false,
+    "go_holdout_preregistered": false
+  },
+  "interpretation": "The prototype now demonstrates a real portable semantic reverse projection and matched fail-closed programme validation. That is necessary but not sufficient for a stable Assurance IR. Starting the Go holdout before closing the seven known rows would measure adaptation to known omissions rather than test a frozen language-independent boundary."
+}

@@ -37,6 +37,20 @@ case "$event_name" in
         || fail "default-branch push base is not a commit"
       printf '%s\n' "$base"
       exit 0
+    elif [[ "$event_ref" == refs/heads/* ]] \
+      && git rev-parse --verify "${head}^2" >/dev/null 2>&1; then
+      if [[ -z "$event_before" || "$event_before" == "$zero_revision" ]]; then
+        fail "non-default merge push base revision is missing"
+      fi
+      base="$(git rev-parse --verify "${event_before}^{commit}")" \
+        || fail "non-default merge push base is not a commit"
+      first_parent="$(git rev-parse --verify "${head}^1")" \
+        || fail "non-default merge push first parent is not a commit"
+      if [[ "$base" != "$first_parent" ]]; then
+        fail "non-default merge push base is not the merge first parent"
+      fi
+      printf '%s\n' "$base"
+      exit 0
     else
       candidate="refs/remotes/origin/$default_branch"
       git rev-parse --verify "${candidate}^{commit}" >/dev/null \

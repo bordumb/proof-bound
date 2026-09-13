@@ -13,6 +13,9 @@ decision.
   and adoption surface.
 - [Working notes](notes/README.md) preserve topic-led ideas that have not yet
   graduated into a normative or user-facing document.
+- [Research programmes](research/README.md) coordinate related hypotheses,
+  workstreams, corpora, metrics, and preregistered experiments without making
+  their provisional models normative.
 
 ## Normative design and decisions
 
@@ -50,6 +53,7 @@ decision.
 | Material | Location |
 |---|---|
 | Unsettled product or engineering idea | [Working notes](notes/README.md) |
+| Multi-experiment research programme | [Research programmes](research/README.md) |
 | Accepted architecture or trust-boundary decision | `adr/` |
 | Normative behavior or wire contract | `specs/` |
 | User procedure | `guides/` |

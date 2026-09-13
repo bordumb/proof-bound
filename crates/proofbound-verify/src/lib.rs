@@ -15,4 +15,5 @@ pub use statement_wire::statement_digest as lean_statement_wire_digest;
 pub use verifier::{
     NotProvedOutOfScopeReport, VerificationErrors, VerificationIssue, VerificationIssueCode,
     VerificationReport, verify_compiled_release, verify_release_dir,
+    verify_release_dir_with_observations,
 };

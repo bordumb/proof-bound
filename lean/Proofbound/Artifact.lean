@@ -25,6 +25,28 @@ structure DigestBindingV1
   digest : "sha256:" ++ Proofbound.sha256Hex bytes = expectedSha256
   meaning_holds : meaning bytes
 
+/-- One reviewed member of a closed artifact-binding set. The logical name and
+digest remain direct fields so independent statement-wire consumers can select
+one exact release artifact without evaluating Lean definitions. -/
+structure DigestBindingMemberV1 where
+  artifactLogicalName : String
+  expectedSha256 : String
+  bytes : ByteArray
+
+/--
+The audited statement form for one semantic claim shipped as a closed set of
+artifacts. Every member binds its own bytes to its literal digest and satisfies
+the same semantic predicate. Release contexts may check one member, but cannot
+add a member that is absent from this theorem.
+-/
+structure DigestBindingSetV1
+    (claimId artifactSchema : String)
+    (members : List DigestBindingMemberV1)
+    (meaning : ByteArray → Prop) : Prop where
+  digest : ∀ member ∈ members,
+    "sha256:" ++ Proofbound.sha256Hex member.bytes = member.expectedSha256
+  meaning_holds : ∀ member ∈ members, meaning member.bytes
+
 theorem accepted_and_digest_implies_meaning
     (bytes : ByteArray)
     (expectedHex : String)

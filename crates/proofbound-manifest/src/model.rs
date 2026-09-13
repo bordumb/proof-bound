@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,10 @@ pub struct ProjectManifest {
     pub assumption_manifests: Vec<String>,
     #[serde(default)]
     pub evidence_units: Vec<String>,
+    #[serde(default)]
+    pub evidence_contexts: Vec<String>,
+    #[serde(default)]
+    pub required_release_contexts: Vec<String>,
     #[serde(default)]
     pub translation_units: Vec<String>,
     #[serde(default)]
@@ -140,7 +144,27 @@ pub struct AssumptionManifest {
     pub review_evidence: Vec<String>,
     pub discharge_plan: String,
     pub source_citation: Option<String>,
+    #[serde(default)]
+    pub formal_axioms: Vec<String>,
     pub status: AssumptionStatus,
+    #[serde(default)]
+    pub premise_scope: Option<FlowScopeManifest>,
+    #[serde(default)]
+    pub discharge: Option<PremiseDischargeManifest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PremiseDischargeManifest {
+    pub theorem: String,
+    pub scope: FlowScopeManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum FlowScopeManifest {
+    AllRegisteredInputs,
+    Flows { flows: BTreeSet<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +194,8 @@ pub enum AssumptionStatus {
 pub struct EvidenceUnitManifest {
     pub schema: String,
     pub id: String,
+    #[serde(default)]
+    pub context: Option<String>,
     pub adapter: AdapterKind,
     pub kind: EvidenceKind,
     pub claims: Vec<String>,
@@ -200,7 +226,44 @@ pub struct EvidenceUnitManifest {
     pub property: Option<PythonPropertyConfig>,
     #[serde(default)]
     pub distribution: Option<DistributionReproductionConfig>,
+    #[serde(default)]
+    pub artifact_observation: Option<ExactArtifactObservationConfig>,
     pub resource_budget: ResourceBudget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExactArtifactObservationConfig {
+    pub schema: ExactArtifactObservationSchema,
+    pub subject_role: String,
+    pub artifact: String,
+    pub procedure: String,
+    pub operating_system: ObservationOperatingSystem,
+    pub architecture: ObservationArchitecture,
+    pub toolchain_inputs: Vec<String>,
+    pub dependencies: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExactArtifactObservationSchema {
+    #[serde(rename = "proofbound-exact-artifact-observation/1")]
+    Version1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationOperatingSystem {
+    Linux,
+    Macos,
+    Windows,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservationArchitecture {
+    #[serde(rename = "x86_64")]
+    X86_64,
+    Aarch64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

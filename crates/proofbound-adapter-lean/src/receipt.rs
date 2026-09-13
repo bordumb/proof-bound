@@ -203,6 +203,7 @@ pub fn build_theorem_evidence(
             project_axioms: verified.project_axioms.clone(),
         }),
         artifact_binding: None,
+        artifact_observation: None,
         trusted_transcription: None,
         source_refinement: None,
         bounded_check: None,

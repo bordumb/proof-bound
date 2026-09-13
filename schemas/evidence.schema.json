@@ -17,6 +17,8 @@
     "binding_mode": { "enum": ["bytes-in-theorem", "digest-theorem", "external-round-trip"] },
     "theorem": { "$ref": "#/$defs/theorem" },
     "artifact_binding": { "$ref": "#/$defs/artifactBinding" },
+    "artifact_observation": { "$ref": "#/$defs/exactArtifactObservation" },
+    "evidence_context": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "trusted_transcription": { "$ref": "#/$defs/trustedTranscription" },
     "source_refinement": { "$ref": "#/$defs/sourceRefinement" },
     "bounded_check": { "$ref": "#/$defs/boundedCheck" },
@@ -97,11 +99,41 @@
           "inventoried_targets": { "minItems": 1, "maxItems": 1 },
           "provenance": {
             "properties": {
-              "input_artifacts": { "minItems": 4, "maxItems": 4 },
+              "input_artifacts": { "minItems": 4, "maxItems": 6 },
               "generated_artifacts": { "minItems": 1, "maxItems": 1 }
             }
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "mutation_witness": {
+                  "required": ["subject"],
+                  "properties": { "subject": { "pattern": "^npm:" } }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "provenance": {
+                  "properties": {
+                    "input_artifacts": { "minItems": 6, "maxItems": 6 }
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "provenance": {
+                  "properties": {
+                    "input_artifacts": { "minItems": 4, "maxItems": 4 }
+                  }
+                }
+              }
+            }
+          }
+        ]
       },
       "else": { "not": { "required": ["mutation_witness"] } }
     },
@@ -133,6 +165,26 @@
         "logical_name": { "type": "string", "minLength": 1, "maxLength": 4096 },
         "sha256": { "$ref": "#/$defs/digest" },
         "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "exactArtifactObservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "subject_role", "artifact", "platform", "procedure", "toolchain_closure", "dependencies"],
+      "properties": {
+        "schema": { "const": "proofbound-exact-artifact-observation/1" },
+        "subject_role": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
+        "artifact": { "$ref": "#/$defs/artifact" },
+        "platform": {
+          "type": "object", "additionalProperties": false,
+          "required": ["operating_system", "architecture"],
+          "properties": {
+            "operating_system": { "enum": ["linux", "macos", "windows"] },
+            "architecture": { "enum": ["x86_64", "aarch64"] }
+          }
+        },
+        "procedure": { "$ref": "#/$defs/artifact" },
+        "toolchain_closure": { "$ref": "#/$defs/closure" },
+        "dependencies": { "$ref": "#/$defs/ids" }
       }
     },
     "closure": {

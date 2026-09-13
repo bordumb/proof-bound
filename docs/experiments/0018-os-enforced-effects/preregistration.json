@@ -1,0 +1,129 @@
+{
+  "schema": "proofbound-research-enforced-effects-preregistration/1",
+  "experiment": "EXP-0018",
+  "programme_experiment": "EXP-LANG-011",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "date": "2026-09-03",
+  "subject": "git:fec933af98eeb8336f095fcffe3282e8f74baa7d",
+  "frozen_sources": [
+    {
+      "path": "docs/experiments/0010-invalidation-precision/results/revision-falsifier.json",
+      "sha256": "sha256:57a6ea5bef0a98088cc2083f3efde8dd65540bbcfafcafb966ce87ed4b55d95e",
+      "size_bytes": 569
+    },
+    {
+      "path": "docs/experiments/0012-effect-checked-replay/results/execution.json",
+      "sha256": "sha256:93c5df3762c3416c11bcd151da63aef3f69bd4ab277ab4b5d623e495aa20b484",
+      "size_bytes": 6935
+    },
+    {
+      "path": "docs/research/proofbound-language/assurance-ir-v2.md",
+      "sha256": "sha256:3a18b210e44ff9573ae5de04ba6691638ac7272b5c074a0a9475cd97ebcebf95",
+      "size_bytes": 5914
+    }
+  ],
+  "platform_candidate": {
+    "os": "macos",
+    "architecture": "arm64",
+    "mechanism": "seatbelt-sandbox-exec",
+    "mechanism_path": "/usr/bin/sandbox-exec",
+    "unsupported_behavior": "record-unanswered-never-fallback"
+  },
+  "contract": {
+    "plan_schema": "proofbound-research-enforced-plan/1",
+    "receipt_schema": "proofbound-research-enforcement-receipt/1",
+    "report_schema": "proofbound-research-enforced-effects-report/1",
+    "plan_identity_domain": "proofbound-research-enforced-plan/1",
+    "policy_identity_domain": "proofbound-research-seatbelt-policy/1",
+    "receipt_identity_domain": "proofbound-research-enforcement-receipt/1"
+  },
+  "questions": [
+    {
+      "id": "Q1",
+      "pass": "all three positive subjects complete and every registered undeclared read, environment, executable, network, or write attack is denied without reusable evidence"
+    },
+    {
+      "id": "Q2",
+      "pass": "all load-bearing identity changes invalidate, the unrelated control does not, and an attempted undeclared control read is denied"
+    },
+    {
+      "id": "Q3",
+      "pass": "independent Rust and Python validators emit byte-identical reports and reject all receipt, identity, ordering, alias, and downgrade attacks exactly"
+    },
+    {
+      "id": "Q4",
+      "pass": "one backend-neutral contract executes Python, Node, and Rust without unrestricted authority or language branches in common validation"
+    },
+    {
+      "id": "Q5",
+      "pass": "ten deterministic reports, an unchanged reviewed root, explicit platform and TCB boundaries, and all frozen complexity ceilings"
+    }
+  ],
+  "subjects": [
+    "python",
+    "node",
+    "rust"
+  ],
+  "effects": [
+    "project-read",
+    "absence-preimage",
+    "file-permission",
+    "environment-read",
+    "process-exec",
+    "ephemeral-write",
+    "reviewed-write-denied",
+    "network-denied"
+  ],
+  "attacks": [
+    {"id": "EXP-0018-A001", "mutation": "read undeclared sibling project file", "expected": "EFX-FILE-READ-DENIED"},
+    {"id": "EXP-0018-A002", "mutation": "read project file outside registered root", "expected": "EFX-FILE-READ-DENIED"},
+    {"id": "EXP-0018-A003", "mutation": "replace registered input through symlink alias", "expected": "EFX-FILE-ALIAS"},
+    {"id": "EXP-0018-A004", "mutation": "replace registered input bytes", "expected": "EFX-PREIMAGE"},
+    {"id": "EXP-0018-A005", "mutation": "change registered input executable mode", "expected": "EFX-PREIMAGE"},
+    {"id": "EXP-0018-A006", "mutation": "materialize registered absence", "expected": "EFX-ABSENCE"},
+    {"id": "EXP-0018-A007", "mutation": "read undeclared environment variable", "expected": "EFX-ENV-DENIED"},
+    {"id": "EXP-0018-A008", "mutation": "substitute registered environment value", "expected": "EFX-ENV-IDENTITY"},
+    {"id": "EXP-0018-A009", "mutation": "launch unregistered executable", "expected": "EFX-EXEC-DENIED"},
+    {"id": "EXP-0018-A010", "mutation": "substitute registered runtime executable", "expected": "EFX-RUNTIME-IDENTITY"},
+    {"id": "EXP-0018-A011", "mutation": "connect to registered local listener", "expected": "EFX-NETWORK-DENIED"},
+    {"id": "EXP-0018-A012", "mutation": "write reviewed project file", "expected": "EFX-REVIEWED-WRITE-DENIED"},
+    {"id": "EXP-0018-A013", "mutation": "write outside ephemeral boundary", "expected": "EFX-WRITE-ESCAPE"},
+    {"id": "EXP-0018-A014", "mutation": "replace enforcement mechanism identity", "expected": "EFX-ENFORCER-IDENTITY"},
+    {"id": "EXP-0018-A015", "mutation": "weaken file-read policy", "expected": "EFX-POLICY-IDENTITY"},
+    {"id": "EXP-0018-A016", "mutation": "weaken network policy", "expected": "EFX-POLICY-IDENTITY"},
+    {"id": "EXP-0018-A017", "mutation": "replace platform identity", "expected": "EFX-PLATFORM-IDENTITY"},
+    {"id": "EXP-0018-A018", "mutation": "report enforcement on unsupported platform", "expected": "EFX-UNSUPPORTED"},
+    {"id": "EXP-0018-A019", "mutation": "omit registered preimage from receipt", "expected": "EFX-PREIMAGE-MISSING"},
+    {"id": "EXP-0018-A020", "mutation": "add unregistered preimage to receipt", "expected": "EFX-PREIMAGE-EXTRA"},
+    {"id": "EXP-0018-A021", "mutation": "duplicate preimage logical path", "expected": "EFX-PREIMAGE-DUPLICATE"},
+    {"id": "EXP-0018-A022", "mutation": "reorder canonical preimages", "expected": "EFX-NONCANONICAL"},
+    {"id": "EXP-0018-A023", "mutation": "replace command argument", "expected": "EFX-COMMAND"},
+    {"id": "EXP-0018-A024", "mutation": "forge successful exit after denied run", "expected": "EFX-RUN-OUTCOME"},
+    {"id": "EXP-0018-A025", "mutation": "author reusable true in child output", "expected": "EFX-CHILD-AUTHORITY"},
+    {"id": "EXP-0018-A026", "mutation": "downgrade enforced boundary to observed", "expected": "EFX-BOUNDARY-DOWNGRADE"},
+    {"id": "EXP-0018-A027", "mutation": "reuse receipt after registered input change", "expected": "EFX-STALE-REUSE"},
+    {"id": "EXP-0018-A028", "mutation": "invalidate after unrelated control change", "expected": "EFX-OVERINVALIDATION"},
+    {"id": "EXP-0018-A029", "mutation": "replace subject language while preserving counts", "expected": "EFX-SUBJECT-IDENTITY"},
+    {"id": "EXP-0018-A030", "mutation": "forge report identity", "expected": "EFX-REPORT-IDENTITY"}
+  ],
+  "generation": {
+    "repetitions": 10,
+    "positive_subjects": 3,
+    "expected_positive_executions": 30,
+    "expected_attack_count": 30
+  },
+  "complexity": {
+    "max_rust_runner_and_validator_lines": 1800,
+    "max_python_validator_lines": 1200,
+    "max_subject_lines_each": 120,
+    "max_policy_lines": 160,
+    "max_report_bytes": 131072,
+    "max_elapsed_ms": 60000
+  },
+  "decision": {
+    "pass": "Q1-Q5 pass over the complete frozen macOS corpus",
+    "revise": "a strict subset is enforced and every unsupported operation remains explicit and non-reusable",
+    "stop": "undeclared authority influences reusable evidence, enforcement silently falls back, or common semantics require unrestricted or language-specific authority"
+  }
+}

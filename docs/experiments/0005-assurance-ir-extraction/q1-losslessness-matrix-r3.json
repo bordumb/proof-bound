@@ -1,0 +1,145 @@
+{
+  "schema": "proofbound-research-losslessness-matrix/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "revision": 3,
+  "status": "post-decision-gap-audit",
+  "implementation_audited": "git:2098407a2205d50c3700851782f14a4e5b43671d",
+  "supersedes": {
+    "path": "docs/experiments/0005-assurance-ir-extraction/q1-losslessness-matrix-r2.json",
+    "revision": 2,
+    "sha256": "sha256:cd1d632afd38e4eb2171f216659311921ce8f784f4b545102dbd0d7c67d4941c"
+  },
+  "inputs": {
+    "positive_corpus_revision": 2,
+    "positive_corpus_sha256": "sha256:508eaa75718a4f4bf221bbec9c4405772a8107689ae7350dfb760f832940a51b",
+    "q1_adversarial_revision": 1,
+    "q1_adversarial_sha256": "sha256:42bfec5a3c792f5516a0a0af93240a154bb0bdc9afb453c3a5a26ce543638133",
+    "projection_sha256": "sha256:121cb9a7ecf694e5827c032be0bdf5ddc2e9aa9a136a12b4af9afc3551109368"
+  },
+  "equality_contract": "A row is complete only when every applicable frozen case projects its source-authoritative value, canonical IR preserves it without an opaque digest or untyped payload standing in for required meaning, and an independent reverse projection reproduces the registered semantic value under the source schema's list/set rules.",
+  "rows": [
+    {
+      "id": "Q1-FIELD-001",
+      "meaning": "claim identity",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrClaim.id", "claim source/IR comparison", "portable receipt/IR comparison"]
+    },
+    {
+      "id": "Q1-FIELD-002",
+      "meaning": "subject identity and subject closure",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrClaim.subject", "IrSubjectClosure", "proofbound-ir-subject-closure/1 recomputation", "self-consistently rehashed selector-substitution rejection"]
+    },
+    {
+      "id": "Q1-FIELD-003",
+      "meaning": "internal machine claim meaning",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrClaimMeaning", "claim source/IR comparison", "portable receipt/IR comparison"]
+    },
+    {
+      "id": "Q1-FIELD-004",
+      "meaning": "claim presentation",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrClaimPresentation", "reported public-statement join", "Q1-ADV-002"]
+    },
+    {
+      "id": "Q1-FIELD-005",
+      "meaning": "formal, linkage, and assumption status facets",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrReportedStatus", "independent status derivation", "Q1-ADV-003", "duplicate-status rejection"]
+    },
+    {
+      "id": "Q1-FIELD-006",
+      "meaning": "publication decision and blocking reasons",
+      "state": "partial",
+      "evidence": ["policy_admitted", "publication_blockers", "Q1-ADV-010"],
+      "remaining": ["the portable projection retains blocked claim IDs but not the complete admission derivation trace"]
+    },
+    {
+      "id": "Q1-FIELD-007",
+      "meaning": "evidence unit, node, family, outcome, evaluation, and binding",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrEvidence identity and classification fields", "portable receipt/IR comparison"]
+    },
+    {
+      "id": "Q1-FIELD-008",
+      "meaning": "authoritative inventory",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrEvidence.inventory", "IrEvidenceRequest", "registered and portable reverse comparisons"]
+    },
+    {
+      "id": "Q1-FIELD-009",
+      "meaning": "input, generated, bound, and sealed artifact identities",
+      "state": "partial",
+      "evidence": ["Artifact", "IrProvenance input/generated artifacts", "typed ArtifactCorrespondence detail", "IrProgrammeContext.sealed_artifacts"],
+      "remaining": ["registration projections retain source path selectors rather than the execution-time artifact identities later observed by an adapter"]
+    },
+    {
+      "id": "Q1-FIELD-010",
+      "meaning": "assumptions, premises, open obligations, and exclusions",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrAssumption", "IrPremise", "IrClaim obligation/exclusion fields", "Q1-ADV-011", "Q1-ADV-012"]
+    },
+    {
+      "id": "Q1-FIELD-011",
+      "meaning": "semantic, runner, presentation, external-evidence, and toolchain closures",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrClosure", "IrClosureReference", "closure identity recomputation", "Q1-ADV-008"]
+    },
+    {
+      "id": "Q1-FIELD-012",
+      "meaning": "typed evidence-family detail",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrFamilyDetail closed record", "typed property/mutation/distribution/bounded-domain registrations", "typed retained fact values", "exact family-configuration reconstruction", "family and retained-fact substitution rejection"]
+    },
+    {
+      "id": "Q1-FIELD-013",
+      "meaning": "execution, command, run, normalization, reproduction, interval, budget, and usage provenance",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["typed IrProvenance records", "portable receipt/IR comparison", "independent run and project joins"]
+    },
+    {
+      "id": "Q1-FIELD-014",
+      "meaning": "cache origin, dependencies, reuse eligibility, key, and prior receipt",
+      "state": "partial",
+      "evidence": ["IrCache", "IrCacheProvenance", "source-byte cache inputs", "registered/execution equality check"],
+      "remaining": ["registration projections bind declared source bytes but do not prove completeness against the adapter's transitive execution dependency closure", "portable reuse eligibility is reconstructed rather than retained as a source field"]
+    },
+    {
+      "id": "Q1-FIELD-015",
+      "meaning": "tool, adapter, backend dependency, and TCB identities",
+      "state": "forward-and-reverse-complete",
+      "evidence": ["IrTool", "typed IrRetainedFactValue", "IrTcbComponent", "strict sealed TCB-ledger reconstruction", "tool/adapter-to-ledger join", "self-consistently rehashed component-substitution rejection"]
+    },
+    {
+      "id": "Q1-FIELD-016",
+      "meaning": "policy selection, project and claim tier, linkage requirement, and admission explanation",
+      "state": "partial",
+      "evidence": ["IrPolicyRecord", "IrProject", "IrClaimAdmission", "policy/status join", "Q1-ADV-004", "Q1-ADV-005"],
+      "remaining": ["the complete admission explanation and derivation trace are not represented"]
+    }
+  ],
+  "execution": {
+    "positive_cases": 20,
+    "rust_python_projection_equal": true,
+    "q1_adversarial_cases": 12,
+    "q1_attacks_rejected_by_rust": 12,
+    "q1_attacks_rejected_by_python": 12,
+    "exact_rejection_codes_matched": true,
+    "rust_package_tests_passed": 9,
+    "python_checker_tests_passed": 10
+  },
+  "summary": {
+    "rows": 16,
+    "forward_and_reverse_complete": 12,
+    "partial": 4,
+    "missing": 0,
+    "q1_pass": false
+  },
+  "decision": {
+    "freeze_assurance_ir_1": false,
+    "preregister_go_holdout": false,
+    "reason": "Four registered semantic rows remain partial. Admission traces, registration-to-observation artifact identity, and complete execution-cache dependencies must be represented before the IR or a language holdout can be frozen."
+  }
+}

@@ -1,0 +1,176 @@
+module Schema
+
+typealias Ecosystem = "python" | "typescript" | "rust"
+typealias Linkage = "model-only" | "source-refined" | "artifact-bound"
+typealias Profile = "ledger" | "kernel-with-assumptions"
+
+class Project {
+  id: String
+  ecosystem: Ecosystem
+}
+
+class ResourceBudget {
+  time_seconds: Int
+  disk_bytes: Int
+  memory_bytes: Int?
+}
+
+class BoundedDomain {
+  id: String
+  description: String
+  cardinality: Int
+  ordering_key: Listing<Int>
+}
+
+class PytestOperation {
+  fixed `type`: "pytest" = "pytest"
+  manifest: String
+  targets: Listing<String>
+  paths: Listing<String>
+  plugins: Listing<String> = new {}
+}
+
+class VitestOperation {
+  fixed `type`: "vitest" = "vitest"
+}
+
+class CargoTestOperation {
+  fixed `type`: "cargo-test" = "cargo-test"
+  package: String
+  manifest: String
+  targets: Listing<String> = new {}
+}
+
+class KaniOperation {
+  fixed `type`: "kani" = "kani"
+  package: String
+  manifest: String
+  targets: Listing<String>
+}
+
+class LeanAuditOperation {
+  fixed `type`: "lean-audit" = "lean-audit"
+  targets: Listing<String>
+  paths: Listing<String>
+}
+
+class PythonProperty {
+  fixed schema: "proofbound-python-property/1" = "proofbound-python-property/1"
+  fixed framework: "hypothesis" = "hypothesis"
+  seed: Int
+}
+
+class MutationReplay {
+  fixed schema: "proofbound-mutation-replay/1" = "proofbound-mutation-replay/1"
+  registry: String
+}
+
+open class Claim {
+  fixed schema: "proofbound-claim/1" = "proofbound-claim/1"
+  id: String
+  title: String
+  statement: String
+  public_language: String
+  subject: String
+  profile: Profile
+  tier: Int
+  primary_linkage: Linkage
+  evidence: Listing<String>
+  assumptions: Listing<String> = new {}
+  premises: Listing<String> = new {}
+  open_obligations: Listing<String> = new {}
+  out_of_scope: Listing<String> = new {}
+  source_roots: Listing<String>
+  formal_declaration: String?
+  statement_encoding: String?
+  statement_sha256: String?
+  foundational_axioms: Listing<String> = new {}
+  bounded_domain: BoundedDomain?
+}
+
+abstract class Evidence {
+  id: String
+  claims: Listing<String>
+  tier: Int
+  assumptions: Listing<String> = new {}
+  expected_inventory: Listing<String>
+  inputs: Listing<String>
+  outputs: Listing<String> = new {}
+  environment_allowlist: Listing<String>
+  resource_budget: ResourceBudget
+  property: PythonProperty?
+  bounded_domain: BoundedDomain?
+  mutation: MutationReplay?
+  evaluation_mode: String?
+  theorem: String?
+}
+
+open class PythonExample extends Evidence {
+  fixed schema: "proofbound-evidence-unit/1" = "proofbound-evidence-unit/1"
+  fixed adapter: "python-test" = "python-test"
+  fixed kind: "example-test" = "example-test"
+  operation: PytestOperation
+}
+
+open class PythonPropertyEvidence extends Evidence {
+  fixed schema: "proofbound-evidence-unit/1" = "proofbound-evidence-unit/1"
+  fixed adapter: "python-test" = "python-test"
+  fixed kind: "property-test" = "property-test"
+  operation: PytestOperation
+  property: PythonProperty
+}
+
+open class NodeExample extends Evidence {
+  fixed schema: "proofbound-evidence-unit/1" = "proofbound-evidence-unit/1"
+  fixed adapter: "node-test" = "node-test"
+  fixed kind: "example-test" = "example-test"
+  operation: VitestOperation
+}
+
+open class NodeProperty extends Evidence {
+  fixed schema: "proofbound-evidence-unit/1" = "proofbound-evidence-unit/1"
+  fixed adapter: "node-test" = "node-test"
+  fixed kind: "property-test" = "property-test"
+  operation: VitestOperation
+}
+
+open class RustExample extends Evidence {
+  fixed schema: "proofbound-evidence-unit/1" = "proofbound-evidence-unit/1"
+  fixed adapter: "rust-test" = "rust-test"
+  fixed kind: "example-test" = "example-test"
+  operation: CargoTestOperation
+}
+
+open class KaniBounded extends Evidence {
+  fixed schema: "proofbound-evidence-unit/1" = "proofbound-evidence-unit/1"
+  fixed adapter: "kani" = "kani"
+  fixed kind: "bounded-check" = "bounded-check"
+  operation: KaniOperation
+  bounded_domain: BoundedDomain
+}
+
+open class RustMutation extends Evidence {
+  fixed schema: "proofbound-evidence-unit/3" = "proofbound-evidence-unit/3"
+  fixed adapter: "rust-test" = "rust-test"
+  fixed kind: "mutation-witness" = "mutation-witness"
+  operation: CargoTestOperation
+  mutation: MutationReplay
+}
+
+open class LeanTheorem extends Evidence {
+  fixed schema: "proofbound-evidence-unit/1" = "proofbound-evidence-unit/1"
+  fixed adapter: "lean" = "lean"
+  fixed kind: "theorem" = "theorem"
+  operation: LeanAuditOperation
+  evaluation_mode: "kernel"
+  theorem: String
+}
+
+fixed schema: "proofbound-research-frontend-programme/1" = "proofbound-research-frontend-programme/1"
+project: Project
+claims: Listing<Claim>
+evidence: Listing<Evidence>
+
+output {
+  renderer = new JsonRenderer {}
+}

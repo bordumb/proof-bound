@@ -1,0 +1,49 @@
+{
+  "schema": "proofbound-research-q1-completion-capture/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "revision": 1,
+  "status": "captured-for-preregistered-finalization",
+  "subject": "git:4bdbb3f68f37e7346843bd4f5f4aadfc6cc4d3b7",
+  "source_capture": "captures/q1-completion-r1/index.json",
+  "preregistration": {
+    "path": "docs/experiments/0005-assurance-ir-extraction/q1-finalization-preregistration.json",
+    "subject": "git:5423b61"
+  },
+  "cases": [
+    {
+      "id": "Q1-FINAL-PYTHON",
+      "evidence_records": 7,
+      "provenance": "byte-identical carry-forward from q1-completion-r1",
+      "files": [
+        {"path": "python/compiled-receipt.json", "sha256": "sha256:a7f09e3674d3b324900309cc05369bcb5ed51b2ab43817130c91ac315f662188", "size_bytes": 67008},
+        {"path": "python/release.json", "sha256": "sha256:54060876cefbac4fb513e8689507cd73699e0e3fb9791347d9bd7409c19f3e90", "size_bytes": 167},
+        {"path": "python/tcb-ledger.json", "sha256": "sha256:0df58bba8ab5a3f3832b17833150f7c3e7b61bd4f09b3e03c0317afe71b9acb2", "size_bytes": 1266}
+      ]
+    },
+    {
+      "id": "Q1-FINAL-TYPESCRIPT",
+      "evidence_records": 6,
+      "provenance": "byte-identical carry-forward from q1-completion-r1; layered sampling is a separately bound research extension",
+      "files": [
+        {"path": "typescript/compiled-receipt.json", "sha256": "sha256:181243a0347df7fab9c779776d8adb281d679bf06c87d79c139c1165f2ffd104", "size_bytes": 71970},
+        {"path": "typescript/release.json", "sha256": "sha256:9eadc68ffded301793589e25baf3152268258b73e46c5f663de0dc75488d74fa", "size_bytes": 167},
+        {"path": "typescript/tcb-ledger.json", "sha256": "sha256:cffbf670ecffe3bed176fafae8b75577fa010444d6ccfb878932c26635108ccf", "size_bytes": 1035}
+      ]
+    },
+    {
+      "id": "Q1-FINAL-RUST",
+      "evidence_records": 32,
+      "provenance": "fresh full check and independently verified release after the preregistered source classification correction",
+      "publication_blocked": false,
+      "verification_verdict": "receipt-consistent",
+      "payload_sha256": "sha256:5ae497838b5abd06aa686446bf3312bf73839ae812642268ff86cdeca243d92e",
+      "files": [
+        {"path": "rust/compiled-receipt.json", "sha256": "sha256:1e467a7dff92172fa7e7dafa0a100a20e265c96388bd466531e21b691e46008e", "size_bytes": 410394},
+        {"path": "rust/release.json", "sha256": "sha256:8f3a62c51caec91edd02ce856991d7098a05f91b7fb5e232ec5283216fc8237e", "size_bytes": 167},
+        {"path": "rust/tcb-ledger.json", "sha256": "sha256:87a902eb82b88a2fbe793a23f8b4ea61afc4a6b6a5a35985d8f819e0558c2782", "size_bytes": 2463}
+      ]
+    }
+  ],
+  "decision": "The capture is an input to the preregistered Q1 finalization. Capture alone does not close either remaining field."
+}

@@ -2,9 +2,9 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.13.0
+**Version:** 0.14.0
 
-**Date:** 2026-09-01
+**Date:** 2026-09-12
 
 **Project:** Proofbound
 
@@ -12,6 +12,13 @@
 
 ### Revision history
 
+- **0.14.0** — defines exact artifact observations, reviewed release evidence
+  contexts, and contextual semantic artifact bindings as the coordinated
+  version-4 through version-6 release transition. It closes the supported
+  observation kinds, portable context equality, independent byte-observation
+  verdicts, and closed binding-set rules. It also reconciles the normative
+  graph endpoint and cycle tables with typed cross-unit dependencies and exact
+  premise-discharge joins (§5, §6.2–6.3, §8.1, §11.1–11.5; ADRs 0020–0022).
 - **0.13.0** — makes the Python and TypeScript wire migration explicit:
   adapter observations advance to `/3`, canonical evidence and compiled state
   to `/4`, mutation witnesses and registries to `/3`, and compiled releases
@@ -369,15 +376,23 @@ Two qualifiers keep the strong kinds honest:
   kinds and binding modes are not interchangeable, and the graph never
   conflates them.
 - **Binding derivation.** A checker outcome, theorem name, or Boolean assertion
-  is never a binding. Version 0.7 admits `digest-theorem` only when the exact
-  outermost elaborated statement is
+  is never a binding. An unconditional `digest-theorem` is admitted only when
+  the exact outermost elaborated statement is
   `Proofbound.Artifact.DigestBindingV1 claimId artifactSchema logicalName
   expectedSha256 bytes meaning`, the first four arguments are direct canonical
   string literals, and the proposition establishes both the SHA-256 identity
   and `meaning bytes`. The complete `lean-expr-cbor/1` statement is carried in
   theorem evidence so both status engines recompute its identity and parse it
-  independently. `bytes-in-theorem` remains reserved but fails closed until an
-  equally exact typed proposition and portable byte comparison are specified.
+  independently. A reviewed evidence context MAY instead activate a
+  `proofbound-evidence-unit/6` artifact check whose theorem has the exact root
+  `Proofbound.Artifact.DigestBindingSetV1 claimId artifactSchema members
+  meaning`. `members` is a nonempty direct `List.cons`/`List.nil` spine of at
+  most 256 `DigestBindingMemberV1.mk logicalName expectedSha256 bytes` values,
+  strictly ordered by unique logical name with unique canonical digest
+  literals. The checked artifact identity MUST match exactly one member; the
+  inactive members confer no release fact. `bytes-in-theorem` remains reserved
+  but fails closed until an equally exact typed proposition and portable byte
+  comparison are specified.
 
 The status vocabulary MUST NOT compress these into a single scalar such as
 `verified`. Summary status is the three-facet composition defined in
@@ -433,8 +448,8 @@ The legal endpoint kinds are closed and normative:
 | `decodes` | `(artifact, claim)` |
 | `checks` | `(test-suite, claim)`, `(model-check-unit, claim)` |
 | `generated-from` | `(artifact, subject)` |
-| `depends-on` | `(claim, subject)`, `(subject, artifact)`, `(theorem, theorem)` |
-| `assumes` | `(claim, assumption)`, `(claim, premise)`, `(theorem, premise)`, `(assumption, claim)`, `(claim, claim)` |
+| `depends-on` | `(claim, subject)`, `(subject, artifact)`, `(theorem, theorem)`, `(test-suite, test-suite)`, `(test-suite, model-check-unit)`, `(model-check-unit, test-suite)`, `(model-check-unit, model-check-unit)` |
+| `assumes` | `(claim, assumption)`, `(claim, premise)`, `(theorem, premise)`, `(translation-unit, premise)`, `(assumption, claim)`, `(claim, claim)` |
 | `discharged-by` | `(premise, theorem)` |
 | `cross-checks` | `(test-suite, claim)`, `(model-check-unit, claim)` |
 | `covers-bounded-domain` | `(model-check-unit, claim)` |
@@ -463,9 +478,14 @@ remain compact and language-neutral. Trusted constructors wrap those identities
 in node-kind marker references before an edge can be built; this closes
 claim/theorem/subject confusion at the construction boundary without requiring
 fourteen distinct serialized ID formats. Unknown node or edge kinds and illegal
-endpoint pairs MUST be rejected. Cycles are allowed only for declared mutual
-theorem dependencies internal to one proof environment; cycles in artifact
-generation or provenance are invalid.
+endpoint pairs MUST be rejected. A cycle is allowed only when it is either a
+declared mutual theorem dependency internal to one proof environment or the
+exact typed premise-discharge join defined in Section 8.1. The latter contains
+one claim, one or more premises, and one or more theorems, and its internal
+edges are exclusively `claim --assumes--> premise`,
+`premise --discharged-by--> theorem`, and `theorem --proves--> claim`, with the
+exact cardinality rules in Section 8.1. All other cycles, including cycles in
+artifact generation or provenance, are invalid.
 
 ### 6.3 Status derivation
 
@@ -507,7 +527,7 @@ Linkage facet, from the subject-binding evidence:
 | Binding evidence | Linkage facet |
 |---|---|
 | `source-refinement` with a named refinement theorem and registered representation premises | `REFINED` |
-| `artifact-soundness` whose admitted theorem has the exact typed `DigestBindingV1` root and matching checked artifact identity (§5, §9.4) | `ARTIFACT_BOUND` |
+| `artifact-soundness` whose admitted theorem has the exact typed `DigestBindingV1` root, or a selected reviewed context whose theorem has the exact typed `DigestBindingSetV1` root, and whose checked artifact identity matches exactly (§5, §9.4) | `ARTIFACT_BOUND` |
 | `trusted-transcription` with binding `external-round-trip` (§7.1.1) | `TRANSCRIBED` |
 | no subject binding | `MODEL_ONLY` |
 
@@ -796,6 +816,44 @@ is the normal way a claim's assumption burden shrinks over time. A framework
 that hid undischarged premises would be reporting a stronger claim than the
 theorem states.
 
+A discharged representation-premise uses the same
+`proofbound-assumption/1` manifest with an explicit typed scope and discharge:
+
+```toml
+schema = "proofbound-assumption/1"
+id = "DEMO-U64-REP-001"
+statement = "Every decoded value fits the registered u64 carrier."
+category = "representation-premise"
+owner = "Demo maintainers"
+rationale = "The source-refinement theorem represents decoded values as u64."
+scope = "Every value accepted by the registered decoder."
+affected_claims = ["DEMO-TRANSFER-001"]
+review_evidence = []
+discharge_plan = "Prove the decoder establishes the carrier bound."
+status = "discharged"
+premise_scope = { kind = "all-registered-inputs" }
+discharge = { theorem = "decoder-carrier-bound", scope = { kind = "all-registered-inputs" } }
+```
+
+`premise_scope` defaults to `all-registered-inputs`; a narrower scope is
+`{ kind = "flows", flows = ["flow-a", "flow-b"] }`. A discharge scope MUST
+cover the premise scope. The `theorem` field names a local evidence unit of
+kind `theorem`; that unit MUST cite every affected claim, every affected claim
+MUST cite `theorem:<id>`, and the theorem MUST NOT depend on the premise it
+discharges. A discharge declaration requires `status = "discharged"`, while
+that status without the typed declaration is invalid. The compiler retains the
+premise, materializes its discharge record, and emits the exact
+`premise -> theorem` `discharged-by` edge. The core status engine and independent
+verifier still require that theorem to be policy-admitted before removing the
+premise from the assumption facet.
+
+This join creates one deliberately typed provenance cycle: the claim assumes
+the premise, the premise is discharged by the theorem, and the theorem proves
+the claim. Graph validation admits only that exact `claim -> premise -> theorem
+-> claim` shape (including multiple premises or discharge theorems in the same
+join). Additional internal edges, owner edges back to a discharged premise, or
+mixed node and edge kinds remain invalid cycles.
+
 ### 8.2 Lean axiom audit
 
 For every registered Lean theorem, Proofbound MUST compile an axiom audit from
@@ -929,14 +987,29 @@ The initial built-in profiles are:
   `native-evaluated` must record its exact native premise and TCB.
 - The admitted theorem receipt carries the complete canonical elaborated
   statement and its recomputed statement identity.
-- For `digest-theorem`, that statement is exactly the outermost
-  `Proofbound.Artifact.DigestBindingV1` application defined in Section 5; the
-  literal claim ID, schema, logical name, and SHA-256 identity are derived from
-  theorem content rather than checker output.
+- For an unconditional `digest-theorem`, that statement is exactly the
+  outermost `Proofbound.Artifact.DigestBindingV1` application defined in
+  Section 5; the literal claim ID, schema, logical name, and SHA-256 identity
+  are derived from theorem content rather than checker output.
+- For a contextual `digest-theorem`, the statement is exactly the outermost
+  `Proofbound.Artifact.DigestBindingSetV1` application defined in Section 5.
+  Only a `proofbound-evidence-unit/6` canonical-artifact check owned by the one
+  selected, preregistered review context may activate it. Base checks exclude
+  such units. The producer and standalone verifier independently parse the
+  closed set and require the checked logical name and digest to equal exactly
+  one direct member.
 - The derived artifact logical name and digest equal exactly one checked input
   artifact in the separate artifact-soundness record. Version-2 provenance
   carries that artifact's complete logical-name, digest, and byte-size identity;
   both status engines require an exact match, including `size_bytes`.
+- A contextual release uses `proofbound-compiled-release/6` inside
+  `proofbound-release-envelope/6`; its contextual binding records use
+  `proofbound-evidence/5` and carry the same canonical `evidence_context`.
+  The producer seals the selected artifact at its theorem-derived logical name,
+  and the verifier recomputes those bytes before publication. Context omission,
+  replay, member omission or substitution, singular-root downgrade, and
+  replacement by an empirical exact observation all fail closed. Empirical
+  observations remain orthogonal and never derive `ARTIFACT_BOUND`.
 - `bytes-in-theorem` is not admitted in 0.7; `trusted-transcription` evidence
   remains `TRANSCRIBED`, never `ARTIFACT_BOUND` (§7.1.1).
 - Canonical parsing, re-encoding, and trailing-byte rejection are required work
@@ -1320,8 +1393,14 @@ names the compiled Lean declaration; `statement_encoding` names the canonical
 encoding; and `statement_sha256` binds the encoded elaborated expression.
 `foundational_axioms` is the sorted exact expected transitive foundational
 axiom inventory for that declaration; project axioms are mapped separately to
-registered assumptions. A missing, extra, or reclassified axiom invalidates
-the compiled claim inventory.
+registered assumptions. An assumption may register a bounded, unique
+`formal_axioms` list of fully qualified Lean declaration names. This explicit
+list is the normative mapping when one project axiom is shared across theorem
+modules; the historical first-token `source_citation` mapping remains limited
+to axioms in the audited theorem's own declaration namespace. Two assumptions
+that register the same formal axiom for one claim are ambiguous and fail
+closed. A missing, extra, or reclassified axiom invalidates the compiled claim
+inventory.
 `subject_closure` optionally pins a previously reviewed semantic closure and
 drift invalidates it. The all-zero digests above are illustrative placeholders,
 not admissible reviewed evidence. `schemas/claim.schema.json` is the
@@ -1893,6 +1972,75 @@ optional `public_language` as distinct fields. Each reported claim status
 contains the required derived `public_statement` described in Section 6.3.2.
 The independent verifier recomputes that rendered field from the retained
 claim inputs and rejects substitution or drift.
+
+The version-4 base release family also carries the exact artifact observation
+defined by ADR 0020. A `proofbound-evidence/4` record MAY contain one
+`proofbound-exact-artifact-observation/1` detail only when its evidence kind is
+`bounded-check`, `independent-check`, `exhaustive-check`, `property-test`,
+`example-test`, `mutation-witness`, or `static-check`. This closed list is
+specific to observation support. It does not change whether a kind alone has
+empirical formal standing. The detail identifies the exact artifact,
+procedure, platform, logical subject role, toolchain closure, and nonempty
+evidence-dependency set. Each identity must occur exactly once in the
+corresponding canonical provenance inventory, and every dependency must be
+passed, cited by the claim, and connected through a typed `depends-on` edge.
+
+The producer derives a canonical `artifact_observations` relation in claim
+status and the portable receipt. The independent verifier reconstructs that
+relation from the raw evidence. The relation never derives `PROVED`,
+`REFINED`, or `ARTIFACT_BOUND`. A noncontextual release with observations uses
+`proofbound-compiled-release/4` and `proofbound-release-envelope/4`, omits
+`evidence_context`, and yields `proofbound-verification-report/2`.
+
+Version 5 is the coordinated reviewed-context transition of ADR 0021.
+`proofbound-project/2` registers canonical evidence-context and required-
+release-context sets, and both sets are nonempty. A
+`proofbound-evidence-unit/5` registers one exact artifact observation. It MAY
+omit `context`; that noncontextual route contributes to a version-4 release. If
+it names a context, the unit is tracked reviewed configuration owned by exactly
+one registered context and activates only for an explicit full-project
+contextual check. The private compiled state remains
+`proofbound-compiled-project/4` and retains the selected context. A release
+whose contextual evidence consists only of exact observations uses
+`proofbound-compiled-release/5` and `proofbound-release-envelope/5`. Its
+observation records remain `proofbound-evidence/4`; the payload and each
+contextual observation record carry the same canonical nonempty
+`evidence_context`. Context omission, substitution, inactive-evidence
+smuggling, a partial contextual check, or release from a context that does not
+belong to the project's nonempty required set is invalid. A contextual release
+yields `proofbound-verification-report/3` and retains the selected context.
+
+Version 6 is the coordinated contextual semantic-binding transition of ADR
+0022. A `proofbound-evidence-unit/6` is a contextual canonical-artifact unit
+whose admitted theorem has the exact outer
+`Proofbound.Artifact.DigestBindingSetV1` form. The nonempty member set is
+bounded, strictly ordered by unique logical name, has unique canonical
+digests, and contains direct literal name and digest fields. The selected
+artifact must equal exactly one member. Its portable record uses
+`proofbound-evidence/5` and carries the exact binding, admitted theorem, and
+selected context; it cannot carry an artifact observation. A release with any
+such record uses `proofbound-compiled-release/6` and
+`proofbound-release-envelope/6`, may also retain contextual
+`proofbound-evidence/4` observation records, and yields
+`proofbound-verification-report/3`. Context selection alone never changes a
+facet. `ARTIFACT_BOUND` remains derivable only from an admitted theorem and an
+exact validated theorem/member/artifact join.
+
+The version-4 through version-6 envelope number MUST equal the compiled payload
+number. Payload commitments use the exact compiled-release schema as their
+domain separator. Evidence commitments use their exact evidence schema.
+Unsupported or incoherent combinations fail closed; an older receipt is never
+reinterpreted as a contextual receipt.
+
+For a structurally valid release with any exact observation or contextual
+binding, `record-consistent` means the independent verifier reconstructed the
+typed relations but could not recompute at least one required byte stream.
+Publication remains blocked. `bytes-observed` means it recomputed every
+required artifact and procedure identity from a validated sealed member or an
+explicit `proofbound-observation-inputs/1` entry. This verdict satisfies an
+exact-byte availability obligation but does not attest tool honesty or upgrade
+formal or linkage status. Releases without these byte relations retain the
+`receipt-consistent` verdict.
 
 The producer's private compiled-state boundary is
 `proofbound-compiled-project/4`, and claim-input identities use the

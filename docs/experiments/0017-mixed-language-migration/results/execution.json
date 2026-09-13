@@ -1,0 +1,71 @@
+{
+  "experiment": "EXP-0017",
+  "forbidden_common_name_hits": {
+    "node": [],
+    "npm": [],
+    "pytest": [],
+    "python": [],
+    "typescript": [],
+    "vitest": []
+  },
+  "identities": {
+    "artifact": "sha256:1fe9ee82ee28420f7cd02d70617de5a2f56cbf5115ee410c784358a17a711384",
+    "contract": "sha256:101f4c558ec4f3dcc6a569f3f9461276fe15bfec2d5d065a6318caf448a6e0eb",
+    "observation_envelope": "sha256:0d0e9959e9efd6d7f1c0633ab22db791ccc156bac8d06d127895ee9f9fd4122b",
+    "report": "sha256:183d0f3cdf5d186ab251531ebb1040e3d7d32fd8d4944b21d460841cebd7d257"
+  },
+  "implementations": {
+    "caller_sha256": {
+      "python": "sha256:7309d20a87083a6272f35aaf7bda7fd255c166b60214fe3bb72b0d9bff3a6eb3",
+      "typescript": "sha256:7a7b19c42fcff03833e2ba29dce860541817e3055275568a05dda37e81133976"
+    },
+    "canonical_reports_equal": true,
+    "independent_kernel_sha256": "sha256:9e8f326817d42fd9c5772be9732fa0ff9dcb2b45ca4f4f5d5bc5ecee61eb95b5",
+    "independent_report_sha256": "sha256:a34b6298002d41f2193cb4637c0861456c2bcb871ccb8312178ad754ba0207e2",
+    "rust_binary_sha256": "sha256:53ce1c9618ef15e34c207afaca4e7e05597a749c3e931ba38faeb9b19087e9cc",
+    "rust_kernel_sha256": "sha256:20a0654bd457836b02d3e413d2dbf99756116ead31cf1d0f76eb09a2ec9d3605",
+    "rust_report_sha256": "sha256:a34b6298002d41f2193cb4637c0861456c2bcb871ccb8312178ad754ba0207e2"
+  },
+  "metrics": {
+    "attack_count": 30,
+    "caller_lines": {
+      "python": 162,
+      "typescript": 154
+    },
+    "elapsed_ms": 3387,
+    "exact_attack_rejections": 30,
+    "foreign_calls": 48,
+    "kernel_lines": {
+      "python": 877,
+      "rust": 1395
+    },
+    "observation_sets": 4,
+    "report_bytes": 8477,
+    "semantic_projections": 12
+  },
+  "programme_experiment": "EXP-LANG-008",
+  "questions": {
+    "Q1": {
+      "passed": true,
+      "reason": "both callers agree on all 48 calls and both kernels reject every boundary attack exactly"
+    },
+    "Q2": {
+      "passed": true,
+      "reason": "finite native assurance, tested foreign ceilings, and every bridge/runtime assumption remain distinct"
+    },
+    "Q3": {
+      "passed": true,
+      "reason": "only the registered packet-dependent claims change while the unrelated derivation remains byte-identical"
+    },
+    "Q4": {
+      "passed": true,
+      "reason": "independent kernels emit one byte-identical report and exact attack codes across ten repetitions"
+    },
+    "Q5": {
+      "passed": true,
+      "reason": "callers, common kernels, report, execution, and explanation satisfy every frozen ceiling"
+    }
+  },
+  "repetitions": 10,
+  "schema": "proofbound-research-mixed-migration-execution/1"
+}

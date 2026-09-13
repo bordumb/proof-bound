@@ -1,0 +1,25 @@
+{
+  "attacks": [
+    {"action": {"contract": "roundtrip", "kind": "replace-expression-kind", "value": "maybe"}, "code": "SPEC-CONSTRUCTOR-UNKNOWN", "id": "unknown-constructor"},
+    {"action": {"contract": "roundtrip", "kind": "duplicate-contract"}, "code": "SPEC-CONTRACT-DUPLICATE", "id": "duplicate-contract"},
+    {"action": {"case": "V0", "contract": "roundtrip", "kind": "duplicate-case"}, "code": "SPEC-CARRIER-DUPLICATE", "id": "duplicate-carrier-value"},
+    {"action": {"contract": "roundtrip", "kind": "empty-cases"}, "code": "SPEC-CARRIER-EMPTY", "id": "empty-carrier"},
+    {"action": {"case": "V3", "contract": "roundtrip", "kind": "remove-case"}, "code": "SPEC-CARRIER-INCOMPLETE", "id": "incomplete-carrier"},
+    {"action": {"contract": "roundtrip", "kind": "replace-ensures", "value": {"kind": "var", "name": "magic"}}, "code": "SPEC-VARIABLE-UNKNOWN", "id": "unknown-variable"},
+    {"action": {"contract": "roundtrip", "kind": "replace-ensures", "value": {"kind": "eq", "left": {"kind": "var", "name": "result_ok"}, "right": {"kind": "var", "name": "decoded_value"}}}, "code": "SPEC-TYPE-MISMATCH", "id": "expression-type-mismatch"},
+    {"action": {"contract": "malformed-rejected", "kind": "replace-requires", "value": {"kind": "and", "values": [{"kind": "var", "name": "malformed_input"}, {"kind": "not", "value": {"kind": "var", "name": "malformed_input"}}]}}, "code": "SPEC-REQUIRES-UNSAT", "id": "unreachable-precondition"},
+    {"action": {"contract": "malformed-rejected", "kind": "replace-ensures", "value": {"kind": "bool", "value": true}}, "code": "SPEC-ENSURES-TAUTOLOGY", "id": "tautological-postcondition"},
+    {"action": {"contract": "malformed-rejected", "kind": "replace-ensures", "value": {"kind": "eq", "left": {"kind": "var", "name": "input_len"}, "right": {"kind": "var", "name": "input_len"}}}, "code": "SPEC-RESULT-UNBOUND", "id": "result-independent-postcondition"},
+    {"action": {"contract": "malformed-rejected", "kind": "replace-ensures", "value": {"kind": "and", "values": [{"kind": "var", "name": "result_ok"}, {"kind": "not", "value": {"kind": "var", "name": "result_ok"}}]}}, "code": "SPEC-ENSURES-UNSAT", "id": "inconsistent-postconditions"},
+    {"action": {"contract": "malformed-rejected", "kind": "replace-ensures", "value": {"conclusion": {"kind": "var", "name": "result_ok"}, "kind": "implies", "premise": {"kind": "bool", "value": false}}}, "code": "SPEC-IMPLICATION-VACUOUS", "id": "vacuous-implication"},
+    {"action": {"kind": "empty-contracts"}, "code": "SPEC-OBLIGATION-EMPTY", "id": "empty-obligations"},
+    {"action": {"kind": "add-required-mutant", "mutant": "unknown"}, "code": "SPEC-MUTANT-UNKNOWN", "id": "unknown-mutant"},
+    {"action": {"kind": "remove-required-mutant", "mutant": "accept-trailing"}, "code": "SPEC-MUTANT-COVERAGE", "id": "omitted-mutant"},
+    {"action": {"contract": "malformed-rejected", "kind": "replace-ensures", "value": {"kind": "le", "left": {"kind": "var", "name": "consumed"}, "right": {"kind": "var", "name": "input_len"}}}, "code": "SPEC-MUTANT-SURVIVED", "id": "always-success-survives"},
+    {"action": {"kind": "replace-ensures-many", "replacements": [{"contract": "canonical-reencoding", "value": {"kind": "le", "left": {"kind": "var", "name": "consumed"}, "right": {"kind": "var", "name": "input_len"}}}, {"contract": "roundtrip", "value": {"kind": "le", "left": {"kind": "var", "name": "consumed"}, "right": {"kind": "int", "value": 2}}}]}, "code": "SPEC-MUTANT-SURVIVED", "id": "always-error-survives"},
+    {"action": {"contract": "malformed-rejected", "kind": "replace-ensures", "value": {"kind": "not", "value": {"kind": "var", "name": "canonical_equal"}}}, "code": "SPEC-MUTANT-SURVIVED", "id": "noncanonical-mutant-survives"},
+    {"action": {"kind": "forge-report-identity", "value": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}, "code": "SPEC-IDENTITY-FORGED", "id": "forged-report-identity"},
+    {"action": {"kind": "reverse-contracts"}, "code": "SPEC-NONCANONICAL", "id": "noncanonical-order"}
+  ],
+  "schema": "proofbound-research-specification-attacks/1"
+}

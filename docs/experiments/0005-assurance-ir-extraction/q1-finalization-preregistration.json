@@ -1,0 +1,68 @@
+{
+  "schema": "proofbound-research-q1-finalization-preregistration/1",
+  "experiment": "EXP-0005",
+  "question": "Q1",
+  "revision": 1,
+  "status": "preregistered-not-executed",
+  "subject": "git:5423b61",
+  "purpose": "Resolve the two remaining losslessness rows without interpreting legacy digests or evidence labels as semantics they do not contain.",
+  "sampling_protocol": {
+    "python": "Retain the existing typed proofbound-python-property/1 source and portable detail.",
+    "typescript": "Join the exact unit:bounded-roundtrip portable record to the validated proofbound-layered-sampling-case/1 fast-check record through a versioned research extension that binds record content SHA-256, unit ID, claim IDs, target inventory, intent identity, and plan identity.",
+    "rust": "Correct unit:rust-kernel-tests from property-test to example-test because its registered inventory contains five deterministic exact tests and no generator, seed, case budget, or sampling backend. Regenerate the Rust completion capture rather than inventing sampling meaning.",
+    "extension_schema": "proofbound-ir-sampling-extension/1",
+    "extension_domain": "proofbound-ir-sampling-extension/1",
+    "acceptance": "Rust and Python independently produce byte-equal canonical family projections. The TypeScript record becomes layered sampling only when every join field and both recomputed identities match; the corrected Rust record projects as Example; no LegacyBackendSampling remains in the selected completion corpus.",
+    "attacks": [
+      {"id": "Q1-SAMPLING-001", "mutation": "attach the extension to another portable record", "expected_code": "IR-SAMPLING-EXTENSION-RECORD-MISMATCH"},
+      {"id": "Q1-SAMPLING-002", "mutation": "substitute the unit ID", "expected_code": "IR-SAMPLING-EXTENSION-UNIT-MISMATCH"},
+      {"id": "Q1-SAMPLING-003", "mutation": "substitute one claim at the same cardinality", "expected_code": "IR-SAMPLING-EXTENSION-CLAIM-MISMATCH"},
+      {"id": "Q1-SAMPLING-004", "mutation": "substitute one target at the same cardinality", "expected_code": "IR-SAMPLING-EXTENSION-INVENTORY-MISMATCH"},
+      {"id": "Q1-SAMPLING-005", "mutation": "change a generator byte and recompute only the outer extension identity", "expected_code": "generator-identity-mismatch"},
+      {"id": "Q1-SAMPLING-006", "mutation": "change a backend plan field and retain its identity", "expected_code": "sampling-plan-identity-mismatch"},
+      {"id": "Q1-SAMPLING-007", "mutation": "supply two extensions for one portable record", "expected_code": "IR-SAMPLING-EXTENSION-DUPLICATE"},
+      {"id": "Q1-SAMPLING-008", "mutation": "reinterpret the old Rust property-labelled record as layered sampling", "expected_code": "IR-SAMPLING-EXTENSION-UNREGISTERED"}
+    ]
+  },
+  "cache_protocol": {
+    "projection_schema": "proofbound-ir-cache-audit/1",
+    "decision_states": ["not-executed", "executed", "reused-exact-prior"],
+    "source_rules": [
+      "A portable cache key is copied exactly from provenance.cache_key and is never synthesized from a unit ID or prior receipt.",
+      "reused-exact-prior requires provenance.reused_from and binds that exact receipt identity; executed forbids a prior receipt.",
+      "No reuse_eligible Boolean is inferred. Eligibility is a result of exact dependency comparison, not retained execution provenance.",
+      "Dependency entries retain role, logical selector, content or absence identity, relevant permissions, and tool or resolver identity.",
+      "Registered and observed dependency projections are canonical sets and must match before retention is sound."
+    ],
+    "routes": [
+      "rust-cargo-test",
+      "rust-mutation",
+      "lean-theorem",
+      "kani-bounded-check",
+      "typescript-vitest",
+      "typescript-tsc",
+      "typescript-npm-package",
+      "typescript-mutation",
+      "python-pytest",
+      "python-hypothesis",
+      "python-mypy",
+      "python-wheel",
+      "python-mutation",
+      "independent-check"
+    ],
+    "acceptance": "Every registered execution-relevant mutation changes the canonical dependency projection and predicted key or fails closed; presentation-only changes preserve the projection. Fresh execution agrees with every prediction. Rust and Python independently reject the same source/projection attacks.",
+    "attacks": [
+      {"id": "Q1-CACHE-001", "mutation": "replace the source cache key with a synthetic unit/prior digest", "expected_code": "IR-CACHE-SOURCE-MISMATCH"},
+      {"id": "Q1-CACHE-002", "mutation": "mark executed provenance as reused without a prior receipt", "expected_code": "IR-CACHE-DECISION-MISMATCH"},
+      {"id": "Q1-CACHE-003", "mutation": "omit one execution dependency", "expected_code": "IR-CACHE-DEPENDENCY-OMITTED"},
+      {"id": "Q1-CACHE-004", "mutation": "substitute a dependency role while retaining its identity", "expected_code": "IR-CACHE-DEPENDENCY-MISMATCH"},
+      {"id": "Q1-CACHE-005", "mutation": "retain a key after a dependency content or permission change", "expected_code": "IR-CACHE-KEY-MISMATCH"},
+      {"id": "Q1-CACHE-006", "mutation": "treat a presentation-only change as an execution dependency", "expected_code": "IR-CACHE-OVERINVALIDATION"}
+    ]
+  },
+  "decision_rule": {
+    "close_q1_field_012": "The sampling acceptance rule passes, every registered sampling attack is rejected independently, and the corrected completion corpus contains no legacy sampling record.",
+    "close_q1_field_014": "The cache acceptance rule passes for every registered route and every cache attack is rejected independently.",
+    "close_q1": "All sixteen matrix rows are forward-and-reverse complete after applying only the preregistered source correction and versioned research extension; otherwise conclude Q1 failed and do not freeze Assurance IR /1."
+  }
+}
