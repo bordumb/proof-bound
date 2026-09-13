@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use proofbound_core::{
-    CommandSpec, EnvironmentId, ExecutionRun, ResourceUsage, Sha256Digest, ToolIdentity,
+    CommandSpec, EnvironmentId, ExecutionRun, ResourceUsage, Sha256Digest, ToolIdentity, TreeState,
 };
 use proofbound_manifest::EvidenceUnitManifest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const LEAN_ADAPTER_UNIT_SCHEMA: &str = "proofbound-lean-adapter-unit/1";
+pub const LEAN_ADAPTER_UNIT_SCHEMA: &str = "proofbound-lean-adapter-unit/2";
 pub const LEAN_AUDIT_SCHEMA: &str = "proofbound-lean-audit/1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -16,6 +16,8 @@ pub struct LeanAdapterUnit {
     pub schema: String,
     pub evidence_unit: EvidenceUnitManifest,
     pub environment_id: EnvironmentId,
+    pub project_revision: String,
+    pub tree_state: TreeState,
     pub claim_inventory: Vec<ExpectedClaim>,
     pub audit: AuditSource,
 }

@@ -8,7 +8,7 @@
   "preregistration": "git:26f460f1070d84f345f7aa66b1c5eba4be6fd968",
   "controlled_units": [
     {"id":"accept-over-cap-mutant","route":"python-mutation","manifest":"demo/python-inventory-service/evidence/reservation-mutant.toml","manifest_sha256":"sha256:8bb7d57013389fcc51200f3118a486bee90273274df8cff78c7e4885f07e9b16","claims":["PY-RESERVATION-001"]},
-    {"id":"accept-respects-cap","route":"lean-theorem","manifest":"demo/allowance/proofbound/evidence/accept-respects-cap.toml","manifest_sha256":"sha256:87cde39f91b6fe1a5c4113525de19e4758a1321ed8ca43e5af13c90689ddd660","claims":["DEMO-TRANSFER-003"]},
+    {"id":"accept-respects-cap","route":"lean-theorem","manifest":"demo/allowance/proofbound/evidence/accept-respects-cap.toml","manifest_sha256":"sha256:8cf8872eff3304a19685a8a3013897da9f5216f7d68ade4a4d3aedf842af7ff9","claims":["DEMO-TRANSFER-003"]},
     {"id":"bounded-roundtrip","route":"typescript-vitest","manifest":"demo/typescript-codec/evidence/bounded-roundtrip.toml","manifest_sha256":"sha256:ab6fbaffa27f04a2b32d88d8721260eb8fb799fca4354759fa0e31af691aba1b","claims":["TS-CODEC-001"]},
     {"id":"npm-package","route":"typescript-npm-package","manifest":"demo/typescript-codec/evidence/npm-package.toml","manifest_sha256":"sha256:37f93c53ec4cf5767ed4902f5baebbde74ec1ca4c9bbb47d50f901f4aeefba21","claims":["TS-PACKAGE-001"]},
     {"id":"reject-padding","route":"typescript-vitest","manifest":"demo/typescript-codec/evidence/reject-padding.toml","manifest_sha256":"sha256:91bdb2cba6d0cea7f24da1bbcc51bb8b2aca9593e200209e56ee298245320530","claims":["TS-CODEC-001"]},

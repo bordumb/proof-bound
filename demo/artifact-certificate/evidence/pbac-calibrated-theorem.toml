@@ -17,7 +17,7 @@ inputs = [
   "lean/Proofbound/Artifact.lean",
   "lean/Proofbound/Sha256.lean",
 ]
-outputs = []
+outputs = ["demo/artifact-certificate/claims/PBAC-CALIBRATED-001.toml"]
 environment_allowlist = ["LEAN_PATH", "PATH"]
 
 [operation]

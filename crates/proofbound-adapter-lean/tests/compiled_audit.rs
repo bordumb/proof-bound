@@ -83,6 +83,8 @@ fn compiled_demo_unit() -> LeanAdapterUnit {
             },
         },
         environment_id: EnvironmentId::new("lean:workspace-smoke").unwrap(),
+        project_revision: "workspace-smoke".to_owned(),
+        tree_state: proofbound_core::TreeState::Clean,
         claim_inventory: vec![
             ExpectedClaim {
                 claim_id: "PBAC-CALIBRATED-001".to_owned(),

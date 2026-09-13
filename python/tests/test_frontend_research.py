@@ -53,7 +53,7 @@ def test_independent_frontends_have_one_effective_meaning() -> None:
     actual_identities = {
         "python-inventory": "sha256:6c8acad7f1c5bbbfc6aa22fb585967d729d6320ae8b0437a7d78fa7b04fb8a70",
         "typescript-codec": "sha256:61235f3f7df9d68f9b99b88b3d986e4cc1e6f24f9bd40710f29967187e3afc39",
-        "rust-allowance": "sha256:e23b5451b4381b6ac829ff9807084eeb44a1c64a4faab7705d5cf6d98d19005a",
+        "rust-allowance": "sha256:96ab01b969ccf4ccc858c54ab6b126aa513ae2b860d1755a037f28202b5cbc43",
     }
     for subject in SUBJECTS:
         toml, dsl, pkl = _compilations(subject)

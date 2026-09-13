@@ -12,7 +12,7 @@ use proofbound_adapter_lean::{
 use proofbound_core::{
     CommandSpec, EnvironmentId, ExecutionRun, ResourceUsage, Sha256Digest, ToolIdentity,
 };
-use proofbound_evidence::canonical_json;
+use proofbound_evidence::{canonical_json, git_identity};
 use proofbound_manifest::{
     AdapterKind, AdapterOperation, AdapterRequest, EvaluationMode, EvidenceKind,
     EvidenceUnitManifest, OperationKind, ResourceBudget,
@@ -27,6 +27,7 @@ fn root() -> &'static Path {
 }
 
 fn request() -> AdapterRequest {
+    let git = git_identity(root()).unwrap();
     let expr_wire = json!([
         STATEMENT_ENCODING,
         [5, 0, [2, "Nat", []], [3, [2, "Eq", [[0]]], [0, "0"]]]
@@ -92,6 +93,12 @@ fn request() -> AdapterRequest {
             },
         },
         environment_id: EnvironmentId::new("lean:fixture-environment").unwrap(),
+        project_revision: git.revision,
+        tree_state: match git.tree_state.as_str() {
+            "clean" => proofbound_core::TreeState::Clean,
+            "dirty" => proofbound_core::TreeState::Dirty,
+            other => panic!("unexpected fixture tree state {other}"),
+        },
         claim_inventory: vec![ExpectedClaim {
             claim_id: "FIXTURE-CLAIM-001".to_owned(),
             declaration: "Fixture.identity".to_owned(),
@@ -204,6 +211,25 @@ fn canonical_protocol_returns_a_direct_core_evidence_record() {
     let round_trip = serde_json::to_value(&evidence).unwrap();
     let decoded: proofbound_core::EvidenceRecord = serde_json::from_value(round_trip).unwrap();
     assert_eq!(decoded, evidence);
+}
+
+#[test]
+fn update_only_output_is_not_reported_as_a_generated_proof_artifact() {
+    let mut request = request();
+    request.unit["evidence_unit"]["outputs"] =
+        json!(["demo/allowance/claims/DEMO-TRANSFER-001.toml"]);
+
+    let output = handle_bytes(&canonical_json(&request).unwrap(), root());
+    let response: LeanAdapterResponse = serde_json::from_slice(&output).unwrap();
+    assert!(response.success, "{:?}", response.diagnostics);
+    assert!(
+        response
+            .evidence
+            .unwrap()
+            .provenance
+            .generated_artifacts
+            .is_empty()
+    );
 }
 
 #[test]

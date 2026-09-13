@@ -12,6 +12,7 @@ inputs = [
   "demo/allowance/lean/ProofboundDemo/Canonical.lean",
   "demo/allowance/lean/ProofboundDemo/Claims/Canonical.lean",
 ]
+outputs = ["demo/allowance/claims/DEMO-TRANSFER-006.toml"]
 environment_allowlist = ["LEAN_PATH", "PATH"]
 
 [operation]
