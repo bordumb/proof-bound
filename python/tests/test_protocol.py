@@ -30,7 +30,7 @@ def test_failed_response_cannot_carry_evidence() -> None:
         "inventory": [],
         "type": "response",
         "request_id": "a" * 32,
-        "schema": "proofbound-adapter-protocol/1",
+        "schema": "proofbound-adapter-protocol/2",
         "success": False,
     }
     with pytest.raises(ProtocolError, match="disagree"):

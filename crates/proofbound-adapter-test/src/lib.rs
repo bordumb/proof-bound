@@ -31,7 +31,7 @@ use tempfile::TempDir;
 use thiserror::Error;
 use walkdir::WalkDir;
 
-pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
+pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/2";
 pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TOOL_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
@@ -569,7 +569,7 @@ impl AdapterError {
             ),
             Self::Request(_) => (
                 "PB-TEST-1003",
-                "send canonical proofbound-adapter-protocol/1 JSON with no unknown fields",
+                "send canonical proofbound-adapter-protocol/2 JSON with no unknown fields",
             ),
             Self::Unit(_) => (
                 "PB-TEST-1004",

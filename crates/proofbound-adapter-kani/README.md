@@ -1,6 +1,6 @@
 # Adapter protocol
 
-This executable accepts one canonical JSON `proofbound-adapter-protocol/1`
+This executable accepts one canonical JSON `proofbound-adapter-protocol/2`
 request on standard input and emits one canonical response on standard output.
 The request `unit` is a strict `proofbound-evidence-unit/1` object. Commands
 are typed program/argument vectors; manifest strings are never evaluated by a

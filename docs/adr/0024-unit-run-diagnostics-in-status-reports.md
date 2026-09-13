@@ -27,24 +27,40 @@ The orchestrator distinguishes these outcomes:
 - `verified-from-cache`;
 - `failed` for an adapter that ran and rejected its unit;
 - `unavailable` when the registered executable could not start; and
-- `protocol-failed` for malformed or identity-mismatched adapter responses.
+- `protocol-failed` for malformed or identity-mismatched adapter responses;
+  and
+- `timeout` when the adapter reports `PB-ADAPTER-0010`.
 
 Invocation failures preserve their stable `PB-ADAPTER-*` cause instead of
-collapsing to a generic wrapper. Adapter-reported failures preserve the
+collapsing to a generic wrapper. The invocation boundary returns a typed error;
+the report path does not recover a code by scanning display text. Every run
+uses the registered adapter executable name as its adapter identity, whether
+the result came from cache, a successful response, an adapter-reported
+failure, or an invocation failure. Adapter-reported failures preserve the
 adapter's own structured diagnostics even though they produce no evidence.
 Downstream missing-citation errors remain present and fail closed.
 
 ## Compatibility
 
-This is a versioned status-report change, not a reinterpretation of report
-version 1. Evidence receipts, policy derivation, exit codes, assumptions,
-bounds, linkage, and trusted-computing-base roles are unchanged.
+This is a versioned status-report and adapter-protocol change, not a
+reinterpretation. The report advances to `proofbound-report/2`. The subprocess
+protocol advances to `proofbound-adapter-protocol/2` because failed responses
+must carry at least one structured diagnostic. Protocol version 1 is rejected
+instead of receiving the stronger meaning. Evidence receipts, policy
+derivation, exit codes, assumptions, bounds, linkage, and trusted-computing-
+base roles are unchanged.
 
 ## Required falsifiers
 
-- absent executable reports `PB-ADAPTER-0003`, its expected executable, and an
-  installation remediation;
+- an actual absent registered executable reaches a retained unit run with
+  `PB-ADAPTER-0003`, its expected executable, and an installation remediation;
 - wrong response identity reports `PB-ADAPTER-0007` as `protocol-failed`;
+- a nested diagnostic-like token in an untyped error cannot replace the
+  generic orchestrator failure code;
+- cache, success, adapter failure, and invocation failure use the same
+  executable identity;
+- protocol version 1 and a version-2 failed response without diagnostics are
+  rejected;
 - adapter-returned failure diagnostics survive unchanged; and
 - the JSON and human projections classify the same unit outcome.
 

@@ -208,23 +208,7 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
                 }
                 runs.push(run);
             }
-            Err(error) => {
-                let diagnostic = adapter_execution_diagnostic(&error);
-                let outcome = match diagnostic.code.as_str() {
-                    "PB-ADAPTER-0003" => "unavailable",
-                    "PB-ADAPTER-0006" | "PB-ADAPTER-0007" | "PB-ADAPTER-0008" => "protocol-failed",
-                    _ => "failed",
-                };
-                runs.push(UnitRun {
-                    unit_id: unit.id.clone(),
-                    adapter: unit.adapter.executable().into(),
-                    cache_key,
-                    outcome: outcome.into(),
-                    evidence_sha256: None,
-                    inventory: Vec::new(),
-                    diagnostics: vec![diagnostic],
-                });
-            }
+            Err(error) => runs.push(adapter_failure_run(unit, cache_key, &error)),
         }
     }
 
@@ -1879,7 +1863,7 @@ fn execute_or_reuse(
             Some(record),
             UnitRun {
                 unit_id: unit.id.clone(),
-                adapter: format!("{:?}", unit.adapter),
+                adapter: unit.adapter.executable().into(),
                 cache_key: cache_key.into(),
                 outcome: "verified-from-cache".into(),
                 evidence_sha256: Some(digest),
@@ -1903,7 +1887,7 @@ fn execute_or_reuse(
             None,
             UnitRun {
                 unit_id: unit.id.clone(),
-                adapter: response.adapter,
+                adapter: unit.adapter.executable().into(),
                 cache_key: cache_key.into(),
                 outcome: outcome.into(),
                 evidence_sha256: None,
@@ -1934,7 +1918,7 @@ fn execute_or_reuse(
         Some(record),
         UnitRun {
             unit_id: unit.id.clone(),
-            adapter: response.adapter,
+            adapter: unit.adapter.executable().into(),
             cache_key: cache_key.into(),
             outcome: "verified-now".into(),
             evidence_sha256: Some(digest),
@@ -1956,34 +1940,38 @@ fn adapter_response_outcome(response: &AdapterResponse) -> &'static str {
     }
 }
 
-fn adapter_execution_diagnostic(error: &anyhow::Error) -> AdapterDiagnostic {
-    let full_message = error.to_string();
-    let code = full_message
-        .split(|character: char| character.is_whitespace() || character == ':')
-        .find(|token| {
-            token.starts_with("PB-ADAPTER-")
-                && token.len() == "PB-ADAPTER-0000".len()
-                && token["PB-ADAPTER-".len()..]
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit())
-        })
-        .unwrap_or("PB-ADAPTER-0900")
-        .to_owned();
-    let message = full_message.chars().take(8_192).collect::<String>();
-    let remediation = match code.as_str() {
-        "PB-ADAPTER-0003" => {
-            "install the exact registered adapter executable and reproduce this unit"
-        }
-        "PB-ADAPTER-0007" => {
-            "restore the adapter whose protocol identity matches the registered unit"
-        }
-        _ => "inspect the retained adapter failure and reproduce this exact unit",
-    };
-    AdapterDiagnostic {
-        code,
-        message,
-        path: None,
-        remediation: Some(remediation.into()),
+fn adapter_failure_run(
+    unit: &EvidenceUnitManifest,
+    cache_key: String,
+    error: &anyhow::Error,
+) -> UnitRun {
+    let (outcome, diagnostic) = error
+        .downcast_ref::<adapter::InvocationError>()
+        .map_or_else(
+            || {
+                (
+                    "failed",
+                    AdapterDiagnostic {
+                        code: "PB-ADAPTER-0900".into(),
+                        message: error.to_string().chars().take(8_192).collect(),
+                        path: None,
+                        remediation: Some(
+                            "inspect the retained adapter failure and reproduce this exact unit"
+                                .into(),
+                        ),
+                    },
+                )
+            },
+            |failure| (failure.outcome(), failure.diagnostic()),
+        );
+    UnitRun {
+        unit_id: unit.id.clone(),
+        adapter: unit.adapter.executable().into(),
+        cache_key,
+        outcome: outcome.into(),
+        evidence_sha256: None,
+        inventory: Vec::new(),
+        diagnostics: vec![diagnostic],
     }
 }
 
@@ -6734,7 +6722,7 @@ mod tests {
     #[test]
     fn timeout_diagnostic_produces_distinct_unit_outcome() {
         let mut response = AdapterResponse {
-            schema: "proofbound-adapter-protocol/1".to_owned(),
+            schema: "proofbound-adapter-protocol/2".to_owned(),
             message_type: "response".to_owned(),
             request_id: "00000000000000000000000000000000".to_owned(),
             adapter: "fixture".to_owned(),
@@ -8984,35 +8972,38 @@ description = {description:?}
     }
 
     #[test]
-    fn adapter_execution_failure_retains_stable_cause_and_remediation() {
-        let unavailable = adapter_execution_diagnostic(&anyhow!(
-            "PB-ADAPTER-0003: could not start proofbound-adapter-kani"
-        ));
-        assert_eq!(unavailable.code, "PB-ADAPTER-0003");
-        assert!(unavailable.message.contains("proofbound-adapter-kani"));
+    fn absent_registered_adapter_is_retained_as_a_typed_unit_run() {
+        let temporary = tempfile::tempdir().unwrap();
+        let unit = inventory_protocol_unit();
+        let missing = temporary.path().join("proofbound-adapter-test");
+        let error = adapter::invoke_program(
+            Path::new("."),
+            &unit,
+            "check",
+            json!({}),
+            &missing,
+        )
+        .unwrap_err();
+        let error = anyhow::Error::new(error);
+        let run = adapter_failure_run(&unit, "sha256:missing".into(), &error);
+
+        assert_eq!(run.unit_id, "inventory-protocol");
+        assert_eq!(run.adapter, "proofbound-adapter-test");
+        assert_eq!(run.outcome, "unavailable");
+        assert_eq!(run.diagnostics[0].code, "PB-ADAPTER-0003");
+        assert!(run.diagnostics[0].message.contains("proofbound-adapter-test"));
         assert!(
-            unavailable
+            run.diagnostics[0]
                 .remediation
                 .as_deref()
                 .unwrap()
                 .contains("install")
         );
 
-        let wrong_identity = adapter_execution_diagnostic(&anyhow!(
-            "PB-ADAPTER-0007: adapter response identity does not match its request"
-        ));
-        assert_eq!(wrong_identity.code, "PB-ADAPTER-0007");
-        assert!(
-            wrong_identity
-                .remediation
-                .as_deref()
-                .unwrap()
-                .contains("protocol identity")
-        );
-
-        let oversized = adapter_execution_diagnostic(&anyhow!("{}", "x".repeat(10_000)));
-        assert_eq!(oversized.code, "PB-ADAPTER-0900");
-        assert_eq!(oversized.message.chars().count(), 8_192);
+        let untyped = anyhow!("quoted PB-ADAPTER-0003 text is not a typed invocation error");
+        let run = adapter_failure_run(&unit, "sha256:untyped".into(), &untyped);
+        assert_eq!(run.outcome, "failed");
+        assert_eq!(run.diagnostics[0].code, "PB-ADAPTER-0900");
     }
 
     #[test]
@@ -9717,7 +9708,7 @@ description = {description:?}
             ["alpha", "beta"]
         );
         let response = |inventory: Vec<&str>, inner: Vec<&str>| AdapterResponse {
-            schema: "proofbound-adapter-protocol/1".into(),
+            schema: "proofbound-adapter-protocol/2".into(),
             message_type: "response".into(),
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: "rust-test".into(),
@@ -9927,7 +9918,7 @@ description = {description:?}
         }))
         .unwrap();
         let response = AdapterResponse {
-            schema: "proofbound-adapter-protocol/1".to_owned(),
+            schema: "proofbound-adapter-protocol/2".to_owned(),
             message_type: "response".to_owned(),
             request_id: "0123456789abcdef0123456789abcdef".to_owned(),
             adapter: "canonical-artifact".to_owned(),
@@ -9946,7 +9937,7 @@ description = {description:?}
     fn failed_protocol_response_never_admits_attached_evidence() {
         let unit = theorem_unit("failed", "Example.Claims.failed");
         let response = AdapterResponse {
-            schema: "proofbound-adapter-protocol/1".into(),
+            schema: "proofbound-adapter-protocol/2".into(),
             message_type: "response".into(),
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: "lean".into(),

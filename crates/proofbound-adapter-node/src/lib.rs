@@ -29,7 +29,7 @@ use thiserror::Error;
 use walkdir::WalkDir;
 
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
-const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
+const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/2";
 const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_JSON_BYTES: u64 = 16 * 1024 * 1024;
@@ -329,7 +329,7 @@ impl NodeError {
             ),
             Self::Request(_) => (
                 "PB-NODE-1003",
-                "send canonical proofbound-adapter-protocol/1 JSON",
+                "send canonical proofbound-adapter-protocol/2 JSON",
             ),
             Self::Unit(_) => ("PB-NODE-1004", "use a strict typed node-test evidence unit"),
             Self::UnsafePath(_) => (

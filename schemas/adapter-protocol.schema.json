@@ -11,7 +11,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["schema", "type", "request_id", "adapter", "operation", "project_root", "unit"],
       "properties": {
-        "schema": { "const": "proofbound-adapter-protocol/1" },
+        "schema": { "const": "proofbound-adapter-protocol/2" },
         "type": { "const": "request" },
         "request_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
         "adapter": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
@@ -24,7 +24,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["schema", "type", "request_id", "adapter", "success", "evidence", "inventory", "diagnostics"],
       "properties": {
-        "schema": { "const": "proofbound-adapter-protocol/1" },
+        "schema": { "const": "proofbound-adapter-protocol/2" },
         "type": { "const": "response" },
         "request_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
         "adapter": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
@@ -45,7 +45,8 @@
           "then": {
             "properties": {
               "evidence": { "type": "null" },
-              "inventory": { "maxItems": 0 }
+              "inventory": { "maxItems": 0 },
+              "diagnostics": { "minItems": 1 }
             }
           }
         }

@@ -1,6 +1,6 @@
 //! Manifest-driven Kani adapter.
 //!
-//! The adapter accepts exactly one canonical `proofbound-adapter-protocol/1`
+//! The adapter accepts exactly one canonical `proofbound-adapter-protocol/2`
 //! request on stdin and writes exactly one canonical response on stdout.  It
 //! never interprets a shell string: every process is a fixed program plus a
 //! validated argument vector derived from the supplied evidence/model-check
@@ -30,7 +30,7 @@ use tempfile::TempDir;
 use thiserror::Error;
 use walkdir::WalkDir;
 
-pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
+pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/2";
 pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 pub const ADAPTER_ID: &str = "kani";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
@@ -331,7 +331,7 @@ impl AdapterError {
             ),
             Self::Request(_) => (
                 "PB-KANI-1003",
-                "send canonical proofbound-adapter-protocol/1 JSON with no unknown fields",
+                "send canonical proofbound-adapter-protocol/2 JSON with no unknown fields",
             ),
             Self::Unit(_) => (
                 "PB-KANI-1004",

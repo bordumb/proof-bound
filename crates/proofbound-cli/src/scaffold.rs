@@ -1677,7 +1677,7 @@ exit 2
             other => panic!("unexpected scaffold adapter {other:?}"),
         };
         let request = AdapterRequest {
-            schema: "proofbound-adapter-protocol/1".into(),
+            schema: "proofbound-adapter-protocol/2".into(),
             message_type: "request".into(),
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: adapter.into(),

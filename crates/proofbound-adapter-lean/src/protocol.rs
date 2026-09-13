@@ -13,7 +13,7 @@ use crate::{
     runtime::{AuditRun, doctor, execute_audit, validate_captured_execution},
 };
 
-pub const ADAPTER_PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
+pub const ADAPTER_PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/2";
 pub const ADAPTER_NAME: &str = "lean";
 const MAX_REQUEST_BYTES: usize = 64 << 20;
 const FALLBACK_REQUEST_ID: &str = "00000000000000000000000000000000";
@@ -57,7 +57,7 @@ pub fn handle_bytes(bytes: &[u8], root: &Path) -> Vec<u8> {
     canonical_json(&response).unwrap_or_else(|_| {
         // Every response field is JSON-native and EvidenceRecord serialization
         // is infallible. This literal is the final fail-closed boundary.
-        br#"{"adapter":"lean","diagnostics":[{"code":"PB-LEAN-0001","message":"response serialization failed"}],"evidence":null,"inventory":[],"request_id":"00000000000000000000000000000000","schema":"proofbound-adapter-protocol/1","success":false,"type":"response"}"#.to_vec()
+        br#"{"adapter":"lean","diagnostics":[{"code":"PB-LEAN-0001","message":"response serialization failed"}],"evidence":null,"inventory":[],"request_id":"00000000000000000000000000000000","schema":"proofbound-adapter-protocol/2","success":false,"type":"response"}"#.to_vec()
     })
 }
 

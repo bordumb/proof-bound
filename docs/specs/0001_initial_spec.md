@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.15.0
+**Version:** 0.16.0
 
 **Date:** 2026-09-12
 
@@ -12,6 +12,10 @@
 
 ### Revision history
 
+- **0.16.0** — advances the adapter protocol to version 2 and the status report
+  to version 2 so failed unit executions retain typed causes, timeout state,
+  remediation, and one registered executable identity. Protocol version 1 is
+  not reinterpreted under the mandatory-diagnostic rule (§10.2; ADR 0024).
 - **0.15.0** — defines the version-7 claim-owned bounded-domain identity and
   its derived compatibility language. Domain equality applies only to the
   primary evidence family that earns bounded or policy-admitted exhaustive
@@ -1137,8 +1141,9 @@ attributed Lean claims, translation symbols, and tests must be inventoried, and
 ungated discoveries must fail the build. Inventories are derived from tool
 metadata, not source-text scanning (§17).
 
-Adapters communicate with the orchestrator over a versioned JSON subprocess
-protocol: requests and responses are schema-validated canonical JSON on
+Adapters communicate with the orchestrator over the
+`proofbound-adapter-protocol/2` JSON subprocess protocol: requests and
+responses are schema-validated canonical JSON on
 stdin/stdout (`schemas/adapter-protocol.schema.json`), and evidence is
 returned either as a complete `proofbound-evidence/4` record or as a strict
 `proofbound-adapter-observation/3` execution receipt that the assurance
@@ -1183,8 +1188,20 @@ interpretation is invalid:
   as non-admissible review information. An update result cannot support a
   claim until a subsequent pinned `check` passes.
 
-Every failed response has `success: false`, `evidence: null`, an empty
-inventory, and a bounded stable diagnostic. Successful response inventories
+Every failed version-2 response has `success: false`, `evidence: null`, an
+empty inventory, and at least one bounded stable structured diagnostic.
+Protocol version 1 did not require that diagnostic and MUST be rejected rather
+than reinterpreted. The orchestrator retains typed invocation failures without
+parsing their display text. It classifies absent executables as `unavailable`,
+malformed or identity-mismatched responses as `protocol-failed`, an explicit
+`PB-ADAPTER-0010` as `timeout`, and other executed failures as `failed`.
+Every retained unit run identifies the registered adapter executable, not an
+enum debug form or the shorter protocol role. The version-2 status projection
+is `proofbound-report/2` and includes the complete ordered `unit_runs` array in
+whole-project and claim-specific reports and explanations. A failed run never
+admits evidence; downstream missing-citation errors remain fail-closed.
+
+Successful response inventories
 are strict lexical sets: trim-nonempty strings of at most 4096 Unicode
 characters, with no Unicode control character, serialized in strictly
 increasing order. Exact means equality in both directions with the registered

@@ -13,7 +13,7 @@ import re
 from typing import Any, Mapping
 
 
-SCHEMA = "proofbound-adapter-protocol/1"
+SCHEMA = "proofbound-adapter-protocol/2"
 _REQUEST_FIELDS = {
     "schema",
     "type",
