@@ -349,6 +349,7 @@ fn base_release() -> CompiledRelease {
         out_of_scope: Default::default(),
         primary_linkage: None,
         registered_inputs: Default::default(),
+        bounded_domain: None,
         registered_domain_language: None,
     };
     let status = ReportedClaimStatus {
@@ -809,6 +810,7 @@ fn theorem_release() -> CompiledRelease {
 
 fn bounded_release() -> CompiledRelease {
     let mut release = base_release();
+    release.schema = COMPILED_RELEASE_SCHEMA_V7.into();
     release.project_tier = Tier::Bounded;
     release.graph.nodes[3] = GraphNode {
         id: "model-check:m".into(),
@@ -821,13 +823,14 @@ fn bounded_release() -> CompiledRelease {
     record.unit_id = "unit:bounded".into();
     record.kind = EvidenceKind::BoundedCheck;
     record.inventoried_targets = BTreeSet::from(["check_all".into()]);
+    let domain = BoundedDomain {
+        id: "domain:tiny".into(),
+        description: "All two-bit inputs".into(),
+        registration_sha256: digest("tiny domain"),
+        cardinality: Some(4),
+    };
     record.bounded_check = Some(BoundedCheckReceipt {
-        domain: BoundedDomain {
-            id: "domain:tiny".into(),
-            description: "All two-bit inputs".into(),
-            registration_sha256: digest("tiny domain"),
-            cardinality: Some(4),
-        },
+        domain: domain.clone(),
         solver: "kani 1.0".into(),
         harnesses: BTreeSet::from(["check_all".into()]),
         unwind_bounds: BTreeMap::from([("check_all".into(), 1)]),
@@ -841,8 +844,8 @@ fn bounded_release() -> CompiledRelease {
     release.claims[0]
         .cited_evidence
         .insert(release.evidence[0].sha256.clone());
-    release.claims[0].registered_domain_language =
-        Some("For every input in the registered two-bit domain".into());
+    release.claims[0].bounded_domain = Some(domain.clone());
+    release.claims[0].registered_domain_language = Some(domain.description);
     release.reported_statuses[0].public_statement = bounded_public_statement_for_test(
         &release.claims[0].statement,
         release.claims[0]
@@ -1848,6 +1851,170 @@ fn bounded_language_cannot_be_silently_omitted() {
     let error = verify_compiled_release(&release).unwrap_err();
     assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
     assert!(codes(&error).contains(&VerificationIssueCode::PbvStatusMismatch));
+}
+
+#[test]
+fn verifier_rejects_claim_and_bounded_evidence_domain_divergence() {
+    let mut missing = bounded_release();
+    missing.claims[0].bounded_domain = None;
+    let error = verify_compiled_release(&missing).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let attacks: [fn(&mut BoundedDomain); 4] = [
+        |value| value.id = "domain:other".into(),
+        |value| value.description = "a different finite population".into(),
+        |value| value.cardinality = Some(3),
+        |value| value.registration_sha256 = digest("different-ordering-key"),
+    ];
+    for attack in attacks {
+        let mut release = bounded_release();
+        attack(release.claims[0].bounded_domain.as_mut().unwrap());
+        release.claims[0].registered_domain_language = release.claims[0]
+            .bounded_domain
+            .as_ref()
+            .map(|domain| domain.description.clone());
+        release.reported_statuses[0].public_statement = bounded_public_statement_for_test(
+            &release.claims[0].statement,
+            release.claims[0]
+                .registered_domain_language
+                .as_deref()
+                .unwrap(),
+        );
+        let error = verify_compiled_release(&release).unwrap_err();
+        assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+    }
+}
+
+#[test]
+fn verifier_scopes_domain_consistency_to_the_primary_evidence_family() {
+    let mut release = bounded_release();
+    let mut corroborating = release.evidence[0].clone();
+    corroborating.record.node_id = "model-check:corroborating".into();
+    corroborating.record.unit_id = "unit:corroborating".into();
+    corroborating.record.kind = EvidenceKind::ExhaustiveCheck;
+    let mut domain = corroborating.record.bounded_check.take().unwrap().domain;
+    domain.registration_sha256 = digest("corroborating-domain");
+    corroborating.record.exhaustive_check = Some(ExhaustiveCheckReceipt {
+        evaluated_members: domain.cardinality.unwrap(),
+        domain,
+    });
+    corroborating.sha256 = domain_hash(
+        EVIDENCE_SCHEMA_V4,
+        &canonical_json(&corroborating.record).unwrap(),
+    );
+    release.claims[0]
+        .cited_evidence
+        .insert(corroborating.sha256.clone());
+    release.evidence.push(corroborating);
+    release.graph.nodes.push(GraphNode {
+        id: "model-check:corroborating".into(),
+        kind: NodeKind::ModelCheckUnit,
+        proof_environment: None,
+    });
+    release.graph.edges.push(GraphEdge {
+        from: "model-check:corroborating".into(),
+        to: release.claims[0].node_id.clone(),
+        kind: EdgeKind::Checks,
+    });
+    release.graph_sha256 = graph_hash(&release.graph);
+
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.claims[0].formal, FormalFacet::BoundedChecked);
+
+    release.claims[0].policy = "finite-ci".into();
+    release.policies[0].id = "finite-ci".into();
+    release.policies[0].components.clear();
+    release.policies[0].admit_exhaustive_as_proved = true;
+    release.reported_statuses[0].formal = FormalFacet::Proved;
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+}
+
+#[test]
+fn verifier_keeps_exhaustive_evidence_corroborating_after_theorem_proof() {
+    let mut release = theorem_release();
+    release.schema = COMPILED_RELEASE_SCHEMA_V7.into();
+    release.claims[0].policy = "kernel-with-finite-corroboration".into();
+    release.policies[0].id = "kernel-with-finite-corroboration".into();
+    release.policies[0].admit_exhaustive_as_proved = true;
+
+    let mut bounded = bounded_release();
+    let mut corroborating = bounded.evidence.remove(0);
+    corroborating.record.node_id = "model-check:corroborating".into();
+    corroborating.record.unit_id = "unit:corroborating".into();
+    corroborating.record.kind = EvidenceKind::ExhaustiveCheck;
+    let mut domain = corroborating.record.bounded_check.take().unwrap().domain;
+    domain.registration_sha256 = digest("unregistered-corroborating-domain");
+    corroborating.record.exhaustive_check = Some(ExhaustiveCheckReceipt {
+        evaluated_members: domain.cardinality.unwrap(),
+        domain,
+    });
+    corroborating.sha256 = domain_hash(
+        EVIDENCE_SCHEMA_V4,
+        &canonical_json(&corroborating.record).unwrap(),
+    );
+    release.claims[0]
+        .cited_evidence
+        .insert(corroborating.sha256.clone());
+    release.evidence.push(corroborating);
+    release.graph.nodes.push(GraphNode {
+        id: "model-check:corroborating".into(),
+        kind: NodeKind::ModelCheckUnit,
+        proof_environment: None,
+    });
+    release.graph.edges.push(GraphEdge {
+        from: "model-check:corroborating".into(),
+        to: release.claims[0].node_id.clone(),
+        kind: EdgeKind::Checks,
+    });
+    release.graph_sha256 = graph_hash(&release.graph);
+
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.claims[0].formal, FormalFacet::Proved);
+    assert_eq!(
+        report.claims[0].public_statement,
+        release.claims[0].statement
+    );
+}
+
+#[test]
+fn verifier_requires_the_v7_domain_language_projection_before_bounded_standing() {
+    let domain = bounded_release().claims[0].bounded_domain.clone().unwrap();
+    let mut exact = base_release();
+    exact.schema = COMPILED_RELEASE_SCHEMA_V7.into();
+    exact.claims[0].bounded_domain = Some(domain.clone());
+    exact.claims[0].registered_domain_language = Some(domain.description.clone());
+    verify_compiled_release(&exact).unwrap();
+
+    let mut missing_language = exact.clone();
+    missing_language.claims[0].registered_domain_language = None;
+    let error = verify_compiled_release(&missing_language).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut missing_domain = base_release();
+    missing_domain.schema = COMPILED_RELEASE_SCHEMA_V7.into();
+    missing_domain.claims[0].registered_domain_language = Some(domain.description.clone());
+    let error = verify_compiled_release(&missing_domain).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut mismatched = exact;
+    mismatched.claims[0].registered_domain_language = Some("another domain".into());
+    let error = verify_compiled_release(&mismatched).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut historical = base_release();
+    historical.claims[0].bounded_domain = Some(domain);
+    historical.claims[0].registered_domain_language = Some("historical projection".into());
+    verify_compiled_release(&historical).unwrap();
+}
+
+#[test]
+fn legacy_bounded_release_keeps_its_historical_domain_contract() {
+    let mut release = bounded_release();
+    release.schema = COMPILED_RELEASE_SCHEMA_V4.into();
+    release.claims[0].bounded_domain = None;
+
+    verify_compiled_release(&release).unwrap();
 }
 
 #[test]
@@ -3455,6 +3622,7 @@ fn write_payload_at(directory: &Path, release: &CompiledRelease) {
     let payload = canonical_json(release).unwrap();
     fs::write(directory.join("compiled-receipt.json"), &payload).unwrap();
     let envelope_schema = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V7 => RELEASE_ENVELOPE_SCHEMA_V7,
         COMPILED_RELEASE_SCHEMA_V6 => RELEASE_ENVELOPE_SCHEMA_V6,
         COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
         COMPILED_RELEASE_SCHEMA_V4 => RELEASE_ENVELOPE_SCHEMA_V4,
@@ -3657,9 +3825,16 @@ fn build_verifier_corpus_case(case: &RawCase) -> CompiledRelease {
     release.assumptions.clear();
     release.premises.clear();
     release.claims[0].cited_evidence.clear();
-    release.claims[0].registered_domain_language = case
-        .registered_domain
-        .then(|| "For every member of the registered finite corpus domain, P holds.".into());
+    release.claims[0].bounded_domain = case.registered_domain.then(|| BoundedDomain {
+        id: "domain:corpus".into(),
+        description: "all registered finite corpus values".into(),
+        registration_sha256: digest("corpus-domain"),
+        cardinality: Some(4),
+    });
+    release.claims[0].registered_domain_language = release.claims[0]
+        .bounded_domain
+        .as_ref()
+        .map(|domain| domain.description.clone());
     release.claims[0].primary_linkage =
         case.primary_linkage
             .as_deref()

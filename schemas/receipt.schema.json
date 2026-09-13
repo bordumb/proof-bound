@@ -33,7 +33,7 @@
       "additionalProperties": false,
       "required": ["schema", "payload", "payload_sha256"],
       "properties": {
-        "schema": { "enum": ["proofbound-release-envelope/4", "proofbound-release-envelope/5", "proofbound-release-envelope/6"] },
+        "schema": { "enum": ["proofbound-release-envelope/4", "proofbound-release-envelope/5", "proofbound-release-envelope/6", "proofbound-release-envelope/7"] },
         "payload": { "const": "compiled-receipt.json" },
         "payload_sha256": { "$ref": "#/$defs/digest" }
       }
@@ -43,7 +43,7 @@
       "additionalProperties": false,
       "required": ["schema", "project", "project_revision", "project_tier", "tree_state", "graph", "graph_sha256", "claims", "evidence", "assumptions", "premises", "policies", "closures", "sealed_files", "reported_statuses"],
       "properties": {
-        "schema": { "enum": ["proofbound-compiled-release/4", "proofbound-compiled-release/5", "proofbound-compiled-release/6"] },
+        "schema": { "enum": ["proofbound-compiled-release/4", "proofbound-compiled-release/5", "proofbound-compiled-release/6", "proofbound-compiled-release/7"] },
         "project": { "type": "string", "minLength": 1, "maxLength": 128 },
         "project_revision": { "type": "string", "minLength": 1, "maxLength": 512 },
         "evidence_context": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
@@ -63,8 +63,11 @@
       "allOf": [
         {
           "if": { "properties": { "schema": { "enum": ["proofbound-compiled-release/5", "proofbound-compiled-release/6"] } }, "required": ["schema"] },
-          "then": { "required": ["evidence_context"] },
-          "else": { "not": { "required": ["evidence_context"] } }
+          "then": { "required": ["evidence_context"] }
+        },
+        {
+          "if": { "properties": { "schema": { "const": "proofbound-compiled-release/4" } }, "required": ["schema"] },
+          "then": { "not": { "required": ["evidence_context"] } }
         }
       ]
     },
@@ -88,6 +91,7 @@
         "out_of_scope": { "type": "array", "items": { "$ref": "#/$defs/exclusion" } },
         "primary_linkage": { "$ref": "#/$defs/linkage" },
         "registered_inputs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "bounded_domain": { "$ref": "#/$defs/boundedDomain" },
         "registered_domain_language": { "type": "string" }
       }
     },

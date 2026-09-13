@@ -1,4 +1,4 @@
-//! Closed `proofbound-compiled-release/4` through `/6` receipt formats.
+//! Closed `proofbound-compiled-release/4` through `/7` receipt formats.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 pub const RELEASE_ENVELOPE_SCHEMA_V4: &str = "proofbound-release-envelope/4";
 pub const RELEASE_ENVELOPE_SCHEMA_V5: &str = "proofbound-release-envelope/5";
 pub const RELEASE_ENVELOPE_SCHEMA_V6: &str = "proofbound-release-envelope/6";
+pub const RELEASE_ENVELOPE_SCHEMA_V7: &str = "proofbound-release-envelope/7";
 pub const COMPILED_RELEASE_SCHEMA_V4: &str = "proofbound-compiled-release/4";
 pub const COMPILED_RELEASE_SCHEMA_V5: &str = "proofbound-compiled-release/5";
 pub const COMPILED_RELEASE_SCHEMA_V6: &str = "proofbound-compiled-release/6";
+pub const COMPILED_RELEASE_SCHEMA_V7: &str = "proofbound-compiled-release/7";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
 pub const EVIDENCE_SCHEMA_V4: &str = "proofbound-evidence/4";
@@ -255,6 +257,8 @@ pub struct ClaimReceipt {
     pub primary_linkage: Option<LinkageFacet>,
     #[serde(default)]
     pub registered_inputs: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounded_domain: Option<BoundedDomain>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registered_domain_language: Option<String>,
 }

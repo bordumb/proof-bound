@@ -424,11 +424,7 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
         .as_str()
         .context("PB-RELEASE-0021: compiled receipt omitted its schema")?;
     let payload_sha256 = domain_hash(payload_schema, &payload_bytes);
-    let envelope_schema = match payload_schema {
-        "proofbound-compiled-release/6" => "proofbound-release-envelope/6",
-        "proofbound-compiled-release/5" => "proofbound-release-envelope/5",
-        _ => "proofbound-release-envelope/4",
-    };
+    let envelope_schema = release_envelope_schema(payload_schema)?;
     write_canonical(
         &destination.join("release.json"),
         &serde_json::json!({
@@ -438,6 +434,16 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
         }),
     )?;
     Ok(destination)
+}
+
+fn release_envelope_schema(payload_schema: &str) -> Result<&'static str> {
+    match payload_schema {
+        "proofbound-compiled-release/4" => Ok("proofbound-release-envelope/4"),
+        "proofbound-compiled-release/5" => Ok("proofbound-release-envelope/5"),
+        "proofbound-compiled-release/6" => Ok("proofbound-release-envelope/6"),
+        "proofbound-compiled-release/7" => Ok("proofbound-release-envelope/7"),
+        _ => bail!("PB-RELEASE-0022: unsupported compiled receipt schema {payload_schema:?}"),
+    }
 }
 
 fn validate_release_evidence_context(
@@ -636,6 +642,7 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
         out_of_scope: BTreeSet::new(),
         primary_linkage: Some(LinkageFacet::ModelOnly),
         registered_inputs: BTreeSet::new(),
+        bounded_domain: None,
         registered_domain_language: None,
     };
     let graph = graph_for_claim(&claim, &policy, std::slice::from_ref(&evidence), &[], &[])?;
@@ -674,12 +681,15 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     let payload = compiled_release_value(&compiled, 0, graph, sealed_files, &BTreeSet::new())?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&output.join("compiled-receipt.json"), &payload_bytes)?;
+    let payload_schema = payload["schema"]
+        .as_str()
+        .context("PB-RELEASE-0021: compiled receipt omitted its schema")?;
     write_canonical(
         &output.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/4",
+            "schema": release_envelope_schema(payload_schema)?,
             "payload": "compiled-receipt.json",
-            "payload_sha256": domain_hash("proofbound-compiled-release/4", &payload_bytes),
+            "payload_sha256": domain_hash(payload_schema, &payload_bytes),
         }),
     )?;
     Ok(output.to_owned())
@@ -3868,6 +3878,23 @@ fn compile_claim(
                     .collect()
             })
             .unwrap_or_default(),
+        bounded_domain: manifest
+            .bounded_domain
+            .as_ref()
+            .map(|domain| {
+                Ok::<BoundedDomain, anyhow::Error>(BoundedDomain {
+                    id: UnitId::new(domain.id.clone())?,
+                    description: domain.description.clone(),
+                    registration_sha256: Sha256Digest::of_bytes(canonical_json(domain)?),
+                    cardinality: Some(domain.cardinality),
+                    constraints: domain
+                        .ordering_key
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                })
+            })
+            .transpose()?,
         registered_domain_language: manifest
             .bounded_domain
             .as_ref()
@@ -6016,6 +6043,12 @@ fn compiled_release_value(
             "out_of_scope": input.claim.out_of_scope.iter().collect::<Vec<_>>(),
             "primary_linkage": input.claim.primary_linkage,
             "registered_inputs": input.claim.registered_inputs,
+            "bounded_domain": input.claim.bounded_domain.as_ref().map(|domain| serde_json::json!({
+                "id": domain.id,
+                "description": domain.description,
+                "registration_sha256": format!("sha256:{}", domain.registration_sha256),
+                "cardinality": domain.cardinality,
+            })),
             "registered_domain_language": input.claim.registered_domain_language,
         }));
         insert_release_policy(&mut policies, &input.policy)?;
@@ -6163,13 +6196,7 @@ fn compiled_release_value(
         bail!("PB-CTX-0004: a contextual release contains no admitted contextual evidence");
     }
     let mut payload = serde_json::json!({
-        "schema": if has_contextual_artifact_bindings {
-            "proofbound-compiled-release/6"
-        } else if compiled.evidence_context.is_some() && has_artifact_observations {
-            "proofbound-compiled-release/5"
-        } else {
-            "proofbound-compiled-release/4"
-        },
+        "schema": "proofbound-compiled-release/7",
         "project": compiled.project,
         "project_revision": compiled.project_revision,
         "evidence_context": compiled.evidence_context,
@@ -6691,6 +6718,21 @@ mod tests {
             unit_runs: Vec::new(),
             claim_input_identities: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn current_release_producer_uses_compiled_release_v7() {
+        let compiled = empty_context_compiled(None);
+        let graph = serde_json::json!({
+            "schema": "proofbound-graph/1",
+            "nodes": [],
+            "edges": [],
+            "mutual_theorem_groups": [],
+        });
+        let payload =
+            compiled_release_value(&compiled, 0, graph, Vec::new(), &BTreeSet::new()).unwrap();
+
+        assert_eq!(payload["schema"], "proofbound-compiled-release/7");
     }
 
     fn policy_manifest(overrides: serde_json::Value) -> PolicyManifest {
@@ -7449,6 +7491,7 @@ mod tests {
             out_of_scope: BTreeSet::new(),
             primary_linkage: Some(LinkageFacet::Refined),
             registered_inputs: BTreeSet::new(),
+            bounded_domain: None,
             registered_domain_language: None,
         };
 
@@ -9298,9 +9341,16 @@ description = {description:?}
         let destination = fixture.path().join("release");
         release_smoke(&destination).unwrap();
 
-        let payload: serde_json::Value =
-            serde_json::from_slice(&fs::read(destination.join("compiled-receipt.json")).unwrap())
-                .unwrap();
+        let payload_bytes = fs::read(destination.join("compiled-receipt.json")).unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&payload_bytes).unwrap();
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&fs::read(destination.join("release.json")).unwrap()).unwrap();
+        assert_eq!(payload["schema"], "proofbound-compiled-release/7");
+        assert_eq!(envelope["schema"], "proofbound-release-envelope/7");
+        assert_eq!(
+            envelope["payload_sha256"],
+            domain_hash("proofbound-compiled-release/7", &payload_bytes)
+        );
         let provenance = &payload["evidence"][0]["record"]["provenance"];
         assert!(provenance.get("additional_closures").is_none());
         assert_eq!(provenance["execution_kind"], "compiler-internal");

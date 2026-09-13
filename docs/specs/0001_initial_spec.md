@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.14.0
+**Version:** 0.15.0
 
 **Date:** 2026-09-12
 
@@ -12,6 +12,11 @@
 
 ### Revision history
 
+- **0.15.0** — defines the version-7 claim-owned bounded-domain identity and
+  its derived compatibility language. Domain equality applies only to the
+  primary evidence family that earns bounded or policy-admitted exhaustive
+  standing; other domain-bearing evidence remains corroborating (§6.3.2,
+  §11.2, §11.5; ADR 0023).
 - **0.14.0** — defines exact artifact observations, reviewed release evidence
   contexts, and contextual semantic artifact bindings as the coordinated
   version-4 through version-6 release transition. It closes the supported
@@ -570,7 +575,9 @@ Additional rules:
   `statement`. Its base text is the claim's optional `public_language` when
   present and otherwise its internal `statement`, followed by the literal
   separator ` Registered finite domain: ` and the registered finite-domain
-  language.
+  language. In version 7, `registered_domain_language` is derived solely from
+  `bounded_domain.description` as a compatibility projection and cannot act as
+  a second domain authority.
   The property is never replaced by domain-only wording, and no unbounded
   language is emitted for bounded evidence. The version-4 compiled claim keeps
   `statement` and optional `public_language` as separate fields, while the
@@ -1386,7 +1393,10 @@ representation or other dischargeable premises. `source_roots` overrides the
 project semantic patterns for the claim and therefore defines the minimum
 per-claim closure granularity from Section 11.4. `bounded_domain`, when used,
 defines the finite domain language, cardinality, and deterministic ordering
-that bounded evidence must match.
+that the applicable primary evidence family must match. In a version-7
+compiled claim, `registered_domain_language` is the exact
+`bounded_domain.description` compatibility projection, not an independently
+authored registration.
 
 The formal-declaration fields are an all-or-none triple. `formal_declaration`
 names the compiled Lean declaration; `statement_encoding` names the canonical
@@ -2026,7 +2036,26 @@ such record uses `proofbound-compiled-release/6` and
 facet. `ARTIFACT_BOUND` remains derivable only from an admitted theorem and an
 exact validated theorem/member/artifact join.
 
-The version-4 through version-6 envelope number MUST equal the compiled payload
+Version 7 is the claim-owned bounded-domain transition of ADR 0023. The current
+producer emits `proofbound-compiled-release/7` and
+`proofbound-release-envelope/7` for every release shape. The compiled claim's
+optional-on-wire `bounded_domain` contains its finite-domain identifier,
+description, cardinality, and canonical registration digest. The digest binds
+the complete manifest domain, including its ordering key. The field is
+required when a version-7 claim reports `BOUNDED_CHECKED` or when an
+`exhaustive-check` is policy-admitted as finite `PROVED` evidence.
+
+The applicable primary evidence family MUST equal the claim-owned domain
+exactly. For `BOUNDED_CHECKED`, every valid `bounded-check` record is primary.
+For policy-admitted exhaustive `PROVED`, every valid `exhaustive-check` record
+is primary. A valid domain-bearing record outside that selected family is
+corroborating evidence and MUST NOT set or invalidate the published domain.
+The version-7 `registered_domain_language` field is a compatibility projection
+derived solely from `bounded_domain.description`; the producer and independent
+verifier MUST reject inequality. Versions 4 through 6 retain their historical
+rules and MUST NOT retroactively require the version-7 field.
+
+The version-4 through version-7 envelope number MUST equal the compiled payload
 number. Payload commitments use the exact compiled-release schema as their
 domain separator. Evidence commitments use their exact evidence schema.
 Unsupported or incoherent combinations fail closed; an older receipt is never

@@ -12,15 +12,16 @@ use thiserror::Error;
 use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, ArtifactObservationRelation, AssumptionCategory,
     AssumptionFacet, AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode,
-    BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V4,
-    COMPILED_RELEASE_SCHEMA_V5, COMPILED_RELEASE_SCHEMA_V6, ClaimReceipt, ClosureKind,
-    CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V4, EVIDENCE_SCHEMA_V5,
-    EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
-    EvidenceReceipt, Exclusion, ExecutionKind, ExternalObservationInput, FlowScope, FormalFacet,
-    GRAPH_SCHEMA_V1, GraphEdge, GraphNode, HashedRecord, IndependenceMode, LinkageFacet,
-    MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V3, NodeKind, ObservationPlatform,
-    OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
-    RELEASE_ENVELOPE_SCHEMA_V4, RELEASE_ENVELOPE_SCHEMA_V5, RELEASE_ENVELOPE_SCHEMA_V6,
+    BoundedDomain, BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V4,
+    COMPILED_RELEASE_SCHEMA_V5, COMPILED_RELEASE_SCHEMA_V6, COMPILED_RELEASE_SCHEMA_V7,
+    ClaimReceipt, ClosureKind, CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1,
+    EVIDENCE_SCHEMA_V4, EVIDENCE_SCHEMA_V5, EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind,
+    EvaluationMode, EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, ExecutionKind,
+    ExternalObservationInput, FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphEdge, GraphNode,
+    HashedRecord, IndependenceMode, LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2,
+    MUTATION_WITNESS_SCHEMA_V3, NodeKind, ObservationPlatform, OpenObligation, POLICY_SCHEMA_V1,
+    PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V4,
+    RELEASE_ENVELOPE_SCHEMA_V5, RELEASE_ENVELOPE_SCHEMA_V6, RELEASE_ENVELOPE_SCHEMA_V7,
     ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1, SourceClosureReceipt,
     SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
     TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole, TreeState, canonical_json,
@@ -243,7 +244,10 @@ pub fn verify_release_dir_with_observations(
     let (envelope, _) = read_canonical::<ReleaseEnvelope>(&envelope_path, MAX_ENVELOPE_BYTES)?;
     if !matches!(
         envelope.schema.as_str(),
-        RELEASE_ENVELOPE_SCHEMA_V4 | RELEASE_ENVELOPE_SCHEMA_V5 | RELEASE_ENVELOPE_SCHEMA_V6
+        RELEASE_ENVELOPE_SCHEMA_V4
+            | RELEASE_ENVELOPE_SCHEMA_V5
+            | RELEASE_ENVELOPE_SCHEMA_V6
+            | RELEASE_ENVELOPE_SCHEMA_V7
     ) {
         return Err(VerificationErrors::one(
             VerificationIssue::new(
@@ -270,6 +274,7 @@ pub fn verify_release_dir_with_observations(
         COMPILED_RELEASE_SCHEMA_V4 => COMPILED_RELEASE_SCHEMA_V4,
         COMPILED_RELEASE_SCHEMA_V5 => COMPILED_RELEASE_SCHEMA_V5,
         COMPILED_RELEASE_SCHEMA_V6 => COMPILED_RELEASE_SCHEMA_V6,
+        COMPILED_RELEASE_SCHEMA_V7 => COMPILED_RELEASE_SCHEMA_V7,
         _ => COMPILED_RELEASE_SCHEMA_V4,
     };
     let actual_payload = domain_hash(payload_domain, &payload_bytes);
@@ -287,6 +292,7 @@ pub fn verify_release_dir_with_observations(
     }
 
     let expected_envelope = match release.schema.as_str() {
+        COMPILED_RELEASE_SCHEMA_V7 => RELEASE_ENVELOPE_SCHEMA_V7,
         COMPILED_RELEASE_SCHEMA_V6 => RELEASE_ENVELOPE_SCHEMA_V6,
         COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
         _ => RELEASE_ENVELOPE_SCHEMA_V4,
@@ -340,7 +346,10 @@ fn verify_compiled_release_internal(
     let mut issues = Vec::new();
     if !matches!(
         release.schema.as_str(),
-        COMPILED_RELEASE_SCHEMA_V4 | COMPILED_RELEASE_SCHEMA_V5 | COMPILED_RELEASE_SCHEMA_V6
+        COMPILED_RELEASE_SCHEMA_V4
+            | COMPILED_RELEASE_SCHEMA_V5
+            | COMPILED_RELEASE_SCHEMA_V6
+            | COMPILED_RELEASE_SCHEMA_V7
     ) {
         issues.push(VerificationIssue::new(
             VerificationIssueCode::PbvSchema,
@@ -380,6 +389,22 @@ fn verify_compiled_release_internal(
             issues.push(VerificationIssue::new(
                 VerificationIssueCode::PbCtx0008,
                 "compiled release v6 requires contextual artifact bindings and one canonical evidence context",
+            ));
+        }
+        COMPILED_RELEASE_SCHEMA_V7
+            if release.evidence_context.is_some()
+                && !has_observations
+                && !has_contextual_bindings =>
+        {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbCtx0008,
+                "compiled release v7 evidence context requires exact observations or contextual artifact bindings",
+            ));
+        }
+        COMPILED_RELEASE_SCHEMA_V7 if has_contextual_bindings && !valid_context => {
+            issues.push(VerificationIssue::new(
+                VerificationIssueCode::PbCtx0008,
+                "compiled release v7 contextual artifact bindings require one canonical evidence context",
             ));
         }
         _ => {}
@@ -702,7 +727,10 @@ fn validate_evidence_context_bindings(
             );
         }
         if evidence.record.schema == EVIDENCE_SCHEMA_V5
-            && release.schema != COMPILED_RELEASE_SCHEMA_V6
+            && !matches!(
+                release.schema.as_str(),
+                COMPILED_RELEASE_SCHEMA_V6 | COMPILED_RELEASE_SCHEMA_V7
+            )
         {
             issues.push(
                 VerificationIssue::new(
@@ -4040,6 +4068,19 @@ fn derive_claim(
             "claim identity, title, internal statement, and optional public language must be non-empty",
         );
     }
+    if release.schema == COMPILED_RELEASE_SCHEMA_V7 {
+        match (
+            claim.bounded_domain.as_ref(),
+            claim.registered_domain_language.as_deref(),
+        ) {
+            (None, None) => {}
+            (Some(domain), Some(language)) if language == domain.description.as_str() => {}
+            _ => claim_issue!(
+                VerificationIssueCode::PbvInvalidEvidence,
+                "claim bounded-domain language is not the exact domain-description projection",
+            ),
+        }
+    }
     require_claim_node(
         &release.graph,
         &claim.node_id,
@@ -4522,7 +4563,8 @@ fn derive_claim(
         }
     }
 
-    let exhaustive_as_proof = !policy_ledger(policy)
+    let exhaustive_as_proof = admitted_theorems.is_empty()
+        && !policy_ledger(policy)
         && policy.admit_exhaustive_as_proved
         && valid
             .iter()
@@ -4545,7 +4587,37 @@ fn derive_claim(
     } else {
         FormalFacet::Open
     };
-    if matches!(formal, FormalFacet::BoundedChecked) || exhaustive_as_proof {
+    if release.schema == COMPILED_RELEASE_SCHEMA_V7
+        && (matches!(formal, FormalFacet::BoundedChecked) || exhaustive_as_proof)
+    {
+        match claim.bounded_domain.as_ref() {
+            Some(expected) => {
+                for evidence_id in &valid {
+                    let record = evidence[evidence_id];
+                    let is_primary_domain_evidence = (formal == FormalFacet::BoundedChecked
+                        && record.kind == EvidenceKind::BoundedCheck)
+                        || (exhaustive_as_proof && record.kind == EvidenceKind::ExhaustiveCheck);
+                    if !is_primary_domain_evidence {
+                        continue;
+                    }
+                    let Some(actual) = evidence_bounded_domain(record) else {
+                        continue;
+                    };
+                    if actual != expected {
+                        claim_issue!(
+                            VerificationIssueCode::PbvInvalidEvidence,
+                            format!(
+                                "bounded evidence '{evidence_id}' uses a domain that differs from the claim registration"
+                            ),
+                        );
+                    }
+                }
+            }
+            None => claim_issue!(
+                VerificationIssueCode::PbvInvalidEvidence,
+                "bounded standing has no exact claim-owned domain registration",
+            ),
+        }
         match claim.registered_domain_language.as_deref() {
             Some(domain) if !domain.trim().is_empty() => {
                 let property = claim_public_property(claim);
@@ -4723,6 +4795,14 @@ fn derive_claim(
         },
         issues,
     )
+}
+
+fn evidence_bounded_domain(evidence: &EvidenceReceipt) -> Option<&BoundedDomain> {
+    evidence
+        .bounded_check
+        .as_ref()
+        .map(|item| &item.domain)
+        .or_else(|| evidence.exhaustive_check.as_ref().map(|item| &item.domain))
 }
 
 fn premise_owner_is_registered(

@@ -44,6 +44,7 @@ The domains are fixed:
 | base compiled payload, optionally with exact observations | `proofbound-compiled-release/4` |
 | compiled payload with context-bound exact observations | `proofbound-compiled-release/5` |
 | compiled payload with contextual artifact bindings | `proofbound-compiled-release/6` |
+| current compiled payload with claim-owned bounded domains | `proofbound-compiled-release/7` |
 | graph | `proofbound-graph/1` |
 | base evidence record, optionally with exact observation | `proofbound-evidence/4` |
 | evidence record with contextual artifact binding | `proofbound-evidence/5` |
@@ -65,15 +66,19 @@ contextual artifact binding. It binds the same canonical
 evidence record. Version 6 is selected exactly when a contextual release has at
 least one `proofbound-evidence/5` artifact-binding record; it may also retain
 contextual `proofbound-evidence/4` observation records. Base releases cannot
-contain either contextual record. Version 3 is obsolete and rejected because
-it predates the current mutation-witness validation contract. The envelope
-version equals the compiled payload version, and unsupported or incoherent
-combinations fail closed. All versions contain exactly:
+contain either contextual record. Version 7 is emitted by the current producer
+for every new release. It adds the optional claim-owned `bounded_domain` field
+and requires that field for bounded standing; the independent verifier retains
+versions 4 through 6 under their historical rules and does not retroactively
+require the new field from those receipts. Version 7 preserves the established
+context and observation shape rules. The envelope version equals the compiled
+payload version, and unsupported or incoherent combinations fail closed. All
+versions contain exactly:
 
 | Field | Meaning |
 |---|---|
 | `project`, `project_revision` | non-empty release identity |
-| `evidence_context` | v5/v6 reviewed context active for this release |
+| `evidence_context` | v5-v7 reviewed context active for this release |
 | `project_tier` | integer `0`, `1`, `2`, or `3` |
 | `tree_state` | `clean` for a portable release |
 | `graph`, `graph_sha256` | complete typed graph and its domain hash |
@@ -285,9 +290,18 @@ Every field in `reported_statuses` must equal the recomputed value. Its required
 present, otherwise from the internal `statement`; `BOUNDED_CHECKED` and
 policy-admitted exhaustive `PROVED` output append
 ` Registered finite domain: <registered_domain_language>`. The verifier
-deliberately rejects substitution of the internal and reader-facing languages,
-status drift, upgrades, and unexplained downgrades so a receipt has one
-deterministic representation.
+requires that language to equal the description in the claim's exact
+`bounded_domain`. In version 7 the language is a compatibility projection
+derived solely from that description, not an independent authority. For
+`BOUNDED_CHECKED`, the verifier requires the domain to equal every valid
+`bounded-check` domain. For policy-admitted exhaustive `PROVED`, it instead
+requires equality with every valid `exhaustive-check` domain. Domain-bearing
+evidence outside the selected primary family is corroborating and does not set
+the published domain. The registration digest binds the complete manifest
+domain, including its ordering key. The verifier deliberately rejects
+substitution of the internal and reader-facing languages, primary-evidence
+domain drift, status drift, upgrades, and unexplained downgrades so a receipt
+has one deterministic representation.
 
 Every successful verification report also contains a mandatory
 `not_proved_out_of_scope` entry for every claim, including its open
@@ -308,8 +322,9 @@ The verifier rejects symlinks and hashes both byte streams itself. An exact
 identity is also byte-observed when its logical name, digest, and size match a
 validated `sealed_files` entry.
 
-For v3, exit `0` means receipt-consistent and policy-admitted. For v4 through
-v6,
+For v4 through v7, exit `0` means policy-admitted with the byte verdict that
+the release's registered relations support. For releases with an exact
+observation or contextual binding,
 `record-consistent` means the relation was independently reconstructed but at
 least one byte stream was unavailable, so publication remains blocked;
 `bytes-observed` means every artifact and procedure identity was recomputed.
@@ -321,6 +336,9 @@ artifact-binding record and requires every selected bound artifact identity to
 match recomputed sealed bytes. Context selection can activate a theorem-derived
 `ARTIFACT_BOUND` linkage only through that exact schema-6 route; contextual
 observations never change a claim facet.
+Version 7 can carry the noncontextual, contextual-observation, or contextual-
+binding shape. It applies the same context and byte-recomputation rules to the
+relations it contains and adds the claim-owned bounded-domain rules above.
 Exit `3` means the
 receipt is internally consistent but at least one claim is blocked by policy.
 Exit `2` means malformed, tampered, structurally invalid, or inconsistent with
