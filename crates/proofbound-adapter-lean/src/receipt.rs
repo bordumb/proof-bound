@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeSet,
+    fs,
     path::{Component, Path},
     str::FromStr,
 };
