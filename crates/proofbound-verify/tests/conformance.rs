@@ -1979,10 +1979,7 @@ fn verifier_keeps_exhaustive_evidence_corroborating_after_theorem_proof() {
 
 #[test]
 fn verifier_requires_the_v7_domain_language_projection_before_bounded_standing() {
-    let domain = bounded_release().claims[0]
-        .bounded_domain
-        .clone()
-        .unwrap();
+    let domain = bounded_release().claims[0].bounded_domain.clone().unwrap();
     let mut exact = base_release();
     exact.schema = COMPILED_RELEASE_SCHEMA_V7.into();
     exact.claims[0].bounded_domain = Some(domain.clone());

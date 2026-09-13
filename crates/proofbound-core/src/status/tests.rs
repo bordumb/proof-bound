@@ -1073,7 +1073,10 @@ fn bounded_domain_language_projection_is_structural() {
 
     let mut mismatched = exact;
     mismatched.claim.registered_domain_language = Some("another domain".into());
-    assert_eq!(derive_claim_status(&mismatched).formal, FormalFacet::Invalid);
+    assert_eq!(
+        derive_claim_status(&mismatched).formal,
+        FormalFacet::Invalid
+    );
 }
 
 #[test]
