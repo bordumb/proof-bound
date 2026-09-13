@@ -8803,10 +8803,9 @@ description = {description:?}
             paths: unit.outputs.clone(),
             recursive: false,
         }];
-        let error =
-            import_evidence_update_changes(&unit.id, &root, &shadow, &changed, &boundaries)
-                .unwrap_err()
-                .to_string();
+        let error = import_evidence_update_changes(&unit.id, &root, &shadow, &changed, &boundaries)
+            .unwrap_err()
+            .to_string();
 
         assert!(error.contains("PB-UPDATE-0005"), "{error}");
         assert!(error.contains("lean/adapter-escape.txt"), "{error}");
