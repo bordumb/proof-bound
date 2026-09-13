@@ -411,3 +411,32 @@ Matrix revision 5 therefore records fifteen complete rows and one partial row.
 Q1 is concluded as failed; Q2–Q5 receive bounded passes. Assurance IR `/1` is
 not frozen, the Go holdout is cancelled, and the dependency representation is
 promoted to EXP-LANG-003.
+
+## 2026-09-12 — Preserve frozen identities during the receipt-v4 migration
+
+An independent review found that two frozen paths had been changed without
+corresponding artifact-ledger revisions. The correction restores
+`corpus/cases.json` to revision 2 at
+`sha256:508eaa75718a4f4bf221bbec9c4405772a8107689ae7350dfb760f832940a51b`
+and `semantic-field-inventory.md` to revision 2 at
+`sha256:c3238ccbbf72336157511aaa42defd9894d1846402c9d87f344fd9333e1d404c`.
+Historical result records that cite those paths and identities remain
+unchanged.
+
+The executed finalization corpus from implementation `4d85f03` is retained
+separately as `corpus/cases-r3.json` at
+`sha256:eef3fd005473078b67a09f4da73db21fad4dc335befa35cb034098014d7754e7`.
+It records the preregistered Rust example-test classification correction and
+remains the corpus identity associated with the 2026-09-03 finalization.
+
+The later conformance-fixture migration is a new revision rather than an edit
+to either frozen input. `corpus/cases-r4.json` changes the `IR-REL-001` source
+and envelope identities from the superseded evidence-v3 fixture to the
+evidence-v4 fixture and records revision 4 explicitly. The corresponding
+`semantic-field-inventory-r3.md` changes only the current portable evidence
+wire description from `/3` to `/4`. The Rust prototype, independent Python
+checker, and invalidation experiment now select corpus revision 4 explicitly.
+The focused Rust prototype suite passed 62 executed tests with one registered
+Z3-dependent test ignored, and the combined public-schema and independent
+Python checker suite passed 49 tests. These checks validate the migration but
+are not a new experiment result and do not alter the concluded Q1 failure.

@@ -184,6 +184,17 @@ surface at the pinned baseline. The final decision is recorded in
 Fifteen of sixteen semantic rows are forward-and-reverse complete. The
 remaining cache row failed its preregistered source-sufficiency rule.
 
+### Post-conclusion receipt migration
+
+The historical `corpus/cases.json` and `semantic-field-inventory.md` paths
+retain their frozen revision-2 bytes. The executed Rust-classification update
+is preserved as [`corpus/cases-r3.json`](corpus/cases-r3.json). Current
+prototype conformance uses
+[`corpus/cases-r4.json`](corpus/cases-r4.json) together with
+[`semantic-field-inventory-r3.md`](semantic-field-inventory-r3.md) to name the
+evidence-v4 fixture explicitly. These later artifacts are migration inputs;
+they do not reopen or strengthen the concluded experiment result.
+
 ## Findings
 
 | ID | Observation | Evidence | Disposition |

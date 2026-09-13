@@ -547,6 +547,18 @@ fn validate_evidence_context_registration(bundle: &ProjectBundle) -> Result<(), 
             message: "project schema version 1 cannot register evidence contexts".to_owned(),
         });
     }
+    if bundle.project.schema == "proofbound-project/2"
+        && (contexts.is_empty() || release_contexts.is_empty())
+    {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0002",
+            message: concat!(
+                "project schema version 2 requires nonempty evidence contexts ",
+                "and required release contexts"
+            )
+            .to_owned(),
+        });
+    }
     if !contexts.windows(2).all(|pair| pair[0] < pair[1])
         || contexts.iter().any(|context| !valid_context_name(context))
         || !release_contexts.windows(2).all(|pair| pair[0] < pair[1])
@@ -1639,6 +1651,11 @@ fn validate_mutation_replays(bundle: &ProjectBundle) -> Result<(), SemanticError
                     .to_owned(),
             ));
         }
+        if unit.adapter == AdapterKind::RustTest && !valid_rust_subject(&registry.subject) {
+            return Err(fail(
+                "Rust mutation subject must use the rust:crate[::module::item] grammar".to_owned(),
+            ));
+        }
         if unit.adapter == AdapterKind::PythonTest && !valid_python_subject(&registry.subject) {
             return Err(fail(
                 "Python mutation subject must use the python:distribution[::module.qualname] grammar"
@@ -2499,6 +2516,25 @@ fn valid_pytest_node(value: &str) -> bool {
                 && !segment.starts_with('-')
                 && !segment.chars().any(char::is_control)
         })
+}
+
+fn valid_rust_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("rust:") else {
+        return false;
+    };
+    let (package, symbol) = value
+        .split_once("::")
+        .map_or((value, None), |(package, symbol)| (package, Some(symbol)));
+    let package_valid = !package.is_empty()
+        && package.len() <= 214
+        && package
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && package.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        });
+    package_valid && symbol.is_none_or(|symbol| symbol.split("::").all(valid_rust_identifier))
 }
 
 fn valid_python_subject(value: &str) -> bool {
@@ -3561,6 +3597,7 @@ mod tests {
             "claims/café.toml",
             ".git/objects",
             "lean/target/Funs.lean",
+            "generated/node_modules/tool.js",
         ] {
             assert!(
                 translation_path("x", invalid).is_err(),
@@ -3852,6 +3889,24 @@ mod tests {
 
     #[test]
     fn reviewed_evidence_context_registration_is_closed_and_tracked() {
+        let mut empty = repository_bundle();
+        empty.project.schema = "proofbound-project/2".to_owned();
+        assert!(matches!(
+            validate_evidence_context_registration(&empty),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0002",
+                ..
+            })
+        ));
+        empty.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+        assert!(matches!(
+            validate_evidence_context_registration(&empty),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0002",
+                ..
+            })
+        ));
+
         let mut bundle = repository_bundle();
         bundle.project.schema = "proofbound-project/2".to_owned();
         bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];

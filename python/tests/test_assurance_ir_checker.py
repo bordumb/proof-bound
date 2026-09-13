@@ -25,7 +25,7 @@ from proofbound.assurance_ir_checker import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CORPUS = ROOT / "docs/experiments/0005-assurance-ir-extraction/corpus/cases.json"
+CORPUS = ROOT / "docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json"
 VECTORS = (
     ROOT / "docs/experiments/0005-assurance-ir-extraction/corpus/canonical-vectors.json"
 )
@@ -844,7 +844,7 @@ def test_portable_projection_retains_programme_and_execution_meaning() -> None:
     evidence = program["evidence"][0]
     assert (
         evidence["content_sha256"]
-        == "sha256:0472956f8429866d293913903a3b1ac9ae42764e658078953dae8015939b44d4"
+        == "sha256:9cb70e1b87da4d5783f96b691e02d9fc5a45f622f718578eebb9247393459016"
     )
     assert evidence["provenance"]["commands"][0]["program"] == "synthetic-runner"
     assert evidence["provenance"]["runs"][0]["exit_code"] == 0
