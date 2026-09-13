@@ -437,9 +437,8 @@ def check_projection(
     if corpus["baseline"] != projection["baseline"]:
         raise AssuranceIrError("baseline mismatch")
     if (
-        corpus["revision"] != 3
-        or corpus["status"]
-        != "frozen-positive-after-preregistered-rust-classification-correction"
+        corpus["revision"] != 4
+        or corpus["status"] != "frozen-positive-after-receipt-v4-migration"
     ):
         raise AssuranceIrError("corpus is not frozen")
 

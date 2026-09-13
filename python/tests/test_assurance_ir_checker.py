@@ -25,7 +25,7 @@ from proofbound.assurance_ir_checker import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CORPUS = ROOT / "docs/experiments/0005-assurance-ir-extraction/corpus/cases.json"
+CORPUS = ROOT / "docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json"
 VECTORS = (
     ROOT / "docs/experiments/0005-assurance-ir-extraction/corpus/canonical-vectors.json"
 )

@@ -2,7 +2,7 @@
 
 - **Status:** complete inventory; not an IR specification
 - **Baseline:** `295ad63e67bd30cc48eb8c9ee43c612de2c367c6`
-- **Inventory revision:** 2
+- **Inventory revision:** 3
 - **Coverage:** registration, observation, core semantics, graph, policy,
   closure, compiled state, cache projection, portable release, and status
   projection
@@ -110,7 +110,7 @@ difference, but conversion must verify equality instead of copying one field.
 
 | Semantic item | Core field | Portable field | Class | Authority | Role |
 |---|---|---|---|---|---|
-| Wire interpretation | `schema` | `schema` | `CM` | Derived/portable | Freezes required evidence meaning (`proofbound-evidence/3`) |
+| Wire interpretation | `schema` | `schema` | `CM` | Derived/portable | Freezes required evidence meaning (`proofbound-evidence/4`) |
 | Content identity | `id` | outer `HashedRecord.sha256` | `CM` | Derived | Content-addressed evidence identity |
 | Unit identity | `unit_id` | `unit_id` | `CM` | Registered | Binds evidence to one registered execution unit |
 | Graph node | `node_id` | `node_id` | `CM` | Derived | Graph join and kind checks |
