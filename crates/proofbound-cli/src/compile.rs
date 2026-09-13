@@ -411,12 +411,7 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
         .as_str()
         .context("PB-RELEASE-0021: compiled receipt omitted its schema")?;
     let payload_sha256 = domain_hash(payload_schema, &payload_bytes);
-    let envelope_schema = match payload_schema {
-        "proofbound-compiled-release/7" => "proofbound-release-envelope/7",
-        "proofbound-compiled-release/6" => "proofbound-release-envelope/6",
-        "proofbound-compiled-release/5" => "proofbound-release-envelope/5",
-        _ => "proofbound-release-envelope/4",
-    };
+    let envelope_schema = release_envelope_schema(payload_schema)?;
     write_canonical(
         &destination.join("release.json"),
         &serde_json::json!({
@@ -426,6 +421,16 @@ pub fn release_project(root: &Path, output: Option<&Path>) -> Result<PathBuf> {
         }),
     )?;
     Ok(destination)
+}
+
+fn release_envelope_schema(payload_schema: &str) -> Result<&'static str> {
+    match payload_schema {
+        "proofbound-compiled-release/4" => Ok("proofbound-release-envelope/4"),
+        "proofbound-compiled-release/5" => Ok("proofbound-release-envelope/5"),
+        "proofbound-compiled-release/6" => Ok("proofbound-release-envelope/6"),
+        "proofbound-compiled-release/7" => Ok("proofbound-release-envelope/7"),
+        _ => bail!("PB-RELEASE-0022: unsupported compiled receipt schema {payload_schema:?}"),
+    }
 }
 
 fn validate_release_evidence_context(
@@ -663,12 +668,15 @@ pub fn release_smoke(output: &Path) -> Result<PathBuf> {
     let payload = compiled_release_value(&compiled, 0, graph, sealed_files, &BTreeSet::new())?;
     let payload_bytes = canonical_json(&payload)?;
     write_bytes(&output.join("compiled-receipt.json"), &payload_bytes)?;
+    let payload_schema = payload["schema"]
+        .as_str()
+        .context("PB-RELEASE-0021: compiled receipt omitted its schema")?;
     write_canonical(
         &output.join("release.json"),
         &serde_json::json!({
-            "schema": "proofbound-release-envelope/4",
+            "schema": release_envelope_schema(payload_schema)?,
             "payload": "compiled-receipt.json",
-            "payload_sha256": domain_hash("proofbound-compiled-release/4", &payload_bytes),
+            "payload_sha256": domain_hash(payload_schema, &payload_bytes),
         }),
     )?;
     Ok(output.to_owned())
@@ -9436,9 +9444,16 @@ description = {description:?}
         let destination = fixture.path().join("release");
         release_smoke(&destination).unwrap();
 
-        let payload: serde_json::Value =
-            serde_json::from_slice(&fs::read(destination.join("compiled-receipt.json")).unwrap())
-                .unwrap();
+        let payload_bytes = fs::read(destination.join("compiled-receipt.json")).unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&payload_bytes).unwrap();
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&fs::read(destination.join("release.json")).unwrap()).unwrap();
+        assert_eq!(payload["schema"], "proofbound-compiled-release/7");
+        assert_eq!(envelope["schema"], "proofbound-release-envelope/7");
+        assert_eq!(
+            envelope["payload_sha256"],
+            domain_hash("proofbound-compiled-release/7", &payload_bytes)
+        );
         let provenance = &payload["evidence"][0]["record"]["provenance"];
         assert!(provenance.get("additional_closures").is_none());
         assert_eq!(provenance["execution_kind"], "compiler-internal");
