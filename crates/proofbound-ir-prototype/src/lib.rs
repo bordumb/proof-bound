@@ -2830,7 +2830,7 @@ mod tests {
     fn projects_all_frozen_cases_deterministically() {
         let root = root();
         let corpus =
-            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r5.json");
         let first = project_corpus(&root, &corpus).unwrap();
         let second = project_corpus(&root, &corpus).unwrap();
         assert_eq!(first, second);
@@ -2979,7 +2979,7 @@ mod tests {
     fn registration_projection_retains_claim_and_request_meaning() {
         let root = root();
         let corpus =
-            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r5.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let case = projection
             .cases
@@ -3027,7 +3027,7 @@ mod tests {
     fn portable_projection_retains_programme_and_execution_meaning() {
         let root = root();
         let corpus =
-            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r5.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let program = &projection
             .cases
@@ -3178,7 +3178,7 @@ mod tests {
     fn typed_family_details_bind_registration_and_artifact_roles() {
         let root = root();
         let corpus =
-            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r5.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let property = &projection
             .cases
@@ -3247,7 +3247,7 @@ mod tests {
     fn subject_closure_binds_registered_paths_and_bytes() {
         let root = root();
         let corpus =
-            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r5.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let program = &projection
             .cases
@@ -3291,7 +3291,7 @@ mod tests {
     fn rejects_every_preregistered_adversarial_case() {
         let root = root();
         let corpus =
-            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r5.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let bases = projection
             .cases
@@ -3323,7 +3323,7 @@ mod tests {
     fn rejects_every_preregistered_q1_adversarial_case() {
         let root = root();
         let corpus =
-            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r5.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let base = &projection
             .cases

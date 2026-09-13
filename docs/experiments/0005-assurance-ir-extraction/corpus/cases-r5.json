@@ -2,8 +2,8 @@
   "schema": "proofbound-research-projection-corpus/1",
   "experiment": "EXP-0005",
   "baseline": "git:295ad63e67bd30cc48eb8c9ee43c612de2c367c6",
-  "revision": 2,
-  "status": "frozen-positive-expanded-for-q1",
+  "revision": 5,
+  "status": "frozen-positive-after-lean-output-boundary-migration",
   "source_identity": "sha256-of-exact-git-blob-bytes-at-baseline",
   "projection_profiles": {
     "registered-evidence": [
@@ -125,10 +125,10 @@
       "id": "IR-RS-001", "role": "positive-registration", "evidence_family": "bounded-check",
       "source": {"path": "demo/allowance/proofbound/evidence/transfer-bounds.toml", "sha256": "sha256:c6495bf7b731ffd7b2f84a9a8b63b8a4d50bf7bb3cdcc38f20aea389b2a9076b"},
       "claim_sources": [
-        {"path": "demo/allowance/claims/DEMO-TRANSFER-001.toml", "sha256": "sha256:6c7e5ea4bbd0e81b9e24a66b11ee058474045ceca1ce6b2e26a2b53330573387"},
-        {"path": "demo/allowance/claims/DEMO-TRANSFER-002.toml", "sha256": "sha256:c1e445d83b402ac4206d6a1486418d2989c2e519360a194a9795388df7de3d9c"},
-        {"path": "demo/allowance/claims/DEMO-TRANSFER-003.toml", "sha256": "sha256:0ec18c0a20bce1c9824dc58a4a789c6757ec209fbbffe647d452a9086543fa2a"},
-        {"path": "demo/allowance/claims/DEMO-TRANSFER-004.toml", "sha256": "sha256:e5ce1b5af704f3b9282a8d977499b02a35c2aff6f835b4f0ec3a272f629f88d2"}
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-001.toml", "sha256": "sha256:95b00d879d5d9043a63ccc9db0d4fe9e56c349730b6c1967ef373c0f2c9bd073"},
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-002.toml", "sha256": "sha256:686cc124a8ec523a1a2f6add649072010a493e137ed51def34bc78b488f32cd7"},
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-003.toml", "sha256": "sha256:f04d5878695ad414252e83a751dd8c1769d3ad6a2361b83a97d2ef0fa0cd68d0"},
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-004.toml", "sha256": "sha256:8a4c2589a376b0d973982c1ce5b6215ea5c547fab708698b87b9264828339b7f"}
       ],
       "unit_id": "transfer-bounds", "claim_ids": ["DEMO-TRANSFER-001", "DEMO-TRANSFER-002", "DEMO-TRANSFER-003", "DEMO-TRANSFER-004"],
       "expected_claim": {"formal": "BOUNDED_CHECKED_OR_STRONGER_PER_CLAIM", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
@@ -136,8 +136,8 @@
     },
     {
       "id": "IR-RS-002", "role": "positive-registration", "evidence_family": "theorem",
-      "source": {"path": "demo/allowance/proofbound/evidence/accept-conserves.toml", "sha256": "sha256:315655e6378109d81d324e04b0e41503328dfe769c66e1b8e61e6942edf9484e"},
-      "claim_sources": [{"path": "demo/allowance/claims/DEMO-TRANSFER-001.toml", "sha256": "sha256:6c7e5ea4bbd0e81b9e24a66b11ee058474045ceca1ce6b2e26a2b53330573387"}],
+      "source": {"path": "demo/allowance/proofbound/evidence/accept-conserves.toml", "sha256": "sha256:e4957629324fd0c8d685d16ce3f5fe27fffd8a4d28e50c3aea45bc4be2cfd6bd"},
+      "claim_sources": [{"path": "demo/allowance/claims/DEMO-TRANSFER-001.toml", "sha256": "sha256:95b00d879d5d9043a63ccc9db0d4fe9e56c349730b6c1967ef373c0f2c9bd073"}],
       "unit_id": "accept-conserves", "claim_ids": ["DEMO-TRANSFER-001"],
       "expected_claim": {"formal": "PROVED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
       "projection_profiles": ["registered-evidence", "derived-claim"], "toolchain_required_to_regenerate": ["lean", "lake"]
@@ -146,8 +146,8 @@
       "id": "IR-RS-003", "role": "positive-registration", "evidence_family": "mutation-witness",
       "source": {"path": "demo/allowance/proofbound/evidence/remove-cap-guard.toml", "sha256": "sha256:a95df7d8c9f481143589fdeafe8a50ce8c660cab27742d6386f0d5909c17796c"},
       "claim_sources": [
-        {"path": "demo/allowance/claims/DEMO-TRANSFER-003.toml", "sha256": "sha256:0ec18c0a20bce1c9824dc58a4a789c6757ec209fbbffe647d452a9086543fa2a"},
-        {"path": "demo/allowance/claims/DEMO-TRANSFER-005.toml", "sha256": "sha256:c172da27238eacac74e6325832a57f3de3b09052d2c4fbc5a68fcb7d86da1600"}
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-003.toml", "sha256": "sha256:f04d5878695ad414252e83a751dd8c1769d3ad6a2361b83a97d2ef0fa0cd68d0"},
+        {"path": "demo/allowance/claims/DEMO-TRANSFER-005.toml", "sha256": "sha256:6386780d6bc352e6c6b0723a43214fd8dcf10f69631cd5c8cb8173f8519aa0ed"}
       ],
       "unit_id": "remove-cap-guard", "claim_ids": ["DEMO-TRANSFER-003", "DEMO-TRANSFER-005"],
       "expected_claim": {"formal": "TESTED_OR_STRONGER_PER_CLAIM", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},
@@ -193,9 +193,9 @@
       "id": "IR-REL-001", "role": "positive-portable-release", "evidence_family": "compiler-internal-and-example-test",
       "source": {
         "path": "proofbound/conformance/v1/release-valid/compiled-receipt.json",
-        "sha256": "sha256:b6e16078ddb5af8f5983bf1a61d73f9532620a413ebf688516d6103778682edd",
+        "sha256": "sha256:e915ab9c1fa9a743dd657c260fc822650947abb329df0789b47bff748747c4ac",
         "envelope_path": "proofbound/conformance/v1/release-valid/release.json",
-        "envelope_sha256": "sha256:6204659b54820b9b9840e86a20337d314b172c4f157d197c7843c442ef5f7134"
+        "envelope_sha256": "sha256:66878421da15074b4d524882c20615f24292146e7e9fb4b509c05efb80425743"
       },
       "claim_ids": ["c"], "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "NONE", "policy_admitted": true},
       "projection_profiles": ["portable-release", "derived-claim"], "toolchain_required_to_regenerate": []

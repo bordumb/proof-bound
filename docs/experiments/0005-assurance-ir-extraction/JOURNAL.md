@@ -440,3 +440,11 @@ The focused Rust prototype suite passed 62 executed tests with one registered
 Z3-dependent test ignored, and the combined public-schema and independent
 Python checker suite passed 49 tests. These checks validate the migration but
 are not a new experiment result and do not alter the concluded Q1 failure.
+
+PR 9 adds the owning claim manifest as the `accept-conserves` unit's exact
+update boundary. That registration changes the evidence-unit source bytes but
+does not change the experiment's derived claim or portable-release meaning.
+The frozen revision-4 corpus remains unchanged. Current Rust and independent
+Python conformance instead select `corpus/cases-r5.json`, which changes only
+the corpus revision metadata and the exact `accept-conserves` source identity.
+This is another migration input, not a reopened experiment result.
