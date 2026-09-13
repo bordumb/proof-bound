@@ -204,11 +204,41 @@
               "inventoried_targets": { "minItems": 1, "maxItems": 1 },
               "provenance": {
                 "properties": {
-                  "input_artifacts": { "minItems": 4, "maxItems": 4 },
+                  "input_artifacts": { "minItems": 4, "maxItems": 6 },
                   "generated_artifacts": { "minItems": 1, "maxItems": 1 }
                 }
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "mutation_witness": {
+                      "required": ["subject"],
+                      "properties": { "subject": { "pattern": "^npm:" } }
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "provenance": {
+                      "properties": {
+                        "input_artifacts": { "minItems": 6, "maxItems": 6 }
+                      }
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "provenance": {
+                      "properties": {
+                        "input_artifacts": { "minItems": 4, "maxItems": 4 }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
           },
           "else": { "not": { "required": ["mutation_witness"] } }
         },
