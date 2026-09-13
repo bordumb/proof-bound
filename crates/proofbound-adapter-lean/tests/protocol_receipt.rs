@@ -214,6 +214,25 @@ fn canonical_protocol_returns_a_direct_core_evidence_record() {
 }
 
 #[test]
+fn update_only_output_is_not_reported_as_a_generated_proof_artifact() {
+    let mut request = request();
+    request.unit["evidence_unit"]["outputs"] =
+        json!(["demo/allowance/claims/DEMO-TRANSFER-001.toml"]);
+
+    let output = handle_bytes(&canonical_json(&request).unwrap(), root());
+    let response: LeanAdapterResponse = serde_json::from_slice(&output).unwrap();
+    assert!(response.success, "{:?}", response.diagnostics);
+    assert!(
+        response
+            .evidence
+            .unwrap()
+            .provenance
+            .generated_artifacts
+            .is_empty()
+    );
+}
+
+#[test]
 fn captured_execution_enforces_one_total_budget_for_both_commands() {
     let mut request = request();
     let execution = &mut request.unit["audit"]["execution"];

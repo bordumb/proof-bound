@@ -1,6 +1,5 @@
 use std::{
     collections::BTreeSet,
-    fs,
     path::{Component, Path},
     str::FromStr,
 };
@@ -119,7 +118,7 @@ pub fn build_theorem_evidence(
             })
         })
         .collect::<Result<_, AdapterError>>()?;
-    let generated_artifacts = exact_artifacts(root, &evidence_unit.outputs)?;
+    let generated_artifacts = Vec::new();
 
     let configuration = ConfigurationIdentity {
         schema: "proofbound-lean-unit-configuration/2",
@@ -293,32 +292,6 @@ fn exact_closure(
         ));
     }
     Ok(closure)
-}
-
-fn exact_artifacts(root: &Path, outputs: &[String]) -> Result<Vec<ArtifactIdentity>, AdapterError> {
-    let paths = validate_exact_paths(root, outputs)?;
-    let mut artifacts = Vec::with_capacity(paths.len());
-    for logical_name in paths {
-        let bytes = fs::read(root.join(&logical_name)).map_err(|error| {
-            AdapterError::new(
-                PROVENANCE,
-                format!("cannot read generated artifact '{logical_name}': {error}"),
-            )
-        })?;
-        artifacts.push(ArtifactIdentity {
-            logical_name: ArtifactLogicalName::new(logical_name).map_err(|error| {
-                AdapterError::new(
-                    PROVENANCE,
-                    format!("invalid generated artifact name: {error}"),
-                )
-            })?,
-            sha256: Sha256Digest::of_bytes(&bytes),
-            size_bytes: u64::try_from(bytes.len()).map_err(|_| {
-                AdapterError::new(PROVENANCE, "generated artifact length exceeds u64")
-            })?,
-        });
-    }
-    Ok(artifacts)
 }
 
 fn validate_exact_paths(root: &Path, paths: &[String]) -> Result<BTreeSet<String>, AdapterError> {

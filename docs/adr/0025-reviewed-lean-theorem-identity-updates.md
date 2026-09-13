@@ -34,6 +34,13 @@ path. The update observation never becomes passing evidence. A subsequent
 verify-only check must rerun the audit against the new pins before the theorem
 can satisfy a claim.
 
+The evidence unit's `outputs` field is an orchestrator update allowlist. It
+does not state that Lean generates the claim manifest. Lean check, update, and
+reproduce receipts therefore leave `provenance.generated_artifacts` empty. The
+complete evidence unit, including its output boundary, remains bound into the
+versioned `unit_configuration_sha256`; the claim manifest does not become a
+generated artifact of its own theorem evidence.
+
 The target declaration must still equal the evidence unit's configured theorem
 and appear exactly once in its expected inventory. The adapter continues to
 reconcile the complete attributed inventory. For the target only, update mode
