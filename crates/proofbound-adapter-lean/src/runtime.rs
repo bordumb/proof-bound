@@ -595,13 +595,15 @@ mod tests {
             ],
             environment_allowlist: Vec::new(),
         };
-        let error = run_bounded(
+        let error = match run_bounded(
             Path::new("."),
             &command,
             Duration::from_millis(1),
             "timeout fixture",
-        )
-        .unwrap_err();
+        ) {
+            Ok(_) => panic!("timeout fixture must exceed its deadline"),
+            Err(error) => error,
+        };
         assert_eq!(error.code, TIMEOUT);
         assert!(error.message.contains("exceeded remaining time budget"));
     }
