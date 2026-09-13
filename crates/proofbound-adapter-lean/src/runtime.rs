@@ -583,4 +583,32 @@ mod tests {
         assert_eq!(error.code, TIMEOUT);
         assert_eq!(error.diagnostic().code, "PB-ADAPTER-0010");
     }
+
+    #[test]
+    fn child_deadline_uses_the_protocol_timeout_code() {
+        let command = CommandSpec {
+            program: env::current_exe().unwrap().to_string_lossy().into_owned(),
+            args: vec![
+                "--ignored".to_owned(),
+                "--exact".to_owned(),
+                "runtime::tests::timeout_child_fixture".to_owned(),
+            ],
+            environment_allowlist: Vec::new(),
+        };
+        let error = run_bounded(
+            Path::new("."),
+            &command,
+            Duration::from_millis(1),
+            "timeout fixture",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, TIMEOUT);
+        assert!(error.message.contains("exceeded remaining time budget"));
+    }
+
+    #[test]
+    #[ignore = "spawned only by child_deadline_uses_the_protocol_timeout_code"]
+    fn timeout_child_fixture() {
+        thread::sleep(Duration::from_secs(5));
+    }
 }

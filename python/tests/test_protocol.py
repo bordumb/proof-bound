@@ -98,3 +98,7 @@ def test_response_inventory_is_sorted_and_unique() -> None:
     value["inventory"] = ["b", "a"]
     with pytest.raises(ProtocolError, match="sorted"):
         AdapterResponse.parse(canonical_json(value))
+
+    value["inventory"] = [" \t"]
+    with pytest.raises(ProtocolError, match="non-empty"):
+        AdapterResponse.parse(canonical_json(value))

@@ -153,7 +153,7 @@ class AdapterResponse:
         if (
             not isinstance(inventory, list)
             or len(inventory) > 100_000
-            or any(not isinstance(item, str) or not item for item in inventory)
+            or any(not isinstance(item, str) or not item.strip() for item in inventory)
             or any(
                 len(item) > 4_096
                 or any(
