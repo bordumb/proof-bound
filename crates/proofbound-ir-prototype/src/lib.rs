@@ -436,9 +436,9 @@ pub fn project_corpus(root: &Path, corpus_path: &Path) -> Result<ProjectionBatch
 fn validate_corpus_header(corpus: &Corpus) -> Result<()> {
     ensure!(corpus.schema == CORPUS_SCHEMA, "unsupported corpus schema");
     ensure!(corpus.experiment == "EXP-0005", "unexpected experiment");
-    ensure!(corpus.revision == 4, "unsupported corpus revision");
+    ensure!(corpus.revision == 5, "unsupported corpus revision");
     ensure!(
-        corpus.status == "frozen-positive-after-receipt-v4-migration",
+        corpus.status == "frozen-positive-after-lean-output-boundary-migration",
         "corpus is not frozen"
     );
     ensure!(
