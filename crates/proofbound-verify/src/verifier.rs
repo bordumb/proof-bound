@@ -4068,6 +4068,19 @@ fn derive_claim(
             "claim identity, title, internal statement, and optional public language must be non-empty",
         );
     }
+    if release.schema == COMPILED_RELEASE_SCHEMA_V7 {
+        match (
+            claim.bounded_domain.as_ref(),
+            claim.registered_domain_language.as_deref(),
+        ) {
+            (None, None) => {}
+            (Some(domain), Some(language)) if language == domain.description.as_str() => {}
+            _ => claim_issue!(
+                VerificationIssueCode::PbvInvalidEvidence,
+                "claim bounded-domain language is not the exact domain-description projection",
+            ),
+        }
+    }
     require_claim_node(
         &release.graph,
         &claim.node_id,
@@ -4581,14 +4594,6 @@ fn derive_claim(
     {
         match claim.bounded_domain.as_ref() {
             Some(expected) => {
-                if claim.registered_domain_language.as_deref()
-                    != Some(expected.description.as_str())
-                {
-                    claim_issue!(
-                        VerificationIssueCode::PbvInvalidEvidence,
-                        "claim bounded-domain language disagrees with its registered domain",
-                    );
-                }
                 for evidence_id in &valid {
                     let record = evidence[evidence_id];
                     let is_primary_domain_evidence = (formal == FormalFacet::BoundedChecked

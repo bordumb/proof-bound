@@ -1051,6 +1051,32 @@ fn bounded_standing_requires_one_exact_claim_and_evidence_domain() {
 }
 
 #[test]
+fn bounded_domain_language_projection_is_structural() {
+    let mut exact = base_input(Tier::Ledger, ledger_policy());
+    exact.claim.bounded_domain = Some(domain());
+    exact.claim.registered_domain_language = Some(domain().description);
+    assert_eq!(derive_claim_status(&exact).formal, FormalFacet::Open);
+
+    let mut missing_language = exact.clone();
+    missing_language.claim.registered_domain_language = None;
+    assert_eq!(
+        derive_claim_status(&missing_language).formal,
+        FormalFacet::Invalid
+    );
+
+    let mut missing_domain = base_input(Tier::Ledger, ledger_policy());
+    missing_domain.claim.registered_domain_language = Some(domain().description);
+    assert_eq!(
+        derive_claim_status(&missing_domain).formal,
+        FormalFacet::Invalid
+    );
+
+    let mut mismatched = exact;
+    mismatched.claim.registered_domain_language = Some("another domain".into());
+    assert_eq!(derive_claim_status(&mismatched).formal, FormalFacet::Invalid);
+}
+
+#[test]
 fn public_language_is_reader_facing_without_replacing_the_internal_statement() {
     let mut input = base_input(Tier::Bounded, builtin(BuiltInProfile::Bounded));
     input.claim.statement = "Internal.Predicate subject".into();

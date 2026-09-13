@@ -1978,6 +1978,40 @@ fn verifier_keeps_exhaustive_evidence_corroborating_after_theorem_proof() {
 }
 
 #[test]
+fn verifier_requires_the_v7_domain_language_projection_before_bounded_standing() {
+    let domain = bounded_release().claims[0]
+        .bounded_domain
+        .clone()
+        .unwrap();
+    let mut exact = base_release();
+    exact.schema = COMPILED_RELEASE_SCHEMA_V7.into();
+    exact.claims[0].bounded_domain = Some(domain.clone());
+    exact.claims[0].registered_domain_language = Some(domain.description.clone());
+    verify_compiled_release(&exact).unwrap();
+
+    let mut missing_language = exact.clone();
+    missing_language.claims[0].registered_domain_language = None;
+    let error = verify_compiled_release(&missing_language).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut missing_domain = base_release();
+    missing_domain.schema = COMPILED_RELEASE_SCHEMA_V7.into();
+    missing_domain.claims[0].registered_domain_language = Some(domain.description.clone());
+    let error = verify_compiled_release(&missing_domain).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut mismatched = exact;
+    mismatched.claims[0].registered_domain_language = Some("another domain".into());
+    let error = verify_compiled_release(&mismatched).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+
+    let mut historical = base_release();
+    historical.claims[0].bounded_domain = Some(domain);
+    historical.claims[0].registered_domain_language = Some("historical projection".into());
+    verify_compiled_release(&historical).unwrap();
+}
+
+#[test]
 fn legacy_bounded_release_keeps_its_historical_domain_contract() {
     let mut release = bounded_release();
     release.schema = COMPILED_RELEASE_SCHEMA_V4.into();
