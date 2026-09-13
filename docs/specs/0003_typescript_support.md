@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation specification
 
-**Version:** 0.2.0
+**Version:** 0.2.1
 
 **Date:** 2026-09-01
 
@@ -16,6 +16,12 @@ Specification 0002 §7.1 (the `static-check` evidence kind) and §7.4
 
 ### Revision history
 
+- **0.2.1** — corrects the public evidence and release schemas to match the
+  existing Node mutation contract: the registry, target preimage, mutant,
+  witness, `package-lock.json`, and `package.json` are exactly six input
+  artifacts. Rust and Python mutation receipts retain their exact four-input
+  contract. This is a machine-readable schema correction, not a change to the
+  versioned receipt meaning (§5, §9, §12).
 - **0.2.0** — tooling governance: vitest identity command and
   minimum-version floor (§6); the reserved `tsgo` operation spelling as
   the native-compiler succession path and admission of future analyzers
@@ -128,7 +134,7 @@ This specification MUST NOT:
   adapter layout: a stdin/stdout binary speaking
   `schemas/adapter-protocol.schema.json`, a cleared child environment
   with per-unit allowlists, bounded output drains, deadline enforcement,
-  and observations in `proofbound-adapter-observation/2`.
+  and observations in `proofbound-adapter-observation/3`.
 - Error family: `PB-NODE-NNNN`, following the 0001 §12.3 contract.
 - Operation vocabulary owned by this adapter (closed):
   `vitest` (§6), `tsc` (§7), `npm-package` (§8), and the `vitest`

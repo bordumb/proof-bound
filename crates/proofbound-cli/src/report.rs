@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result, bail};
-use proofbound_core::ClaimStatus;
+use proofbound_core::{ClaimStatus, EvidenceId};
 use serde::Serialize;
 
 use crate::{CompiledProject, UnitRun};
@@ -98,6 +98,46 @@ fn render_unit_runs(runs: &[UnitRun]) {
     }
 }
 
+fn render_claim_unit_runs(runs: &[&UnitRun]) {
+    println!("unit runs");
+    if runs.is_empty() {
+        println!("  none selected");
+        return;
+    }
+    for run in runs {
+        render_unit_run(run);
+    }
+}
+
+fn render_unit_run(run: &UnitRun) {
+    println!("  {} ({}) — {}", run.unit_id, run.adapter, run.outcome);
+    for diagnostic in &run.diagnostics {
+        println!("    {}: {}", diagnostic.code, diagnostic.message);
+        if let Some(path) = &diagnostic.path {
+            println!("      path: {path}");
+        }
+        if let Some(remediation) = &diagnostic.remediation {
+            println!("      remediation: {remediation}");
+        }
+    }
+}
+
+fn unit_runs_for_citations<'a>(
+    runs: &'a [UnitRun],
+    citations: &BTreeSet<EvidenceId>,
+) -> Vec<&'a UnitRun> {
+    runs.iter()
+        .filter(|run| {
+            citations.iter().any(|citation| {
+                citation
+                    .as_str()
+                    .split_once(':')
+                    .is_some_and(|(_, unit_id)| unit_id == run.unit_id)
+            })
+        })
+        .collect()
+}
+
 pub fn render_claim(
     compiled: &CompiledProject,
     id: &str,
@@ -114,13 +154,15 @@ pub fn render_claim(
         .iter()
         .find(|input| input.claim.id.as_str() == id)
         .context("PB-CLAIM-0004: claim has no derivation input")?;
+    let unit_runs = unit_runs_for_citations(&compiled.unit_runs, &input.claim.cited_evidence);
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "schema": "proofbound-claim-report/1",
+                "schema": "proofbound-claim-report/2",
                 "status": status,
                 "input": input,
+                "unit_runs": unit_runs,
                 "graph": include_graph.then_some(&input.graph),
                 "not_proved_out_of_scope": status.not_proved_out_of_scope,
             }))?
@@ -163,6 +205,7 @@ pub fn render_claim(
             println!("    - {reason}");
         }
     }
+    render_claim_unit_runs(&unit_runs);
     if include_graph {
         println!("graph");
         for edge in &input.graph.edges {
@@ -184,6 +227,12 @@ pub fn render_explanation(compiled: &CompiledProject, id: &str) -> Result<()> {
         .iter()
         .find(|status| status.claim_id.as_str() == id)
         .with_context(|| format!("PB-CLAIM-0003: no compiled claim {id}"))?;
+    let input = compiled
+        .inputs
+        .iter()
+        .find(|input| input.claim.id.as_str() == id)
+        .context("PB-CLAIM-0004: claim has no derivation input")?;
+    let unit_runs = unit_runs_for_citations(&compiled.unit_runs, &input.claim.cited_evidence);
     println!(
         "{} is {} with {} linkage.",
         id,
@@ -207,6 +256,7 @@ pub fn render_explanation(compiled: &CompiledProject, id: &str) -> Result<()> {
             println!("  remediation: {}", blocker.remediation);
         }
     }
+    render_claim_unit_runs(&unit_runs);
     render_claim_gaps(status);
     Ok(())
 }
@@ -536,5 +586,38 @@ mod tests {
             "PB-ADAPTER-0003"
         );
         assert_eq!(value["unit_runs"][0]["outcome"], "unavailable");
+    }
+
+    #[test]
+    fn claim_reports_select_the_failed_run_for_their_exact_citation() {
+        let runs = vec![
+            UnitRun {
+                unit_id: "missing-kani".into(),
+                adapter: "proofbound-adapter-kani".into(),
+                cache_key: "sha256:missing".into(),
+                outcome: "unavailable".into(),
+                evidence_sha256: None,
+                inventory: Vec::new(),
+                diagnostics: Vec::new(),
+            },
+            UnitRun {
+                unit_id: "other-test".into(),
+                adapter: "proofbound-adapter-test".into(),
+                cache_key: "sha256:other".into(),
+                outcome: "verified-now".into(),
+                evidence_sha256: Some("sha256:evidence".into()),
+                inventory: Vec::new(),
+                diagnostics: Vec::new(),
+            },
+        ];
+        let citations = BTreeSet::from([
+            EvidenceId::new("bounded-check:missing-kani").unwrap(),
+            EvidenceId::new("example-test:unselected").unwrap(),
+        ]);
+
+        let selected = unit_runs_for_citations(&runs, &citations);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].unit_id, "missing-kani");
+        assert_eq!(selected[0].outcome, "unavailable");
     }
 }

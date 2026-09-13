@@ -29,8 +29,8 @@ use thiserror::Error;
 use walkdir::WalkDir;
 
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
-const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
-const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
+const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/2";
+const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_JSON_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_EXECUTABLE_BYTES: u64 = 512 * 1024 * 1024;
@@ -208,7 +208,7 @@ impl Deadline {
         budget
             .checked_sub(elapsed)
             .filter(|remaining| !remaining.is_zero())
-            .ok_or(NodeError::Budget("time budget exhausted".to_owned()))
+            .ok_or(NodeError::Timeout(self.budget_ms))
     }
 }
 
@@ -265,7 +265,9 @@ impl Executor for RealExecutor {
                 let _ = child.wait();
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
-                return Err(NodeError::Budget("child command timed out".to_owned()));
+                return Err(NodeError::Timeout(
+                    u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                ));
             }
             thread::sleep(Duration::from_millis(10));
         };
@@ -306,6 +308,8 @@ enum NodeError {
     Inventory(String),
     #[error("Node tool failed: {0}")]
     ToolFailed(String),
+    #[error("tool exceeded its {0} ms time budget")]
+    Timeout(u64),
     #[error("resource budget exceeded: {0}")]
     Budget(String),
     #[error("internal adapter error: {0}")]
@@ -325,7 +329,7 @@ impl NodeError {
             ),
             Self::Request(_) => (
                 "PB-NODE-1003",
-                "send canonical proofbound-adapter-protocol/1 JSON",
+                "send canonical proofbound-adapter-protocol/2 JSON",
             ),
             Self::Unit(_) => ("PB-NODE-1004", "use a strict typed node-test evidence unit"),
             Self::UnsafePath(_) => (
@@ -339,6 +343,10 @@ impl NodeError {
             Self::ToolFailed(_) => (
                 "PB-NODE-1007",
                 "reproduce the exact typed operation and fix its failure",
+            ),
+            Self::Timeout(_) => (
+                "PB-ADAPTER-0010",
+                "reduce the bounded workload or increase its reviewed time budget",
             ),
             Self::Budget(_) => (
                 "PB-NODE-1008",
@@ -635,14 +643,32 @@ fn execute_request<E: Executor>(
     }
     let time_ms = elapsed_ms(started);
     if time_ms > budget.time_ms {
-        return Err(NodeError::Budget(format!(
-            "adapter execution used {time_ms} ms, limit is {}",
-            budget.time_ms
-        )));
+        return Err(NodeError::Timeout(budget.time_ms));
     }
+    let mutation_runs = result.mutation.as_ref().map(|mutation| {
+        (
+            mutation.baseline_run_index,
+            mutation.expected_failure.run_index,
+        )
+    });
     let commands = specs
         .iter()
-        .map(|spec| observe_command(spec, &root, &shadows, &environment_observation))
+        .enumerate()
+        .map(|(index, spec)| match mutation_runs {
+            Some((baseline, _)) if index == baseline => observe_mutation_command(
+                spec,
+                &shadows[0].project,
+                "$BASELINE",
+                &environment_observation,
+            ),
+            Some((_, mutant)) if index == mutant => observe_mutation_command(
+                spec,
+                &shadows[1].project,
+                "$MUTANT",
+                &environment_observation,
+            ),
+            _ => observe_command(spec, &root, &shadows, &environment_observation),
+        })
         .collect::<Vec<_>>();
     let runs = observe_runs(&outputs, &root, &shadows);
     let unit_bytes =
@@ -2580,6 +2606,38 @@ fn observe_command(
     }
 }
 
+fn observe_mutation_command(
+    spec: &ProcessSpec,
+    execution_root: &Path,
+    logical_root: &str,
+    environment: &[EnvironmentObservation],
+) -> CommandObservation {
+    let logicalize = |value: &str| {
+        Path::new(value).strip_prefix(execution_root).map_or_else(
+            |_| value.to_owned(),
+            |relative| {
+                if relative.as_os_str().is_empty() {
+                    logical_root.to_owned()
+                } else {
+                    format!(
+                        "{logical_root}/{}",
+                        relative.to_string_lossy().replace('\\', "/")
+                    )
+                }
+            },
+        )
+    };
+    CommandObservation {
+        program: logicalize(&spec.program.to_string_lossy()),
+        args: spec
+            .args
+            .iter()
+            .map(|argument| logicalize(argument))
+            .collect(),
+        environment_allowlist: environment.to_vec(),
+    }
+}
+
 fn observe_runs(outputs: &[ProcessOutput], root: &Path, shadows: &[Shadow]) -> Vec<RunObservation> {
     outputs
         .iter()
@@ -2717,6 +2775,18 @@ fn unix_ms() -> Result<u64, NodeError> {
 mod tests {
     use super::*;
     use flate2::{Compression, write::GzEncoder};
+
+    #[test]
+    fn timeout_and_resource_budget_have_distinct_diagnostics() {
+        assert_eq!(
+            NodeError::Timeout(900_000).diagnostic().code,
+            "PB-ADAPTER-0010"
+        );
+        assert_eq!(
+            NodeError::Budget("disk".to_owned()).diagnostic().code,
+            "PB-NODE-1008"
+        );
+    }
 
     fn write_node_metadata(root: &Path, dependency: &str, integrity: Option<&str>) {
         fs::write(
@@ -2985,6 +3055,53 @@ mod tests {
             ..output
         };
         assert!(validate_vitest_report(&output, &root, &expected, true).is_err());
+    }
+
+    #[test]
+    fn mutation_command_observation_preserves_both_exact_shadow_roles() {
+        let temporary = tempfile::tempdir().unwrap();
+        let baseline_root = temporary.path().join("baseline");
+        let mutant_root = temporary.path().join("mutant");
+        let baseline = ProcessSpec {
+            program: baseline_root.join("node_modules/vitest/vitest.mjs"),
+            args: vec![
+                "run".to_owned(),
+                baseline_root
+                    .join("src/guard.test.ts")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        };
+        let mutant = ProcessSpec {
+            program: mutant_root.join("node_modules/vitest/vitest.mjs"),
+            args: vec![
+                "run".to_owned(),
+                mutant_root
+                    .join("src/guard.test.ts")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+        };
+        let baseline_observation =
+            observe_mutation_command(&baseline, &baseline_root, "$BASELINE", &[]);
+        let mutant_observation = observe_mutation_command(&mutant, &mutant_root, "$MUTANT", &[]);
+        assert_eq!(
+            baseline_observation.program,
+            "$BASELINE/node_modules/vitest/vitest.mjs"
+        );
+        assert_eq!(
+            mutant_observation.program,
+            "$MUTANT/node_modules/vitest/vitest.mjs"
+        );
+        assert_eq!(
+            baseline_observation.args,
+            ["run", "$BASELINE/src/guard.test.ts"]
+        );
+        assert_eq!(
+            mutant_observation.args,
+            ["run", "$MUTANT/src/guard.test.ts"]
+        );
+        assert_ne!(baseline_observation, mutant_observation);
     }
 
     struct RecordingExecutor {

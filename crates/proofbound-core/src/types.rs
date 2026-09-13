@@ -151,6 +151,21 @@ impl EvidenceKind {
                 | Self::StaticCheck
         )
     }
+
+    /// Whether this evidence kind can carry one exact artifact observation.
+    #[must_use]
+    pub(crate) const fn supports_exact_artifact_observation(self) -> bool {
+        matches!(
+            self,
+            Self::BoundedCheck
+                | Self::IndependentCheck
+                | Self::ExhaustiveCheck
+                | Self::PropertyTest
+                | Self::ExampleTest
+                | Self::MutationWitness
+                | Self::StaticCheck
+        )
+    }
 }
 
 /// How Lean evaluated a theorem or artifact theorem.
@@ -334,6 +349,23 @@ pub enum IndependenceMode {
 mod tests {
     use super::*;
 
+    const ALL_EVIDENCE_KINDS: [EvidenceKind; 14] = [
+        EvidenceKind::Theorem,
+        EvidenceKind::ArtifactSoundness,
+        EvidenceKind::TrustedTranscription,
+        EvidenceKind::SourceRefinement,
+        EvidenceKind::BoundedCheck,
+        EvidenceKind::IndependentCheck,
+        EvidenceKind::ExhaustiveCheck,
+        EvidenceKind::PropertyTest,
+        EvidenceKind::ExampleTest,
+        EvidenceKind::MutationWitness,
+        EvidenceKind::StaticCheck,
+        EvidenceKind::Review,
+        EvidenceKind::Assumption,
+        EvidenceKind::Open,
+    ];
+
     #[test]
     fn closed_enums_reject_unknown_values() {
         assert!(serde_json::from_str::<NodeKind>("\"claim-ish\"").is_err());
@@ -351,5 +383,24 @@ mod tests {
             serde_json::to_string(&LinkageFacet::ArtifactBound).unwrap(),
             "\"ARTIFACT_BOUND\""
         );
+    }
+
+    #[test]
+    fn exact_artifact_observation_support_is_closed_without_changing_status_semantics() {
+        for kind in ALL_EVIDENCE_KINDS {
+            let expected = matches!(
+                kind,
+                EvidenceKind::BoundedCheck
+                    | EvidenceKind::IndependentCheck
+                    | EvidenceKind::ExhaustiveCheck
+                    | EvidenceKind::PropertyTest
+                    | EvidenceKind::ExampleTest
+                    | EvidenceKind::MutationWitness
+                    | EvidenceKind::StaticCheck
+            );
+            assert_eq!(kind.supports_exact_artifact_observation(), expected);
+        }
+        assert!(!EvidenceKind::BoundedCheck.is_empirical());
+        assert!(EvidenceKind::BoundedCheck.supports_exact_artifact_observation());
     }
 }

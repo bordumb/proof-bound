@@ -54,7 +54,7 @@ such as `11 passed` are rejected, and libtest output capture remains enabled so
 test-authored stdout cannot impersonate the harness summary.
 
 Mutation witnesses use the separate `proofbound-evidence-unit/3` route and a
-singleton `proofbound-mutation-registry/2`. The registry byte-pins one target
+singleton `proofbound-mutation-registry/3`. The registry byte-pins one target
 preimage, one complete replacement file, and the source file containing one
 exact libtest witness. Its mutation ID, affected claims, and four input paths
 must exactly equal the evidence unit; legacy registrations that merely name a
@@ -112,7 +112,7 @@ observation. No other ambient variable is admitted.
 
 ## Adapter protocol
 
-This executable accepts one canonical JSON `proofbound-adapter-protocol/1`
+This executable accepts one canonical JSON `proofbound-adapter-protocol/2`
 request on standard input and emits one canonical response on standard output.
 The request `unit` is a strict `proofbound-evidence-unit/1` object, except the
 typed trusted-transcription and mutation-replay routes, which use
@@ -122,7 +122,7 @@ evaluated by a shell.
 
 Successful evidence-producing operations return a common observation in the
 response's `evidence` field. All non-Lean adapters use this exact
-`proofbound-adapter-observation/2` shape:
+`proofbound-adapter-observation/3` shape:
 
 - `unit_id`, `evidence_kind`, and `outcome`;
 - `input_artifacts` and `generated_artifacts`, each with logical name,

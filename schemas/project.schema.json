@@ -54,12 +54,16 @@
     {
       "if": { "properties": { "schema": { "const": "proofbound-project/1" } }, "required": ["schema"] },
       "then": { "not": { "anyOf": [{ "required": ["evidence_contexts"] }, { "required": ["required_release_contexts"] }] } }
+    },
+    {
+      "if": { "properties": { "schema": { "const": "proofbound-project/2" } }, "required": ["schema"] },
+      "then": { "required": ["evidence_contexts", "required_release_contexts"] }
     }
   ],
   "$defs": {
     "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
     "contextName": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 128 },
-    "contextNames": { "type": "array", "items": { "$ref": "#/$defs/contextName" }, "uniqueItems": true, "maxItems": 256 },
+    "contextNames": { "type": "array", "items": { "$ref": "#/$defs/contextName" }, "minItems": 1, "uniqueItems": true, "maxItems": 256 },
     "path": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
     "paths": { "type": "array", "items": { "$ref": "#/$defs/path" }, "uniqueItems": true, "maxItems": 10000 }
   }

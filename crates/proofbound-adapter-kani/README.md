@@ -1,6 +1,6 @@
 # Adapter protocol
 
-This executable accepts one canonical JSON `proofbound-adapter-protocol/1`
+This executable accepts one canonical JSON `proofbound-adapter-protocol/2`
 request on standard input and emits one canonical response on standard output.
 The request `unit` is a strict `proofbound-evidence-unit/1` object. Commands
 are typed program/argument vectors; manifest strings are never evaluated by a
@@ -17,7 +17,7 @@ responses always carry null evidence and an empty inventory.
 
 Successful evidence-producing operations return a common observation in the
 response's `evidence` field. All non-Lean adapters use this exact
-`proofbound-adapter-observation/2` shape:
+`proofbound-adapter-observation/3` shape:
 
 - `unit_id`, `evidence_kind`, and `outcome`;
 - `input_artifacts` and `generated_artifacts`, each with logical name,

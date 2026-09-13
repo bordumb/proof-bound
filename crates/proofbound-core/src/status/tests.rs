@@ -186,7 +186,7 @@ fn attach_mutation_witness(
         .push(target_postimage.clone());
     record.inventoried_targets = BTreeSet::from([mutation_id.to_owned()]);
     let mut witness = MutationWitnessEvidence {
-        schema: crate::MUTATION_WITNESS_SCHEMA_V2.into(),
+        schema: crate::MUTATION_WITNESS_SCHEMA_V3.into(),
         mutation_id: mutation_id.into(),
         subject: "rust:crate::decide".into(),
         guard: "the registered guard remains enforced".into(),
@@ -229,12 +229,12 @@ fn node_mutation_record() -> EvidenceRecord {
     ];
     record.provenance.commands = vec![
         CommandSpec {
-            program: "node_modules/.bin/vitest".into(),
+            program: "$BASELINE/node_modules/.bin/vitest".into(),
             args: args.clone(),
             environment_allowlist: Vec::new(),
         },
         CommandSpec {
-            program: "node_modules/.bin/vitest".into(),
+            program: "$MUTANT/node_modules/.bin/vitest".into(),
             args,
             environment_allowlist: Vec::new(),
         },
@@ -452,7 +452,7 @@ fn base_input(tier: Tier, policy: PolicyDefinition) -> ClaimEvaluationInput {
 
 fn basic_record(id: &str, kind: EvidenceKind, node_id: &str) -> EvidenceRecord {
     EvidenceRecord {
-        schema: crate::EVIDENCE_SCHEMA_V3.into(),
+        schema: crate::EVIDENCE_SCHEMA_V4.into(),
         id: EvidenceId::new(id).unwrap(),
         node_id: NodeId::new(node_id).unwrap(),
         unit_id: UnitId::new(format!("unit:{id}")).unwrap(),
@@ -718,6 +718,33 @@ fn empirical_bounded_and_theorem_precedence_is_exact_and_retains_weaker_evidence
 }
 
 #[test]
+fn admitted_theorem_keeps_exhaustive_evidence_corroborating() {
+    let mut policy = builtin(BuiltInProfile::Kernel);
+    policy.id = PolicyId::new("kernel-with-finite-corroboration").unwrap();
+    policy.admit_exhaustive_as_proved = true;
+    let mut input = base_input(Tier::Model, policy);
+    add_record(
+        &mut input,
+        theorem_record("proof", crate::EvaluationMode::Kernel),
+        NodeKind::Theorem,
+        true,
+    );
+    let mut corroborating = exhaustive_record("corroborating");
+    corroborating
+        .exhaustive_check
+        .as_mut()
+        .unwrap()
+        .domain
+        .registration_sha256 = digest("unregistered-corroborating-domain");
+    add_record(&mut input, corroborating, NodeKind::ModelCheckUnit, true);
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Proved);
+    assert!(status.policy.admitted);
+    assert_eq!(status.evidence.len(), 2);
+}
+
+#[test]
 fn exact_artifact_observation_is_typed_without_upgrading_linkage() {
     let mut input = base_input(Tier::Ledger, ledger_policy());
     let dependency = example_record("release-build");
@@ -893,6 +920,23 @@ fn exhaustive_is_tested_unless_policy_explicitly_admits_finite_proof() {
         status.public_statement,
         "The registered subject has property P. Registered finite domain: all values x where 0 <= x <= 255"
     );
+
+    let mut substituted = admitted;
+    substituted.evidence[0]
+        .exhaustive_check
+        .as_mut()
+        .unwrap()
+        .domain
+        .registration_sha256 = digest("other-exhaustive-domain");
+    let status = derive_claim_status(&substituted);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error.code == ErrorCode::PbCoreInvalidEvidence
+            && error
+                .unit_id
+                .as_ref()
+                .is_some_and(|id| id.as_str() == "unit:all-u8")
+    }));
 }
 
 #[test]
@@ -933,6 +977,25 @@ fn bounded_standing_requires_one_exact_claim_and_evidence_domain() {
     );
     assert_eq!(
         derive_claim_status(&exact).formal,
+        FormalFacet::BoundedChecked
+    );
+
+    let mut corroborated = exact.clone();
+    let mut corroborating = exhaustive_record("corroborating");
+    corroborating
+        .exhaustive_check
+        .as_mut()
+        .unwrap()
+        .domain
+        .registration_sha256 = digest("corroborating-domain");
+    add_record(
+        &mut corroborated,
+        corroborating,
+        NodeKind::ModelCheckUnit,
+        true,
+    );
+    assert_eq!(
+        derive_claim_status(&corroborated).formal,
         FormalFacet::BoundedChecked
     );
 
@@ -985,6 +1048,35 @@ fn bounded_standing_requires_one_exact_claim_and_evidence_domain() {
             .as_ref()
             .is_some_and(|id| id.as_str() == "unit:foreign")
     }));
+}
+
+#[test]
+fn bounded_domain_language_projection_is_structural() {
+    let mut exact = base_input(Tier::Ledger, ledger_policy());
+    exact.claim.bounded_domain = Some(domain());
+    exact.claim.registered_domain_language = Some(domain().description);
+    assert_eq!(derive_claim_status(&exact).formal, FormalFacet::Open);
+
+    let mut missing_language = exact.clone();
+    missing_language.claim.registered_domain_language = None;
+    assert_eq!(
+        derive_claim_status(&missing_language).formal,
+        FormalFacet::Invalid
+    );
+
+    let mut missing_domain = base_input(Tier::Ledger, ledger_policy());
+    missing_domain.claim.registered_domain_language = Some(domain().description);
+    assert_eq!(
+        derive_claim_status(&missing_domain).formal,
+        FormalFacet::Invalid
+    );
+
+    let mut mismatched = exact;
+    mismatched.claim.registered_domain_language = Some("another domain".into());
+    assert_eq!(
+        derive_claim_status(&mismatched).formal,
+        FormalFacet::Invalid
+    );
 }
 
 #[test]
@@ -2367,6 +2459,27 @@ fn mutation_witness_replay_is_exact_and_fail_closed() {
         replayed_baseline_binary,
     ));
 
+    let mut pytest_prefix_injection = valid.clone();
+    for command in &mut pytest_prefix_injection.provenance.commands {
+        command.args = vec![
+            "-m".into(),
+            "pytest".into(),
+            "guard_witnesses::guard_removed".into(),
+        ];
+    }
+    cases.push((
+        "pytest prefix selected for a Rust subject",
+        pytest_prefix_injection,
+    ));
+
+    let mut malformed_subject = valid.clone();
+    let witness = malformed_subject.mutation_witness.as_mut().unwrap();
+    witness.subject = "python:not valid".into();
+    witness.mutation_sha256 = witness
+        .derived_mutation_sha256(&malformed_subject.claims)
+        .unwrap();
+    cases.push(("unvalidated subject prefix", malformed_subject));
+
     let mut hidden_input = valid.clone();
     hidden_input
         .provenance
@@ -2427,6 +2540,11 @@ fn node_mutation_witness_requires_exact_vitest_abi_and_package_inputs() {
     let mut wrong_exit = valid.clone();
     wrong_exit.provenance.runs[1].exit_code = Some(101);
     assert!(wrong_exit.validate(&claim_id()).is_err());
+
+    let mut replayed_baseline = valid.clone();
+    replayed_baseline.provenance.commands[1].program =
+        replayed_baseline.provenance.commands[0].program.clone();
+    assert!(replayed_baseline.validate(&claim_id()).is_err());
 
     let mut missing_lock = valid;
     missing_lock

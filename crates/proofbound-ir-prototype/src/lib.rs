@@ -436,9 +436,9 @@ pub fn project_corpus(root: &Path, corpus_path: &Path) -> Result<ProjectionBatch
 fn validate_corpus_header(corpus: &Corpus) -> Result<()> {
     ensure!(corpus.schema == CORPUS_SCHEMA, "unsupported corpus schema");
     ensure!(corpus.experiment == "EXP-0005", "unexpected experiment");
-    ensure!(corpus.revision == 3, "unsupported corpus revision");
+    ensure!(corpus.revision == 4, "unsupported corpus revision");
     ensure!(
-        corpus.status == "frozen-positive-after-preregistered-rust-classification-correction",
+        corpus.status == "frozen-positive-after-receipt-v4-migration",
         "corpus is not frozen"
     );
     ensure!(
@@ -2829,7 +2829,8 @@ mod tests {
     #[test]
     fn projects_all_frozen_cases_deterministically() {
         let root = root();
-        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let corpus =
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
         let first = project_corpus(&root, &corpus).unwrap();
         let second = project_corpus(&root, &corpus).unwrap();
         assert_eq!(first, second);
@@ -2977,7 +2978,8 @@ mod tests {
     #[test]
     fn registration_projection_retains_claim_and_request_meaning() {
         let root = root();
-        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let corpus =
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let case = projection
             .cases
@@ -3024,7 +3026,8 @@ mod tests {
     #[test]
     fn portable_projection_retains_programme_and_execution_meaning() {
         let root = root();
-        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let corpus =
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let program = &projection
             .cases
@@ -3054,7 +3057,7 @@ mod tests {
         let evidence = &program.evidence[0];
         assert_eq!(
             evidence.content_sha256.as_deref(),
-            Some("sha256:0472956f8429866d293913903a3b1ac9ae42764e658078953dae8015939b44d4")
+            Some("sha256:9cb70e1b87da4d5783f96b691e02d9fc5a45f622f718578eebb9247393459016")
         );
         assert_eq!(evidence.provenance.commands[0].program, "synthetic-runner");
         assert_eq!(evidence.provenance.runs[0].exit_code, Some(0));
@@ -3174,7 +3177,8 @@ mod tests {
     #[test]
     fn typed_family_details_bind_registration_and_artifact_roles() {
         let root = root();
-        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let corpus =
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let property = &projection
             .cases
@@ -3242,7 +3246,8 @@ mod tests {
     #[test]
     fn subject_closure_binds_registered_paths_and_bytes() {
         let root = root();
-        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let corpus =
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let program = &projection
             .cases
@@ -3285,7 +3290,8 @@ mod tests {
     #[test]
     fn rejects_every_preregistered_adversarial_case() {
         let root = root();
-        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let corpus =
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let bases = projection
             .cases
@@ -3316,7 +3322,8 @@ mod tests {
     #[test]
     fn rejects_every_preregistered_q1_adversarial_case() {
         let root = root();
-        let corpus = root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases.json");
+        let corpus =
+            root.join("docs/experiments/0005-assurance-ir-extraction/corpus/cases-r4.json");
         let projection = project_corpus(&root, &corpus).unwrap();
         let base = &projection
             .cases

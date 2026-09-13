@@ -204,6 +204,19 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
             "remove public_language or register a nonblank reader-facing statement",
         ));
     }
+    match (
+        input.claim.bounded_domain.as_ref(),
+        input.claim.registered_domain_language.as_deref(),
+    ) {
+        (None, None) => {}
+        (Some(domain), Some(language)) if language == domain.description.as_str() => {}
+        _ => errors.push(claim_error(
+            claim_id,
+            ErrorCode::PbCoreInvalidEvidence,
+            "claim bounded-domain language is not the exact domain-description projection",
+            "derive registered_domain_language solely from bounded_domain.description, or omit both fields",
+        )),
+    }
     if input.claim.policy != input.policy.id {
         errors.push(
             claim_error(
@@ -800,18 +813,15 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
     if formal == FormalFacet::BoundedChecked || used_exhaustive_as_proof {
         match input.claim.bounded_domain.as_ref() {
             Some(expected) => {
-                if input.claim.registered_domain_language.as_deref()
-                    != Some(expected.description.as_str())
-                {
-                    errors.push(claim_error(
-                        claim_id,
-                        ErrorCode::PbCoreInvalidEvidence,
-                        "claim bounded-domain language disagrees with its registered domain",
-                        "derive the public finite-domain language from the exact claim bounded-domain registration",
-                    ));
-                }
                 for evidence_id in &valid_evidence {
                     let record = evidence_catalog[evidence_id];
+                    let is_primary_domain_evidence = (formal == FormalFacet::BoundedChecked
+                        && record.kind == EvidenceKind::BoundedCheck)
+                        || (used_exhaustive_as_proof
+                            && record.kind == EvidenceKind::ExhaustiveCheck);
+                    if !is_primary_domain_evidence {
+                        continue;
+                    }
                     let Some(actual) = record.bounded_domain() else {
                         continue;
                     };

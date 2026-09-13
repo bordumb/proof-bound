@@ -73,4 +73,3 @@ EXP-0022 decision still requires supported availability and Q1–Q5.
 
 The retained outcome is documented in [CONCLUSION.md](CONCLUSION.md), and its
 machine evidence is indexed by [ARTIFACTS.md](ARTIFACTS.md).
-

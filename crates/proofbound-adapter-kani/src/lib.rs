@@ -1,6 +1,6 @@
 //! Manifest-driven Kani adapter.
 //!
-//! The adapter accepts exactly one canonical `proofbound-adapter-protocol/1`
+//! The adapter accepts exactly one canonical `proofbound-adapter-protocol/2`
 //! request on stdin and writes exactly one canonical response on stdout.  It
 //! never interprets a shell string: every process is a fixed program plus a
 //! validated argument vector derived from the supplied evidence/model-check
@@ -30,8 +30,8 @@ use tempfile::TempDir;
 use thiserror::Error;
 use walkdir::WalkDir;
 
-pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
-pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/2";
+pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/2";
+pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 pub const ADAPTER_ID: &str = "kani";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TOOL_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
@@ -321,13 +321,17 @@ impl AdapterError {
                 "PB-KANI-1001",
                 "install the pinned Kani toolchain and ensure `cargo` is on the allowed PATH",
             ),
-            Self::Timeout(_) | Self::Budget(_) => (
+            Self::Timeout(_) => (
+                "PB-ADAPTER-0010",
+                "reduce the bounded workload or increase its reviewed time budget",
+            ),
+            Self::Budget(_) => (
                 "PB-KANI-1002",
                 "increase the unit budget only after review, or reduce the bounded workload",
             ),
             Self::Request(_) => (
                 "PB-KANI-1003",
-                "send canonical proofbound-adapter-protocol/1 JSON with no unknown fields",
+                "send canonical proofbound-adapter-protocol/2 JSON with no unknown fields",
             ),
             Self::Unit(_) => (
                 "PB-KANI-1004",
@@ -1454,6 +1458,18 @@ fn truncate_message(message: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn timeout_and_resource_budget_have_distinct_diagnostics() {
+        assert_eq!(
+            AdapterError::Timeout(900_000).diagnostic().code,
+            "PB-ADAPTER-0010"
+        );
+        assert_eq!(
+            AdapterError::Budget("disk".to_owned()).diagnostic().code,
+            "PB-KANI-1002"
+        );
+    }
 
     #[derive(Default)]
     struct FakeExecutor {
