@@ -8,7 +8,7 @@ declarations, axioms, or theorem text.
 
 The process reads exactly one compact, recursively key-sorted JSON request from
 stdin and writes exactly one compact, recursively key-sorted JSON response to
-stdout. Both envelopes use `proofbound-adapter-protocol/1`; trailing whitespace,
+stdout. Both envelopes use `proofbound-adapter-protocol/2`; trailing whitespace,
 duplicate/unknown fields, invalid request IDs, and oversized input fail closed.
 Diagnostics use stable `PB-LEAN-NNNN` codes.
 

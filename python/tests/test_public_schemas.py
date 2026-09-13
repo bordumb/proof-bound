@@ -409,10 +409,27 @@ def test_standalone_verifier_release_fixture_matches_shipped_receipt_schema() ->
 def test_runtime_report_and_graph_export_shapes_match_public_schemas() -> None:
     status = sample_claim_status()
     report = {
-        "schema": "proofbound-report/1",
+        "schema": "proofbound-report/2",
         "project": "proofbound",
         "project_revision": "90a117e",
         "claims": [status],
+        "unit_runs": [
+            {
+                "unit_id": "missing-kani",
+                "adapter": "proofbound-adapter-kani",
+                "cache_key": f"sha256:{'01' * 32}",
+                "outcome": "unavailable",
+                "evidence_sha256": None,
+                "inventory": [],
+                "diagnostics": [
+                    {
+                        "code": "PB-ADAPTER-0003",
+                        "message": "could not start proofbound-adapter-kani",
+                        "remediation": "install the registered adapter",
+                    }
+                ],
+            }
+        ],
         "publication_blocked": False,
         "not_proved_out_of_scope": {
             "open_obligations": [],
@@ -467,7 +484,7 @@ def test_tcb_ledger_schema_matches_the_release_projection() -> None:
 
 def test_adapter_schema_forbids_evidence_on_failure() -> None:
     response = {
-        "schema": "proofbound-adapter-protocol/1",
+        "schema": "proofbound-adapter-protocol/2",
         "type": "response",
         "request_id": "0123456789abcdef0123456789abcdef",
         "adapter": "lean",
@@ -481,6 +498,17 @@ def test_adapter_schema_forbids_evidence_on_failure() -> None:
     response["evidence"] = None
     response["inventory"] = ["must-not-survive-failure"]
     assert list(validator("adapter-protocol.schema.json").iter_errors(response))
+
+    response["inventory"] = []
+    assert list(validator("adapter-protocol.schema.json").iter_errors(response))
+    response["diagnostics"] = [
+        {"code": "PB-LEAN-0001", "message": "registered theorem was not found"}
+    ]
+    validator("adapter-protocol.schema.json").validate(response)
+
+    legacy = json.loads(json.dumps(response))
+    legacy["schema"] = "proofbound-adapter-protocol/1"
+    assert list(validator("adapter-protocol.schema.json").iter_errors(legacy))
 
     response["success"] = True
     response["evidence"] = None

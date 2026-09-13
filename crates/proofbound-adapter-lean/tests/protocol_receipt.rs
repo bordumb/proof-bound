@@ -219,7 +219,7 @@ fn captured_execution_enforces_one_total_budget_for_both_commands() {
     let response: LeanAdapterResponse = serde_json::from_slice(&output).unwrap();
     assert!(!response.success);
     assert!(response.evidence.is_none());
-    assert_eq!(response.diagnostics[0].code, "PB-LEAN-0011");
+    assert_eq!(response.diagnostics[0].code, "PB-ADAPTER-0010");
 }
 
 #[test]

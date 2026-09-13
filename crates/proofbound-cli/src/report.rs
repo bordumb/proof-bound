@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result, bail};
-use proofbound_core::ClaimStatus;
+use proofbound_core::{ClaimStatus, EvidenceId};
 use serde::Serialize;
 
-use crate::CompiledProject;
+use crate::{CompiledProject, UnitRun};
 
 #[derive(Serialize)]
 struct StatusProjection<'a> {
@@ -12,6 +12,7 @@ struct StatusProjection<'a> {
     project: &'a str,
     project_revision: &'a str,
     claims: &'a [ClaimStatus],
+    unit_runs: &'a [UnitRun],
     publication_blocked: bool,
     not_proved_out_of_scope: AggregateGaps,
 }
@@ -34,10 +35,11 @@ pub fn render_status(compiled: &CompiledProject, json: bool) -> Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(&StatusProjection {
-                schema: "proofbound-report/1",
+                schema: "proofbound-report/2",
                 project: &compiled.project,
                 project_revision: &compiled.project_revision,
                 claims: &compiled.statuses,
+                unit_runs: &compiled.unit_runs,
                 publication_blocked: blocked,
                 not_proved_out_of_scope: gaps,
             })?
@@ -67,12 +69,73 @@ pub fn render_status(compiled: &CompiledProject, json: bool) -> Result<()> {
             freshness(compiled, status)
         );
     }
+    render_unit_runs(&compiled.unit_runs);
     println!(
         "publication: {}",
         if blocked { "BLOCKED" } else { "ADMITTED" }
     );
     render_aggregate_gaps(&gaps);
     Ok(())
+}
+
+fn render_unit_runs(runs: &[UnitRun]) {
+    println!("unit runs");
+    if runs.is_empty() {
+        println!("  none selected");
+        return;
+    }
+    for run in runs {
+        println!("  {} ({}) — {}", run.unit_id, run.adapter, run.outcome);
+        for diagnostic in &run.diagnostics {
+            println!("    {}: {}", diagnostic.code, diagnostic.message);
+            if let Some(path) = &diagnostic.path {
+                println!("      path: {path}");
+            }
+            if let Some(remediation) = &diagnostic.remediation {
+                println!("      remediation: {remediation}");
+            }
+        }
+    }
+}
+
+fn render_claim_unit_runs(runs: &[&UnitRun]) {
+    println!("unit runs");
+    if runs.is_empty() {
+        println!("  none selected");
+        return;
+    }
+    for run in runs {
+        render_unit_run(run);
+    }
+}
+
+fn render_unit_run(run: &UnitRun) {
+    println!("  {} ({}) — {}", run.unit_id, run.adapter, run.outcome);
+    for diagnostic in &run.diagnostics {
+        println!("    {}: {}", diagnostic.code, diagnostic.message);
+        if let Some(path) = &diagnostic.path {
+            println!("      path: {path}");
+        }
+        if let Some(remediation) = &diagnostic.remediation {
+            println!("      remediation: {remediation}");
+        }
+    }
+}
+
+fn unit_runs_for_citations<'a>(
+    runs: &'a [UnitRun],
+    citations: &BTreeSet<EvidenceId>,
+) -> Vec<&'a UnitRun> {
+    runs.iter()
+        .filter(|run| {
+            citations.iter().any(|citation| {
+                citation
+                    .as_str()
+                    .split_once(':')
+                    .is_some_and(|(_, unit_id)| unit_id == run.unit_id)
+            })
+        })
+        .collect()
 }
 
 pub fn render_claim(
@@ -91,13 +154,15 @@ pub fn render_claim(
         .iter()
         .find(|input| input.claim.id.as_str() == id)
         .context("PB-CLAIM-0004: claim has no derivation input")?;
+    let unit_runs = unit_runs_for_citations(&compiled.unit_runs, &input.claim.cited_evidence);
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "schema": "proofbound-claim-report/1",
+                "schema": "proofbound-claim-report/2",
                 "status": status,
                 "input": input,
+                "unit_runs": unit_runs,
                 "graph": include_graph.then_some(&input.graph),
                 "not_proved_out_of_scope": status.not_proved_out_of_scope,
             }))?
@@ -140,6 +205,7 @@ pub fn render_claim(
             println!("    - {reason}");
         }
     }
+    render_claim_unit_runs(&unit_runs);
     if include_graph {
         println!("graph");
         for edge in &input.graph.edges {
@@ -161,6 +227,12 @@ pub fn render_explanation(compiled: &CompiledProject, id: &str) -> Result<()> {
         .iter()
         .find(|status| status.claim_id.as_str() == id)
         .with_context(|| format!("PB-CLAIM-0003: no compiled claim {id}"))?;
+    let input = compiled
+        .inputs
+        .iter()
+        .find(|input| input.claim.id.as_str() == id)
+        .context("PB-CLAIM-0004: claim has no derivation input")?;
+    let unit_runs = unit_runs_for_citations(&compiled.unit_runs, &input.claim.cited_evidence);
     println!(
         "{} is {} with {} linkage.",
         id,
@@ -184,6 +256,7 @@ pub fn render_explanation(compiled: &CompiledProject, id: &str) -> Result<()> {
             println!("  remediation: {}", blocker.remediation);
         }
     }
+    render_claim_unit_runs(&unit_runs);
     render_claim_gaps(status);
     Ok(())
 }
@@ -458,6 +531,7 @@ fn html_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proofbound_manifest::AdapterDiagnostic;
 
     #[test]
     fn rendered_projection_gap_lines_are_mandatory_and_enumerated() {
@@ -478,5 +552,72 @@ mod tests {
         assert!(lines.contains("PREMISE TEST-CLAIM-001"));
         assert!(lines.contains("ASSUMPTION TEST-CLAIM-001"));
         assert!(lines.contains("OUT OF SCOPE TEST-CLAIM-001"));
+    }
+
+    #[test]
+    fn status_projection_retains_every_unit_outcome_and_diagnostic() {
+        let runs = vec![UnitRun {
+            unit_id: "missing-kani".into(),
+            adapter: "proofbound-adapter-kani".into(),
+            cache_key: "sha256:fixture".into(),
+            outcome: "unavailable".into(),
+            evidence_sha256: None,
+            inventory: Vec::new(),
+            diagnostics: vec![AdapterDiagnostic {
+                code: "PB-ADAPTER-0003".into(),
+                message: "could not start proofbound-adapter-kani".into(),
+                path: None,
+                remediation: Some("install the exact registered adapter executable".into()),
+            }],
+        }];
+        let value = serde_json::to_value(StatusProjection {
+            schema: "proofbound-report/2",
+            project: "fixture",
+            project_revision: "rev",
+            claims: &[],
+            unit_runs: &runs,
+            publication_blocked: true,
+            not_proved_out_of_scope: AggregateGaps::default(),
+        })
+        .unwrap();
+        assert_eq!(value["unit_runs"][0]["unit_id"], "missing-kani");
+        assert_eq!(
+            value["unit_runs"][0]["diagnostics"][0]["code"],
+            "PB-ADAPTER-0003"
+        );
+        assert_eq!(value["unit_runs"][0]["outcome"], "unavailable");
+    }
+
+    #[test]
+    fn claim_reports_select_the_failed_run_for_their_exact_citation() {
+        let runs = vec![
+            UnitRun {
+                unit_id: "missing-kani".into(),
+                adapter: "proofbound-adapter-kani".into(),
+                cache_key: "sha256:missing".into(),
+                outcome: "unavailable".into(),
+                evidence_sha256: None,
+                inventory: Vec::new(),
+                diagnostics: Vec::new(),
+            },
+            UnitRun {
+                unit_id: "other-test".into(),
+                adapter: "proofbound-adapter-test".into(),
+                cache_key: "sha256:other".into(),
+                outcome: "verified-now".into(),
+                evidence_sha256: Some("sha256:evidence".into()),
+                inventory: Vec::new(),
+                diagnostics: Vec::new(),
+            },
+        ];
+        let citations = BTreeSet::from([
+            EvidenceId::new("bounded-check:missing-kani").unwrap(),
+            EvidenceId::new("example-test:unselected").unwrap(),
+        ]);
+
+        let selected = unit_runs_for_citations(&runs, &citations);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].unit_id, "missing-kani");
+        assert_eq!(selected[0].outcome, "unavailable");
     }
 }

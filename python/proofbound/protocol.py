@@ -13,7 +13,7 @@ import re
 from typing import Any, Mapping
 
 
-SCHEMA = "proofbound-adapter-protocol/1"
+SCHEMA = "proofbound-adapter-protocol/2"
 _REQUEST_FIELDS = {
     "schema",
     "type",
@@ -36,7 +36,7 @@ _RESPONSE_FIELDS = {
 
 
 class ProtocolError(ValueError):
-    """Raised when a protocol envelope is not the closed v1 shape."""
+    """Raised when a protocol envelope is not the closed v2 shape."""
 
 
 def canonical_json(value: object) -> bytes:
@@ -148,18 +148,28 @@ class AdapterResponse:
         evidence = value["evidence"]
         if evidence is not None and not isinstance(evidence, dict):
             raise ProtocolError("evidence must be an object or null")
-        if value["success"] != (evidence is not None):
-            raise ProtocolError("success and evidence presence disagree")
         inventory = value["inventory"]
         diagnostics = value["diagnostics"]
         if (
             not isinstance(inventory, list)
-            or any(not isinstance(item, str) or not item for item in inventory)
+            or len(inventory) > 100_000
+            or any(not isinstance(item, str) or not item.strip() for item in inventory)
+            or any(
+                len(item) > 4_096
+                or any(
+                    ord(character) <= 0x1F
+                    or 0x7F <= ord(character) <= 0x9F
+                    for character in item
+                )
+                for item in inventory
+            )
             or inventory != sorted(set(inventory))
         ):
             raise ProtocolError("inventory must be sorted, unique, non-empty strings")
-        if not isinstance(diagnostics, list) or any(
-            not isinstance(item, dict) for item in diagnostics
+        if (
+            not isinstance(diagnostics, list)
+            or len(diagnostics) > 4_096
+            or any(not isinstance(item, dict) for item in diagnostics)
         ):
             raise ProtocolError("diagnostics must be objects")
         for diagnostic in diagnostics:
@@ -168,7 +178,20 @@ class AdapterResponse:
             ).issubset({"code", "message", "path", "remediation"}):
                 raise ProtocolError("diagnostic has missing or unknown fields")
             _identity(diagnostic["code"], "diagnostic code", r"PB-[A-Z]+-[0-9]{4}")
-            _text(diagnostic["message"], "diagnostic message")
+            message = _text(diagnostic["message"], "diagnostic message")
+            if len(message) > 8_192:
+                raise ProtocolError("diagnostic message exceeds the protocol limit")
+            for field, limit in (("path", 4_096), ("remediation", 8_192)):
+                if field in diagnostic:
+                    detail = _text(diagnostic[field], f"diagnostic {field}")
+                    if len(detail) > limit:
+                        raise ProtocolError(f"diagnostic {field} exceeds the protocol limit")
+        if not value["success"] and (
+            evidence is not None or inventory or not diagnostics
+        ):
+            raise ProtocolError(
+                "failed response must carry null evidence, empty inventory, and at least one diagnostic"
+            )
         return cls(
             request_id=_identity(value["request_id"], "request_id", r"[0-9a-f]{32}"),
             adapter=_identity(
@@ -181,7 +204,7 @@ class AdapterResponse:
         )
 
     def to_bytes(self) -> bytes:
-        return canonical_json(
+        encoded = canonical_json(
             {
                 "adapter": self.adapter,
                 "diagnostics": [dict(item) for item in self.diagnostics],
@@ -193,3 +216,5 @@ class AdapterResponse:
                 "success": self.success,
             }
         )
+        type(self).parse(encoded)
+        return encoded

@@ -13,7 +13,9 @@ separator.
 `lean-expr-v1.cddl` is the canonical CBOR layout for elaborated Lean statement
 identity. Pretty-printer output is diagnostic only and is never hashed.
 
-`adapter-protocol.schema.json` defines the canonical subprocess envelope.
+`adapter-protocol.schema.json` defines the canonical version-2 subprocess
+envelope. Version 2 requires every failed response to retain at least one
+structured diagnostic; version 1 is rejected rather than reinterpreted.
 Successful adapters return either a complete `proofbound-evidence/4` record or
 the strict, tool-neutral `proofbound-adapter-observation/3` object defined by
 `adapter-observation.schema.json`; the compiler validates and converts the
@@ -22,8 +24,9 @@ Operation responses are exact: successful `doctor` is null evidence plus empty
 inventory; successful `inventory` is null evidence plus an exact nonempty
 inventory; successful `check` and `reproduce` carry passed evidence plus that
 same inventory; and `update` never carries passed evidence. Failed responses
-carry null evidence and empty inventory. Runtime validation additionally
-requires successful inventories to be strictly sorted lexical sets.
+carry null evidence, empty inventory, and at least one structured diagnostic.
+Runtime validation additionally requires successful inventories to be
+strictly sorted lexical sets.
 
 `checker-result.schema.json` defines the two accepted checker-output records
 consumed by the canonical-artifact and independent-check routes. Both records

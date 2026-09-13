@@ -203,25 +203,12 @@ pub fn check_project(root: &Path, options: &CheckOptions) -> Result<CompiledProj
                     .is_some_and(|selected| selected == &unit.id),
         ) {
             Ok((record, run)) => {
-                records.push(record);
+                if let Some(record) = record {
+                    records.push(record);
+                }
                 runs.push(run);
             }
-            Err(error) => runs.push(UnitRun {
-                unit_id: unit.id.clone(),
-                adapter: format!("{:?}", unit.adapter),
-                cache_key,
-                outcome: "unavailable-or-failed".into(),
-                evidence_sha256: None,
-                inventory: Vec::new(),
-                diagnostics: vec![AdapterDiagnostic {
-                    code: "PB-ADAPTER-0900".into(),
-                    message: error.to_string(),
-                    path: None,
-                    remediation: Some(
-                        "install the pinned tool/adapter and reproduce this exact unit".into(),
-                    ),
-                }],
-            }),
+            Err(error) => runs.push(adapter_failure_run(unit, cache_key, &error)),
         }
     }
 
@@ -1858,7 +1845,7 @@ fn execute_or_reuse(
     additional_closures: &[ClosureIdentity],
     cache_key: &str,
     fresh: bool,
-) -> Result<(EvidenceRecord, UnitRun)> {
+) -> Result<(Option<EvidenceRecord>, UnitRun)> {
     // Mutation evidence is only meaningful when the compiler can join the
     // registered preimage to the exact source closure under review. Perform
     // this check before either execution or cache lookup so a stale receipt
@@ -1881,10 +1868,10 @@ fn execute_or_reuse(
     {
         let digest = context.store.put(EVIDENCE_DOMAIN, &record)?;
         return Ok((
-            record,
+            Some(record),
             UnitRun {
                 unit_id: unit.id.clone(),
-                adapter: format!("{:?}", unit.adapter),
+                adapter: unit.adapter.executable().into(),
                 cache_key: cache_key.into(),
                 outcome: "verified-from-cache".into(),
                 evidence_sha256: Some(digest),
@@ -1902,6 +1889,21 @@ fn execute_or_reuse(
     let registered_model = registered_model_check(context.bundle, unit)?;
     let request_unit = adapter_unit(context.root, context.bundle, unit)?;
     let response = adapter::invoke(context.root, unit, "check", request_unit)?;
+    if !response.success {
+        let outcome = adapter_response_outcome(&response);
+        return Ok((
+            None,
+            UnitRun {
+                unit_id: unit.id.clone(),
+                adapter: unit.adapter.executable().into(),
+                cache_key: cache_key.into(),
+                outcome: outcome.into(),
+                evidence_sha256: None,
+                inventory: response.inventory,
+                diagnostics: response.diagnostics,
+            },
+        ));
+    }
     let record = response_to_record(
         context.root,
         context.bundle,
@@ -1921,21 +1923,64 @@ fn execute_or_reuse(
         },
     )?;
     Ok((
-        record,
+        Some(record),
         UnitRun {
             unit_id: unit.id.clone(),
-            adapter: response.adapter,
+            adapter: unit.adapter.executable().into(),
             cache_key: cache_key.into(),
-            outcome: if response.success {
-                "verified-now".into()
-            } else {
-                "failed".into()
-            },
+            outcome: "verified-now".into(),
             evidence_sha256: Some(digest),
             inventory: response.inventory,
             diagnostics: response.diagnostics,
         },
     ))
+}
+
+fn adapter_response_outcome(response: &AdapterResponse) -> &'static str {
+    if response
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == adapter::TIMEOUT_DIAGNOSTIC_CODE)
+    {
+        "timeout"
+    } else {
+        "failed"
+    }
+}
+
+fn adapter_failure_run(
+    unit: &EvidenceUnitManifest,
+    cache_key: String,
+    error: &anyhow::Error,
+) -> UnitRun {
+    let (outcome, diagnostic) = error
+        .downcast_ref::<adapter::InvocationError>()
+        .map_or_else(
+            || {
+                (
+                    "failed",
+                    AdapterDiagnostic {
+                        code: "PB-ADAPTER-0900".into(),
+                        message: error.to_string().chars().take(8_192).collect(),
+                        path: None,
+                        remediation: Some(
+                            "inspect the retained adapter failure and reproduce this exact unit"
+                                .into(),
+                        ),
+                    },
+                )
+            },
+            |failure| (failure.outcome(), failure.diagnostic()),
+        );
+    UnitRun {
+        unit_id: unit.id.clone(),
+        adapter: unit.adapter.executable().into(),
+        cache_key,
+        outcome: outcome.into(),
+        evidence_sha256: None,
+        inventory: Vec::new(),
+        diagnostics: vec![diagnostic],
+    }
 }
 
 /// Invalid cache state is deliberately collapsed to a miss. A corrupt index,
@@ -2080,7 +2125,7 @@ fn response_to_record(
 ) -> Result<EvidenceRecord> {
     if !response.success {
         bail!(
-            "PB-ADAPTER-0010: adapter rejected unit {}: {}",
+            "PB-ADAPTER-0031: adapter rejected unit {}: {}",
             unit.id,
             response
                 .diagnostics
@@ -6682,6 +6727,29 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn timeout_diagnostic_produces_distinct_unit_outcome() {
+        let mut response = AdapterResponse {
+            schema: "proofbound-adapter-protocol/2".to_owned(),
+            message_type: "response".to_owned(),
+            request_id: "00000000000000000000000000000000".to_owned(),
+            adapter: "fixture".to_owned(),
+            success: false,
+            evidence: None,
+            inventory: Vec::new(),
+            diagnostics: vec![AdapterDiagnostic {
+                code: adapter::TIMEOUT_DIAGNOSTIC_CODE.to_owned(),
+                message: "timed out".to_owned(),
+                path: None,
+                remediation: None,
+            }],
+        };
+        assert_eq!(adapter_response_outcome(&response), "timeout");
+
+        response.diagnostics[0].code = "PB-KANI-1002".to_owned();
+        assert_eq!(adapter_response_outcome(&response), "failed");
+    }
+
     #[derive(Debug, serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct ContextAttackCorpus {
@@ -8912,6 +8980,39 @@ description = {description:?}
     }
 
     #[test]
+    fn absent_registered_adapter_is_retained_as_a_typed_unit_run() {
+        let temporary = tempfile::tempdir().unwrap();
+        let unit = inventory_protocol_unit();
+        let missing = temporary.path().join("proofbound-adapter-test");
+        let error = adapter::invoke_program(Path::new("."), &unit, "check", json!({}), &missing)
+            .unwrap_err();
+        let error = anyhow::Error::new(error);
+        let run = adapter_failure_run(&unit, "sha256:missing".into(), &error);
+
+        assert_eq!(run.unit_id, "inventory-protocol");
+        assert_eq!(run.adapter, "proofbound-adapter-test");
+        assert_eq!(run.outcome, "unavailable");
+        assert_eq!(run.diagnostics[0].code, "PB-ADAPTER-0003");
+        assert!(
+            run.diagnostics[0]
+                .message
+                .contains("proofbound-adapter-test")
+        );
+        assert!(
+            run.diagnostics[0]
+                .remediation
+                .as_deref()
+                .unwrap()
+                .contains("install")
+        );
+
+        let untyped = anyhow!("quoted PB-ADAPTER-0003 text is not a typed invocation error");
+        let run = adapter_failure_run(&unit, "sha256:untyped".into(), &untyped);
+        assert_eq!(run.outcome, "failed");
+        assert_eq!(run.diagnostics[0].code, "PB-ADAPTER-0900");
+    }
+
+    #[test]
     fn adapter_observation_preserves_complete_execution_and_unknown_memory() {
         let unit: EvidenceUnitManifest = serde_json::from_value(json!({
             "schema": "proofbound-evidence-unit/1",
@@ -9620,7 +9721,7 @@ description = {description:?}
             ["alpha", "beta"]
         );
         let response = |inventory: Vec<&str>, inner: Vec<&str>| AdapterResponse {
-            schema: "proofbound-adapter-protocol/1".into(),
+            schema: "proofbound-adapter-protocol/2".into(),
             message_type: "response".into(),
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: "rust-test".into(),
@@ -9830,7 +9931,7 @@ description = {description:?}
         }))
         .unwrap();
         let response = AdapterResponse {
-            schema: "proofbound-adapter-protocol/1".to_owned(),
+            schema: "proofbound-adapter-protocol/2".to_owned(),
             message_type: "response".to_owned(),
             request_id: "0123456789abcdef0123456789abcdef".to_owned(),
             adapter: "canonical-artifact".to_owned(),
@@ -9849,7 +9950,7 @@ description = {description:?}
     fn failed_protocol_response_never_admits_attached_evidence() {
         let unit = theorem_unit("failed", "Example.Claims.failed");
         let response = AdapterResponse {
-            schema: "proofbound-adapter-protocol/1".into(),
+            schema: "proofbound-adapter-protocol/2".into(),
             message_type: "response".into(),
             request_id: "0123456789abcdef0123456789abcdef".into(),
             adapter: "lean".into(),
@@ -9861,7 +9962,7 @@ description = {description:?}
         let bundle = cache_test_bundle(Path::new("."));
         let error = response_to_record(Path::new("."), &bundle, &unit, None, &[], &[], &response)
             .unwrap_err();
-        assert!(error.to_string().contains("adapter rejected unit failed"));
+        assert!(error.to_string().contains("PB-ADAPTER-0031"));
     }
 
     #[test]

@@ -18,7 +18,7 @@ use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 
 use crate::{
-    error::{AdapterError, CONFIGURATION, PROVENANCE, RESOURCE},
+    error::{AdapterError, CONFIGURATION, PROVENANCE, RESOURCE, TIMEOUT},
     model::{AuditSource, CapturedExecution, LeanAdapterUnit, VerifiedAudit},
     runtime::adapter_identity,
 };
@@ -82,8 +82,13 @@ pub fn build_theorem_evidence(
         .time_seconds
         .checked_mul(1_000)
         .ok_or_else(|| AdapterError::new(RESOURCE, "time budget overflows milliseconds"))?;
-    if execution.resource_usage.time_ms > budget_ms
-        || execution.resource_usage.peak_disk_bytes > evidence_unit.resource_budget.disk_bytes
+    if execution.resource_usage.time_ms > budget_ms {
+        return Err(AdapterError::new(
+            TIMEOUT,
+            "Lean audit exceeded its declared time budget",
+        ));
+    }
+    if execution.resource_usage.peak_disk_bytes > evidence_unit.resource_budget.disk_bytes
         || execution
             .resource_usage
             .peak_memory_bytes
@@ -91,7 +96,7 @@ pub fn build_theorem_evidence(
     {
         return Err(AdapterError::new(
             RESOURCE,
-            "Lean audit exceeded its declared time, disk, or memory budget",
+            "Lean audit exceeded its declared disk or memory budget",
         ));
     }
 

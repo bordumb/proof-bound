@@ -31,7 +31,7 @@ use tempfile::TempDir;
 use thiserror::Error;
 use walkdir::WalkDir;
 
-pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
+pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/2";
 pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TOOL_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
@@ -559,13 +559,17 @@ impl AdapterError {
                 "PB-TEST-1001",
                 "install the pinned Rust/Python test toolchain and expose it through the declared environment",
             ),
-            Self::Timeout(_) | Self::Budget(_) => (
+            Self::Timeout(_) => (
+                "PB-ADAPTER-0010",
+                "reduce the bounded workload or increase its reviewed time budget",
+            ),
+            Self::Budget(_) => (
                 "PB-TEST-1002",
                 "review the workload and increase the evidence-unit budget if justified",
             ),
             Self::Request(_) => (
                 "PB-TEST-1003",
-                "send canonical proofbound-adapter-protocol/1 JSON with no unknown fields",
+                "send canonical proofbound-adapter-protocol/2 JSON with no unknown fields",
             ),
             Self::Unit(_) => (
                 "PB-TEST-1004",
@@ -5275,6 +5279,18 @@ fn truncate_message(message: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn timeout_and_resource_budget_have_distinct_diagnostics() {
+        assert_eq!(
+            AdapterError::Timeout(900_000).diagnostic().code,
+            "PB-ADAPTER-0010"
+        );
+        assert_eq!(
+            AdapterError::Budget("disk".to_owned()).diagnostic().code,
+            "PB-TEST-1002"
+        );
+    }
 
     fn checker_unit(adapter: &str, kind: &str, operation: &str) -> EvidenceUnitManifest {
         let mut value = json!({

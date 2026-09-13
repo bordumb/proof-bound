@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    env, fs,
+    env, fmt, fs,
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -11,23 +11,96 @@ use std::{
 use anyhow::{Context, Result, bail};
 use proofbound_evidence::{canonical_json, sha256_bytes};
 use proofbound_manifest::{
-    AdapterKind, AdapterRequest, AdapterResponse, EvidenceUnitManifest, OperationKind,
+    AdapterDiagnostic, AdapterKind, AdapterRequest, AdapterResponse, EvidenceUnitManifest,
+    OperationKind,
 };
 use serde::Deserialize;
 
 const MAX_ADAPTER_OUTPUT: u64 = 16 << 20;
+pub(crate) const ADAPTER_PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/2";
+pub(crate) const TIMEOUT_DIAGNOSTIC_CODE: &str = "PB-ADAPTER-0010";
+
+#[derive(Debug)]
+pub(crate) struct InvocationError {
+    code: &'static str,
+    message: String,
+    remediation: &'static str,
+}
+
+impl InvocationError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        let remediation = match code {
+            "PB-ADAPTER-0003" => {
+                "install the exact registered adapter executable and reproduce this unit"
+            }
+            "PB-ADAPTER-0006" | "PB-ADAPTER-0008" => {
+                "restore an adapter that emits the exact canonical protocol response"
+            }
+            "PB-ADAPTER-0007" => {
+                "restore the adapter whose protocol identity matches the registered unit"
+            }
+            _ => "inspect the retained adapter failure and reproduce this exact unit",
+        };
+        Self {
+            code,
+            message: message.into().chars().take(8_192).collect(),
+            remediation,
+        }
+    }
+
+    pub(crate) fn outcome(&self) -> &'static str {
+        match self.code {
+            "PB-ADAPTER-0003" => "unavailable",
+            "PB-ADAPTER-0006" | "PB-ADAPTER-0007" | "PB-ADAPTER-0008" => "protocol-failed",
+            _ => "failed",
+        }
+    }
+
+    pub(crate) fn diagnostic(&self) -> AdapterDiagnostic {
+        AdapterDiagnostic {
+            code: self.code.into(),
+            message: self.message.clone(),
+            path: None,
+            remediation: Some(self.remediation.into()),
+        }
+    }
+}
+
+impl fmt::Display for InvocationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for InvocationError {}
+
+type InvocationResult<T> = std::result::Result<T, InvocationError>;
 
 pub(crate) fn invoke(
     root: &Path,
     unit: &EvidenceUnitManifest,
     operation: &str,
     request_unit: serde_json::Value,
-) -> Result<AdapterResponse> {
+) -> InvocationResult<AdapterResponse> {
+    let program = locate_adapter(unit.adapter.executable());
+    invoke_program(root, unit, operation, request_unit, &program)
+}
+
+pub(crate) fn invoke_program(
+    root: &Path,
+    unit: &EvidenceUnitManifest,
+    operation: &str,
+    request_unit: serde_json::Value,
+    program: &Path,
+) -> InvocationResult<AdapterResponse> {
     if !matches!(
         operation,
         "doctor" | "inventory" | "check" | "reproduce" | "update"
     ) {
-        bail!("PB-ADAPTER-0001: unsupported adapter operation {operation:?}");
+        return Err(InvocationError::new(
+            "PB-ADAPTER-0001",
+            format!("unsupported adapter operation {operation:?}"),
+        ));
     }
     let executable = unit.adapter.executable();
     let protocol_adapter = adapter_name(unit.adapter);
@@ -35,13 +108,19 @@ pub(crate) fn invoke(
         "adapter": protocol_adapter,
         "operation": operation,
         "unit": request_unit,
-    }))?;
+    }))
+    .map_err(|error| {
+        InvocationError::new(
+            "PB-ADAPTER-0009",
+            format!("could not encode adapter request identity: {error}"),
+        )
+    })?;
     let request_id = sha256_bytes(&seed)
         .strip_prefix("sha256:")
         .expect("internal digest has prefix")[..32]
         .to_owned();
     let request = AdapterRequest {
-        schema: "proofbound-adapter-protocol/1".into(),
+        schema: ADAPTER_PROTOCOL_SCHEMA.into(),
         message_type: "request".into(),
         request_id: request_id.clone(),
         adapter: protocol_adapter.into(),
@@ -49,10 +128,14 @@ pub(crate) fn invoke(
         project_root: ".".into(),
         unit: request_unit,
     };
-    let bytes = canonical_json(&request)?;
+    let bytes = canonical_json(&request).map_err(|error| {
+        InvocationError::new(
+            "PB-ADAPTER-0009",
+            format!("could not encode canonical adapter request: {error}"),
+        )
+    })?;
 
-    let program = locate_adapter(executable);
-    let mut command = Command::new(&program);
+    let mut command = Command::new(program);
     command
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -61,7 +144,10 @@ pub(crate) fn invoke(
         .env_clear();
     for name in &unit.environment_allowlist {
         if name.is_empty() || name.contains('=') || name.as_bytes().contains(&0) {
-            bail!("PB-ADAPTER-0002: invalid environment allowlist name {name:?}");
+            return Err(InvocationError::new(
+                "PB-ADAPTER-0002",
+                format!("invalid environment allowlist name {name:?}"),
+            ));
         }
         if let Some(value) = env::var_os(name) {
             command.env(name, value);
@@ -69,34 +155,72 @@ pub(crate) fn invoke(
     }
     // The adapter executable is already resolved, but child tool lookup is
     // allowed only when PATH was explicitly registered.
-    let mut child = command
-        .spawn()
-        .with_context(|| format!("PB-ADAPTER-0003: could not start {}", program.display()))?;
+    let mut child = command.spawn().map_err(|error| {
+        InvocationError::new(
+            "PB-ADAPTER-0003",
+            format!("could not start {}: {error}", program.display()),
+        )
+    })?;
     child
         .stdin
         .take()
-        .context("adapter stdin unavailable")?
-        .write_all(&bytes)?;
+        .ok_or_else(|| InvocationError::new("PB-ADAPTER-0004", "adapter stdin unavailable"))?
+        .write_all(&bytes)
+        .map_err(|error| {
+            InvocationError::new(
+                "PB-ADAPTER-0004",
+                format!("could not write adapter request: {error}"),
+            )
+        })?;
 
-    let stdout_pipe = child.stdout.take().context("adapter stdout unavailable")?;
-    let stderr_pipe = child.stderr.take().context("adapter stderr unavailable")?;
+    let stdout_pipe = child
+        .stdout
+        .take()
+        .ok_or_else(|| InvocationError::new("PB-ADAPTER-0004", "adapter stdout unavailable"))?;
+    let stderr_pipe = child
+        .stderr
+        .take()
+        .ok_or_else(|| InvocationError::new("PB-ADAPTER-0004", "adapter stderr unavailable"))?;
     let stdout_reader = thread::spawn(move || read_bounded(stdout_pipe));
     let stderr_reader = thread::spawn(move || read_bounded(stderr_pipe));
-    let status = child.wait()?;
+    let status = child.wait().map_err(|error| {
+        InvocationError::new(
+            "PB-ADAPTER-0004",
+            format!("could not wait for adapter process: {error}"),
+        )
+    })?;
     let stdout = stdout_reader
         .join()
-        .map_err(|_| anyhow::anyhow!("PB-ADAPTER-0004: adapter stdout reader panicked"))??;
+        .map_err(|_| InvocationError::new("PB-ADAPTER-0004", "adapter stdout reader panicked"))?
+        .map_err(|error| {
+            InvocationError::new(
+                "PB-ADAPTER-0004",
+                format!("could not read adapter stdout: {error}"),
+            )
+        })?;
     let stderr = stderr_reader
         .join()
-        .map_err(|_| anyhow::anyhow!("PB-ADAPTER-0004: adapter stderr reader panicked"))??;
+        .map_err(|_| InvocationError::new("PB-ADAPTER-0004", "adapter stderr reader panicked"))?
+        .map_err(|error| {
+            InvocationError::new(
+                "PB-ADAPTER-0004",
+                format!("could not read adapter stderr: {error}"),
+            )
+        })?;
     if stdout.len() as u64 > MAX_ADAPTER_OUTPUT || stderr.len() as u64 > MAX_ADAPTER_OUTPUT {
-        bail!("PB-ADAPTER-0004: adapter output exceeded 16 MiB");
+        return Err(InvocationError::new(
+            "PB-ADAPTER-0004",
+            "adapter output exceeded 16 MiB",
+        ));
     }
     if !status.success() {
-        bail!(
-            "PB-ADAPTER-0005: {executable} exited with {status}: {}",
-            String::from_utf8_lossy(&stderr).trim()
-        );
+        return Err(InvocationError::new(
+            "PB-ADAPTER-0005",
+            format!(
+                "{executable} exited with {status}: {}",
+                String::from_utf8_lossy(&stderr).trim()
+            ),
+        ));
     }
     parse_response(&stdout, &stderr, &request_id, &request.adapter, operation)
 }
@@ -107,40 +231,64 @@ fn parse_response(
     request_id: &str,
     request_adapter: &str,
     request_operation: &str,
-) -> Result<AdapterResponse> {
-    let value: serde_json::Value = serde_json::from_slice(stdout).with_context(|| {
-        format!(
-            "PB-ADAPTER-0006: adapter emitted invalid protocol JSON: {}",
-            String::from_utf8_lossy(stderr).trim()
+) -> InvocationResult<AdapterResponse> {
+    let value: serde_json::Value = serde_json::from_slice(stdout).map_err(|error| {
+        InvocationError::new(
+            "PB-ADAPTER-0006",
+            format!(
+                "adapter emitted invalid protocol JSON: {error}: {}",
+                String::from_utf8_lossy(stderr).trim()
+            ),
         )
     })?;
-    if canonical_json(&value)? != stdout {
-        bail!("PB-ADAPTER-0006: adapter response JSON is not canonical");
+    let canonical = canonical_json(&value).map_err(|error| {
+        InvocationError::new(
+            "PB-ADAPTER-0006",
+            format!("could not canonicalize adapter response: {error}"),
+        )
+    })?;
+    if canonical != stdout {
+        return Err(InvocationError::new(
+            "PB-ADAPTER-0006",
+            "adapter response JSON is not canonical",
+        ));
     }
-    let response: AdapterResponse = serde_json::from_value(value.clone()).with_context(|| {
-        format!(
-            "PB-ADAPTER-0006: adapter response violates the protocol schema: {}",
-            String::from_utf8_lossy(stderr).trim()
+    let response: AdapterResponse = serde_json::from_value(value.clone()).map_err(|error| {
+        InvocationError::new(
+            "PB-ADAPTER-0006",
+            format!(
+                "adapter response violates the protocol schema: {error}: {}",
+                String::from_utf8_lossy(stderr).trim()
+            ),
         )
     })?;
-    if response.schema != "proofbound-adapter-protocol/1"
+    if response.schema != ADAPTER_PROTOCOL_SCHEMA
         || response.message_type != "response"
         || response.request_id != request_id
         || response.adapter != request_adapter
     {
-        bail!("PB-ADAPTER-0007: adapter response identity does not match its request");
+        return Err(InvocationError::new(
+            "PB-ADAPTER-0007",
+            "adapter response identity does not match its request",
+        ));
     }
-    let object = value
-        .as_object()
-        .context("PB-ADAPTER-0008: adapter response must be a JSON object")?;
+    let object = value.as_object().ok_or_else(|| {
+        InvocationError::new("PB-ADAPTER-0008", "adapter response must be a JSON object")
+    })?;
     if !object.contains_key("evidence") {
-        bail!("PB-ADAPTER-0008: adapter response omitted required evidence field");
+        return Err(InvocationError::new(
+            "PB-ADAPTER-0008",
+            "adapter response omitted required evidence field",
+        ));
     }
     validate_response_schema(&response, request_operation)?;
     Ok(response)
 }
 
-fn validate_response_schema(response: &AdapterResponse, request_operation: &str) -> Result<()> {
+fn validate_response_schema(
+    response: &AdapterResponse,
+    request_operation: &str,
+) -> InvocationResult<()> {
     if response.inventory.len() > 100_000
         || !response.inventory.windows(2).all(|pair| pair[0] < pair[1])
         || response.inventory.iter().any(|item| {
@@ -149,12 +297,16 @@ fn validate_response_schema(response: &AdapterResponse, request_operation: &str)
                 || item.chars().any(char::is_control)
         })
     {
-        bail!(
-            "PB-ADAPTER-0008: adapter inventory must be a bounded strict-lexical set of valid targets"
-        );
+        return Err(InvocationError::new(
+            "PB-ADAPTER-0008",
+            "adapter inventory must be a bounded strict-lexical set of valid targets",
+        ));
     }
     if response.diagnostics.len() > 4_096 {
-        bail!("PB-ADAPTER-0008: adapter diagnostics exceed the protocol limit");
+        return Err(InvocationError::new(
+            "PB-ADAPTER-0008",
+            "adapter diagnostics exceed the protocol limit",
+        ));
     }
     for diagnostic in &response.diagnostics {
         if !valid_diagnostic_code(&diagnostic.code)
@@ -168,7 +320,10 @@ fn validate_response_schema(response: &AdapterResponse, request_operation: &str)
                 .as_ref()
                 .is_some_and(|remediation| remediation.len() > 8_192)
         {
-            bail!("PB-ADAPTER-0008: adapter diagnostic violates the protocol schema");
+            return Err(InvocationError::new(
+                "PB-ADAPTER-0008",
+                "adapter diagnostic violates the protocol schema",
+            ));
         }
     }
     if let Some(evidence) = &response.evidence {
@@ -180,45 +335,68 @@ fn validate_response_schema(response: &AdapterResponse, request_operation: &str)
             schema,
             Some("proofbound-evidence/4" | "proofbound-adapter-observation/3")
         ) {
-            bail!("PB-ADAPTER-0008: adapter evidence has an unsupported schema");
+            return Err(InvocationError::new(
+                "PB-ADAPTER-0008",
+                "adapter evidence has an unsupported schema",
+            ));
         }
     }
     validate_operation_response(response, request_operation)?;
     Ok(())
 }
 
-fn validate_operation_response(response: &AdapterResponse, operation: &str) -> Result<()> {
+fn validate_operation_response(
+    response: &AdapterResponse,
+    operation: &str,
+) -> InvocationResult<()> {
     if !response.success {
-        if response.evidence.is_some() || !response.inventory.is_empty() {
-            bail!(
-                "PB-ADAPTER-0008: failed adapter response must carry null evidence and an empty inventory"
-            );
+        if response.evidence.is_some()
+            || !response.inventory.is_empty()
+            || response.diagnostics.is_empty()
+        {
+            return Err(InvocationError::new(
+                "PB-ADAPTER-0008",
+                "failed adapter response must carry null evidence, an empty inventory, and at least one structured diagnostic",
+            ));
         }
         return Ok(());
     }
 
     match operation {
-        "doctor" if response.evidence.is_some() || !response.inventory.is_empty() => bail!(
-            "PB-ADAPTER-0008: successful doctor response must carry null evidence and an empty inventory"
-        ),
-        "inventory" if response.evidence.is_some() || response.inventory.is_empty() => bail!(
-            "PB-ADAPTER-0008: successful inventory response must carry null evidence and an exact nonempty inventory"
-        ),
+        "doctor" if response.evidence.is_some() || !response.inventory.is_empty() => {
+            return Err(InvocationError::new(
+                "PB-ADAPTER-0008",
+                "successful doctor response must carry null evidence and an empty inventory",
+            ));
+        }
+        "inventory" if response.evidence.is_some() || response.inventory.is_empty() => {
+            return Err(InvocationError::new(
+                "PB-ADAPTER-0008",
+                "successful inventory response must carry null evidence and an exact nonempty inventory",
+            ));
+        }
         "check" | "reproduce" => {
-            let evidence = response.evidence.as_ref().context(
-                "PB-ADAPTER-0008: successful evidence response omitted passing evidence",
-            )?;
+            let evidence = response.evidence.as_ref().ok_or_else(|| {
+                InvocationError::new(
+                    "PB-ADAPTER-0008",
+                    "successful evidence response omitted passing evidence",
+                )
+            })?;
             if response.inventory.is_empty() || !evidence_reports_passed(evidence)? {
-                bail!(
-                    "PB-ADAPTER-0008: successful evidence response must carry passing evidence and an exact nonempty inventory"
-                );
+                return Err(InvocationError::new(
+                    "PB-ADAPTER-0008",
+                    "successful evidence response must carry passing evidence and an exact nonempty inventory",
+                ));
             }
         }
         "update" => {
             if let Some(evidence) = &response.evidence
                 && evidence_reports_passed(evidence)?
             {
-                bail!("PB-ADAPTER-0008: update response must not carry passing evidence");
+                return Err(InvocationError::new(
+                    "PB-ADAPTER-0008",
+                    "update response must not carry passing evidence",
+                ));
             }
         }
         _ => {}
@@ -226,31 +404,45 @@ fn validate_operation_response(response: &AdapterResponse, operation: &str) -> R
     Ok(())
 }
 
-fn evidence_reports_passed(evidence: &serde_json::Value) -> Result<bool> {
-    let object = evidence
-        .as_object()
-        .context("PB-ADAPTER-0008: adapter evidence must be an object")?;
+fn evidence_reports_passed(evidence: &serde_json::Value) -> InvocationResult<bool> {
+    let object = evidence.as_object().ok_or_else(|| {
+        InvocationError::new("PB-ADAPTER-0008", "adapter evidence must be an object")
+    })?;
     match object.get("schema").and_then(serde_json::Value::as_str) {
         Some("proofbound-evidence/4") => {
             let status = object
                 .get("status")
                 .and_then(serde_json::Value::as_str)
-                .context("PB-ADAPTER-0008: adapter evidence omitted its typed status")?;
+                .ok_or_else(|| {
+                    InvocationError::new(
+                        "PB-ADAPTER-0008",
+                        "adapter evidence omitted its typed status",
+                    )
+                })?;
             match status {
                 "passed" => Ok(true),
                 "failed" | "missing" | "drifted" | "unregistered" | "ambiguous" | "corrupt"
                 | "skipped" | "unavailable" => Ok(false),
-                _ => bail!("PB-ADAPTER-0008: adapter evidence has an invalid typed status"),
+                _ => Err(InvocationError::new(
+                    "PB-ADAPTER-0008",
+                    "adapter evidence has an invalid typed status",
+                )),
             }
         }
         Some("proofbound-adapter-observation/3") => {
             match object.get("outcome").and_then(serde_json::Value::as_str) {
                 Some("passed") => Ok(true),
                 Some("failed") => Ok(false),
-                _ => bail!("PB-ADAPTER-0008: adapter observation has an invalid typed outcome"),
+                _ => Err(InvocationError::new(
+                    "PB-ADAPTER-0008",
+                    "adapter observation has an invalid typed outcome",
+                )),
             }
         }
-        _ => bail!("PB-ADAPTER-0008: adapter evidence has an unsupported schema"),
+        _ => Err(InvocationError::new(
+            "PB-ADAPTER-0008",
+            "adapter evidence has an unsupported schema",
+        )),
     }
 }
 
@@ -803,7 +995,7 @@ mod tests {
 
     fn protocol_value(success: bool, evidence: serde_json::Value) -> serde_json::Value {
         serde_json::json!({
-            "schema": "proofbound-adapter-protocol/1",
+            "schema": "proofbound-adapter-protocol/2",
             "type": "response",
             "request_id": "0123456789abcdef0123456789abcdef",
             "adapter": "lean",
@@ -829,6 +1021,36 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn protocol_version_and_identity_failures_keep_typed_codes() {
+        let mut legacy = protocol_value(true, serde_json::Value::Null);
+        legacy["schema"] = serde_json::json!("proofbound-adapter-protocol/1");
+        legacy["inventory"] = serde_json::json!([]);
+        let error = parse_response(
+            &canonical_json(&legacy).unwrap(),
+            &[],
+            "0123456789abcdef0123456789abcdef",
+            "lean",
+            "doctor",
+        )
+        .unwrap_err();
+        assert_eq!(error.diagnostic().code, "PB-ADAPTER-0007");
+        assert_eq!(error.outcome(), "protocol-failed");
+
+        let mut wrong_adapter = legacy;
+        wrong_adapter["schema"] = serde_json::json!(ADAPTER_PROTOCOL_SCHEMA);
+        wrong_adapter["adapter"] = serde_json::json!("kani");
+        let error = parse_response(
+            &canonical_json(&wrong_adapter).unwrap(),
+            &[],
+            "0123456789abcdef0123456789abcdef",
+            "lean",
+            "doctor",
+        )
+        .unwrap_err();
+        assert_eq!(error.diagnostic().code, "PB-ADAPTER-0007");
     }
 
     #[test]
@@ -871,8 +1093,24 @@ mod tests {
                 "lean",
                 "check",
             )
-            .is_ok()
+            .is_err()
         );
+        inventoried_failure["diagnostics"] = serde_json::json!([{
+            "code": "PB-LEAN-0001",
+            "message": "registered theorem was not found",
+            "remediation": "compile the registered module"
+        }]);
+        let bytes = canonical_json(&inventoried_failure).unwrap();
+        let response = parse_response(
+            &bytes,
+            &[],
+            "0123456789abcdef0123456789abcdef",
+            "lean",
+            "check",
+        )
+        .unwrap();
+        assert!(!response.success);
+        assert_eq!(response.diagnostics[0].code, "PB-LEAN-0001");
     }
 
     #[test]

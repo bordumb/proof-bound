@@ -34,7 +34,7 @@ use tempfile::TempDir;
 use thiserror::Error;
 use walkdir::WalkDir;
 
-pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/1";
+pub const PROTOCOL_SCHEMA: &str = "proofbound-adapter-protocol/2";
 pub const OBSERVATION_SCHEMA: &str = "proofbound-adapter-observation/3";
 pub const ADAPTER_ID: &str = "charon-aeneas";
 pub const MAX_REQUEST_BYTES: u64 = 2 * 1024 * 1024;
@@ -323,13 +323,17 @@ impl AdapterError {
                 "PB-AENEAS-1002",
                 "pin concrete Charon/Aeneas revisions and matching Rust/Lean toolchains before translating",
             ),
-            Self::Timeout(_) | Self::Budget(_) => (
+            Self::Timeout(_) => (
+                "PB-ADAPTER-0010",
+                "reduce the bounded workload or increase its reviewed time budget",
+            ),
+            Self::Budget(_) => (
                 "PB-AENEAS-1003",
                 "review the workload and increase the manifest budget only if justified",
             ),
             Self::Request(_) => (
                 "PB-AENEAS-1004",
-                "send canonical proofbound-adapter-protocol/1 JSON with no unknown fields",
+                "send canonical proofbound-adapter-protocol/2 JSON with no unknown fields",
             ),
             Self::Unit(_) => (
                 "PB-AENEAS-1005",
@@ -3165,6 +3169,18 @@ fn truncate_message(message: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+
+    #[test]
+    fn timeout_and_resource_budget_have_distinct_diagnostics() {
+        assert_eq!(
+            AdapterError::Timeout(900_000).diagnostic().code,
+            "PB-ADAPTER-0010"
+        );
+        assert_eq!(
+            AdapterError::Budget("disk".to_owned()).diagnostic().code,
+            "PB-AENEAS-1003"
+        );
+    }
 
     #[derive(Default)]
     struct FakeExecutor {

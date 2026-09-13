@@ -17,7 +17,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::{
     audit::parse_audit_bytes,
-    error::{AdapterError, CONFIGURATION, RESOURCE, TOOL},
+    error::{AdapterError, CONFIGURATION, RESOURCE, TIMEOUT, TOOL},
     model::{AuditOutput, CapturedExecution, LeanAdapterUnit},
 };
 
@@ -127,7 +127,7 @@ pub fn execute_audit(root: &Path, unit: &LeanAdapterUnit) -> Result<AuditRun, Ad
     let execution_elapsed = execution_started.elapsed();
     if execution_elapsed > time_limit {
         return Err(AdapterError::new(
-            RESOURCE,
+            TIMEOUT,
             format!(
                 "Lean audit and version query exceeded their total time budget of {} ms",
                 time_limit.as_millis()
@@ -235,7 +235,7 @@ pub fn validate_captured_execution(
     }
     if execution.resource_usage.time_ms > budget_ms {
         return Err(AdapterError::new(
-            RESOURCE,
+            TIMEOUT,
             format!(
                 "captured audit used {} ms, exceeding declared budget {budget_ms} ms",
                 execution.resource_usage.time_ms
@@ -399,7 +399,7 @@ fn remaining_budget(deadline: Instant) -> Result<Duration, AdapterError> {
         .filter(|remaining| !remaining.is_zero())
         .ok_or_else(|| {
             AdapterError::new(
-                RESOURCE,
+                TIMEOUT,
                 "Lean audit and version query exhausted their total time budget",
             )
         })
@@ -461,7 +461,7 @@ fn run_bounded(
             let _ = stdout_reader.join();
             let _ = stderr_reader.join();
             return Err(AdapterError::new(
-                RESOURCE,
+                TIMEOUT,
                 format!(
                     "{label} exceeded remaining time budget of {} ms",
                     timeout.as_millis()
@@ -575,5 +575,42 @@ mod tests {
             Sha256Digest::of_bytes(version.as_bytes()),
             Sha256Digest::of_bytes(b"Lake version 5.0.0 (Lean version 4.24.0)")
         );
+    }
+
+    #[test]
+    fn exhausted_deadline_uses_the_protocol_timeout_code() {
+        let error = remaining_budget(Instant::now()).unwrap_err();
+        assert_eq!(error.code, TIMEOUT);
+        assert_eq!(error.diagnostic().code, "PB-ADAPTER-0010");
+    }
+
+    #[test]
+    fn child_deadline_uses_the_protocol_timeout_code() {
+        let command = CommandSpec {
+            program: env::current_exe().unwrap().to_string_lossy().into_owned(),
+            args: vec![
+                "--ignored".to_owned(),
+                "--exact".to_owned(),
+                "runtime::tests::timeout_child_fixture".to_owned(),
+            ],
+            environment_allowlist: Vec::new(),
+        };
+        let error = match run_bounded(
+            Path::new("."),
+            &command,
+            Duration::from_millis(1),
+            "timeout fixture",
+        ) {
+            Ok(_) => panic!("timeout fixture must exceed its deadline"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, TIMEOUT);
+        assert!(error.message.contains("exceeded remaining time budget"));
+    }
+
+    #[test]
+    #[ignore = "spawned only by child_deadline_uses_the_protocol_timeout_code"]
+    fn timeout_child_fixture() {
+        thread::sleep(Duration::from_secs(5));
     }
 }
