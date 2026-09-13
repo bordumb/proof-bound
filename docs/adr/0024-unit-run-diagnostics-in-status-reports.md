@@ -28,8 +28,12 @@ The orchestrator distinguishes these outcomes:
 - `failed` for an adapter that ran and rejected its unit;
 - `unavailable` when the registered executable could not start; and
 - `protocol-failed` for malformed or identity-mismatched adapter responses;
-  and
 - `timeout` when the adapter reports `PB-ADAPTER-0010`.
+
+Every built-in adapter uses `PB-ADAPTER-0010` only for an exhausted execution
+deadline. Adapter-specific time-budget failures, including Lean audit and
+captured-execution overruns, map to that protocol-wide code. Other resource and
+generic rejection paths retain distinct codes.
 
 Invocation failures preserve their stable `PB-ADAPTER-*` cause instead of
 collapsing to a generic wrapper. The invocation boundary returns a typed error;
@@ -46,9 +50,13 @@ This is a versioned status-report and adapter-protocol change, not a
 reinterpretation. The report advances to `proofbound-report/2`. The subprocess
 protocol advances to `proofbound-adapter-protocol/2` because failed responses
 must carry at least one structured diagnostic. Protocol version 1 is rejected
-instead of receiving the stronger meaning. Evidence receipts, policy
-derivation, exit codes, assumptions, bounds, linkage, and trusted-computing-
-base roles are unchanged.
+instead of receiving the stronger meaning. The Python helper enforces the same
+failure invariant when parsing or serializing. At the envelope level, a
+successful response may have null evidence because successful `doctor` and
+`inventory` operations require it; the request-aware orchestrator enforces the
+operation-specific evidence and inventory shape. Evidence receipts, policy
+derivation, exit codes, assumptions, bounds, linkage, and trusted-computing-base
+roles are unchanged.
 
 ## Required falsifiers
 
@@ -61,6 +69,11 @@ base roles are unchanged.
   executable identity;
 - protocol version 1 and a version-2 failed response without diagnostics are
   rejected;
+- a Lean exhausted deadline emits `PB-ADAPTER-0010`, while a non-timeout
+  defensive rejection cannot use that code;
+- Python accepts successful null-evidence `doctor` and `inventory` envelopes
+  but rejects and refuses to serialize a failed response with evidence,
+  inventory, or no diagnostic;
 - adapter-returned failure diagnostics survive unchanged; and
 - the JSON and human projections classify the same unit outcome.
 

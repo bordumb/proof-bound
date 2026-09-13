@@ -2125,7 +2125,7 @@ fn response_to_record(
 ) -> Result<EvidenceRecord> {
     if !response.success {
         bail!(
-            "PB-ADAPTER-0010: adapter rejected unit {}: {}",
+            "PB-ADAPTER-0031: adapter rejected unit {}: {}",
             unit.id,
             response
                 .diagnostics
@@ -9962,7 +9962,7 @@ description = {description:?}
         let bundle = cache_test_bundle(Path::new("."));
         let error = response_to_record(Path::new("."), &bundle, &unit, None, &[], &[], &response)
             .unwrap_err();
-        assert!(error.to_string().contains("adapter rejected unit failed"));
+        assert!(error.to_string().contains("PB-ADAPTER-0031"));
     }
 
     #[test]
