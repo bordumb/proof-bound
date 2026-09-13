@@ -917,8 +917,7 @@ pub fn update_unit(root: &Path, unit_id: &str) -> Result<()> {
         let boundaries = output_boundaries
             .as_ref()
             .expect("non-translation updates have evidence-owned boundaries");
-        enforce_update_output_postcondition(unit_id, &changed, boundaries)?;
-        apply_update_changes(root, shadow.path(), &changed)?;
+        import_evidence_update_changes(unit_id, root, shadow.path(), &changed, boundaries)?;
     }
     let reviewed = changed_reviewed_paths(root)?;
     if let Some(boundaries) = &output_boundaries {
@@ -1799,6 +1798,17 @@ fn enforce_update_output_postcondition(
         );
     }
     Ok(())
+}
+
+fn import_evidence_update_changes(
+    unit_id: &str,
+    root: &Path,
+    shadow: &Path,
+    changed: &BTreeSet<String>,
+    boundary_groups: &[UpdateBoundaryGroup],
+) -> Result<()> {
+    enforce_update_output_postcondition(unit_id, changed, boundary_groups)?;
+    apply_update_changes(root, shadow, changed)
 }
 
 fn path_matches_boundary(path: &str, boundary: &str, recursive: bool) -> bool {
@@ -8769,6 +8779,42 @@ description = {description:?}
                 .to_string()
                 .contains("exactly one claim")
         );
+    }
+
+    #[test]
+    fn lean_identity_update_rejects_an_adapter_write_before_any_import() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("root");
+        let shadow = temporary.path().join("shadow");
+        for project in [&root, &shadow] {
+            fs::create_dir_all(project.join("claims")).unwrap();
+            fs::create_dir_all(project.join("lean")).unwrap();
+            fs::write(project.join("claims/TEST-CLAIM-001.toml"), b"old claim").unwrap();
+        }
+        let (bundle, unit, _) = lean_update_fixture(&root);
+        let target = lean_identity_update_target(&root, &bundle, &unit)
+            .unwrap()
+            .unwrap();
+        fs::write(shadow.join(&target.manifest_relative), b"new claim").unwrap();
+        fs::write(shadow.join("lean/adapter-escape.txt"), b"unauthorized").unwrap();
+
+        let changed = changed_update_paths(&root, &shadow, 1 << 20).unwrap();
+        let boundaries = vec![UpdateBoundaryGroup {
+            paths: unit.outputs.clone(),
+            recursive: false,
+        }];
+        let error =
+            import_evidence_update_changes(&unit.id, &root, &shadow, &changed, &boundaries)
+                .unwrap_err()
+                .to_string();
+
+        assert!(error.contains("PB-UPDATE-0005"), "{error}");
+        assert!(error.contains("lean/adapter-escape.txt"), "{error}");
+        assert_eq!(
+            fs::read(root.join(&target.manifest_relative)).unwrap(),
+            b"old claim"
+        );
+        assert!(!root.join("lean/adapter-escape.txt").exists());
     }
 
     #[test]
