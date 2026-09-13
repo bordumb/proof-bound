@@ -812,11 +812,10 @@ pub fn derive_claim_status(input: &ClaimEvaluationInput) -> ClaimStatus {
                 }
                 for evidence_id in &valid_evidence {
                     let record = evidence_catalog[evidence_id];
-                    let is_primary_domain_evidence =
-                        (formal == FormalFacet::BoundedChecked
-                            && record.kind == EvidenceKind::BoundedCheck)
-                            || (used_exhaustive_as_proof
-                                && record.kind == EvidenceKind::ExhaustiveCheck);
+                    let is_primary_domain_evidence = (formal == FormalFacet::BoundedChecked
+                        && record.kind == EvidenceKind::BoundedCheck)
+                        || (used_exhaustive_as_proof
+                            && record.kind == EvidenceKind::ExhaustiveCheck);
                     if !is_primary_domain_evidence {
                         continue;
                     }

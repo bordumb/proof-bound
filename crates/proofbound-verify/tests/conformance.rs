@@ -1892,12 +1892,7 @@ fn verifier_scopes_domain_consistency_to_the_primary_evidence_family() {
     corroborating.record.node_id = "model-check:corroborating".into();
     corroborating.record.unit_id = "unit:corroborating".into();
     corroborating.record.kind = EvidenceKind::ExhaustiveCheck;
-    let mut domain = corroborating
-        .record
-        .bounded_check
-        .take()
-        .unwrap()
-        .domain;
+    let mut domain = corroborating.record.bounded_check.take().unwrap().domain;
     domain.registration_sha256 = digest("corroborating-domain");
     corroborating.record.exhaustive_check = Some(ExhaustiveCheckReceipt {
         evaluated_members: domain.cardinality.unwrap(),

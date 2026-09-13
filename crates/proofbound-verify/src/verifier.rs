@@ -12,20 +12,20 @@ use thiserror::Error;
 use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, ArtifactObservationRelation, AssumptionCategory,
     AssumptionFacet, AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode,
-    BoundedDomain, BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1,
-    COMPILED_RELEASE_SCHEMA_V4, COMPILED_RELEASE_SCHEMA_V5, COMPILED_RELEASE_SCHEMA_V6,
-    COMPILED_RELEASE_SCHEMA_V7, ClaimReceipt, ClosureKind, CompiledRelease,
-    DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V4, EVIDENCE_SCHEMA_V5,
-    EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
-    EvidenceReceipt, Exclusion, ExecutionKind, ExternalObservationInput, FlowScope, FormalFacet,
-    GRAPH_SCHEMA_V1, GraphEdge, GraphNode, HashedRecord, IndependenceMode, LinkageFacet,
-    MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V3, NodeKind, ObservationPlatform,
-    OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
-    RELEASE_ENVELOPE_SCHEMA_V4, RELEASE_ENVELOPE_SCHEMA_V5, RELEASE_ENVELOPE_SCHEMA_V6,
-    RELEASE_ENVELOPE_SCHEMA_V7, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
-    SourceClosureReceipt, SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1,
-    TRANSCRIPTION_TCB_ROLE_DOMAIN_V1, TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole,
-    TreeState, canonical_json, domain_hash, raw_sha256,
+    BoundedDomain, BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V4,
+    COMPILED_RELEASE_SCHEMA_V5, COMPILED_RELEASE_SCHEMA_V6, COMPILED_RELEASE_SCHEMA_V7,
+    ClaimReceipt, ClosureKind, CompiledRelease, DISTRIBUTION_REPRODUCTION_SCHEMA_V1,
+    EVIDENCE_SCHEMA_V4, EVIDENCE_SCHEMA_V5, EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind,
+    EvaluationMode, EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, ExecutionKind,
+    ExternalObservationInput, FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphEdge, GraphNode,
+    HashedRecord, IndependenceMode, LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2,
+    MUTATION_WITNESS_SCHEMA_V3, NodeKind, ObservationPlatform, OpenObligation, POLICY_SCHEMA_V1,
+    PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V4,
+    RELEASE_ENVELOPE_SCHEMA_V5, RELEASE_ENVELOPE_SCHEMA_V6, RELEASE_ENVELOPE_SCHEMA_V7,
+    ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1, SourceClosureReceipt,
+    SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1, TRANSCRIPTION_TCB_ROLE_DOMAIN_V1,
+    TRUSTED_TRANSCRIPTION_SCHEMA_V1, Tier, TranscriptionRole, TreeState, canonical_json,
+    domain_hash, raw_sha256,
     statement_wire::{
         LEAN_STATEMENT_ENCODING_V1, parse_artifact_digest_binding_set,
         parse_artifact_digest_bindings, statement_digest,
@@ -4588,11 +4588,9 @@ fn derive_claim(
                 }
                 for evidence_id in &valid {
                     let record = evidence[evidence_id];
-                    let is_primary_domain_evidence =
-                        (formal == FormalFacet::BoundedChecked
-                            && record.kind == EvidenceKind::BoundedCheck)
-                            || (exhaustive_as_proof
-                                && record.kind == EvidenceKind::ExhaustiveCheck);
+                    let is_primary_domain_evidence = (formal == FormalFacet::BoundedChecked
+                        && record.kind == EvidenceKind::BoundedCheck)
+                        || (exhaustive_as_proof && record.kind == EvidenceKind::ExhaustiveCheck);
                     if !is_primary_domain_evidence {
                         continue;
                     }
