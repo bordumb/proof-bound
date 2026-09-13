@@ -272,11 +272,9 @@ fn parse_response(
             "adapter response identity does not match its request",
         ));
     }
-    let object = value
-        .as_object()
-        .ok_or_else(|| {
-            InvocationError::new("PB-ADAPTER-0008", "adapter response must be a JSON object")
-        })?;
+    let object = value.as_object().ok_or_else(|| {
+        InvocationError::new("PB-ADAPTER-0008", "adapter response must be a JSON object")
+    })?;
     if !object.contains_key("evidence") {
         return Err(InvocationError::new(
             "PB-ADAPTER-0008",
@@ -407,11 +405,9 @@ fn validate_operation_response(
 }
 
 fn evidence_reports_passed(evidence: &serde_json::Value) -> InvocationResult<bool> {
-    let object = evidence
-        .as_object()
-        .ok_or_else(|| {
-            InvocationError::new("PB-ADAPTER-0008", "adapter evidence must be an object")
-        })?;
+    let object = evidence.as_object().ok_or_else(|| {
+        InvocationError::new("PB-ADAPTER-0008", "adapter evidence must be an object")
+    })?;
     match object.get("schema").and_then(serde_json::Value::as_str) {
         Some("proofbound-evidence/4") => {
             let status = object

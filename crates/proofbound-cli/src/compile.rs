@@ -8984,14 +8984,8 @@ description = {description:?}
         let temporary = tempfile::tempdir().unwrap();
         let unit = inventory_protocol_unit();
         let missing = temporary.path().join("proofbound-adapter-test");
-        let error = adapter::invoke_program(
-            Path::new("."),
-            &unit,
-            "check",
-            json!({}),
-            &missing,
-        )
-        .unwrap_err();
+        let error = adapter::invoke_program(Path::new("."), &unit, "check", json!({}), &missing)
+            .unwrap_err();
         let error = anyhow::Error::new(error);
         let run = adapter_failure_run(&unit, "sha256:missing".into(), &error);
 
@@ -8999,7 +8993,11 @@ description = {description:?}
         assert_eq!(run.adapter, "proofbound-adapter-test");
         assert_eq!(run.outcome, "unavailable");
         assert_eq!(run.diagnostics[0].code, "PB-ADAPTER-0003");
-        assert!(run.diagnostics[0].message.contains("proofbound-adapter-test"));
+        assert!(
+            run.diagnostics[0]
+                .message
+                .contains("proofbound-adapter-test")
+        );
         assert!(
             run.diagnostics[0]
                 .remediation
