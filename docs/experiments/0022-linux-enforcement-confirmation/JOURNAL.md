@@ -15,4 +15,3 @@
   denied at `exec` with `runtime-exec: Permission denied`. Rust and Python
   independently classified the capture `LNX-POSITIVE-OUTCOME`. Decision:
   `revise`.
-
