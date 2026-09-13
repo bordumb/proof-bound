@@ -78,7 +78,7 @@ versions contain exactly:
 | Field | Meaning |
 |---|---|
 | `project`, `project_revision` | non-empty release identity |
-| `evidence_context` | v5/v6 reviewed context active for this release |
+| `evidence_context` | v5-v7 reviewed context active for this release |
 | `project_tier` | integer `0`, `1`, `2`, or `3` |
 | `tree_state` | `clean` for a portable release |
 | `graph`, `graph_sha256` | complete typed graph and its domain hash |
@@ -291,12 +291,17 @@ present, otherwise from the internal `statement`; `BOUNDED_CHECKED` and
 policy-admitted exhaustive `PROVED` output append
 ` Registered finite domain: <registered_domain_language>`. The verifier
 requires that language to equal the description in the claim's exact
-`bounded_domain`. It also requires that domain to equal every bounded or
-exhaustive evidence domain supporting the standing; the registration digest
-binds the complete manifest domain, including its ordering key. The verifier
-deliberately rejects substitution of the internal and reader-facing languages,
-claim/evidence domain drift, status drift, upgrades, and unexplained downgrades
-so a receipt has one deterministic representation.
+`bounded_domain`. In version 7 the language is a compatibility projection
+derived solely from that description, not an independent authority. For
+`BOUNDED_CHECKED`, the verifier requires the domain to equal every valid
+`bounded-check` domain. For policy-admitted exhaustive `PROVED`, it instead
+requires equality with every valid `exhaustive-check` domain. Domain-bearing
+evidence outside the selected primary family is corroborating and does not set
+the published domain. The registration digest binds the complete manifest
+domain, including its ordering key. The verifier deliberately rejects
+substitution of the internal and reader-facing languages, primary-evidence
+domain drift, status drift, upgrades, and unexplained downgrades so a receipt
+has one deterministic representation.
 
 Every successful verification report also contains a mandatory
 `not_proved_out_of_scope` entry for every claim, including its open

@@ -95,9 +95,12 @@ with only contextual exact observations use `proofbound-compiled-release/5`;
 legacy releases with contextual artifact bindings use version 6. Version 7 is
 the current producer format across all release shapes and adds the optional
 claim-owned `bounded_domain` field. A bounded or exhaustive standing in v7
-requires that exact domain to agree with its primary evidence. The independent
-verifier retains versions 4 through 6 under their historical rules, so the new
-field does not retroactively invalidate issued receipts. Contextual binding
+requires that exact domain to agree with the evidence family that earns the
+standing; domain-bearing evidence from the other family remains corroborating.
+The legacy `registered_domain_language` field is derived only from the domain
+description. The independent verifier retains versions 4 through 6 under their
+historical rules, so the new field does not retroactively invalidate issued
+receipts. Contextual binding
 records use `proofbound-evidence/5`, retain the selected context and exact
 artifact identity, and require that artifact to be sealed into the release for
 byte-recomputed publication.

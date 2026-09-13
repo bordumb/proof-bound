@@ -1886,6 +1886,56 @@ fn verifier_rejects_claim_and_bounded_evidence_domain_divergence() {
 }
 
 #[test]
+fn verifier_scopes_domain_consistency_to_the_primary_evidence_family() {
+    let mut release = bounded_release();
+    let mut corroborating = release.evidence[0].clone();
+    corroborating.record.node_id = "model-check:corroborating".into();
+    corroborating.record.unit_id = "unit:corroborating".into();
+    corroborating.record.kind = EvidenceKind::ExhaustiveCheck;
+    let mut domain = corroborating
+        .record
+        .bounded_check
+        .take()
+        .unwrap()
+        .domain;
+    domain.registration_sha256 = digest("corroborating-domain");
+    corroborating.record.exhaustive_check = Some(ExhaustiveCheckReceipt {
+        evaluated_members: domain.cardinality.unwrap(),
+        domain,
+    });
+    corroborating.sha256 = domain_hash(
+        EVIDENCE_SCHEMA_V4,
+        &canonical_json(&corroborating.record).unwrap(),
+    );
+    release.claims[0]
+        .cited_evidence
+        .insert(corroborating.sha256.clone());
+    release.evidence.push(corroborating);
+    release.graph.nodes.push(GraphNode {
+        id: "model-check:corroborating".into(),
+        kind: NodeKind::ModelCheckUnit,
+        proof_environment: None,
+    });
+    release.graph.edges.push(GraphEdge {
+        from: "model-check:corroborating".into(),
+        to: release.claims[0].node_id.clone(),
+        kind: EdgeKind::Checks,
+    });
+    release.graph_sha256 = graph_hash(&release.graph);
+
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.claims[0].formal, FormalFacet::BoundedChecked);
+
+    release.claims[0].policy = "finite-ci".into();
+    release.policies[0].id = "finite-ci".into();
+    release.policies[0].components.clear();
+    release.policies[0].admit_exhaustive_as_proved = true;
+    release.reported_statuses[0].formal = FormalFacet::Proved;
+    let error = verify_compiled_release(&release).unwrap_err();
+    assert!(codes(&error).contains(&VerificationIssueCode::PbvInvalidEvidence));
+}
+
+#[test]
 fn legacy_bounded_release_keeps_its_historical_domain_contract() {
     let mut release = bounded_release();
     release.schema = COMPILED_RELEASE_SCHEMA_V4.into();

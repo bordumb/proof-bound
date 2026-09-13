@@ -4587,7 +4587,16 @@ fn derive_claim(
                     );
                 }
                 for evidence_id in &valid {
-                    let Some(actual) = evidence_bounded_domain(evidence[evidence_id]) else {
+                    let record = evidence[evidence_id];
+                    let is_primary_domain_evidence =
+                        (formal == FormalFacet::BoundedChecked
+                            && record.kind == EvidenceKind::BoundedCheck)
+                            || (exhaustive_as_proof
+                                && record.kind == EvidenceKind::ExhaustiveCheck);
+                    if !is_primary_domain_evidence {
+                        continue;
+                    }
+                    let Some(actual) = evidence_bounded_domain(record) else {
                         continue;
                     };
                     if actual != expected {

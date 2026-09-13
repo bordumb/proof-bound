@@ -893,6 +893,23 @@ fn exhaustive_is_tested_unless_policy_explicitly_admits_finite_proof() {
         status.public_statement,
         "The registered subject has property P. Registered finite domain: all values x where 0 <= x <= 255"
     );
+
+    let mut substituted = admitted;
+    substituted.evidence[0]
+        .exhaustive_check
+        .as_mut()
+        .unwrap()
+        .domain
+        .registration_sha256 = digest("other-exhaustive-domain");
+    let status = derive_claim_status(&substituted);
+    assert_eq!(status.formal, FormalFacet::Invalid);
+    assert!(status.errors.iter().any(|error| {
+        error.code == ErrorCode::PbCoreInvalidEvidence
+            && error
+                .unit_id
+                .as_ref()
+                .is_some_and(|id| id.as_str() == "unit:all-u8")
+    }));
 }
 
 #[test]
@@ -933,6 +950,25 @@ fn bounded_standing_requires_one_exact_claim_and_evidence_domain() {
     );
     assert_eq!(
         derive_claim_status(&exact).formal,
+        FormalFacet::BoundedChecked
+    );
+
+    let mut corroborated = exact.clone();
+    let mut corroborating = exhaustive_record("corroborating");
+    corroborating
+        .exhaustive_check
+        .as_mut()
+        .unwrap()
+        .domain
+        .registration_sha256 = digest("corroborating-domain");
+    add_record(
+        &mut corroborated,
+        corroborating,
+        NodeKind::ModelCheckUnit,
+        true,
+    );
+    assert_eq!(
+        derive_claim_status(&corroborated).formal,
         FormalFacet::BoundedChecked
     );
 
