@@ -1320,9 +1320,9 @@ impl EvidenceRecord {
                     "regenerate proofbound-exact-artifact-observation/1 evidence",
                 ));
             }
-            if !self.kind.is_empirical() {
+            if !self.kind.supports_exact_artifact_observation() {
                 errors.push(error(
-                    "exact artifact observation decorates a non-empirical evidence kind".into(),
+                    "exact artifact observation decorates an unsupported evidence kind".into(),
                     "attach the observation only to a bounded, independent, exhaustive, property, example, mutation, or static check",
                 ));
             }

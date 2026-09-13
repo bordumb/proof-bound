@@ -2111,21 +2111,12 @@ fn validate_evidence_shape(
         );
     }
     if let Some(observation) = &evidence.artifact_observation {
-        let supported_kind = matches!(
-            evidence.kind,
-            EvidenceKind::BoundedCheck
-                | EvidenceKind::IndependentCheck
-                | EvidenceKind::ExhaustiveCheck
-                | EvidenceKind::PropertyTest
-                | EvidenceKind::ExampleTest
-                | EvidenceKind::MutationWitness
-                | EvidenceKind::StaticCheck
-        );
+        let supported_kind = supports_exact_artifact_observation(evidence.kind);
         if observation.schema != EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1 || !supported_kind {
             evidence_issue(
                 issues,
                 id,
-                "exact artifact observation has an unsupported schema or empirical kind",
+                "exact artifact observation has an unsupported schema or evidence kind",
             );
         }
         if !valid_observation_role(&observation.subject_role) {
@@ -2664,6 +2655,19 @@ fn validate_evidence_shape(
             "ecosystem detail appears on the wrong evidence kind",
         );
     }
+}
+
+const fn supports_exact_artifact_observation(kind: EvidenceKind) -> bool {
+    matches!(
+        kind,
+        EvidenceKind::BoundedCheck
+            | EvidenceKind::IndependentCheck
+            | EvidenceKind::ExhaustiveCheck
+            | EvidenceKind::PropertyTest
+            | EvidenceKind::ExampleTest
+            | EvidenceKind::MutationWitness
+            | EvidenceKind::StaticCheck
+    )
 }
 
 fn valid_observation_role(role: &str) -> bool {
@@ -5033,6 +5037,23 @@ mod tests {
     use super::*;
     use crate::{GraphEdge, RefinementStrength};
 
+    const ALL_EVIDENCE_KINDS: [EvidenceKind; 14] = [
+        EvidenceKind::Theorem,
+        EvidenceKind::ArtifactSoundness,
+        EvidenceKind::TrustedTranscription,
+        EvidenceKind::SourceRefinement,
+        EvidenceKind::BoundedCheck,
+        EvidenceKind::IndependentCheck,
+        EvidenceKind::ExhaustiveCheck,
+        EvidenceKind::PropertyTest,
+        EvidenceKind::ExampleTest,
+        EvidenceKind::MutationWitness,
+        EvidenceKind::StaticCheck,
+        EvidenceKind::Review,
+        EvidenceKind::Assumption,
+        EvidenceKind::Open,
+    ];
+
     const ALL_NODE_KINDS: [NodeKind; 14] = [
         NodeKind::Claim,
         NodeKind::Theorem,
@@ -5065,6 +5086,23 @@ mod tests {
         EdgeKind::ReviewedBy,
         EdgeKind::AdmittedByPolicy,
     ];
+
+    #[test]
+    fn exact_artifact_observation_support_matches_the_closed_contract() {
+        for kind in ALL_EVIDENCE_KINDS {
+            let expected = matches!(
+                kind,
+                EvidenceKind::BoundedCheck
+                    | EvidenceKind::IndependentCheck
+                    | EvidenceKind::ExhaustiveCheck
+                    | EvidenceKind::PropertyTest
+                    | EvidenceKind::ExampleTest
+                    | EvidenceKind::MutationWitness
+                    | EvidenceKind::StaticCheck
+            );
+            assert_eq!(supports_exact_artifact_observation(kind), expected);
+        }
+    }
 
     fn policy(components: BTreeSet<BuiltInProfile>) -> PolicyReceipt {
         PolicyReceipt {
