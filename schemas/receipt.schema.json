@@ -63,8 +63,11 @@
       "allOf": [
         {
           "if": { "properties": { "schema": { "enum": ["proofbound-compiled-release/5", "proofbound-compiled-release/6"] } }, "required": ["schema"] },
-          "then": { "required": ["evidence_context"] },
-          "else": { "not": { "required": ["evidence_context"] } }
+          "then": { "required": ["evidence_context"] }
+        },
+        {
+          "if": { "properties": { "schema": { "const": "proofbound-compiled-release/4" } }, "required": ["schema"] },
+          "then": { "not": { "required": ["evidence_context"] } }
         }
       ]
     },

@@ -718,6 +718,38 @@ fn empirical_bounded_and_theorem_precedence_is_exact_and_retains_weaker_evidence
 }
 
 #[test]
+fn admitted_theorem_keeps_exhaustive_evidence_corroborating() {
+    let mut policy = builtin(BuiltInProfile::Kernel);
+    policy.id = PolicyId::new("kernel-with-finite-corroboration").unwrap();
+    policy.admit_exhaustive_as_proved = true;
+    let mut input = base_input(Tier::Model, policy);
+    add_record(
+        &mut input,
+        theorem_record("proof", crate::EvaluationMode::Kernel),
+        NodeKind::Theorem,
+        true,
+    );
+    let mut corroborating = exhaustive_record("corroborating");
+    corroborating
+        .exhaustive_check
+        .as_mut()
+        .unwrap()
+        .domain
+        .registration_sha256 = digest("unregistered-corroborating-domain");
+    add_record(
+        &mut input,
+        corroborating,
+        NodeKind::ModelCheckUnit,
+        true,
+    );
+
+    let status = derive_claim_status(&input);
+    assert_eq!(status.formal, FormalFacet::Proved);
+    assert!(status.policy.admitted);
+    assert_eq!(status.evidence.len(), 2);
+}
+
+#[test]
 fn exact_artifact_observation_is_typed_without_upgrading_linkage() {
     let mut input = base_input(Tier::Ledger, ledger_policy());
     let dependency = example_record("release-build");

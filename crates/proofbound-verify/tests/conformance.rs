@@ -1931,6 +1931,50 @@ fn verifier_scopes_domain_consistency_to_the_primary_evidence_family() {
 }
 
 #[test]
+fn verifier_keeps_exhaustive_evidence_corroborating_after_theorem_proof() {
+    let mut release = theorem_release();
+    release.schema = COMPILED_RELEASE_SCHEMA_V7.into();
+    release.claims[0].policy = "kernel-with-finite-corroboration".into();
+    release.policies[0].id = "kernel-with-finite-corroboration".into();
+    release.policies[0].admit_exhaustive_as_proved = true;
+
+    let mut bounded = bounded_release();
+    let mut corroborating = bounded.evidence.remove(0);
+    corroborating.record.node_id = "model-check:corroborating".into();
+    corroborating.record.unit_id = "unit:corroborating".into();
+    corroborating.record.kind = EvidenceKind::ExhaustiveCheck;
+    let mut domain = corroborating.record.bounded_check.take().unwrap().domain;
+    domain.registration_sha256 = digest("unregistered-corroborating-domain");
+    corroborating.record.exhaustive_check = Some(ExhaustiveCheckReceipt {
+        evaluated_members: domain.cardinality.unwrap(),
+        domain,
+    });
+    corroborating.sha256 = domain_hash(
+        EVIDENCE_SCHEMA_V4,
+        &canonical_json(&corroborating.record).unwrap(),
+    );
+    release.claims[0]
+        .cited_evidence
+        .insert(corroborating.sha256.clone());
+    release.evidence.push(corroborating);
+    release.graph.nodes.push(GraphNode {
+        id: "model-check:corroborating".into(),
+        kind: NodeKind::ModelCheckUnit,
+        proof_environment: None,
+    });
+    release.graph.edges.push(GraphEdge {
+        from: "model-check:corroborating".into(),
+        to: release.claims[0].node_id.clone(),
+        kind: EdgeKind::Checks,
+    });
+    release.graph_sha256 = graph_hash(&release.graph);
+
+    let report = verify_compiled_release(&release).unwrap();
+    assert_eq!(report.claims[0].formal, FormalFacet::Proved);
+    assert_eq!(report.claims[0].public_statement, release.claims[0].statement);
+}
+
+#[test]
 fn legacy_bounded_release_keeps_its_historical_domain_contract() {
     let mut release = bounded_release();
     release.schema = COMPILED_RELEASE_SCHEMA_V4.into();

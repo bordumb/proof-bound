@@ -348,6 +348,19 @@ def test_standalone_verifier_release_fixture_matches_shipped_receipt_schema() ->
     validate.validate(compiled)
     validator("graph.schema.json").validate(compiled["graph"])
 
+    contextual_v7 = json.loads(json.dumps(compiled))
+    contextual_v7["schema"] = "proofbound-compiled-release/7"
+    contextual_v7["evidence_context"] = "release-linux-x86-64"
+    validate.validate(contextual_v7)
+
+    contextual_v4 = json.loads(json.dumps(compiled))
+    contextual_v4["evidence_context"] = "release-linux-x86-64"
+    assert list(validate.iter_errors(contextual_v4))
+
+    contextless_v5 = json.loads(json.dumps(compiled))
+    contextless_v5["schema"] = "proofbound-compiled-release/5"
+    assert list(validate.iter_errors(contextless_v5))
+
     invalid_inventory = json.loads(json.dumps(compiled))
     invalid_inventory["evidence"][0]["record"]["inventoried_targets"] = [
         "target\u0085smuggled"

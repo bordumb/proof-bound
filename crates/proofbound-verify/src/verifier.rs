@@ -4550,7 +4550,8 @@ fn derive_claim(
         }
     }
 
-    let exhaustive_as_proof = !policy_ledger(policy)
+    let exhaustive_as_proof = admitted_theorems.is_empty()
+        && !policy_ledger(policy)
         && policy.admit_exhaustive_as_proved
         && valid
             .iter()
@@ -4561,7 +4562,9 @@ fn derive_claim(
         } else {
             FormalFacet::Open
         }
-    } else if !admitted_theorems.is_empty() || exhaustive_as_proof {
+    } else if !admitted_theorems.is_empty() {
+        FormalFacet::Proved
+    } else if exhaustive_as_proof {
         FormalFacet::Proved
     } else if valid
         .iter()

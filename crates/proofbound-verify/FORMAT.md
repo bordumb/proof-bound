@@ -322,8 +322,9 @@ The verifier rejects symlinks and hashes both byte streams itself. An exact
 identity is also byte-observed when its logical name, digest, and size match a
 validated `sealed_files` entry.
 
-For v3, exit `0` means receipt-consistent and policy-admitted. For v4 through
-v6,
+For v4 through v7, exit `0` means policy-admitted with the byte verdict that
+the release's registered relations support. For releases with an exact
+observation or contextual binding,
 `record-consistent` means the relation was independently reconstructed but at
 least one byte stream was unavailable, so publication remains blocked;
 `bytes-observed` means every artifact and procedure identity was recomputed.
@@ -335,6 +336,9 @@ artifact-binding record and requires every selected bound artifact identity to
 match recomputed sealed bytes. Context selection can activate a theorem-derived
 `ARTIFACT_BOUND` linkage only through that exact schema-6 route; contextual
 observations never change a claim facet.
+Version 7 can carry the noncontextual, contextual-observation, or contextual-
+binding shape. It applies the same context and byte-recomputation rules to the
+relations it contains and adds the claim-owned bounded-domain rules above.
 Exit `3` means the
 receipt is internally consistent but at least one claim is blocked by policy.
 Exit `2` means malformed, tampered, structurally invalid, or inconsistent with
