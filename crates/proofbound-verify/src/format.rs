@@ -1,4 +1,4 @@
-//! Closed `proofbound-compiled-release/3` through `/7` receipt formats.
+//! Closed `proofbound-compiled-release/4` through `/7` receipt formats.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -7,19 +7,16 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-pub const RELEASE_ENVELOPE_SCHEMA_V3: &str = "proofbound-release-envelope/3";
 pub const RELEASE_ENVELOPE_SCHEMA_V4: &str = "proofbound-release-envelope/4";
 pub const RELEASE_ENVELOPE_SCHEMA_V5: &str = "proofbound-release-envelope/5";
 pub const RELEASE_ENVELOPE_SCHEMA_V6: &str = "proofbound-release-envelope/6";
 pub const RELEASE_ENVELOPE_SCHEMA_V7: &str = "proofbound-release-envelope/7";
-pub const COMPILED_RELEASE_SCHEMA_V3: &str = "proofbound-compiled-release/3";
 pub const COMPILED_RELEASE_SCHEMA_V4: &str = "proofbound-compiled-release/4";
 pub const COMPILED_RELEASE_SCHEMA_V5: &str = "proofbound-compiled-release/5";
 pub const COMPILED_RELEASE_SCHEMA_V6: &str = "proofbound-compiled-release/6";
 pub const COMPILED_RELEASE_SCHEMA_V7: &str = "proofbound-compiled-release/7";
 pub const GRAPH_SCHEMA_V1: &str = "proofbound-graph/1";
 pub const CLAIM_SCHEMA_V1: &str = "proofbound-claim/1";
-pub const EVIDENCE_SCHEMA_V3: &str = "proofbound-evidence/3";
 pub const EVIDENCE_SCHEMA_V4: &str = "proofbound-evidence/4";
 pub const EVIDENCE_SCHEMA_V5: &str = "proofbound-evidence/5";
 pub const EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1: &str = "proofbound-exact-artifact-observation/1";
@@ -31,6 +28,7 @@ pub const TRUSTED_TRANSCRIPTION_SCHEMA_V1: &str = "proofbound-trusted-transcript
 pub const TRANSCRIPTION_DRIVER_ABI_V1: &str = "proofbound-transcription-driver/1";
 pub const TRANSCRIPTION_TCB_ROLE_DOMAIN_V1: &str = "proofbound-transcription-tcb-role/1";
 pub const MUTATION_WITNESS_SCHEMA_V2: &str = "proofbound-mutation-witness/2";
+pub const MUTATION_WITNESS_SCHEMA_V3: &str = "proofbound-mutation-witness/3";
 pub const MUTATION_IDENTITY_DOMAIN_V2: &str = "proofbound-mutation/2";
 pub const PYTHON_PROPERTY_SCHEMA_V1: &str = "proofbound-python-property/1";
 pub const STATIC_CHECK_SCHEMA_V1: &str = "proofbound-static-check/1";

@@ -12,16 +12,15 @@ use thiserror::Error;
 use crate::{
     ASSUMPTION_SCHEMA_V1, ArtifactBindingReceipt, ArtifactObservationRelation, AssumptionCategory,
     AssumptionFacet, AssumptionReceipt, AssumptionState, AssuranceGraph, BindingMode,
-    BoundedDomain, BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1, COMPILED_RELEASE_SCHEMA_V3,
+    BoundedDomain, BuiltInProfile, CLAIM_SCHEMA_V1, CLOSURE_SCHEMA_V1,
     COMPILED_RELEASE_SCHEMA_V4, COMPILED_RELEASE_SCHEMA_V5, COMPILED_RELEASE_SCHEMA_V6,
     COMPILED_RELEASE_SCHEMA_V7, ClaimReceipt, ClosureKind, CompiledRelease,
-    DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V3, EVIDENCE_SCHEMA_V4,
-    EVIDENCE_SCHEMA_V5, EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind, EvaluationMode,
-    EvidenceKind, EvidenceOutcome, EvidenceReceipt, Exclusion, ExecutionKind,
-    ExternalObservationInput, FlowScope, FormalFacet, GRAPH_SCHEMA_V1, GraphEdge, GraphNode,
-    HashedRecord, IndependenceMode, LinkageFacet, MUTATION_IDENTITY_DOMAIN_V2,
-    MUTATION_WITNESS_SCHEMA_V2, NodeKind, ObservationPlatform, OpenObligation, POLICY_SCHEMA_V1,
-    PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt, RELEASE_ENVELOPE_SCHEMA_V3,
+    DISTRIBUTION_REPRODUCTION_SCHEMA_V1, EVIDENCE_SCHEMA_V4, EVIDENCE_SCHEMA_V5,
+    EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1, EdgeKind, EvaluationMode, EvidenceKind, EvidenceOutcome,
+    EvidenceReceipt, Exclusion, ExecutionKind, ExternalObservationInput, FlowScope, FormalFacet,
+    GRAPH_SCHEMA_V1, GraphEdge, GraphNode, HashedRecord, IndependenceMode, LinkageFacet,
+    MUTATION_IDENTITY_DOMAIN_V2, MUTATION_WITNESS_SCHEMA_V3, NodeKind, ObservationPlatform,
+    OpenObligation, POLICY_SCHEMA_V1, PYTHON_PROPERTY_SCHEMA_V1, PolicyReceipt, PremiseReceipt,
     RELEASE_ENVELOPE_SCHEMA_V4, RELEASE_ENVELOPE_SCHEMA_V5, RELEASE_ENVELOPE_SCHEMA_V6,
     RELEASE_ENVELOPE_SCHEMA_V7, ReleaseEnvelope, ReportedClaimStatus, STATIC_CHECK_SCHEMA_V1,
     SourceClosureReceipt, SourceRefinementReceipt, TRANSCRIPTION_DRIVER_ABI_V1,
@@ -245,8 +244,7 @@ pub fn verify_release_dir_with_observations(
     let (envelope, _) = read_canonical::<ReleaseEnvelope>(&envelope_path, MAX_ENVELOPE_BYTES)?;
     if !matches!(
         envelope.schema.as_str(),
-        RELEASE_ENVELOPE_SCHEMA_V3
-            | RELEASE_ENVELOPE_SCHEMA_V4
+        RELEASE_ENVELOPE_SCHEMA_V4
             | RELEASE_ENVELOPE_SCHEMA_V5
             | RELEASE_ENVELOPE_SCHEMA_V6
             | RELEASE_ENVELOPE_SCHEMA_V7
@@ -273,12 +271,11 @@ pub fn verify_release_dir_with_observations(
     let (release, payload_bytes) =
         read_canonical::<CompiledRelease>(&payload_path, MAX_PAYLOAD_BYTES)?;
     let payload_domain = match release.schema.as_str() {
-        COMPILED_RELEASE_SCHEMA_V3 => COMPILED_RELEASE_SCHEMA_V3,
         COMPILED_RELEASE_SCHEMA_V4 => COMPILED_RELEASE_SCHEMA_V4,
         COMPILED_RELEASE_SCHEMA_V5 => COMPILED_RELEASE_SCHEMA_V5,
         COMPILED_RELEASE_SCHEMA_V6 => COMPILED_RELEASE_SCHEMA_V6,
         COMPILED_RELEASE_SCHEMA_V7 => COMPILED_RELEASE_SCHEMA_V7,
-        _ => COMPILED_RELEASE_SCHEMA_V3,
+        _ => COMPILED_RELEASE_SCHEMA_V4,
     };
     let actual_payload = domain_hash(payload_domain, &payload_bytes);
     if actual_payload != envelope.payload_sha256 {
@@ -298,8 +295,7 @@ pub fn verify_release_dir_with_observations(
         COMPILED_RELEASE_SCHEMA_V7 => RELEASE_ENVELOPE_SCHEMA_V7,
         COMPILED_RELEASE_SCHEMA_V6 => RELEASE_ENVELOPE_SCHEMA_V6,
         COMPILED_RELEASE_SCHEMA_V5 => RELEASE_ENVELOPE_SCHEMA_V5,
-        COMPILED_RELEASE_SCHEMA_V4 => RELEASE_ENVELOPE_SCHEMA_V4,
-        _ => RELEASE_ENVELOPE_SCHEMA_V3,
+        _ => RELEASE_ENVELOPE_SCHEMA_V4,
     };
     if envelope.schema != expected_envelope {
         return Err(VerificationErrors::one(
@@ -350,8 +346,7 @@ fn verify_compiled_release_internal(
     let mut issues = Vec::new();
     if !matches!(
         release.schema.as_str(),
-        COMPILED_RELEASE_SCHEMA_V3
-            | COMPILED_RELEASE_SCHEMA_V4
+        COMPILED_RELEASE_SCHEMA_V4
             | COMPILED_RELEASE_SCHEMA_V5
             | COMPILED_RELEASE_SCHEMA_V6
             | COMPILED_RELEASE_SCHEMA_V7
@@ -374,24 +369,12 @@ fn verify_compiled_release_internal(
         .as_deref()
         .is_some_and(valid_observation_role);
     match release.schema.as_str() {
-        COMPILED_RELEASE_SCHEMA_V3
-            if has_observations
-                || has_contextual_bindings
-                || release.evidence_context.is_some() =>
-        {
-            issues.push(VerificationIssue::new(
-                VerificationIssueCode::PbvSchema,
-                "compiled release v3 cannot contain exact observations or an evidence context",
-            ));
-        }
         COMPILED_RELEASE_SCHEMA_V4
-            if !has_observations
-                || has_contextual_bindings
-                || release.evidence_context.is_some() =>
+            if has_contextual_bindings || release.evidence_context.is_some() =>
         {
             issues.push(VerificationIssue::new(
                 VerificationIssueCode::PbvSchema,
-                "compiled release v4 requires noncontextual exact observations",
+                "compiled release v4 cannot contain contextual evidence",
             ));
         }
         COMPILED_RELEASE_SCHEMA_V5
@@ -1639,10 +1622,9 @@ fn validate_evidence_records(
         }
         if let Ok(bytes) = canonical_json(evidence) {
             let evidence_domain = match evidence.schema.as_str() {
-                EVIDENCE_SCHEMA_V3 => EVIDENCE_SCHEMA_V3,
                 EVIDENCE_SCHEMA_V4 => EVIDENCE_SCHEMA_V4,
                 EVIDENCE_SCHEMA_V5 => EVIDENCE_SCHEMA_V5,
-                _ => EVIDENCE_SCHEMA_V3,
+                _ => EVIDENCE_SCHEMA_V4,
             };
             let actual = domain_hash(evidence_domain, &bytes);
             if actual != wrapper.sha256 {
@@ -1655,7 +1637,7 @@ fn validate_evidence_records(
         }
         if !matches!(
             evidence.schema.as_str(),
-            EVIDENCE_SCHEMA_V3 | EVIDENCE_SCHEMA_V4 | EVIDENCE_SCHEMA_V5
+            EVIDENCE_SCHEMA_V4 | EVIDENCE_SCHEMA_V5
         ) {
             evidence_issue(
                 issues,
@@ -1663,11 +1645,14 @@ fn validate_evidence_records(
                 format!("unsupported evidence schema '{}'", evidence.schema),
             );
         }
-        if (evidence.schema == EVIDENCE_SCHEMA_V4) != evidence.artifact_observation.is_some() {
+        if evidence.schema == EVIDENCE_SCHEMA_V4
+            && evidence.evidence_context.is_some()
+            && evidence.artifact_observation.is_none()
+        {
             evidence_issue(
                 issues,
                 &wrapper.sha256,
-                "evidence v4 is required exactly when an exact artifact observation is present",
+                "contextual evidence v4 requires an exact artifact observation",
             );
         }
         if evidence.schema == EVIDENCE_SCHEMA_V5
@@ -2154,21 +2139,12 @@ fn validate_evidence_shape(
         );
     }
     if let Some(observation) = &evidence.artifact_observation {
-        let supported_kind = matches!(
-            evidence.kind,
-            EvidenceKind::BoundedCheck
-                | EvidenceKind::IndependentCheck
-                | EvidenceKind::ExhaustiveCheck
-                | EvidenceKind::PropertyTest
-                | EvidenceKind::ExampleTest
-                | EvidenceKind::MutationWitness
-                | EvidenceKind::StaticCheck
-        );
+        let supported_kind = supports_exact_artifact_observation(evidence.kind);
         if observation.schema != EXACT_ARTIFACT_OBSERVATION_SCHEMA_V1 || !supported_kind {
             evidence_issue(
                 issues,
                 id,
-                "exact artifact observation has an unsupported schema or empirical kind",
+                "exact artifact observation has an unsupported schema or evidence kind",
             );
         }
         if !valid_observation_role(&observation.subject_role) {
@@ -2709,6 +2685,19 @@ fn validate_evidence_shape(
     }
 }
 
+const fn supports_exact_artifact_observation(kind: EvidenceKind) -> bool {
+    matches!(
+        kind,
+        EvidenceKind::BoundedCheck
+            | EvidenceKind::IndependentCheck
+            | EvidenceKind::ExhaustiveCheck
+            | EvidenceKind::PropertyTest
+            | EvidenceKind::ExampleTest
+            | EvidenceKind::MutationWitness
+            | EvidenceKind::StaticCheck
+    )
+}
+
 fn valid_observation_role(role: &str) -> bool {
     !role.is_empty()
         && role.len() <= 128
@@ -2791,8 +2780,10 @@ fn mutation_witness_valid(
         .iter()
         .map(|artifact| artifact.logical_name.as_str())
         .collect::<BTreeSet<_>>();
-    let is_node = witness.subject.starts_with("npm:");
-    let is_python = witness.subject.starts_with("python:");
+    let Some(subject_kind) = mutation_subject_kind(&witness.subject) else {
+        return false;
+    };
+    let is_node = subject_kind == MutationSubjectKind::Node;
     let expected_input_count = input_roles.len() + usize::from(is_node) * 2;
     let input_roles_are_exact = evidence.provenance.input_artifacts.len() == expected_input_count
         && input_role_names.len() == input_roles.len()
@@ -2819,7 +2810,14 @@ fn mutation_witness_valid(
     let singleton_inventory =
         evidence.inventoried_targets == BTreeSet::from([witness.mutation_id.clone()]);
     let singleton_unit = evidence.unit_id == format!("unit:{}", witness.mutation_id);
-    let expected_exit = if is_python || is_node { 1 } else { 101 };
+    let expected_exit = if matches!(
+        subject_kind,
+        MutationSubjectKind::Python | MutationSubjectKind::Node
+    ) {
+        1
+    } else {
+        101
+    };
     let expected_failure_is_exact = witness.expected_failure.allowed_exit_codes
         == BTreeSet::from([expected_exit])
         && witness.baseline_run_index < witness.expected_failure.run_index;
@@ -2837,24 +2835,33 @@ fn mutation_witness_valid(
         baseline_command
             .zip(mutant_command)
             .is_some_and(|(baseline, mutant)| {
-                (if is_node {
-                    baseline.program == mutant.program && baseline.args == mutant.args
-                } else if is_python {
-                    python_mutation_command_runs_exact_check(
-                        baseline,
-                        "$BASELINE",
-                        &witness.check_id,
-                    ) && python_mutation_command_runs_exact_check(
-                        mutant,
-                        "$MUTANT",
-                        &witness.check_id,
-                    )
-                } else {
-                    baseline.program != mutant.program || baseline.args != mutant.args
+                (match subject_kind {
+                    MutationSubjectKind::Node => {
+                        node_mutation_commands_run_exact_check(baseline, mutant, &witness.check_id)
+                    }
+                    MutationSubjectKind::Python => {
+                        python_mutation_command_runs_exact_check(
+                            baseline,
+                            "$BASELINE",
+                            &witness.check_id,
+                        ) && python_mutation_command_runs_exact_check(
+                            mutant,
+                            "$MUTANT",
+                            &witness.check_id,
+                        )
+                    }
+                    MutationSubjectKind::Rust => {
+                        rust_mutation_command_runs_exact_check(
+                            baseline,
+                            "$BASELINE",
+                            &witness.check_id,
+                        ) && rust_mutation_command_runs_exact_check(
+                            mutant,
+                            "$MUTANT",
+                            &witness.check_id,
+                        )
+                    }
                 }) && baseline.environment_allowlist == mutant.environment_allowlist
-                    && (is_python
-                        || (command_runs_exact_check(baseline, &witness.check_id)
-                            && command_runs_exact_check(mutant, &witness.check_id)))
             });
     let passed_run_shape = evidence.outcome != EvidenceOutcome::Passed
         || (baseline_run.is_some_and(|run| run.exit_code == Some(0))
@@ -2866,7 +2873,7 @@ fn mutation_witness_valid(
                 .filter(|run| run.exit_code != Some(0))
                 .count()
                 == 1);
-    let strings_are_valid = witness.schema == MUTATION_WITNESS_SCHEMA_V2
+    let strings_are_valid = witness.schema == MUTATION_WITNESS_SCHEMA_V3
         && valid_mutation_id(&witness.mutation_id)
         && bounded_text(&witness.subject, 4096)
         && bounded_text(&witness.guard, 8192)
@@ -2906,6 +2913,115 @@ fn mutation_witness_valid(
         && identity_is_exact
         && preimage_is_in_semantic_closure
         && affected_claim_subjects_match
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum MutationSubjectKind {
+    Rust,
+    Python,
+    Node,
+}
+
+fn mutation_subject_kind(value: &str) -> Option<MutationSubjectKind> {
+    if valid_rust_mutation_subject(value) {
+        Some(MutationSubjectKind::Rust)
+    } else if valid_python_mutation_subject(value) {
+        Some(MutationSubjectKind::Python)
+    } else if valid_node_mutation_subject(value) {
+        Some(MutationSubjectKind::Node)
+    } else {
+        None
+    }
+}
+
+fn valid_rust_mutation_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("rust:") else {
+        return false;
+    };
+    let (package, symbol) = value
+        .split_once("::")
+        .map_or((value, None), |(package, symbol)| (package, Some(symbol)));
+    valid_mutation_subject_package(package, true)
+        && symbol.is_none_or(|symbol| symbol.split("::").all(valid_mutation_subject_identifier))
+}
+
+fn valid_python_mutation_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("python:") else {
+        return false;
+    };
+    let (distribution, symbol) = value
+        .split_once("::")
+        .map_or((value, None), |(name, symbol)| (name, Some(symbol)));
+    valid_python_mutation_distribution(distribution)
+        && symbol.is_none_or(|symbol| symbol.split('.').all(valid_mutation_subject_identifier))
+}
+
+fn valid_node_mutation_subject(value: &str) -> bool {
+    let Some(value) = value.strip_prefix("npm:") else {
+        return false;
+    };
+    let (package, export) = value
+        .split_once("::")
+        .map_or((value, None), |(package, export)| (package, Some(export)));
+    !package.is_empty()
+        && package.len() <= 214
+        && package
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        && package.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+        })
+        && export.is_none_or(|export| export.split('.').all(valid_mutation_javascript_identifier))
+}
+
+fn valid_mutation_subject_package(value: &str, allow_underscore: bool) -> bool {
+    !value.is_empty()
+        && value.len() <= 214
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || byte == b'-'
+                || (allow_underscore && byte == b'_')
+        })
+}
+
+fn valid_python_mutation_distribution(value: &str) -> bool {
+    value.len() <= 214
+        && value.split('-').enumerate().all(|(index, segment)| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                && (index != 0
+                    || segment
+                        .bytes()
+                        .next()
+                        .is_some_and(|byte| byte.is_ascii_lowercase()))
+        })
+}
+
+fn valid_mutation_subject_identifier(value: &str) -> bool {
+    value.len() <= 256
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+        && value
+            .bytes()
+            .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+}
+
+fn valid_mutation_javascript_identifier(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$'))
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
 }
 
 fn mutation_subject_node(subject: &str) -> String {
@@ -2958,20 +3074,46 @@ fn python_mutation_command_runs_exact_check(
             ]
 }
 
-fn command_runs_exact_check(command: &crate::CommandReceipt, check_id: &str) -> bool {
-    if command.args.first().map(String::as_str) == Some("run") {
-        return vitest_command_runs_exact_check(command, check_id);
-    }
-    if command.args.windows(2).any(|pair| pair == ["-m", "pytest"]) {
-        return command
-            .args
-            .last()
-            .is_some_and(|argument| argument.ends_with(check_id));
-    }
+fn rust_mutation_command_runs_exact_check(
+    command: &crate::CommandReceipt,
+    root: &str,
+    check_id: &str,
+) -> bool {
     let selector = check_id
         .split_once("::")
         .map_or(check_id, |(_, selector)| selector);
-    command.args == [selector, "--exact"]
+    shadow_program_tail(&command.program, root, "target").is_some()
+        && command.args == [selector, "--exact"]
+}
+
+fn node_mutation_commands_run_exact_check(
+    baseline: &crate::CommandReceipt,
+    mutant: &crate::CommandReceipt,
+    check_id: &str,
+) -> bool {
+    let baseline_tool = shadow_program_tail(&baseline.program, "$BASELINE", "node_modules");
+    let mutant_tool = shadow_program_tail(&mutant.program, "$MUTANT", "node_modules");
+    baseline_tool.is_some()
+        && baseline_tool == mutant_tool
+        && vitest_command_runs_exact_check(baseline, check_id)
+        && vitest_command_runs_exact_check(mutant, check_id)
+}
+
+fn shadow_program_tail<'a>(program: &'a str, root: &str, first: &str) -> Option<&'a str> {
+    let tail = program.strip_prefix(root)?.strip_prefix('/')?;
+    let mut components = tail.split('/');
+    if components.next()? != first
+        || components.clone().next().is_none()
+        || components.any(|component| {
+            component.is_empty()
+                || matches!(component, "." | "..")
+                || component.contains('\\')
+                || component.chars().any(char::is_control)
+        })
+    {
+        return None;
+    }
+    Some(tail)
 }
 
 fn vitest_command_runs_exact_check(command: &crate::CommandReceipt, check_id: &str) -> bool {
@@ -4962,6 +5104,23 @@ mod tests {
     use super::*;
     use crate::{GraphEdge, RefinementStrength};
 
+    const ALL_EVIDENCE_KINDS: [EvidenceKind; 14] = [
+        EvidenceKind::Theorem,
+        EvidenceKind::ArtifactSoundness,
+        EvidenceKind::TrustedTranscription,
+        EvidenceKind::SourceRefinement,
+        EvidenceKind::BoundedCheck,
+        EvidenceKind::IndependentCheck,
+        EvidenceKind::ExhaustiveCheck,
+        EvidenceKind::PropertyTest,
+        EvidenceKind::ExampleTest,
+        EvidenceKind::MutationWitness,
+        EvidenceKind::StaticCheck,
+        EvidenceKind::Review,
+        EvidenceKind::Assumption,
+        EvidenceKind::Open,
+    ];
+
     const ALL_NODE_KINDS: [NodeKind; 14] = [
         NodeKind::Claim,
         NodeKind::Theorem,
@@ -4994,6 +5153,23 @@ mod tests {
         EdgeKind::ReviewedBy,
         EdgeKind::AdmittedByPolicy,
     ];
+
+    #[test]
+    fn exact_artifact_observation_support_matches_the_closed_contract() {
+        for kind in ALL_EVIDENCE_KINDS {
+            let expected = matches!(
+                kind,
+                EvidenceKind::BoundedCheck
+                    | EvidenceKind::IndependentCheck
+                    | EvidenceKind::ExhaustiveCheck
+                    | EvidenceKind::PropertyTest
+                    | EvidenceKind::ExampleTest
+                    | EvidenceKind::MutationWitness
+                    | EvidenceKind::StaticCheck
+            );
+            assert_eq!(supports_exact_artifact_observation(kind), expected);
+        }
+    }
 
     fn policy(components: BTreeSet<BuiltInProfile>) -> PolicyReceipt {
         PolicyReceipt {

@@ -35,6 +35,9 @@
 | EXP-0005-A029 | `captures/q1-finalization-r1/index.json` | immutable finalization capture, revision 1, `sha256:fb04bad50b92df0ca2cd28529e7a091a6ca5f1bc28574fcbed89654ba391c271` | Corrected fresh Rust release plus byte-identical Python and TypeScript captures, with exact sampling-extension bindings |
 | EXP-0005-A030 | `q1-losslessness-matrix-r5.json` | immutable final decision matrix, revision 5, `sha256:ce5db4e56228378e016e8252b91678462b979cc223fd720978c4e836929ceb07` | Fifteen rows complete; cache dependency projection remains partial; Q1 fails and Assurance IR `/1` remains unfrozen |
 | EXP-0005-A031 | `results/2026-09-03-q1-finalization.json` | immutable conclusion result, `sha256:a00419e2532c36dd8be09516f825a2d36f155ffb10a535e4723b955778ea2f8b` | Sampling closes under an exact versioned extension; cache source insufficiency triggers the registered stop condition and promotes EXP-LANG-003 |
+| EXP-0005-A032 | `corpus/cases-r3.json` | frozen, revision 3, `sha256:eef3fd005473078b67a09f4da73db21fad4dc335befa35cb034098014d7754e7`; executed at `4d85f03` | Preserves the preregistered Rust classification correction and the exact receipt identities used by Q1 finalization |
+| EXP-0005-A033 | `corpus/cases-r4.json` | frozen migration input, revision 4, `sha256:2204c39f3302d0c5ae4fb49e0ef7bba291ad2a5e55f77bdb7be52430baa85d7d`; Rust/Python focused suites pass | Migrates only the canonical portable-release case to the evidence-v4 conformance receipt identities; it does not change the concluded Q1 result |
+| EXP-0005-A034 | `semantic-field-inventory-r3.md` | frozen migration inventory, revision 3, `sha256:2afa8c99ac403070da8fbd2b2f329d375f78dd6f99d8ab2cf90447f2016e2a81` | Preserves the revision-2 classification while recording that the current portable evidence wire is `proofbound-evidence/4` |
 
 Content digests identify frozen research inputs. Revisions must receive a new
 artifact digest; existing frozen bytes are not edited in place after an

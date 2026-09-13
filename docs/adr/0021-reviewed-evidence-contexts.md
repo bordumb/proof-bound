@@ -66,7 +66,7 @@ unregistered context. The release command rechecks the clean reviewed tree,
 the full-project selection, the context registration, and the compiled context
 before writing bytes.
 
-Version 4 compiled releases and release envelopes carry the selected context
+Version 5 compiled releases and release envelopes carry the selected context
 when exact observations are present. The independent verifier requires a
 nonempty closed context for contextual observation releases, retains it in the
 verification report, and rejects context substitution through canonical
@@ -84,7 +84,7 @@ Compilation or release rejects:
 - a contextual check combined with a partial claim or profile selection;
 - a release from base state when release contexts are required;
 - a release context that was changed after the compiled check;
-- context omission or substitution in a version 4 portable receipt; and
+- context omission or substitution in a version 5 portable receipt; and
 - any attempt to derive stronger formal or linkage status from context
   selection.
 
@@ -100,7 +100,7 @@ host state, environment variables, paths, or evidence output.
 1. Freeze this decision and its context attack inventory.
 2. Add project and evidence-unit registration with tracked-manifest validation.
 3. Add deterministic base/context selection and compiled-state identity.
-4. Enforce required contexts at release and project context into version 4
+4. Enforce required contexts at release and project context into version 5
    receipts and independent verification reports.
 5. Execute the frozen producer/verifier corpus.
 6. Adopt contexts in Proofbound Runtime's two native release jobs.

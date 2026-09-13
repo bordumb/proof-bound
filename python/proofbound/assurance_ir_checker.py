@@ -437,9 +437,8 @@ def check_projection(
     if corpus["baseline"] != projection["baseline"]:
         raise AssuranceIrError("baseline mismatch")
     if (
-        corpus["revision"] != 3
-        or corpus["status"]
-        != "frozen-positive-after-preregistered-rust-classification-correction"
+        corpus["revision"] != 4
+        or corpus["status"] != "frozen-positive-after-receipt-v4-migration"
     ):
         raise AssuranceIrError("corpus is not frozen")
 
@@ -1969,7 +1968,7 @@ def validate_case_program(data: bytes) -> None:
         request = _object(item, "request") if authority == "registered" else None
         if authority == "portable-receipt":
             portable_receipt = True
-            if item.get("schema") != "proofbound-evidence/3":
+            if item.get("schema") != "proofbound-evidence/4":
                 _fail(
                     "IR-PORTABLE-EVIDENCE-SCHEMA",
                     "portable evidence schema is missing or unsupported",
