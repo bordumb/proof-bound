@@ -755,7 +755,7 @@ fn execute_request<E: Executor>(
     };
     let started_unix_ms = unix_ms()?;
     let started = Instant::now();
-    let (tool, version_runs, version_commands) = tool_identity(
+    let (mut tool, version_runs, version_commands) = tool_identity(
         flavor,
         unit.operation.kind,
         &root,
@@ -996,6 +996,9 @@ fn execute_request<E: Executor>(
     }
     if request.operation == "update" {
         return Ok((None, inventory));
+    }
+    if flavor == TestFlavor::Python {
+        bind_python_plugin_coordinates(&mut tool, &python_plugins)?;
     }
     let input_artifacts = collect_input_artifacts(&root, &unit.inputs)?;
     let (generated_artifacts, trusted_transcription) = match transcription_facts {
@@ -2694,6 +2697,32 @@ fn inspect_python_plugins<E: Executor>(
         outputs,
         plugins,
     })
+}
+
+fn bind_python_plugin_coordinates(
+    tool: &mut ToolObservation,
+    plugins: &[PythonPluginObservation],
+) -> Result<(), AdapterError> {
+    if plugins.is_empty() {
+        return Ok(());
+    }
+    let mut coordinates = plugins
+        .iter()
+        .map(|plugin| {
+            (
+                plugin.module.as_str(),
+                plugin.distribution.as_str(),
+                plugin.version.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+    coordinates.sort_unstable();
+    let bytes =
+        canonical_json(&coordinates).map_err(|error| AdapterError::Internal(error.to_string()))?;
+    let digest = domain_hash("proofbound-python-plugin-coordinates/1", &bytes);
+    tool.version.push_str("; plugin-set ");
+    tool.version.push_str(&digest);
+    Ok(())
 }
 
 fn run_python_mutation<E: Executor>(
@@ -6910,5 +6939,54 @@ affected_claims = ["CLAIM-ONE"]
         assert!(tool.version.contains("cargo 1.94.0"));
         assert_eq!(fake.seen[0].program, "cargo");
         assert_eq!(fake.seen[0].args, ["--version"]);
+    }
+
+    #[test]
+    fn python_tool_version_distinguishes_plugin_coordinates_not_origin_bytes() {
+        let first = PythonPluginObservation {
+            module: "z_plugin".to_owned(),
+            distribution: "z-dist".to_owned(),
+            version: "2.0".to_owned(),
+            origin_sha256: format!("sha256:{}", "11".repeat(32)),
+        };
+        let second = PythonPluginObservation {
+            module: "a_plugin".to_owned(),
+            distribution: "a-dist".to_owned(),
+            version: "1.0".to_owned(),
+            origin_sha256: format!("sha256:{}", "22".repeat(32)),
+        };
+        let mut forward = ToolObservation {
+            name: "Python/pytest".to_owned(),
+            version: "Python 3; pytest 9".to_owned(),
+            identity_sha256: format!("sha256:{}", "33".repeat(32)),
+        };
+        let mut reverse = forward.clone();
+        bind_python_plugin_coordinates(&mut forward, &[first.clone(), second.clone()]).unwrap();
+        bind_python_plugin_coordinates(&mut reverse, &[second.clone(), first.clone()]).unwrap();
+        assert_eq!(forward.version, reverse.version);
+        assert!(forward.version.contains("; plugin-set sha256:"));
+
+        let mut changed_coordinates = ToolObservation {
+            version: "Python 3; pytest 9".to_owned(),
+            ..forward.clone()
+        };
+        let mut changed_plugin = second.clone();
+        changed_plugin.version = "1.1".to_owned();
+        bind_python_plugin_coordinates(&mut changed_coordinates, &[first, changed_plugin]).unwrap();
+        assert_ne!(forward.version, changed_coordinates.version);
+
+        let mut changed_origin = ToolObservation {
+            version: "Python 3; pytest 9".to_owned(),
+            ..forward.clone()
+        };
+        let mut same_coordinates = second.clone();
+        same_coordinates.origin_sha256 = format!("sha256:{}", "44".repeat(32));
+        bind_python_plugin_coordinates(&mut changed_origin, &[same_coordinates]).unwrap();
+        let mut second_only = ToolObservation {
+            version: "Python 3; pytest 9".to_owned(),
+            ..forward
+        };
+        bind_python_plugin_coordinates(&mut second_only, &[second]).unwrap();
+        assert_eq!(changed_origin.version, second_only.version);
     }
 }
