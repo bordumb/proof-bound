@@ -1994,9 +1994,12 @@ relation from the raw evidence. The relation never derives `PROVED`,
 
 Version 5 is the coordinated reviewed-context transition of ADR 0021.
 `proofbound-project/2` registers canonical evidence-context and required-
-release-context sets. A `proofbound-evidence-unit/5` is tracked reviewed
-configuration owned by exactly one registered context and activates only for
-an explicit full-project contextual check. The private compiled state remains
+release-context sets, and both sets are nonempty. A
+`proofbound-evidence-unit/5` registers one exact artifact observation. It MAY
+omit `context`; that noncontextual route contributes to a version-4 release. If
+it names a context, the unit is tracked reviewed configuration owned by exactly
+one registered context and activates only for an explicit full-project
+contextual check. The private compiled state remains
 `proofbound-compiled-project/4` and retains the selected context. A release
 whose contextual evidence consists only of exact observations uses
 `proofbound-compiled-release/5` and `proofbound-release-envelope/5`. Its

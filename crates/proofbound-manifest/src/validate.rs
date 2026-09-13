@@ -547,6 +547,18 @@ fn validate_evidence_context_registration(bundle: &ProjectBundle) -> Result<(), 
             message: "project schema version 1 cannot register evidence contexts".to_owned(),
         });
     }
+    if bundle.project.schema == "proofbound-project/2"
+        && (contexts.is_empty() || release_contexts.is_empty())
+    {
+        return Err(SemanticError::EvidenceContext {
+            code: "PB-CTX-0002",
+            message: concat!(
+                "project schema version 2 requires nonempty evidence contexts ",
+                "and required release contexts"
+            )
+            .to_owned(),
+        });
+    }
     if !contexts.windows(2).all(|pair| pair[0] < pair[1])
         || contexts.iter().any(|context| !valid_context_name(context))
         || !release_contexts.windows(2).all(|pair| pair[0] < pair[1])
@@ -3877,6 +3889,24 @@ mod tests {
 
     #[test]
     fn reviewed_evidence_context_registration_is_closed_and_tracked() {
+        let mut empty = repository_bundle();
+        empty.project.schema = "proofbound-project/2".to_owned();
+        assert!(matches!(
+            validate_evidence_context_registration(&empty),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0002",
+                ..
+            })
+        ));
+        empty.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];
+        assert!(matches!(
+            validate_evidence_context_registration(&empty),
+            Err(SemanticError::EvidenceContext {
+                code: "PB-CTX-0002",
+                ..
+            })
+        ));
+
         let mut bundle = repository_bundle();
         bundle.project.schema = "proofbound-project/2".to_owned();
         bundle.project.evidence_contexts = vec!["release-linux-x86-64".to_owned()];

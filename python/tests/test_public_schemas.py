@@ -264,6 +264,29 @@ def test_every_public_schema_is_valid_draft_2020_12() -> None:
     assert schemas
 
 
+def test_project_v2_requires_nonempty_reviewed_release_contexts() -> None:
+    project = {
+        "schema": "proofbound-project/2",
+        "project": "contextual-release",
+        "tier": 1,
+        "source": {"semantic": [], "runner": [], "presentation": []},
+        "claim_manifests": ["proofbound/claims/*.toml"],
+        "evidence_contexts": ["release-linux-x86-64"],
+        "required_release_contexts": ["release-linux-x86-64"],
+    }
+    validate = validator("project.schema.json")
+    validate.validate(project)
+
+    for field in ["evidence_contexts", "required_release_contexts"]:
+        missing = dict(project)
+        del missing[field]
+        assert list(validate.iter_errors(missing))
+
+        empty = dict(project)
+        empty[field] = []
+        assert list(validate.iter_errors(empty))
+
+
 def test_external_observation_input_manifest_is_closed() -> None:
     value = {
         "schema": "proofbound-observation-inputs/1",
