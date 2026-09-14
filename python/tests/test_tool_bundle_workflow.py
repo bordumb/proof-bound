@@ -86,11 +86,10 @@ def test_tool_bundle_workflow_publishes_and_anonymously_rechecks_both_candidates
     assert 'state="publishing"' in source
     assert 'state="mutable-published"' in source
     assert 'state="published"' in source
-    assert '"/repos/$GITHUB_REPOSITORY/immutable-releases"' in source
-    assert '--jq .enabled)" = "true"' in source
+    assert '"/repos/$GITHUB_REPOSITORY/immutable-releases"' not in source
     assert source.index('state="publishing"') < source.index("gh api --method PATCH")
     assert source.index('state="published"') > source.index("gh api --method PATCH")
-    assert "published a mutable release despite the enforcement precheck" in source
+    assert "published a mutable release; removing the exact owned release" in source
     assert 'gh api --method POST "/repos/$GITHUB_REPOSITORY/git/refs"' in source
     assert 'gh api --method POST "/repos/$GITHUB_REPOSITORY/releases"' in source
     assert 'gh release upload "$tag" dist/publication/*' in source

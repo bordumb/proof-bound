@@ -171,10 +171,6 @@ jobs:
         run: |
           tag="proofbound-tools-$PROOFBOUND_RELEASE_REVISION"
           test "$(gh api "/repos/$GITHUB_REPOSITORY" --jq .visibility)" = "public"
-          test "$(gh api \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "/repos/$GITHUB_REPOSITORY/immutable-releases" \
-            --jq .enabled)" = "true"
           state="creating"
           release_id=""
           tag_created="false"
@@ -259,7 +255,7 @@ jobs:
           if test "$(jq -r '.draft | tostring' "$published_record")" = "false" \
             && test "$(jq -r '.immutable | tostring' "$published_record")" = "false"; then
             state="mutable-published"
-            echo "GitHub published a mutable release despite the enforcement precheck" >&2
+            echo "GitHub published a mutable release; removing the exact owned release" >&2
             exit 1
           fi
           test "$(jq -r '.draft | tostring' "$published_record")" = "false"

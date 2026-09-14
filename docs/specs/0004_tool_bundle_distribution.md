@@ -83,20 +83,20 @@ The publication manifest binds the producer repository, source revision,
 successful `Verify` run, producing bundle-workflow run, release tag, and exact
 digest and byte size of the five payload assets.
 
-Before it creates a tag, the job requires the repository API to report that
-immutable releases are enabled. The job then creates a draft release, re-reads
-its metadata, and requires the exact target commit and staged asset identities.
-A failure in that mutable draft phase removes only the tag and draft that the
-job just created. The publish request enters an explicit uncertain state before
-the request starts. A missing or ambiguous response never authorizes cleanup.
-If the exact response positively identifies the job-owned release as published
-but mutable, the job removes that exact mutable release and then its exact tag.
-If GitHub reports immutable publication, the job downloads every asset through
-the anonymous public URL and rechecks the staged checksum file. A failure after
-immutable publication is a distribution incident for operator inspection; the
-workflow cannot weaken the control by deleting or replacing the release.
-Pull-request jobs cannot publish because the publication job exists only in a
-manually dispatched workflow for an exact reviewed commit already on `main`.
+The job creates a draft release, re-reads its metadata, and requires the exact
+target commit and staged asset identities. A failure in that mutable draft
+phase removes only the tag and draft that the job just created. The publish
+request enters an explicit uncertain state before the request starts. A
+missing or ambiguous response never authorizes cleanup. The exact publish
+response is the enforcement gate available to the workflow token. If it
+positively identifies the job-owned release as published but mutable, the job
+removes that exact mutable release and then its exact tag. If GitHub reports
+immutable publication, the job downloads every asset through the anonymous
+public URL and rechecks the staged checksum file. A failure after immutable
+publication is a distribution incident for operator inspection; the workflow
+cannot weaken the control by deleting or replacing the release. Pull-request
+jobs cannot publish because the publication job exists only in a manually
+dispatched workflow for an exact reviewed commit already on `main`.
 
 ## 4. Consumption
 
@@ -147,8 +147,8 @@ semantic implementations.
 - Omit one platform candidate or add an undeclared candidate or release asset.
 - Change one detached manifest while leaving the archive unchanged.
 - Publish under an existing or moving tag, or target a different commit.
-- Disable immutable releases before creation, between the enforcement check
-  and publication, or while the publication response is unavailable.
+- Disable immutable releases before publication or make the publication
+  response unavailable.
 - Make the hosted release private or change one hosted asset identity.
 - Make anonymous retrieval or checksum verification fail after publication.
 - Attempt installation over an existing executable without explicit consent.
