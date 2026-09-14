@@ -1,0 +1,14 @@
+schema = "proofbound-review/1"
+id = "PR-0012-TOOL-BUNDLE-PUBLICATION"
+reviewer = "Independent Codex reviewer task /root/review_proofbound_pr10"
+statement = "Independently reviewed Proofbound PR 12 at exact subject head 607212759756acf6857ffe2072c2c05773f95adb. The reviewer found no blockers after the final build-pinned schema correction, and the maintainer endorsed the exact-head APPROVE verdict. This approval acknowledges the intentional tool-bundle production TCB change and does not claim independent human review."
+scope = "Exact merge-base-to-subject assurance regression for the public immutable Proofbound tool-bundle production and publication path."
+reviewed_at = "2026-09-14T21:10:33Z"
+base_revision = "sha256:7c4f2525e08013123fbf0bb767581e017bc1374696554acccc616599ef18ab24"
+head_revision = "sha256:c5497954af7bd51f84d4d6e7d45cc13200b48d9fffcbc121cdce8d839e8199db"
+
+[[regressions]]
+id = "sha256:d8586d7a695ab6509d7702e42799f65de62b294800ffde2d01f68d0f6dada0dc"
+claim_id = "PB-SELF-BUNDLE-010"
+kind = "enlarged-tcb"
+detail = "evidence unit tool-bundle-production adapter or typed command changed"
