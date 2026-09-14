@@ -23,6 +23,7 @@ expected_inventory = [
 inputs = [
   "python/tests/test_tool_bundle.py",
   "schemas/tool-bundle-manifest.schema.json",
+  "schemas/tool-bundle-publication-manifest.schema.json",
   "tools/release/build_tool_bundle.py",
   "tools/release/install_tool_bundle.py",
 ]

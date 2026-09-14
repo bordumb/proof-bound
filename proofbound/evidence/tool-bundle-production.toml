@@ -21,6 +21,7 @@ expected_inventory = [
   "test_tool_bundle_workflow::test_same_name_wrong_workflow_is_rejected",
   "test_tool_bundle_workflow::test_tool_bundle_production_stays_after_the_full_verify_gate",
   "test_tool_bundle_workflow::test_tool_bundle_workflow_is_exact_revision_and_verify_only",
+  "test_tool_bundle_workflow::test_tool_bundle_workflow_publishes_and_anonymously_rechecks_both_candidates",
   "test_tool_bundle_workflow::test_tool_bundle_workflow_reproduces_both_supported_platforms",
 ]
 inputs = [
@@ -64,6 +65,7 @@ inputs = [
   "schemas/review.schema.json",
   "schemas/tcb.schema.json",
   "schemas/tool-bundle-manifest.schema.json",
+  "schemas/tool-bundle-publication-manifest.schema.json",
   "schemas/translation-toolchain-lock.schema.json",
   "schemas/translation-unit.schema.json",
   "tools/release/build_tool_bundle.py",
@@ -97,6 +99,7 @@ targets = [
   "test_same_name_wrong_workflow_is_rejected",
   "test_tool_bundle_production_stays_after_the_full_verify_gate",
   "test_tool_bundle_workflow_is_exact_revision_and_verify_only",
+  "test_tool_bundle_workflow_publishes_and_anonymously_rechecks_both_candidates",
   "test_tool_bundle_workflow_reproduces_both_supported_platforms",
 ]
 

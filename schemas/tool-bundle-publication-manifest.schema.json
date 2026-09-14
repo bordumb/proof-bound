@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proofbound.dev/schemas/tool-bundle-publication-manifest.schema.json",
+  "title": "Proofbound tool bundle publication manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "producer_repository",
+    "source_revision",
+    "verification_run_id",
+    "bundle_workflow_run_id",
+    "release_tag",
+    "assets"
+  ],
+  "properties": {
+    "schema": { "const": "proofbound-tool-bundle-publication-manifest/1" },
+    "producer_repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+    },
+    "source_revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "verification_run_id": { "type": "integer", "minimum": 1 },
+    "bundle_workflow_run_id": { "type": "integer", "minimum": 1 },
+    "release_tag": {
+      "type": "string",
+      "pattern": "^proofbound-tools-[0-9a-f]{40}$"
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "role", "sha256", "size_bytes"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"
+          },
+          "role": {
+            "enum": ["archive", "bundle-manifest", "installer"]
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 536870912
+          }
+        }
+      }
+    }
+  }
+}

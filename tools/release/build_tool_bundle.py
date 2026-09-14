@@ -71,6 +71,7 @@ SCHEMA_PATHS = (
     "schemas/review.schema.json",
     "schemas/tcb.schema.json",
     "schemas/tool-bundle-manifest.schema.json",
+    "schemas/tool-bundle-publication-manifest.schema.json",
     "schemas/translation-toolchain-lock.schema.json",
     "schemas/translation-unit.schema.json",
 )

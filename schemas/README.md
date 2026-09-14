@@ -128,3 +128,9 @@ explicitly `null` or empty; they are never silently omitted.
 `tcb.schema.json` defines the `proofbound-tcb-ledger/1` projection shipped in a
 release. Its component set is recomputed independently from evidence tool and
 adapter identities; it is not an unaudited descriptive inventory.
+
+`tool-bundle-manifest.schema.json` identifies one exact platform archive.
+`tool-bundle-publication-manifest.schema.json` identifies the closed public
+asset set for both supported platforms, the exact source and workflow runs,
+and the immutable source-identity release tag. The tag is not a product version
+or a compatibility promise.

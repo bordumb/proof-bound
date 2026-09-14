@@ -4,20 +4,29 @@ Tool bundles contain the CLI, the independent verifier, every maintained
 adapter executable, and the complete public schema inventory. They support
 Linux `x86_64` and `aarch64` hosts.
 
-Download these four files for the required platform from the same approved
-Proofbound workflow run:
+Select one independently approved exact source revision. Download the closed
+asset set from its public source-identity release. No cross-repository token is
+required. The release contains:
 
-- `proofbound-tools-<source-revision>-linux-<architecture>.tar.gz`;
-- `TOOL-BUNDLE-MANIFEST.json`;
+- one archive and one detached manifest for each supported platform;
 - `install-proofbound-tools.py`; and
+- `TOOL-BUNDLE-PUBLICATION.json`; and
 - `SHA256SUMS`.
 
-Verify the downloaded installer and archive against `SHA256SUMS` before the
-installer runs. For example:
+Download and verify the exact closed set before the installer runs. For
+example:
 
 ```console
-$ sha256sum --check SHA256SUMS
+$ repository=bordumb/proof-bound
 $ revision=0123456789abcdef0123456789abcdef01234567
+$ tag="proofbound-tools-${revision}"
+$ public_root="https://github.com/${repository}/releases/download/${tag}"
+$ curl --fail --location --remote-name "${public_root}/SHA256SUMS"
+$ while read -r digest name; do
+    test -n "$digest"
+    curl --fail --location --remote-name "${public_root}/${name}"
+  done < SHA256SUMS
+$ sha256sum --check SHA256SUMS
 $ archive="proofbound-tools-${revision}-linux-x86_64.tar.gz"
 $ digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
 $ python3 install-proofbound-tools.py \
@@ -38,11 +47,15 @@ $ proofbound --version
 $ proofbound-verify --version
 ```
 
-The source revision, successful verification-run identity, platform,
-toolchain, and every payload digest are in `TOOL-BUNDLE-MANIFEST.json`. The
-product label is informational metadata only. It is not a compatibility
-promise or release selector. A matching digest identifies bytes. It does not
-authenticate the publisher before Proofbound adopts a signing policy.
+The producer repository, source revision, successful verification-run
+identity, producing bundle-workflow run, tag, and public asset identities are
+in `TOOL-BUNDLE-PUBLICATION.json`. Each platform manifest contains its
+platform, toolchain, and payload digests. The product label is informational
+metadata only. The exact source-identity tag is immutable and is not a product
+version, moving channel, or release selector. A matching digest identifies
+bytes. The GitHub HTTPS channel authenticates the repository under GitHub and
+repository-access controls; the assets do not yet carry an independent
+signature.
 
 Proofbound Runtime must pin the exact source revision, verification-run
 identity, platform, and archive digest. It must not select a bundle by a moving

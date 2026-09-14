@@ -1,0 +1,62 @@
+schema = "proofbound-evidence-unit/1"
+id = "tool-bundle-publication"
+adapter = "python-test"
+kind = "example-test"
+claims = ["PB-SELF-PUBLISH-012"]
+tier = 0
+expected_inventory = [
+  "test_tool_bundle_publication::test_publication_entrypoints_work_without_pythonpath",
+  "test_tool_bundle_publication::test_publication_rejects_detached_manifest_substitution",
+  "test_tool_bundle_publication::test_publication_rejects_missing_platform_and_unknown_candidate",
+  "test_tool_bundle_publication::test_publication_rejects_platform_installer_divergence",
+  "test_tool_bundle_publication::test_publication_stages_one_closed_exact_identity",
+  "test_tool_bundle_publication::test_release_validation_rejects_identity_and_asset_attacks",
+  "test_tool_bundle_publication::test_release_validation_rejects_staged_and_publication_manifest_attacks",
+  "test_tool_bundle_workflow::test_same_name_wrong_workflow_is_rejected",
+  "test_tool_bundle_workflow::test_tool_bundle_production_stays_after_the_full_verify_gate",
+  "test_tool_bundle_workflow::test_tool_bundle_workflow_is_exact_revision_and_verify_only",
+  "test_tool_bundle_workflow::test_tool_bundle_workflow_publishes_and_anonymously_rechecks_both_candidates",
+  "test_tool_bundle_workflow::test_tool_bundle_workflow_reproduces_both_supported_platforms",
+]
+inputs = [
+  ".github/workflows/tool-bundle.yml",
+  "docs/specs/0004_tool_bundle_distribution.md",
+  "python/tests/test_tool_bundle_publication.py",
+  "python/tests/test_tool_bundle_workflow.py",
+  "schemas/tool-bundle-manifest.schema.json",
+  "schemas/tool-bundle-publication-manifest.schema.json",
+  "tools/release/build_tool_bundle.py",
+  "tools/release/install_tool_bundle.py",
+  "tools/release/prepare_tool_bundle_publication.py",
+  "tools/release/validate_tool_bundle_release.py",
+  "tools/release/validate_verification_run.py",
+]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "pytest"
+manifest = "pyproject.toml"
+paths = [
+  "python/tests/test_tool_bundle_publication.py",
+  "python/tests/test_tool_bundle_workflow.py",
+]
+targets = [
+  "test_publication_entrypoints_work_without_pythonpath",
+  "test_publication_rejects_detached_manifest_substitution",
+  "test_publication_rejects_missing_platform_and_unknown_candidate",
+  "test_publication_rejects_platform_installer_divergence",
+  "test_publication_stages_one_closed_exact_identity",
+  "test_release_validation_rejects_identity_and_asset_attacks",
+  "test_release_validation_rejects_staged_and_publication_manifest_attacks",
+  "test_same_name_wrong_workflow_is_rejected",
+  "test_tool_bundle_production_stays_after_the_full_verify_gate",
+  "test_tool_bundle_workflow_is_exact_revision_and_verify_only",
+  "test_tool_bundle_workflow_publishes_and_anonymously_rechecks_both_candidates",
+  "test_tool_bundle_workflow_reproduces_both_supported_platforms",
+]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 536870912
+memory_bytes = 1073741824
