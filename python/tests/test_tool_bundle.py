@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 from pathlib import Path
 import sys
 import tarfile
@@ -92,6 +93,15 @@ def test_archive_digest_substitution_is_rejected(tmp_path: Path) -> None:
     path, _ = fake_archive(tmp_path)
     with pytest.raises(bundle.BundleError, match="archive digest"):
         bundle.verify_archive(path, "0" * 64)
+
+
+def test_fifo_archive_is_rejected_without_reading(tmp_path: Path) -> None:
+    path = tmp_path / "bundle.pipe"
+    os.mkfifo(path)
+    with pytest.raises(bundle.BundleError, match="not a regular file"):
+        bundle.verify_archive(path)
+    with pytest.raises(installer.InstallError, match="not a regular file"):
+        installer.verify(path, "0" * 64)
 
 
 def test_archive_validation_never_materializes_the_full_tar_inventory(

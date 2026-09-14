@@ -13,6 +13,7 @@ import os
 from pathlib import Path, PurePosixPath
 import platform as host_platform
 import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -181,6 +182,32 @@ def _platform() -> str:
     if architecture is None:
         raise BundleError("unsupported Linux architecture")
     return f"linux-{architecture}"
+
+
+def _read_archive_bytes(path: Path) -> bytes:
+    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as source:
+            before = os.fstat(source.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise BundleError("the bundle archive is not a regular file")
+            data = source.read(MAX_ARCHIVE_BYTES + 1)
+            after = os.fstat(source.fileno())
+    except OSError as error:
+        raise BundleError(f"cannot read bundle archive: {error}") from error
+    if len(data) > MAX_ARCHIVE_BYTES:
+        raise BundleError("the bundle archive is too large")
+    if (
+        before.st_dev != after.st_dev
+        or before.st_ino != after.st_ino
+        or before.st_size != after.st_size
+        or after.st_size != len(data)
+    ):
+        raise BundleError("the bundle archive changed while it was read")
+    return data
 
 
 def _read_toml(path: Path) -> dict[str, object]:
@@ -463,12 +490,7 @@ def _validated_manifest(value: object) -> dict[str, object]:
 def verify_archive(path: Path, expected_sha256: str | None = None) -> dict[str, object]:
     """Verify one complete tool-bundle archive and return its manifest."""
 
-    try:
-        if path.stat().st_size > MAX_ARCHIVE_BYTES:
-            raise BundleError("the bundle archive is too large")
-        archive_bytes = path.read_bytes()
-    except OSError as error:
-        raise BundleError(f"cannot read bundle archive: {error}") from error
+    archive_bytes = _read_archive_bytes(path)
     digest = hashlib.sha256(archive_bytes).hexdigest()
     if expected_sha256 is not None:
         expected = expected_sha256.removeprefix("sha256:")

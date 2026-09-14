@@ -12,6 +12,7 @@ import os
 from pathlib import Path, PurePosixPath
 import platform as host_platform
 import re
+import stat
 import sys
 import tarfile
 import tempfile
@@ -142,6 +143,32 @@ def _platform() -> str:
     return f"linux-{architecture}"
 
 
+def _read_archive_bytes(path: Path) -> bytes:
+    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as source:
+            before = os.fstat(source.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise InstallError("the bundle archive is not a regular file")
+            data = source.read(MAX_ARCHIVE_BYTES + 1)
+            after = os.fstat(source.fileno())
+    except OSError as error:
+        raise InstallError(f"cannot read the bundle archive: {error}") from error
+    if len(data) > MAX_ARCHIVE_BYTES:
+        raise InstallError("the bundle archive is too large")
+    if (
+        before.st_dev != after.st_dev
+        or before.st_ino != after.st_ino
+        or before.st_size != after.st_size
+        or after.st_size != len(data)
+    ):
+        raise InstallError("the bundle archive changed while it was read")
+    return data
+
+
 def _validate_destination(destination: Path) -> None:
     for component in (*reversed(destination.parents), destination):
         if component.is_symlink():
@@ -233,12 +260,7 @@ def verify(
     expected = expected_sha256.removeprefix("sha256:")
     if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
         raise InstallError("the expected archive digest is invalid")
-    try:
-        if path.stat().st_size > MAX_ARCHIVE_BYTES:
-            raise InstallError("the bundle archive is too large")
-        archive_bytes = path.read_bytes()
-    except OSError as error:
-        raise InstallError(f"cannot read the bundle archive: {error}") from error
+    archive_bytes = _read_archive_bytes(path)
     if hashlib.sha256(archive_bytes).hexdigest() != expected:
         raise InstallError("the bundle archive digest differs")
     try:

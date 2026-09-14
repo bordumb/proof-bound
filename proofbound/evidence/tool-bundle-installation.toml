@@ -7,6 +7,7 @@ tier = 0
 expected_inventory = [
   "test_tool_bundle::test_archive_member_limit_fails_during_streaming",
   "test_tool_bundle::test_archive_validation_never_materializes_the_full_tar_inventory",
+  "test_tool_bundle::test_fifo_archive_is_rejected_without_reading",
   "test_tool_bundle::test_installer_cli_does_not_resolve_a_symlink_destination",
   "test_tool_bundle::test_installer_does_not_create_destination_ancestors",
   "test_tool_bundle::test_installer_rejects_a_cross_platform_bundle",
@@ -35,6 +36,7 @@ paths = ["python/tests/test_tool_bundle.py"]
 targets = [
   "test_archive_member_limit_fails_during_streaming",
   "test_archive_validation_never_materializes_the_full_tar_inventory",
+  "test_fifo_archive_is_rejected_without_reading",
   "test_installer_cli_does_not_resolve_a_symlink_destination",
   "test_installer_does_not_create_destination_ancestors",
   "test_installer_rejects_a_cross_platform_bundle",
