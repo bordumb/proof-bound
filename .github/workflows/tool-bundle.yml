@@ -171,12 +171,18 @@ jobs:
         run: |
           tag="proofbound-tools-$PROOFBOUND_RELEASE_REVISION"
           test "$(gh api "/repos/$GITHUB_REPOSITORY" --jq .visibility)" = "public"
+          test "$(gh api \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "/repos/$GITHUB_REPOSITORY/immutable-releases" \
+            --jq .enabled)" = "true"
           state="creating"
           release_id=""
           tag_created="false"
           cleanup() {
             cleanup_tag="false"
-            if test "$state" = "draft" && test -n "$release_id"; then
+            if { test "$state" = "draft" || \
+              test "$state" = "mutable-published"; } \
+              && test -n "$release_id"; then
               if gh api --method DELETE \
                 "/repos/$GITHUB_REPOSITORY/releases/$release_id"; then
                 cleanup_tag="true"
@@ -195,7 +201,9 @@ jobs:
                 gh api --method DELETE \
                   "/repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" || true
               fi
-            elif test "$state" = "release-creating" || test "$state" = "published"; then
+            elif test "$state" = "release-creating" \
+              || test "$state" = "publishing" \
+              || test "$state" = "published"; then
               echo "release publication needs operator inspection: $tag" >&2
             fi
           }
@@ -239,12 +247,23 @@ jobs:
             --bundle-workflow-run-id "$GITHUB_RUN_ID" \
             --producer-repository "$GITHUB_REPOSITORY" \
             --expected-state draft
+          published_record="$RUNNER_TEMP/tool-bundle-published-release.json"
+          state="publishing"
           gh api --method PATCH \
             "/repos/$GITHUB_REPOSITORY/releases/$release_id" \
             -F draft=false \
             -F prerelease=false \
             -f make_latest=false \
-            > "$RUNNER_TEMP/tool-bundle-published-release.json"
+            > "$published_record"
+          test "$(jq -r .id "$published_record")" = "$release_id"
+          if test "$(jq -r '.draft | tostring' "$published_record")" = "false" \
+            && test "$(jq -r '.immutable | tostring' "$published_record")" = "false"; then
+            state="mutable-published"
+            echo "GitHub published a mutable release despite the enforcement precheck" >&2
+            exit 1
+          fi
+          test "$(jq -r '.draft | tostring' "$published_record")" = "false"
+          test "$(jq -r '.immutable | tostring' "$published_record")" = "true"
           state="published"
           release_record="$RUNNER_TEMP/tool-bundle-release-published.json"
           gh api "/repos/$GITHUB_REPOSITORY/releases/$release_id" > "$release_record"

@@ -58,6 +58,10 @@ bytes. The GitHub HTTPS channel authenticates the repository under GitHub and
 repository-access controls; the assets do not yet carry an independent
 signature.
 
+Publication fails before tag creation when immutable releases are not enabled.
+An uncertain publish response requires operator inspection and never permits
+automatic deletion of a release that GitHub might already have made immutable.
+
 Proofbound Runtime must pin the exact source revision, verification-run
 identity, platform, and archive digest. It must not select a bundle by a moving
 branch, product label, version range, or latest-release URL.
