@@ -73,19 +73,26 @@ After independent review, the final job creates one public release under the
 exact source-identity tag `proofbound-tools-<40-character-revision>`. This tag
 is not a product version,
 compatibility promise, moving channel, or `latest` selector. The workflow
-rejects an existing tag or release instead of replacing it. The release has a
-closed asset inventory with two archives, two platform-specific detached
-manifests, one installer, one publication manifest, and one checksum file.
+serializes dispatches for the same source identity and atomically creates the
+exact tag. An existing tag, API failure, or creation race fails without being
+treated as absence. GitHub immutable releases must be enabled for the
+repository. The release has a closed asset inventory with two archives, two
+platform-specific detached manifests, one installer, one publication manifest,
+and one checksum file.
 The publication manifest binds the producer repository, source revision,
 successful `Verify` run, producing bundle-workflow run, release tag, and exact
 digest and byte size of the five payload assets.
 
-The job re-reads the hosted release metadata, requires the exact target commit
-and asset identities, then downloads every asset through the anonymous public
-URL and rechecks the staged checksum file. A failed post-publication check
-removes only the tag and release that this job just created. Pull-request jobs
-cannot publish because the publication job exists only in a manually
-dispatched workflow for an exact reviewed commit already on `main`.
+The job first creates a draft release, re-reads its metadata, and requires the
+exact target commit and staged asset identities. A failure in that mutable
+draft phase removes only the tag and draft that the job just created. The job
+then publishes the checked draft, requires GitHub to report the release as
+immutable, downloads every asset through the anonymous public URL, and
+rechecks the staged checksum file. A failure after immutable publication is a
+distribution incident for operator inspection; the workflow cannot weaken the
+control by deleting or replacing the release. Pull-request jobs cannot publish
+because the publication job exists only in a manually dispatched workflow for
+an exact reviewed commit already on `main`.
 
 ## 4. Consumption
 
@@ -136,6 +143,7 @@ semantic implementations.
 - Omit one platform candidate or add an undeclared candidate or release asset.
 - Change one detached manifest while leaving the archive unchanged.
 - Publish under an existing or moving tag, or target a different commit.
+- Disable immutable releases before publication.
 - Make the hosted release private or change one hosted asset identity.
 - Make anonymous retrieval or checksum verification fail after publication.
 - Attempt installation over an existing executable without explicit consent.

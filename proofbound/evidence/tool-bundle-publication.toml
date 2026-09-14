@@ -6,6 +6,7 @@ claims = ["PB-SELF-PUBLISH-012"]
 tier = 0
 expected_inventory = [
   "test_tool_bundle_publication::test_publication_entrypoints_work_without_pythonpath",
+  "test_tool_bundle_publication::test_publication_rejects_archive_change_before_staging",
   "test_tool_bundle_publication::test_publication_rejects_detached_manifest_substitution",
   "test_tool_bundle_publication::test_publication_rejects_missing_platform_and_unknown_candidate",
   "test_tool_bundle_publication::test_publication_rejects_platform_installer_divergence",
@@ -43,6 +44,7 @@ paths = [
 ]
 targets = [
   "test_publication_entrypoints_work_without_pythonpath",
+  "test_publication_rejects_archive_change_before_staging",
   "test_publication_rejects_detached_manifest_substitution",
   "test_publication_rejects_missing_platform_and_unknown_candidate",
   "test_publication_rejects_platform_installer_divergence",

@@ -16,6 +16,8 @@ from tools.release import validate_verification_run as run_validator  # noqa: E4
 def test_tool_bundle_workflow_is_exact_revision_and_verify_only() -> None:
     source = WORKFLOW.read_text()
     assert "workflow_dispatch:" in source
+    assert "group: proofbound-tool-bundle-${{ inputs.revision }}" in source
+    assert "cancel-in-progress: false" in source
     assert "revision:" in source
     assert "verification_run_id:" in source
     assert "ref: ${{ env.PROOFBOUND_RELEASE_REVISION }}" in source
@@ -28,9 +30,9 @@ def test_tool_bundle_workflow_is_exact_revision_and_verify_only() -> None:
     assert "validate_verification_run.py" in source
     assert "permissions:\n  contents: read" in source
     assert "  actions: read" in source
-    assert "gh release create" in source
-    assert '--target "$PROOFBOUND_RELEASE_REVISION"' in source
-    assert "--latest=false" in source
+    assert 'gh api --method POST "/repos/$GITHUB_REPOSITORY/releases"' in source
+    assert '-f "target_commitish=$PROOFBOUND_RELEASE_REVISION"' in source
+    assert "-f make_latest=false" in source
     assert "proofbound-tools-$PROOFBOUND_RELEASE_REVISION" in source
     assert "git tag" not in source
 
@@ -76,6 +78,17 @@ def test_tool_bundle_workflow_publishes_and_anonymously_rechecks_both_candidates
     assert "prepare_tool_bundle_publication.py" in source
     assert "validate_tool_bundle_release.py" in source
     assert '.object.type + ":" + .object.sha' in source
+    assert "-F draft=true" in source
+    assert "--expected-state draft" in source
+    assert "--expected-state published" in source
+    assert 'if test "$state" = "draft"' in source
+    assert 'gh api --method POST "/repos/$GITHUB_REPOSITORY/git/refs"' in source
+    assert 'gh api --method POST "/repos/$GITHUB_REPOSITORY/releases"' in source
+    assert 'gh release upload "$tag" dist/publication/*' in source
+    assert '"/repos/$GITHUB_REPOSITORY/releases/$release_id"' in source
+    assert 'test -n "$release_id"' in source
+    assert "gh release view" not in source
+    assert "git ls-remote" not in source
     assert (
         'test "$(gh api "/repos/$GITHUB_REPOSITORY" --jq .visibility)" = "public"'
         in source
@@ -83,7 +96,8 @@ def test_tool_bundle_workflow_publishes_and_anonymously_rechecks_both_candidates
     assert "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag" in source
     assert "cmp dist/publication/SHA256SUMS" in source
     assert "sha256sum --check SHA256SUMS" in source
-    assert 'gh release delete "$tag" --cleanup-tag --yes' in source
+    assert '"/repos/$GITHUB_REPOSITORY/releases/$release_id"' in source
+    assert '"/repos/$GITHUB_REPOSITORY/git/refs/tags/$tag"' in source
 
 
 def test_tool_bundle_production_stays_after_the_full_verify_gate() -> None:

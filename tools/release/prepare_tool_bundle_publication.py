@@ -206,6 +206,8 @@ def prepare(
         installer_bytes = candidate_installer
 
         archive_bytes = bundle._read_archive_bytes(archive_path)
+        if _digest(archive_bytes) != checksums[archive_name]:
+            raise PublicationError(f"staged archive digest differs: {platform}")
         release_bytes[archive_name] = (archive_bytes, "archive")
         release_bytes[_manifest_name(platform, revision)] = (
             manifest_bytes,

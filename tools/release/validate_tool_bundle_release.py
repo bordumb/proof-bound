@@ -174,6 +174,7 @@ def validate(
     verification_run_id: int,
     bundle_workflow_run_id: int,
     producer_repository: str,
+    expected_state: str,
 ) -> None:
     """Require one published exact-revision release with the staged assets."""
 
@@ -183,16 +184,28 @@ def validate(
         raise ReleaseError("workflow run identities must be positive integers")
     if publication.REPOSITORY_PATTERN.fullmatch(producer_repository) is None:
         raise ReleaseError("the producer repository identity is invalid")
+    if expected_state not in {"draft", "published"}:
+        raise ReleaseError("the expected release state is invalid")
     if not isinstance(release, dict):
         raise ReleaseError("the release record is not an object")
-    required = {"assets", "draft", "prerelease", "tag_name", "target_commitish"}
+    required = {
+        "assets",
+        "draft",
+        "immutable",
+        "prerelease",
+        "tag_name",
+        "target_commitish",
+    }
     if not required.issubset(release):
         raise ReleaseError("the release record omits required fields")
     expected_tag = f"proofbound-tools-{revision}"
+    expected_draft = expected_state == "draft"
+    expected_immutable = expected_state == "published"
     if (
         release["tag_name"] != expected_tag
         or release["target_commitish"] != revision
-        or release["draft"] is not False
+        or release["draft"] is not expected_draft
+        or release["immutable"] is not expected_immutable
         or release["prerelease"] is not False
     ):
         raise ReleaseError("the hosted release identity or state differs")
@@ -275,6 +288,9 @@ def main() -> int:
     parser.add_argument("--verification-run-id", type=int, required=True)
     parser.add_argument("--bundle-workflow-run-id", type=int, required=True)
     parser.add_argument("--producer-repository", required=True)
+    parser.add_argument(
+        "--expected-state", choices=("draft", "published"), required=True
+    )
     args = parser.parse_args()
     try:
         if publication.bundle.REVISION_PATTERN.fullmatch(args.revision) is None:
@@ -290,6 +306,7 @@ def main() -> int:
             args.verification_run_id,
             args.bundle_workflow_run_id,
             args.producer_repository,
+            args.expected_state,
         )
     except (OSError, ReleaseError, publication.PublicationError) as error:
         print(f"tool bundle release rejected: {error}", file=sys.stderr)

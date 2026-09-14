@@ -16,6 +16,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: proofbound-tool-bundle-${{ inputs.revision }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
   PROOFBOUND_RELEASE_REVISION: ${{ inputs.revision }}
@@ -166,35 +170,64 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="proofbound-tools-$PROOFBOUND_RELEASE_REVISION"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "release already exists: $tag" >&2
-            exit 1
-          fi
-          if git ls-remote --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "tag already exists: $tag" >&2
-            exit 1
-          fi
           test "$(gh api "/repos/$GITHUB_REPOSITORY" --jq .visibility)" = "public"
-          notes="$RUNNER_TEMP/tool-bundle-release-notes.md"
-          printf '%s\n' \
-            "Exact Proofbound tool bundle for source $PROOFBOUND_RELEASE_REVISION." \
-            "Verify SHA256SUMS and TOOL-BUNDLE-PUBLICATION.json before use." \
-            > "$notes"
           state="creating"
+          release_id=""
+          tag_created="false"
           cleanup() {
-            if test "$state" != "verified"; then
-              gh release delete "$tag" --cleanup-tag --yes || true
+            cleanup_tag="false"
+            if test "$state" = "draft" && test -n "$release_id"; then
+              if gh api --method DELETE \
+                "/repos/$GITHUB_REPOSITORY/releases/$release_id"; then
+                cleanup_tag="true"
+              else
+                echo "draft cleanup needs operator inspection: release $release_id" >&2
+              fi
+            elif test "$state" = "tag"; then
+              cleanup_tag="true"
+            fi
+            if test "$cleanup_tag" = "true" && test "$tag_created" = "true"; then
+              ref_record="$RUNNER_TEMP/tool-bundle-cleanup-ref.json"
+              if gh api "/repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" \
+                > "$ref_record" \
+                && test "$(jq -r '.object.type + ":" + .object.sha' "$ref_record")" = \
+                  "commit:$PROOFBOUND_RELEASE_REVISION"; then
+                gh api --method DELETE \
+                  "/repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" || true
+              fi
+            elif test "$state" = "release-creating" || test "$state" = "published"; then
+              echo "release publication needs operator inspection: $tag" >&2
             fi
           }
           trap cleanup EXIT
-          gh release create "$tag" \
-            --target "$PROOFBOUND_RELEASE_REVISION" \
-            --title "Proofbound tool bundle $PROOFBOUND_RELEASE_REVISION" \
-            --notes-file "$notes" \
-            --latest=false \
-            dist/publication/*
-          release_record="$RUNNER_TEMP/tool-bundle-release.json"
-          gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$release_record"
+          tag_record="$RUNNER_TEMP/tool-bundle-created-tag.json"
+          gh api --method POST "/repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$tag" \
+            -f "sha=$PROOFBOUND_RELEASE_REVISION" \
+            > "$tag_record"
+          test "$(jq -r '.ref + ":" + .object.type + ":" + .object.sha' \
+            "$tag_record")" = \
+            "refs/tags/$tag:commit:$PROOFBOUND_RELEASE_REVISION"
+          tag_created="true"
+          state="tag"
+          created_release="$RUNNER_TEMP/tool-bundle-created-release.json"
+          state="release-creating"
+          gh api --method POST "/repos/$GITHUB_REPOSITORY/releases" \
+            -f "tag_name=$tag" \
+            -f "target_commitish=$PROOFBOUND_RELEASE_REVISION" \
+            -f "name=Proofbound tool bundle $PROOFBOUND_RELEASE_REVISION" \
+            -f "body=Verify SHA256SUMS and TOOL-BUNDLE-PUBLICATION.json before use." \
+            -F draft=true \
+            -F prerelease=false \
+            -f make_latest=false \
+            > "$created_release"
+          release_id="$(jq -r '.id' "$created_release")"
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+          state="draft"
+          gh release upload "$tag" dist/publication/*
+          release_record="$RUNNER_TEMP/tool-bundle-release-draft.json"
+          gh api "/repos/$GITHUB_REPOSITORY/releases/$release_id" > "$release_record"
+          test "$(jq -r .id "$release_record")" = "$release_id"
           test "$(gh api "/repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" \
             --jq '.object.type + ":" + .object.sha')" = \
             "commit:$PROOFBOUND_RELEASE_REVISION"
@@ -204,7 +237,26 @@ jobs:
             --revision "$PROOFBOUND_RELEASE_REVISION" \
             --verification-run-id "$PROOFBOUND_VERIFICATION_RUN_ID" \
             --bundle-workflow-run-id "$GITHUB_RUN_ID" \
-            --producer-repository "$GITHUB_REPOSITORY"
+            --producer-repository "$GITHUB_REPOSITORY" \
+            --expected-state draft
+          gh api --method PATCH \
+            "/repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -F draft=false \
+            -F prerelease=false \
+            -f make_latest=false \
+            > "$RUNNER_TEMP/tool-bundle-published-release.json"
+          state="published"
+          release_record="$RUNNER_TEMP/tool-bundle-release-published.json"
+          gh api "/repos/$GITHUB_REPOSITORY/releases/$release_id" > "$release_record"
+          test "$(jq -r .id "$release_record")" = "$release_id"
+          python3 tools/release/validate_tool_bundle_release.py \
+            --release-record "$release_record" \
+            --staged dist/publication \
+            --revision "$PROOFBOUND_RELEASE_REVISION" \
+            --verification-run-id "$PROOFBOUND_VERIFICATION_RUN_ID" \
+            --bundle-workflow-run-id "$GITHUB_RUN_ID" \
+            --producer-repository "$GITHUB_REPOSITORY" \
+            --expected-state published
           anonymous="$RUNNER_TEMP/anonymous-tool-bundle"
           mkdir "$anonymous"
           public_root="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"

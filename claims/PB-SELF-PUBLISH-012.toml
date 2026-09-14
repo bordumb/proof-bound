@@ -1,13 +1,13 @@
 schema = "proofbound-claim/1"
 id = "PB-SELF-PUBLISH-012"
 title = "Tool-bundle publication binds one public release to exact identities"
-statement = "A Proofbound tool-bundle publication contains exactly the two supported platform candidates from one successful producing workflow run, binds their exact source and verification identities in a closed publication manifest, and rejects an existing tag, changed hosted identity, or anonymously unretrievable asset set."
+statement = "A Proofbound tool-bundle publication contains exactly the two supported platform candidates from one successful producing workflow run, binds their exact source and verification identities in a closed publication manifest, and rejects an existing tag, mutable hosted release, changed hosted identity, or anonymously unretrievable asset set."
 subject = "workflow:.github/workflows/tool-bundle.yml#publish"
 profile = "ledger"
 tier = 0
 evidence = ["test:tool-bundle-publication"]
 assumptions = []
-open_obligations = ["GitHub repository access controls, hosted release behavior, TLS, SHA-256 collision resistance, and the release runner remain trusted rather than proved."]
+open_obligations = ["GitHub repository access controls, immutable-release enforcement, hosted release behavior, TLS, SHA-256 collision resistance, and the release runner remain trusted rather than proved."]
 out_of_scope = ["Independent artifact signatures and behavior of the published executables."]
 source_roots = [
   ".github/workflows/tool-bundle.yml",

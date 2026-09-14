@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from unittest import mock
 
 from jsonschema import Draft202012Validator
 import pytest
@@ -92,7 +93,7 @@ def _prepare(tmp_path: Path) -> tuple[Path, dict[str, object]]:
     return output, result
 
 
-def _release_record(output: Path) -> dict[str, object]:
+def _release_record(output: Path, state: str = "published") -> dict[str, object]:
     assets = []
     for path in output.iterdir():
         data = path.read_bytes()
@@ -106,7 +107,8 @@ def _release_record(output: Path) -> dict[str, object]:
         )
     return {
         "assets": assets,
-        "draft": False,
+        "draft": state == "draft",
+        "immutable": state == "published",
         "prerelease": False,
         "tag_name": f"proofbound-tools-{REVISION}",
         "target_commitish": REVISION,
@@ -148,6 +150,16 @@ def test_publication_stages_one_closed_exact_identity(tmp_path: Path) -> None:
         VERIFICATION_RUN_ID,
         BUNDLE_RUN_ID,
         REPOSITORY,
+        "published",
+    )
+    release_check.validate(
+        _release_record(output, "draft"),
+        output,
+        REVISION,
+        VERIFICATION_RUN_ID,
+        BUNDLE_RUN_ID,
+        REPOSITORY,
+        "draft",
     )
     schema = json.loads(
         (ROOT / "schemas/tool-bundle-publication-manifest.schema.json").read_text()
@@ -200,6 +212,34 @@ def test_publication_rejects_detached_manifest_substitution(tmp_path: Path) -> N
         )
 
 
+def test_publication_rejects_archive_change_before_staging(tmp_path: Path) -> None:
+    candidates = _candidates(tmp_path)
+    platform = publication.PLATFORMS[0]
+    archive = (
+        candidates
+        / publication._candidate_name(platform, REVISION)
+        / publication._archive_name(platform, REVISION)
+    )
+    verified_bytes = archive.read_bytes()
+    with (
+        mock.patch.object(
+            bundle,
+            "_read_archive_bytes",
+            side_effect=(verified_bytes, verified_bytes + b"substituted"),
+        ),
+        pytest.raises(publication.PublicationError, match="staged archive digest"),
+    ):
+        publication.prepare(
+            ROOT,
+            candidates,
+            tmp_path / "output",
+            REVISION,
+            VERIFICATION_RUN_ID,
+            BUNDLE_RUN_ID,
+            REPOSITORY,
+        )
+
+
 def test_publication_rejects_platform_installer_divergence(tmp_path: Path) -> None:
     candidates = _candidates(tmp_path)
     attacked = candidates / publication._candidate_name("linux-x86_64", REVISION)
@@ -239,6 +279,19 @@ def test_release_validation_rejects_identity_and_asset_attacks(tmp_path: Path) -
             VERIFICATION_RUN_ID,
             BUNDLE_RUN_ID,
             REPOSITORY,
+            "published",
+        )
+    release = _release_record(output)
+    release["immutable"] = False
+    with pytest.raises(release_check.ReleaseError, match="identity or state"):
+        release_check.validate(
+            release,
+            output,
+            REVISION,
+            VERIFICATION_RUN_ID,
+            BUNDLE_RUN_ID,
+            REPOSITORY,
+            "published",
         )
     release = _release_record(output)
     release["assets"].append(
@@ -257,6 +310,7 @@ def test_release_validation_rejects_identity_and_asset_attacks(tmp_path: Path) -
             VERIFICATION_RUN_ID,
             BUNDLE_RUN_ID,
             REPOSITORY,
+            "published",
         )
     release = _release_record(output)
     release["assets"][0]["digest"] = "sha256:" + "0" * 64
@@ -268,6 +322,7 @@ def test_release_validation_rejects_identity_and_asset_attacks(tmp_path: Path) -
             VERIFICATION_RUN_ID,
             BUNDLE_RUN_ID,
             REPOSITORY,
+            "published",
         )
 
 
@@ -293,6 +348,7 @@ def test_release_validation_rejects_staged_and_publication_manifest_attacks(
             VERIFICATION_RUN_ID,
             BUNDLE_RUN_ID,
             REPOSITORY,
+            "published",
         )
 
     output, _ = _prepare(tmp_path / "second")
@@ -319,6 +375,7 @@ def test_release_validation_rejects_staged_and_publication_manifest_attacks(
             VERIFICATION_RUN_ID,
             BUNDLE_RUN_ID,
             REPOSITORY,
+            "published",
         )
 
 

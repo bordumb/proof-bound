@@ -51,7 +51,8 @@ The producer repository, source revision, successful verification-run
 identity, producing bundle-workflow run, tag, and public asset identities are
 in `TOOL-BUNDLE-PUBLICATION.json`. Each platform manifest contains its
 platform, toolchain, and payload digests. The product label is informational
-metadata only. The exact source-identity tag is immutable and is not a product
+metadata only. GitHub immutable-release enforcement locks the exact
+source-identity tag and assets after publication. The tag is not a product
 version, moving channel, or release selector. A matching digest identifies
 bytes. The GitHub HTTPS channel authenticates the repository under GitHub and
 repository-access controls; the assets do not yet carry an independent
