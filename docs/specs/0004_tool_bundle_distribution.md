@@ -92,11 +92,14 @@ response is the enforcement gate available to the workflow token. If it
 positively identifies the job-owned release as published but mutable, the job
 removes that exact mutable release and then its exact tag. If GitHub reports
 immutable publication, the job downloads every asset through the anonymous
-public URL and rechecks the staged checksum file. A failure after immutable
-publication is a distribution incident for operator inspection; the workflow
-cannot weaken the control by deleting or replacing the release. Pull-request
-jobs cannot publish because the publication job exists only in a manually
-dispatched workflow for an exact reviewed commit already on `main`.
+public URL and rechecks the staged checksum file. It also re-reads the tag only
+after GitHub reports immutable publication and requires the tag to identify the
+requested commit. The immutable state makes that observed tag binding stable.
+A failure after immutable publication is a distribution incident for operator
+inspection; the workflow cannot weaken the control by deleting or replacing
+the release. Pull-request jobs cannot publish because the publication job
+exists only in a manually dispatched workflow for an exact reviewed commit
+already on `main`.
 
 ## 4. Consumption
 
@@ -147,6 +150,7 @@ semantic implementations.
 - Omit one platform candidate or add an undeclared candidate or release asset.
 - Change one detached manifest while leaving the archive unchanged.
 - Publish under an existing or moving tag, or target a different commit.
+- Move the job-created tag between draft validation and immutable publication.
 - Disable immutable releases before publication or make the publication
   response unavailable.
 - Make the hosted release private or change one hosted asset identity.

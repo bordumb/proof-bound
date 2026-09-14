@@ -261,6 +261,9 @@ jobs:
           test "$(jq -r '.draft | tostring' "$published_record")" = "false"
           test "$(jq -r '.immutable | tostring' "$published_record")" = "true"
           state="published"
+          test "$(gh api "/repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" \
+            --jq '.object.type + ":" + .object.sha')" = \
+            "commit:$PROOFBOUND_RELEASE_REVISION"
           release_record="$RUNNER_TEMP/tool-bundle-release-published.json"
           gh api "/repos/$GITHUB_REPOSITORY/releases/$release_id" > "$release_record"
           test "$(jq -r .id "$release_record")" = "$release_id"

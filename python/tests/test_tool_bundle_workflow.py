@@ -89,6 +89,9 @@ def test_tool_bundle_workflow_publishes_and_anonymously_rechecks_both_candidates
     assert '"/repos/$GITHUB_REPOSITORY/immutable-releases"' not in source
     assert source.index('state="publishing"') < source.index("gh api --method PATCH")
     assert source.index('state="published"') > source.index("gh api --method PATCH")
+    tag_ref_check = '"/repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"'
+    assert source.count(tag_ref_check) == 3
+    assert source.rindex(tag_ref_check) > source.index('state="published"')
     assert "published a mutable release; removing the exact owned release" in source
     assert 'gh api --method POST "/repos/$GITHUB_REPOSITORY/git/refs"' in source
     assert 'gh api --method POST "/repos/$GITHUB_REPOSITORY/releases"' in source
