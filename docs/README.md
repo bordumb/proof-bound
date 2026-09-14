@@ -24,6 +24,8 @@ decision.
   ecosystem support.
 - [Specification 0003](specs/0003_typescript_support.md) defines TypeScript
   ecosystem support.
+- [Specification 0004](specs/0004_tool_bundle_distribution.md) defines the
+  immutable Linux tool bundle consumed by Proofbound Runtime.
 - [Architecture decision records](adr/) explain accepted decisions and their
   consequences.
 
@@ -38,6 +40,7 @@ decision.
 - [Manifest guide](guides/manifests.md)
 - [TypeScript adoption guide](guides/typescript.md)
 - [Release verification guide](guides/release-verification.md)
+- [Tool-bundle installation guide](guides/tool-bundle-installation.md)
 
 ## Evidence and investigations
 

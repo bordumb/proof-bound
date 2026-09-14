@@ -15,6 +15,7 @@ semantic = [
   "crates/**",
   "lean/**",
   "schemas/**",
+  "tools/release/**",
   "claims/**",
   "assumptions/**",
   "proofbound/**",

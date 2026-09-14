@@ -20,4 +20,6 @@ uv run --frozen --offline pytest -q \
   python/tests/test_public_schemas.py \
   python/tests/test_ci_revision_range.py \
   python/tests/test_assurance_ir_checker.py \
-  python/tests/test_release_metadata.py
+  python/tests/test_release_metadata.py \
+  python/tests/test_tool_bundle.py \
+  python/tests/test_tool_bundle_workflow.py

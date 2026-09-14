@@ -8,6 +8,35 @@ The root `VERSION` file is the release version source of truth.
 
 ## [Unreleased]
 
+### Added
+
+- Reviewed evidence contexts, exact release-artifact observations, and
+  contextual semantic artifact bindings.
+- Python and TypeScript static-analysis, property-test, mutation, and
+  reproducible-distribution evidence routes.
+- A reproducible Linux tool bundle containing the CLI, independent verifier,
+  adapters, and public schemas, with a fail-closed installer.
+
+### Changed
+
+- The current compiled release and envelope schema is version 7. A claim now
+  owns the exact bounded-domain identity used by its primary bounded evidence.
+- The adapter subprocess protocol is version 2. Failed unit runs now retain a
+  typed cause, timeout state, remediation, and executable identity.
+- Lean theorem identity updates use reviewed corpus migrations, and assurance
+  regression approvals bind the exact reviewed parent.
+
+### Security
+
+- The compiler and independent verifier enforce bounded-domain equality,
+  exact artifact-observation sets, evidence contexts, and contextual binding
+  membership independently.
+- Timeout and protocol failures can no longer disappear behind a later missing
+  evidence diagnostic.
+- Tool bundles reject binary reproduction drift, unsafe archives, payload
+  substitution, wrong-platform installation, and implicit executable
+  replacement.
+
 ## [0.0.1] - 2026-09-01
 
 ### Added

@@ -770,6 +770,10 @@ fn write_release_schemas(destination: &Path) -> Result<()> {
             include_bytes!("../../../schemas/tcb.schema.json"),
         ),
         (
+            "tool-bundle-manifest.schema.json",
+            include_bytes!("../../../schemas/tool-bundle-manifest.schema.json"),
+        ),
+        (
             "translation-toolchain-lock.schema.json",
             include_bytes!("../../../schemas/translation-toolchain-lock.schema.json"),
         ),

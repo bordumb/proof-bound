@@ -1,0 +1,56 @@
+schema = "proofbound-evidence-unit/1"
+id = "tool-bundle-installation"
+adapter = "python-test"
+kind = "example-test"
+claims = ["PB-SELF-INSTALL-011"]
+tier = 0
+expected_inventory = [
+  "test_tool_bundle::test_archive_member_limit_fails_during_streaming",
+  "test_tool_bundle::test_archive_validation_never_materializes_the_full_tar_inventory",
+  "test_tool_bundle::test_fifo_archive_is_rejected_without_reading",
+  "test_tool_bundle::test_installer_cli_does_not_resolve_a_symlink_destination",
+  "test_tool_bundle::test_installer_does_not_create_destination_ancestors",
+  "test_tool_bundle::test_installer_rejects_a_cross_platform_bundle",
+  "test_tool_bundle::test_installer_rejects_a_symlink_destination",
+  "test_tool_bundle::test_installer_rejects_a_symlink_destination_ancestor",
+  "test_tool_bundle::test_installer_rejects_an_existing_nonfile_target",
+  "test_tool_bundle::test_installer_requires_explicit_replacement",
+  "test_tool_bundle::test_installer_stages_only_beneath_the_destination",
+  "test_tool_bundle::test_installer_writes_only_the_verified_binary_inventory",
+  "test_tool_bundle::test_invalid_verification_run_identity_is_rejected",
+  "test_tool_bundle::test_manifest_cannot_authorize_an_unexpected_payload_member",
+]
+inputs = [
+  "python/tests/test_tool_bundle.py",
+  "schemas/tool-bundle-manifest.schema.json",
+  "tools/release/build_tool_bundle.py",
+  "tools/release/install_tool_bundle.py",
+]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "pytest"
+manifest = "pyproject.toml"
+paths = ["python/tests/test_tool_bundle.py"]
+targets = [
+  "test_archive_member_limit_fails_during_streaming",
+  "test_archive_validation_never_materializes_the_full_tar_inventory",
+  "test_fifo_archive_is_rejected_without_reading",
+  "test_installer_cli_does_not_resolve_a_symlink_destination",
+  "test_installer_does_not_create_destination_ancestors",
+  "test_installer_rejects_a_cross_platform_bundle",
+  "test_installer_rejects_a_symlink_destination",
+  "test_installer_rejects_a_symlink_destination_ancestor",
+  "test_installer_rejects_an_existing_nonfile_target",
+  "test_installer_requires_explicit_replacement",
+  "test_installer_stages_only_beneath_the_destination",
+  "test_installer_writes_only_the_verified_binary_inventory",
+  "test_invalid_verification_run_identity_is_rejected",
+  "test_manifest_cannot_authorize_an_unexpected_payload_member",
+]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 1073741824
