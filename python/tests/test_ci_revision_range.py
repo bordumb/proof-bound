@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RESOLVER = REPOSITORY_ROOT / ".github/scripts/resolve-assurance-base.sh"
+WORKFLOW = REPOSITORY_ROOT / ".github/workflows/ci.yml"
 
 
 def git(repository: Path, *args: str) -> str:
@@ -50,6 +51,23 @@ def resolve(
         check=False,
         capture_output=True,
         text=True,
+    )
+
+
+def test_workflow_runs_feature_heads_once_and_cancels_stale_pr_runs() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    push = workflow[workflow.index("  push:\n") : workflow.index("  schedule:\n")]
+    concurrency = workflow[
+        workflow.index("concurrency:\n") : workflow.index("permissions:\n")
+    ]
+
+    assert "  pull_request:\n" in workflow
+    assert "branches:\n      - main" in push
+    assert "tags:" not in push
+    assert "github.event.pull_request.number || github.run_id" in concurrency
+    assert "github.ref" not in concurrency
+    assert (
+        "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in concurrency
     )
 
 
