@@ -115,7 +115,7 @@
     },
     {
       "id": "IR-TS-005", "role": "positive-registration", "evidence_family": "distribution-reproduction",
-      "source": {"path": "demo/typescript-codec/evidence/npm-package.toml", "sha256": "sha256:37f93c53ec4cf5767ed4902f5baebbde74ec1ca4c9bbb47d50f901f4aeefba21"},
+      "source": {"path": "demo/typescript-codec/evidence/npm-package.toml", "sha256": "sha256:94d9c33ac3153077523a271da7cd7e5829d99383cc30892c72c1732d83cdc5eb"},
       "claim_sources": [{"path": "demo/typescript-codec/claims/TS-PACKAGE-001.toml", "sha256": "sha256:c84636c6dc3871c13e9957ec98f64670c3178b632e7277e6b2caedb3ab043406"}],
       "unit_id": "npm-package", "claim_ids": ["TS-PACKAGE-001"],
       "expected_claim": {"formal": "TESTED", "linkage": "MODEL_ONLY", "assumption": "ASSUMED", "policy_admitted": true},

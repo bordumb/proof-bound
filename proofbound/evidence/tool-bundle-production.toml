@@ -1,0 +1,59 @@
+schema = "proofbound-evidence-unit/1"
+id = "tool-bundle-production"
+adapter = "python-test"
+kind = "example-test"
+claims = ["PB-SELF-BUNDLE-010"]
+tier = 0
+expected_inventory = [
+  "test_tool_bundle::test_archive_digest_substitution_is_rejected",
+  "test_tool_bundle::test_archive_round_trip_checks_exact_payload",
+  "test_tool_bundle::test_build_rejects_binary_reproduction_drift",
+  "test_tool_bundle::test_build_rejects_nonempty_output_before_compilation",
+  "test_tool_bundle::test_invalid_verification_run_identity_is_rejected",
+  "test_tool_bundle::test_payload_substitution_is_rejected",
+  "test_tool_bundle::test_repository_payload_contains_the_complete_public_schema_inventory",
+  "test_tool_bundle::test_repository_tool_bundle_preflight_is_closed",
+  "test_tool_bundle::test_undeclared_and_link_members_are_rejected",
+  "test_tool_bundle_workflow::test_tool_bundle_production_stays_after_the_full_verify_gate",
+  "test_tool_bundle_workflow::test_tool_bundle_workflow_is_exact_revision_and_verify_only",
+  "test_tool_bundle_workflow::test_tool_bundle_workflow_reproduces_both_supported_platforms",
+]
+inputs = [
+  ".github/workflows/tool-bundle.yml",
+  "Cargo.toml",
+  "VERSION",
+  "python/tests/test_tool_bundle.py",
+  "python/tests/test_tool_bundle_workflow.py",
+  "rust-toolchain.toml",
+  "schemas/tool-bundle-manifest.schema.json",
+  "tools/release/build_tool_bundle.py",
+]
+outputs = []
+environment_allowlist = ["PATH"]
+
+[operation]
+type = "pytest"
+manifest = "pyproject.toml"
+paths = [
+  "python/tests/test_tool_bundle.py",
+  "python/tests/test_tool_bundle_workflow.py",
+]
+targets = [
+  "test_archive_digest_substitution_is_rejected",
+  "test_archive_round_trip_checks_exact_payload",
+  "test_build_rejects_binary_reproduction_drift",
+  "test_build_rejects_nonempty_output_before_compilation",
+  "test_invalid_verification_run_identity_is_rejected",
+  "test_payload_substitution_is_rejected",
+  "test_repository_payload_contains_the_complete_public_schema_inventory",
+  "test_repository_tool_bundle_preflight_is_closed",
+  "test_undeclared_and_link_members_are_rejected",
+  "test_tool_bundle_production_stays_after_the_full_verify_gate",
+  "test_tool_bundle_workflow_is_exact_revision_and_verify_only",
+  "test_tool_bundle_workflow_reproduces_both_supported_platforms",
+]
+
+[resource_budget]
+time_seconds = 60
+disk_bytes = 268435456
+memory_bytes = 1073741824

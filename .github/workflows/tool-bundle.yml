@@ -1,0 +1,126 @@
+name: Reproduce Proofbound tool bundles
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Exact 40-character commit on main to reproduce
+        required: true
+        type: string
+      verification_run_id:
+        description: Successful Verify workflow run for the exact main revision
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+  PROOFBOUND_RELEASE_REVISION: ${{ inputs.revision }}
+  PROOFBOUND_VERIFICATION_RUN_ID: ${{ inputs.verification_run_id }}
+
+jobs:
+  validate-revision:
+    name: Validate exact mainline revision
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the exact requested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PROOFBOUND_RELEASE_REVISION }}
+          fetch-depth: 0
+
+      - name: Reject a symbolic, dirty, or non-mainline revision
+        run: |
+          [[ "$PROOFBOUND_RELEASE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$PROOFBOUND_RELEASE_REVISION"
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$PROOFBOUND_RELEASE_REVISION" origin/main
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Require the exact successful mainline verification run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$PROOFBOUND_VERIFICATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          run_record="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$PROOFBOUND_VERIFICATION_RUN_ID")"
+          jq -e \
+            --arg revision "$PROOFBOUND_RELEASE_REVISION" \
+            '.name == "Verify" and
+             .event == "push" and
+             .head_branch == "main" and
+             .head_sha == $revision and
+             .status == "completed" and
+             .conclusion == "success"' \
+            <<<"$run_record"
+
+      - name: Require closed release metadata
+        run: |
+          python3 tools/ci/version.py --check
+          python3 tools/ci/changelog.py
+          python3 tools/release/build_tool_bundle.py --check
+
+  bundle:
+    name: Reproduce tool bundle (${{ matrix.platform }})
+    needs: validate-revision
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact requested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PROOFBOUND_RELEASE_REVISION }}
+          fetch-depth: 0
+
+      - name: Confirm the exact requested revision
+        run: test "$(git rev-parse HEAD)" = "$PROOFBOUND_RELEASE_REVISION"
+
+      - name: Install the pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@fef00d40025f7fd8f1ec759cbbb0f577ddfc3133 # 1.94.0
+
+      - name: Populate the locked dependency cache
+        run: cargo fetch --locked
+
+      - name: Build, reproduce, and verify the complete bundle
+        run: >-
+          python3 tools/release/build_tool_bundle.py
+          --output "dist/${{ matrix.platform }}"
+          --expected-revision "$PROOFBOUND_RELEASE_REVISION"
+          --verification-run-id "$PROOFBOUND_VERIFICATION_RUN_ID"
+
+      - name: Verify retained checksums
+        working-directory: dist/${{ matrix.platform }}
+        run: sha256sum --check SHA256SUMS
+
+      - name: Dogfood the fail-closed installer outside the workspace
+        run: |
+          archive="$(find "dist/${{ matrix.platform }}" -maxdepth 1 -type f -name '*.tar.gz' -print)"
+          test -n "$archive"
+          digest="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+          install_root="$(mktemp -d)"
+          python3 tools/release/install_tool_bundle.py \
+            --archive "$archive" \
+            --sha256 "$digest" \
+            --destination "$install_root/bin"
+          test "$(find "$install_root/bin" -type f | wc -l)" -eq 7
+          "$install_root/bin/proofbound" --version
+          "$install_root/bin/proofbound-verify" --version
+
+      - name: Retain the exact tool bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proofbound-tools-${{ matrix.platform }}-${{ env.PROOFBOUND_RELEASE_REVISION }}
+          path: dist/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 30

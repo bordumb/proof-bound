@@ -11,6 +11,12 @@ The normative design is [Specification 0001](docs/specs/0001_initial_spec.md).
 
 ## Quick start
 
+For ordinary use on Linux, install the exact checksummed tool bundle described
+in the [tool-bundle installation guide](docs/guides/tool-bundle-installation.md).
+The bundle includes `proofbound`, `proofbound-verify`, every maintained adapter
+executable, and the public schemas. Building this repository is the contributor
+path:
+
 ```console
 $ just bootstrap
 $ uv run --frozen cargo run -p proofbound-cli -- doctor

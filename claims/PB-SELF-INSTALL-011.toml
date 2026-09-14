@@ -1,0 +1,15 @@
+schema = "proofbound-claim/1"
+id = "PB-SELF-INSTALL-011"
+title = "Tool-bundle installation fails closed"
+statement = "The Proofbound tool-bundle installer writes only the complete verified executable inventory for the host platform and rejects digest, manifest, archive-path, member, destination-symlink, nonfile-target, and implicit-replacement attacks."
+subject = "python:tools.release.install_tool_bundle"
+profile = "ledger"
+tier = 0
+evidence = ["test:tool-bundle-installation"]
+assumptions = []
+open_obligations = ["The installer trusts the local Python runtime, operating-system file operations, and SHA-256 collision resistance."]
+out_of_scope = ["A privileged local adversary racing or replacing files after installation."]
+source_roots = [
+  "schemas/tool-bundle-manifest.schema.json",
+  "tools/release/install_tool_bundle.py",
+]
