@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import io
 import json
@@ -40,10 +41,58 @@ MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_EXPANDED_BYTES = 512 * 1024 * 1024
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_ARTIFACTS = 4096
+MAX_TAR_STREAM_BYTES = MAX_EXPANDED_BYTES + ((MAX_ARTIFACTS + 1) * 1024) + 1024
+SCHEMA_PATHS = (
+    "schemas/README.md",
+    "schemas/adapter-observation.schema.json",
+    "schemas/adapter-protocol.schema.json",
+    "schemas/assumption.schema.json",
+    "schemas/checker-result.schema.json",
+    "schemas/claim.schema.json",
+    "schemas/closure.schema.json",
+    "schemas/demo-registry.schema.json",
+    "schemas/error.schema.json",
+    "schemas/evidence-unit.schema.json",
+    "schemas/evidence.schema.json",
+    "schemas/graph.schema.json",
+    "schemas/lean-expr-v1.cddl",
+    "schemas/model-check-unit.schema.json",
+    "schemas/mutation-registry.schema.json",
+    "schemas/observation-inputs.schema.json",
+    "schemas/policy.schema.json",
+    "schemas/project.schema.json",
+    "schemas/receipt.schema.json",
+    "schemas/report.schema.json",
+    "schemas/review.schema.json",
+    "schemas/tcb.schema.json",
+    "schemas/tool-bundle-manifest.schema.json",
+    "schemas/translation-toolchain-lock.schema.json",
+    "schemas/translation-unit.schema.json",
+)
 
 
 class InstallError(ValueError):
     """One fail-closed bundle verification or installation error."""
+
+
+class _BoundedReader:
+    """Limit bytes returned by one sequential decompression stream."""
+
+    def __init__(self, source: gzip.GzipFile, limit: int) -> None:
+        self._source = source
+        self._limit = limit
+        self._observed = 0
+
+    def read(self, size: int = -1) -> bytes:
+        """Read without permitting the configured byte limit to be crossed."""
+
+        remaining = self._limit - self._observed
+        requested = remaining + 1 if size < 0 or size > remaining + 1 else size
+        data = self._source.read(requested)
+        self._observed += len(data)
+        if self._observed > self._limit:
+            raise InstallError("the expanded tar stream is too large")
+        return data
 
 
 def _duplicate_guard(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -68,6 +117,18 @@ def _safe_relative_path(value: str) -> bool:
 
 def _canonical_json(value: object) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def _allowed_payload_paths() -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            (
+                *(f"bin/{name}" for name in BINARY_NAMES),
+                *DOCUMENTS,
+                *SCHEMA_PATHS,
+            )
+        )
+    )
 
 
 def _platform() -> str:
@@ -159,14 +220,8 @@ def _validate_manifest(value: object) -> tuple[dict[str, object], tuple[str, ...
             binaries.append(path.removeprefix("bin/"))
     if tuple(binaries) != BINARY_NAMES:
         raise InstallError("the required binary inventory is incomplete")
-    required = {
-        *(f"bin/{name}" for name in BINARY_NAMES),
-        *DOCUMENTS,
-        "schemas/README.md",
-        "schemas/tool-bundle-manifest.schema.json",
-    }
-    if not required.issubset(paths):
-        raise InstallError("the required document or schema inventory is incomplete")
+    if tuple(paths) != _allowed_payload_paths():
+        raise InstallError("the bundle payload inventory is not exact")
     return value, tuple(paths)
 
 
@@ -187,35 +242,43 @@ def verify(
     if hashlib.sha256(archive_bytes).hexdigest() != expected:
         raise InstallError("the bundle archive digest differs")
     try:
-        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
-            members = archive.getmembers()
-            if not 1 < len(members) <= MAX_ARTIFACTS + 1:
-                raise InstallError("the bundle archive inventory is invalid")
-            contents: dict[str, tuple[tarfile.TarInfo, bytes]] = {}
-            roots: set[str] = set()
-            total_size = 0
-            for member in members:
-                if not member.isfile() or member.issym() or member.islnk():
-                    raise InstallError(f"non-regular bundle member: {member.name}")
-                if not 0 <= member.size <= MAX_EXPANDED_BYTES:
-                    raise InstallError(f"oversized bundle member: {member.name}")
-                total_size += member.size
-                if total_size > MAX_EXPANDED_BYTES:
-                    raise InstallError("the expanded bundle is too large")
-                root, separator, relative = member.name.partition("/")
-                if (
-                    not separator
-                    or not _safe_relative_path(root)
-                    or not _safe_relative_path(relative)
-                ):
-                    raise InstallError(f"unsafe bundle member path: {member.name}")
-                roots.add(root)
-                if relative in contents:
-                    raise InstallError(f"duplicate bundle member: {relative}")
-                source = archive.extractfile(member)
-                if source is None:
-                    raise InstallError(f"bundle member has no bytes: {relative}")
-                contents[relative] = (member, source.read())
+        with gzip.GzipFile(fileobj=io.BytesIO(archive_bytes), mode="rb") as compressed:
+            stream = _BoundedReader(compressed, MAX_TAR_STREAM_BYTES)
+            with tarfile.open(fileobj=stream, mode="r|") as archive:
+                contents: dict[str, tuple[tarfile.TarInfo, bytes]] = {}
+                roots: set[str] = set()
+                total_size = 0
+                member_count = 0
+                for member in archive:
+                    member_count += 1
+                    if member_count > MAX_ARTIFACTS + 1:
+                        raise InstallError("the bundle archive inventory is too large")
+                    if not member.isfile() or member.issym() or member.islnk():
+                        raise InstallError(f"non-regular bundle member: {member.name}")
+                    if not 0 <= member.size <= MAX_EXPANDED_BYTES:
+                        raise InstallError(f"oversized bundle member: {member.name}")
+                    total_size += member.size
+                    if total_size > MAX_EXPANDED_BYTES:
+                        raise InstallError("the expanded bundle is too large")
+                    root, separator, relative = member.name.partition("/")
+                    if (
+                        not separator
+                        or not _safe_relative_path(root)
+                        or not _safe_relative_path(relative)
+                    ):
+                        raise InstallError(f"unsafe bundle member path: {member.name}")
+                    roots.add(root)
+                    if relative in contents:
+                        raise InstallError(f"duplicate bundle member: {relative}")
+                    source = archive.extractfile(member)
+                    if source is None:
+                        raise InstallError(f"bundle member has no bytes: {relative}")
+                    data = source.read(member.size + 1)
+                    if len(data) != member.size:
+                        raise InstallError(f"bundle member size differs: {relative}")
+                    contents[relative] = (member, data)
+                if member_count <= 1:
+                    raise InstallError("the bundle archive inventory is empty")
     except (OSError, tarfile.TarError) as error:
         raise InstallError(f"cannot parse the bundle archive: {error}") from error
     if len(roots) != 1 or MANIFEST_NAME not in contents:
@@ -266,7 +329,9 @@ def install(
         raise InstallError("the bundle platform differs from the host platform")
     destination = Path(os.path.abspath(destination))
     _validate_destination(destination)
-    destination.mkdir(parents=True, exist_ok=True)
+    if not destination.exists() and not destination.parent.is_dir():
+        raise InstallError("the installation destination parent must already exist")
+    destination.mkdir(exist_ok=True)
     targets = {name: destination / name for name in BINARY_NAMES}
     invalid_targets = [
         name
@@ -286,7 +351,7 @@ def install(
             f"existing executables require --replace: {', '.join(existing)}"
         )
     with tempfile.TemporaryDirectory(
-        prefix="proofbound-install.", dir=destination.parent
+        prefix=".proofbound-install.", dir=destination
     ) as raw:
         stage = Path(raw)
         for name in BINARY_NAMES:

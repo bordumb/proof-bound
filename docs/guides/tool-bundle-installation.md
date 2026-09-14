@@ -4,10 +4,11 @@ Tool bundles contain the CLI, the independent verifier, every maintained
 adapter executable, and the complete public schema inventory. They support
 Linux `x86_64` and `aarch64` hosts.
 
-Download these three files for the required platform from the same approved
-Proofbound release:
+Download these four files for the required platform from the same approved
+Proofbound workflow run:
 
 - `proofbound-tools-<source-revision>-linux-<architecture>.tar.gz`;
+- `TOOL-BUNDLE-MANIFEST.json`;
 - `install-proofbound-tools.py`; and
 - `SHA256SUMS`.
 
@@ -37,11 +38,12 @@ $ proofbound --version
 $ proofbound-verify --version
 ```
 
-The product label, source revision, successful verification-run identity,
-platform, toolchain, and every payload digest are in
-`TOOL-BUNDLE-MANIFEST.json`. A matching digest identifies bytes. It does not
+The source revision, successful verification-run identity, platform,
+toolchain, and every payload digest are in `TOOL-BUNDLE-MANIFEST.json`. The
+product label is informational metadata only. It is not a compatibility
+promise or release selector. A matching digest identifies bytes. It does not
 authenticate the publisher before Proofbound adopts a signing policy.
 
-Proofbound Runtime must pin the release tag and archive digest. It must not
-select a bundle only by a moving branch, a version range, or the latest-release
-URL.
+Proofbound Runtime must pin the exact source revision, verification-run
+identity, platform, and archive digest. It must not select a bundle by a moving
+branch, product label, version range, or latest-release URL.

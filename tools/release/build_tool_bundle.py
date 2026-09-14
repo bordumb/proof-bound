@@ -29,6 +29,7 @@ MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 MAX_ARTIFACTS = 4096
+MAX_TAR_STREAM_BYTES = MAX_ARTIFACT_BYTES + ((MAX_ARTIFACTS + 1) * 1024) + 1024
 
 BINARY_PACKAGES = (
     ("proofbound-cli", "proofbound"),
@@ -45,12 +46,59 @@ DOCUMENTS = (
     "README.md",
     "docs/guides/release-verification.md",
 )
+SCHEMA_PATHS = (
+    "schemas/README.md",
+    "schemas/adapter-observation.schema.json",
+    "schemas/adapter-protocol.schema.json",
+    "schemas/assumption.schema.json",
+    "schemas/checker-result.schema.json",
+    "schemas/claim.schema.json",
+    "schemas/closure.schema.json",
+    "schemas/demo-registry.schema.json",
+    "schemas/error.schema.json",
+    "schemas/evidence-unit.schema.json",
+    "schemas/evidence.schema.json",
+    "schemas/graph.schema.json",
+    "schemas/lean-expr-v1.cddl",
+    "schemas/model-check-unit.schema.json",
+    "schemas/mutation-registry.schema.json",
+    "schemas/observation-inputs.schema.json",
+    "schemas/policy.schema.json",
+    "schemas/project.schema.json",
+    "schemas/receipt.schema.json",
+    "schemas/report.schema.json",
+    "schemas/review.schema.json",
+    "schemas/tcb.schema.json",
+    "schemas/tool-bundle-manifest.schema.json",
+    "schemas/translation-toolchain-lock.schema.json",
+    "schemas/translation-unit.schema.json",
+)
 INSTALLER_SOURCE = "tools/release/install_tool_bundle.py"
 SUPPORTED_PLATFORMS = ("linux-aarch64", "linux-x86_64")
 
 
 class BundleError(ValueError):
     """One fail-closed bundle production or verification error."""
+
+
+class _BoundedReader:
+    """Limit bytes returned by one sequential decompression stream."""
+
+    def __init__(self, source: gzip.GzipFile, limit: int) -> None:
+        self._source = source
+        self._limit = limit
+        self._observed = 0
+
+    def read(self, size: int = -1) -> bytes:
+        """Read without permitting the configured byte limit to be crossed."""
+
+        remaining = self._limit - self._observed
+        requested = remaining + 1 if size < 0 or size > remaining + 1 else size
+        data = self._source.read(requested)
+        self._observed += len(data)
+        if self._observed > self._limit:
+            raise BundleError("the expanded tar stream is too large")
+        return data
 
 
 @dataclass(frozen=True)
@@ -252,6 +300,9 @@ def _payload(root: Path, binaries: dict[str, bytes]) -> tuple[Artifact, ...]:
             raise BundleError(f"required bundle document is unavailable: {relative}")
         artifacts.append(Artifact(relative, path.read_bytes(), False))
     schemas = sorted((root / "schemas").iterdir(), key=lambda path: path.name)
+    observed_schema_paths = tuple(f"schemas/{path.name}" for path in schemas)
+    if observed_schema_paths != SCHEMA_PATHS:
+        raise BundleError("the public schema inventory differs from the closed bundle")
     for path in schemas:
         if path.is_symlink() or not path.is_file():
             raise BundleError(f"invalid schema inventory member: {path.name}")
@@ -269,6 +320,18 @@ def _payload(root: Path, binaries: dict[str, bytes]) -> tuple[Artifact, ...]:
     if len(paths) > MAX_ARTIFACTS or len(paths) != len(set(paths)):
         raise BundleError("bundle payload paths are not a bounded unique set")
     return tuple(artifacts)
+
+
+def _allowed_payload_paths() -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            (
+                *(f"bin/{binary}" for binary in BINARY_NAMES),
+                *DOCUMENTS,
+                *SCHEMA_PATHS,
+            )
+        )
+    )
 
 
 def _manifest(
@@ -392,14 +455,8 @@ def _validated_manifest(value: object) -> dict[str, object]:
         previous = path
     if tuple(observed_binaries) != tuple(sorted(BINARY_NAMES)):
         raise BundleError("the required binary inventory is incomplete")
-    required_paths = {
-        *(f"bin/{binary}" for binary in BINARY_NAMES),
-        *DOCUMENTS,
-        "schemas/README.md",
-        "schemas/tool-bundle-manifest.schema.json",
-    }
-    if not required_paths.issubset(observed_paths):
-        raise BundleError("the required document or schema inventory is incomplete")
+    if tuple(sorted(observed_paths)) != _allowed_payload_paths():
+        raise BundleError("the bundle payload inventory is not exact")
     return value
 
 
@@ -420,35 +477,43 @@ def verify_archive(path: Path, expected_sha256: str | None = None) -> dict[str, 
                 "the bundle archive digest differs from the expected identity"
             )
     try:
-        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
-            members = archive.getmembers()
-            if not 1 < len(members) <= MAX_ARTIFACTS + 1:
-                raise BundleError("the bundle archive inventory is empty or too large")
-            contents: dict[str, tuple[tarfile.TarInfo, bytes]] = {}
-            roots: set[str] = set()
-            total_size = 0
-            for member in members:
-                if not member.isfile() or member.issym() or member.islnk():
-                    raise BundleError(f"non-regular bundle member: {member.name}")
-                if not 0 <= member.size <= MAX_ARTIFACT_BYTES:
-                    raise BundleError(f"oversized bundle member: {member.name}")
-                total_size += member.size
-                if total_size > MAX_ARTIFACT_BYTES:
-                    raise BundleError("the expanded bundle is too large")
-                root, separator, relative = member.name.partition("/")
-                if (
-                    not separator
-                    or not _safe_relative_path(root)
-                    or not _safe_relative_path(relative)
-                ):
-                    raise BundleError(f"unsafe bundle member path: {member.name}")
-                roots.add(root)
-                if relative in contents:
-                    raise BundleError(f"duplicate bundle member: {relative}")
-                source = archive.extractfile(member)
-                if source is None:
-                    raise BundleError(f"bundle member has no bytes: {relative}")
-                contents[relative] = (member, source.read())
+        with gzip.GzipFile(fileobj=io.BytesIO(archive_bytes), mode="rb") as compressed:
+            stream = _BoundedReader(compressed, MAX_TAR_STREAM_BYTES)
+            with tarfile.open(fileobj=stream, mode="r|") as archive:
+                contents: dict[str, tuple[tarfile.TarInfo, bytes]] = {}
+                roots: set[str] = set()
+                total_size = 0
+                member_count = 0
+                for member in archive:
+                    member_count += 1
+                    if member_count > MAX_ARTIFACTS + 1:
+                        raise BundleError("the bundle archive inventory is too large")
+                    if not member.isfile() or member.issym() or member.islnk():
+                        raise BundleError(f"non-regular bundle member: {member.name}")
+                    if not 0 <= member.size <= MAX_ARTIFACT_BYTES:
+                        raise BundleError(f"oversized bundle member: {member.name}")
+                    total_size += member.size
+                    if total_size > MAX_ARTIFACT_BYTES:
+                        raise BundleError("the expanded bundle is too large")
+                    root, separator, relative = member.name.partition("/")
+                    if (
+                        not separator
+                        or not _safe_relative_path(root)
+                        or not _safe_relative_path(relative)
+                    ):
+                        raise BundleError(f"unsafe bundle member path: {member.name}")
+                    roots.add(root)
+                    if relative in contents:
+                        raise BundleError(f"duplicate bundle member: {relative}")
+                    source = archive.extractfile(member)
+                    if source is None:
+                        raise BundleError(f"bundle member has no bytes: {relative}")
+                    data = source.read(member.size + 1)
+                    if len(data) != member.size:
+                        raise BundleError(f"bundle member size differs: {relative}")
+                    contents[relative] = (member, data)
+                if member_count <= 1:
+                    raise BundleError("the bundle archive inventory is empty")
     except (OSError, tarfile.TarError) as error:
         raise BundleError(f"cannot parse bundle archive: {error}") from error
     if len(roots) != 1 or MANIFEST_NAME not in contents:

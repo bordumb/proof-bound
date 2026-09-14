@@ -17,7 +17,6 @@ upgrade the status of a claim.
 One bundle identifies:
 
 - the exact 40-character lowercase source revision on Proofbound `main`;
-- the current Proofbound product label;
 - the exact successful main-branch `Verify` workflow run for that revision;
 - one closed Linux platform tuple;
 - the exact Rust toolchain channel;
@@ -27,6 +26,10 @@ One bundle identifies:
 Supported platform tuples are `linux-x86_64` and `linux-aarch64`. An absent
 tuple is unsupported. The bundle schema is
 `proofbound-tool-bundle-manifest/1`.
+
+The manifest carries the current product label as informational build metadata.
+The label is not a compatibility promise, release selector, or substitute for
+the exact source, workflow-run, platform, toolchain, and payload identities.
 
 The required binaries are:
 
@@ -58,10 +61,10 @@ binary equality. It then creates the archive twice with normalized ownership,
 permissions, ordering, and timestamps and requires exact archive equality.
 
 The workflow uploads the archive, its detached manifest, the fail-closed
-installer, and `SHA256SUMS`. It does not create or move a tag. A maintainer
-creates the immutable tag only after the exact subject and this specification
-have the required independent approval. Publication credentials are
-unavailable to pull-request workflows.
+installer, and `SHA256SUMS`. It does not create or move a tag and does not
+publish a versioned release. Prelaunch acceptance is attached to the exact
+source revision and reproduced workflow artifacts after independent review.
+Publication credentials are unavailable to pull-request workflows.
 
 ## 4. Consumption
 
@@ -85,11 +88,11 @@ exceeded.
 
 ## 5. Trust boundary
 
-A digest identifies bytes. A Git tag identifies repository state under the
-repository controls. Neither authenticates the publisher before a separate
-signing policy exists. The bundle trusts the identified compiler, linker,
-build host, GitHub Actions runner, archive implementation, and release
-operator. Those roles are not proved correct by reproducible bytes.
+A digest identifies bytes. A source revision identifies repository state under
+the repository controls. Neither authenticates the publisher before a separate
+signing policy exists. The bundle trusts the identified compiler, linker, build
+host, GitHub Actions runner, archive implementation, and release operator.
+Those roles are not proved correct by reproducible bytes.
 
 The bundled `proofbound-verify` remains independent of every other Proofbound
 workspace crate. Bundling the executables together does not merge their
@@ -104,8 +107,8 @@ semantic implementations.
 - Add a path-traversal or link member.
 - Change the source revision, verification-run identity, product label,
   platform, or toolchain identity.
-- Identify a failed, incomplete, non-`Verify`, non-push, other-repository, or
-  different-revision workflow run.
+- Identify a failed, incomplete, same-named wrong workflow, non-push,
+  other-repository, or different-revision workflow run.
 - Attempt release from a symbolic revision or a commit outside `main`.
 - Attempt installation over an existing executable without explicit consent.
 - Attempt installation through a symlinked destination ancestor or over an
@@ -114,6 +117,6 @@ semantic implementations.
 ## 7. Exit condition
 
 This specification is implemented when both supported archives reproduce from
-one independently approved exact tag, their hosted checks pass, Runtime
-installs the same bundle identities without a Git build, and an unrelated
-consumer verifies the archives and their contained schemas.
+one independently approved exact source revision, their hosted checks pass,
+Runtime installs the same bundle identities without a Git build, and an
+unrelated consumer verifies the archives and their contained schemas.

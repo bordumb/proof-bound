@@ -27,13 +27,9 @@ def fake_artifacts() -> tuple[bundle.Artifact, ...]:
     artifacts.extend(
         bundle.Artifact(path, path.encode(), False) for path in bundle.DOCUMENTS
     )
-    artifacts.append(bundle.Artifact("schemas/README.md", b"schema guide\n", False))
-    artifacts.append(
-        bundle.Artifact(
-            "schemas/tool-bundle-manifest.schema.json",
-            b"{}\n",
-            False,
-        )
+    artifacts.extend(
+        bundle.Artifact(path, f"{path}\n".encode(), False)
+        for path in bundle.SCHEMA_PATHS
     )
     return tuple(sorted(artifacts, key=lambda artifact: artifact.path))
 
@@ -71,14 +67,17 @@ def test_repository_tool_bundle_preflight_is_closed() -> None:
 def test_repository_payload_contains_the_complete_public_schema_inventory() -> None:
     binaries = {name: name.encode() for name in bundle.BINARY_NAMES}
     artifacts = bundle._payload(ROOT, binaries)
-    paths = {artifact.path for artifact in artifacts}
-    assert "schemas/README.md" in paths
-    expected_schemas = {
+    paths = tuple(artifact.path for artifact in artifacts)
+    expected_schemas = tuple(
         f"schemas/{path.name}"
         for path in (ROOT / "schemas").iterdir()
-        if path.is_file() and path.suffix in {".cddl", ".json"}
-    }
-    assert expected_schemas.issubset(paths)
+        if path.is_file()
+    )
+    assert tuple(sorted(expected_schemas)) == bundle.SCHEMA_PATHS
+    assert installer.SCHEMA_PATHS == bundle.SCHEMA_PATHS
+    assert installer.DOCUMENTS == bundle.DOCUMENTS
+    assert installer.BINARY_NAMES == tuple(sorted(bundle.BINARY_NAMES))
+    assert paths == bundle._allowed_payload_paths()
 
 
 def test_archive_round_trip_checks_exact_payload(tmp_path: Path) -> None:
@@ -93,6 +92,33 @@ def test_archive_digest_substitution_is_rejected(tmp_path: Path) -> None:
     path, _ = fake_archive(tmp_path)
     with pytest.raises(bundle.BundleError, match="archive digest"):
         bundle.verify_archive(path, "0" * 64)
+
+
+def test_archive_validation_never_materializes_the_full_tar_inventory(
+    tmp_path: Path,
+) -> None:
+    path, digest = fake_archive(tmp_path)
+    with mock.patch.object(
+        tarfile.TarFile,
+        "getmembers",
+        side_effect=AssertionError("full archive scan"),
+    ):
+        bundle.verify_archive(path, digest)
+        installer.verify(path, digest)
+
+
+def test_archive_member_limit_fails_during_streaming(tmp_path: Path) -> None:
+    path, digest = fake_archive(tmp_path)
+    with (
+        mock.patch.object(bundle, "MAX_ARTIFACTS", 2),
+        pytest.raises(bundle.BundleError, match="inventory is too large"),
+    ):
+        bundle.verify_archive(path, digest)
+    with (
+        mock.patch.object(installer, "MAX_ARTIFACTS", 2),
+        pytest.raises(installer.InstallError, match="inventory is too large"),
+    ):
+        installer.verify(path, digest)
 
 
 def test_invalid_verification_run_identity_is_rejected() -> None:
@@ -130,6 +156,22 @@ def test_payload_substitution_is_rejected(tmp_path: Path) -> None:
             destination.addfile(member, io.BytesIO(data))
     with pytest.raises(bundle.BundleError, match="artifact identity differs"):
         bundle.verify_archive(attacked)
+
+
+def test_manifest_cannot_authorize_an_unexpected_payload_member(
+    tmp_path: Path,
+) -> None:
+    artifacts = tuple(
+        sorted(
+            (*fake_artifacts(), bundle.Artifact("unexpected", b"extra", False)),
+            key=lambda artifact: artifact.path,
+        )
+    )
+    path, digest = fake_archive(tmp_path, artifacts)
+    with pytest.raises(bundle.BundleError, match="payload inventory is not exact"):
+        bundle.verify_archive(path, digest)
+    with pytest.raises(installer.InstallError, match="payload inventory is not exact"):
+        installer.verify(path, digest)
 
 
 def test_undeclared_and_link_members_are_rejected(tmp_path: Path) -> None:
@@ -205,6 +247,39 @@ def test_installer_writes_only_the_verified_binary_inventory(tmp_path: Path) -> 
         installed = destination / name
         assert installed.read_bytes() == name.encode()
         assert installed.stat().st_mode & 0o777 == 0o755
+
+
+def test_installer_stages_only_beneath_the_destination(tmp_path: Path) -> None:
+    path, digest = fake_archive(tmp_path)
+    destination = tmp_path / "bin"
+    temporary_directory = installer.tempfile.TemporaryDirectory
+    observed: list[Path] = []
+
+    def recording_temporary_directory(*, prefix: str, dir: Path):
+        observed.append(Path(dir))
+        return temporary_directory(prefix=prefix, dir=dir)
+
+    with (
+        mock.patch.object(installer, "_platform", return_value="linux-x86_64"),
+        mock.patch.object(
+            installer.tempfile,
+            "TemporaryDirectory",
+            side_effect=recording_temporary_directory,
+        ),
+    ):
+        installer.install(path, digest, destination, False)
+    assert observed == [destination]
+
+
+def test_installer_does_not_create_destination_ancestors(tmp_path: Path) -> None:
+    path, digest = fake_archive(tmp_path)
+    missing_parent = tmp_path / "missing"
+    with (
+        mock.patch.object(installer, "_platform", return_value="linux-x86_64"),
+        pytest.raises(installer.InstallError, match="parent must already exist"),
+    ):
+        installer.install(path, digest, missing_parent / "bin", False)
+    assert not missing_parent.exists()
 
 
 def test_installer_requires_explicit_replacement(tmp_path: Path) -> None:

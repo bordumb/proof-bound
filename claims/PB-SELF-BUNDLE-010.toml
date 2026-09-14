@@ -13,4 +13,5 @@ source_roots = [
   ".github/workflows/tool-bundle.yml",
   "schemas/tool-bundle-manifest.schema.json",
   "tools/release/build_tool_bundle.py",
+  "tools/release/validate_verification_run.py",
 ]

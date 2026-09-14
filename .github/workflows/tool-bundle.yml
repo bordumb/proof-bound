@@ -46,16 +46,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           [[ "$PROOFBOUND_VERIFICATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
-          run_record="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$PROOFBOUND_VERIFICATION_RUN_ID")"
-          jq -e \
-            --arg revision "$PROOFBOUND_RELEASE_REVISION" \
-            '.name == "Verify" and
-             .event == "push" and
-             .head_branch == "main" and
-             .head_sha == $revision and
-             .status == "completed" and
-             .conclusion == "success"' \
-            <<<"$run_record"
+          run_record="$RUNNER_TEMP/proofbound-verification-run.json"
+          workflow_record="$RUNNER_TEMP/proofbound-verify-workflow.json"
+          gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$PROOFBOUND_VERIFICATION_RUN_ID" > "$run_record"
+          gh api "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml" > "$workflow_record"
+          python3 tools/release/validate_verification_run.py \
+            --run-record "$run_record" \
+            --workflow-record "$workflow_record" \
+            --revision "$PROOFBOUND_RELEASE_REVISION"
 
       - name: Require closed release metadata
         run: |
