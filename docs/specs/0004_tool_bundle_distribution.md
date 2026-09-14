@@ -1,6 +1,6 @@
 # Specification 0004: Runtime-consumable tool bundles
 
-**Status:** Draft; independent acceptance and publication remain open
+**Status:** Draft; independent acceptance and first publication remain open
 
 **Date:** 2026-09-14
 
@@ -49,11 +49,13 @@ available from one archive.
 ## 3. Production
 
 The release workflow accepts one exact commit and one exact workflow-run
-identity. It checks that the commit is on `main`, the checkout is clean, and
-the identified `Verify` run completed successfully for a push of that exact
-commit to `main`. It records the run identity in the bundle manifest. The
-retained workflow artifacts are release candidates until the exact tag,
-review, and publication steps are complete.
+identity. It checks that the commit is the `main` revision at dispatch, that
+the executed workflow definition has the same source identity, that the commit
+remains in `main` history, that the checkout is clean, and that the identified
+`Verify` run completed successfully for a push of that exact commit to `main`.
+It records the run identity in the bundle manifest. The retained workflow
+artifacts are candidates until independent review and public publication are
+complete.
 
 Each architecture builds the required binaries twice in independent target
 directories with the locked dependency graph. The workflow requires exact
@@ -61,10 +63,43 @@ binary equality. It then creates the archive twice with normalized ownership,
 permissions, ordering, and timestamps and requires exact archive equality.
 
 The workflow uploads the archive, its detached manifest, the fail-closed
-installer, and `SHA256SUMS`. It does not create or move a tag and does not
-publish a versioned release. Prelaunch acceptance is attached to the exact
-source revision and reproduced workflow artifacts after independent review.
-Publication credentials are unavailable to pull-request workflows.
+installer, and `SHA256SUMS`. After both supported platform jobs pass, a final
+job downloads exactly those two candidates from the same workflow run. It
+rechecks their closed inventories, checksums, embedded and detached manifests,
+archive payloads, source revision, verification-run identity, platform
+identities, and installer equality. It rejects an extra or missing candidate.
+
+After independent review, the final job creates one public release under the
+exact source-identity tag `proofbound-tools-<40-character-revision>`. This tag
+is not a product version,
+compatibility promise, moving channel, or `latest` selector. The workflow
+serializes dispatches for the same source identity and atomically creates the
+exact tag. An existing tag, API failure, or creation race fails without being
+treated as absence. GitHub immutable releases must be enabled for the
+repository. The release has a closed asset inventory with two archives, two
+platform-specific detached manifests, one installer, one publication manifest,
+and one checksum file.
+The publication manifest binds the producer repository, source revision,
+successful `Verify` run, producing bundle-workflow run, release tag, and exact
+digest and byte size of the five payload assets.
+
+The job creates a draft release, re-reads its metadata, and requires the exact
+target commit and staged asset identities. A failure in that mutable draft
+phase removes only the tag and draft that the job just created. The publish
+request enters an explicit uncertain state before the request starts. A
+missing or ambiguous response never authorizes cleanup. The exact publish
+response is the enforcement gate available to the workflow token. If it
+positively identifies the job-owned release as published but mutable, the job
+removes that exact mutable release and then its exact tag. If GitHub reports
+immutable publication, the job downloads every asset through the anonymous
+public URL and rechecks the staged checksum file. It also re-reads the tag only
+after GitHub reports immutable publication and requires the tag to identify the
+requested commit. The immutable state makes that observed tag binding stable.
+A failure after immutable publication is a distribution incident for operator
+inspection; the workflow cannot weaken the control by deleting or replacing
+the release. Pull-request jobs cannot publish because the publication job
+exists only in a manually dispatched workflow for an exact reviewed commit
+already on `main`.
 
 ## 4. Consumption
 
@@ -89,10 +124,12 @@ exceeded.
 ## 5. Trust boundary
 
 A digest identifies bytes. A source revision identifies repository state under
-the repository controls. Neither authenticates the publisher before a separate
-signing policy exists. The bundle trusts the identified compiler, linker, build
-host, GitHub Actions runner, archive implementation, and release operator.
-Those roles are not proved correct by reproducible bytes.
+the repository controls. The public HTTPS release channel authenticates the
+GitHub repository under GitHub and repository-access controls; it is not an
+independent artifact signature. The bundle trusts the identified compiler,
+linker, build host, GitHub Actions runner, GitHub release service, archive
+implementation, and release operator. Those roles are not proved correct by
+reproducible bytes.
 
 The bundled `proofbound-verify` remains independent of every other Proofbound
 workspace crate. Bundling the executables together does not merge their
@@ -110,6 +147,14 @@ semantic implementations.
 - Identify a failed, incomplete, same-named wrong workflow, non-push,
   other-repository, or different-revision workflow run.
 - Attempt release from a symbolic revision or a commit outside `main`.
+- Omit one platform candidate or add an undeclared candidate or release asset.
+- Change one detached manifest while leaving the archive unchanged.
+- Publish under an existing or moving tag, or target a different commit.
+- Move the job-created tag between draft validation and immutable publication.
+- Disable immutable releases before publication or make the publication
+  response unavailable.
+- Make the hosted release private or change one hosted asset identity.
+- Make anonymous retrieval or checksum verification fail after publication.
 - Attempt installation over an existing executable without explicit consent.
 - Attempt installation through a symlinked destination ancestor or over an
   existing directory or special-file target.
@@ -118,5 +163,6 @@ semantic implementations.
 
 This specification is implemented when both supported archives reproduce from
 one independently approved exact source revision, their hosted checks pass,
-Runtime installs the same bundle identities without a Git build, and an
+the exact-source release is anonymously retrievable, Runtime installs the same
+bundle identities without a Git build or cross-repository token, and an
 unrelated consumer verifies the archives and their contained schemas.

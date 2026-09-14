@@ -22,4 +22,5 @@ uv run --frozen --offline pytest -q \
   python/tests/test_assurance_ir_checker.py \
   python/tests/test_release_metadata.py \
   python/tests/test_tool_bundle.py \
+  python/tests/test_tool_bundle_publication.py \
   python/tests/test_tool_bundle_workflow.py
